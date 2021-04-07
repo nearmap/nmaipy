@@ -2,12 +2,17 @@ from enum import Enum
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+import time
+import logging
 
 import numpy as np
 from shapely.geometry import MultiPolygon, Polygon, shape
+import pandas as pd
 
 
 FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
+CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
+
 CHAR_LIMIT = 3800
 
 class ApiError(Enum):
@@ -77,8 +82,10 @@ def get_features(geometry, packs, api_key, since=None, until=None):
         request_string += f"&until={until}"
         
     # Request data
+    t1 = time.monotonic()
     response = get_session().get(request_string)
-
+    response_time_ms = (time.monotonic() - t1)*1E3
+    logging.info(f'{response_time_ms:.1f}ms response time for polygon with these packs: {packs}')
     # Check for errors
     if response.status_code == 404:
         return None, ApiError.AOI_NOT_FOUND
@@ -100,3 +107,25 @@ def get_features(geometry, packs, api_key, since=None, until=None):
         ]
     return data, None
 
+def get_feature_class_ids(api_key):
+    """
+    Get the feature class IDs and descriptions as a dataframe.
+    """
+    # Create request string
+    request_string = f"{CLASSES_URL}?apikey={api_key}"
+
+    # Request data
+    t1 = time.monotonic()
+    response = get_session().get(request_string)
+    response_time_ms = (time.monotonic() - t1)*1E3
+    logging.info(f'{response_time_ms:.1f}ms response time for classes.json')
+    
+    # Check for errors
+    if not response.ok:
+        # Fail hard for unexpected errors
+        raise RuntimeError(
+            f"\n{parcel_id=}\n\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n"
+        )
+    data = response.json()
+    df_classes = pd.DataFrame(data['classes'])
+    return df_classes
