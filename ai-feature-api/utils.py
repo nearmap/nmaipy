@@ -15,10 +15,11 @@ CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
 
 CHAR_LIMIT = 3800
 
+
 class ApiError(Enum):
     AOI_NOT_FOUND = "AOI not found"
     AOI_EXCEEDS_MAX_SIZE = "AOI exceeds maximum size"
-    
+
 
 def polygon2coordstring(poly):
     """
@@ -55,14 +56,13 @@ def geometry2coordstring(geometry):
         coordstring = polygon2coordstring(geometry.envelope)
     return coordstring, exact
 
+
 def get_session():
     """
     Return a request session with retrying configured.
     """
     session = requests.Session()
-    retries = Retry(
-        total=10, backoff_factor=0.1, status_forcelist=[429, 500, 502, 503, 504]
-    )
+    retries = Retry(total=10, backoff_factor=0.1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retries))
     return session
 
@@ -74,38 +74,32 @@ def get_features(geometry, packs, api_key, since=None, until=None):
     # Create request string
     coordstring, exact = geometry2coordstring(geometry)
     request_string = f"{FEATURES_URL}?polygon={coordstring}&packs={packs}&apikey={api_key}"
-    
+
     # Add dates if given
     if since:
         request_string += f"&since={since}"
     if until:
         request_string += f"&until={until}"
-        
+
     # Request data
     t1 = time.monotonic()
     response = get_session().get(request_string)
-    response_time_ms = (time.monotonic() - t1)*1E3
-    logging.info(f'{response_time_ms:.1f}ms response time for polygon with these packs: {packs}')
+    response_time_ms = (time.monotonic() - t1) * 1e3
+    logging.info(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
     # Check for errors
     if response.status_code == 404:
         return None, ApiError.AOI_NOT_FOUND
-    elif (
-        response.status_code == 400
-        and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE"
-    ):
+    elif response.status_code == 400 and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
         return None, ApiError.AOI_EXCEEDS_MAX_SIZE
     elif not response.ok:
         # Fail hard for unexpected errors
-        raise RuntimeError(
-            f"\n{parcel_id=}\n\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n"
-        )
+        raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
     data = response.json()
     # If the AOI was altered for the API request, we need to filter features in the response
     if not exact:
-        data["features"] = [
-            f for f in data["features"] if shape(f["geometry"]).intersects(geometry)
-        ]
+        data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
     return data, None
+
 
 def get_feature_class_ids(api_key):
     """
@@ -117,15 +111,13 @@ def get_feature_class_ids(api_key):
     # Request data
     t1 = time.monotonic()
     response = get_session().get(request_string)
-    response_time_ms = (time.monotonic() - t1)*1E3
-    logging.info(f'{response_time_ms:.1f}ms response time for classes.json')
-    
+    response_time_ms = (time.monotonic() - t1) * 1e3
+    logging.info(f"{response_time_ms:.1f}ms response time for classes.json")
+
     # Check for errors
     if not response.ok:
         # Fail hard for unexpected errors
-        raise RuntimeError(
-            f"\n{parcel_id=}\n\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n"
-        )
+        raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
     data = response.json()
-    df_classes = pd.DataFrame(data['classes'])
+    df_classes = pd.DataFrame(data["classes"])
     return df_classes
