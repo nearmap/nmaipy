@@ -5,7 +5,7 @@ docker build -t nearmap_ai .
 
 docker run -it --rm \
   --name nearmap_ai \
-  --volume ${PWD}:/home/jovyan/nearmap-ai-user-guides \
+  --volume ${PWD}/:/home/jovyan/nearmap-ai-user-guides \
   --volume ${PWD}/../data:/home/jovyan/data \
   --env PYTHONPATH="/home/jovyan/nearmap-ai-user-guides:" \
   --env API_KEY=${API_KEY} \
@@ -13,7 +13,7 @@ docker run -it --rm \
   --env NB_GID=$(id -g) \
   --env GRANT_SUDO=yes \
   --user=root \
-  -p 8888:8888 \
+  -p 8889:8888 \
   nearmap_ai \
   start.sh bash
 
