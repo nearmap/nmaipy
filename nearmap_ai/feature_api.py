@@ -23,7 +23,7 @@ class AoiExceedsMaxSize(Exception):
     pass
 
 
-class FeaturesApi:
+class FeatureApi:
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
     CHAR_LIMIT = 3800
@@ -36,7 +36,7 @@ class FeaturesApi:
             self.api_key = os.environ.get("API_KEY", None)
         if self.api_key is None:
             raise ValueError(
-                "No API KEY provided. Provide a key when initializing FeaturesApi or set an environmental " "variable"
+                "No API KEY provided. Provide a key when initializing FeatureApi or set an environmental " "variable"
             )
         self.cache_dir = cache_dir
         if self.cache_dir:
@@ -117,20 +117,22 @@ class FeaturesApi:
     def _request_error_message(self, request_string, response):
         return f"\n{request_string.replace(self.api_key, '...')=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
-    def get_features(self, geometry, packs, since=None, until=None):
+    def get_features(self, geometry, packs=None, since=None, until=None):
         """
         Get data for a AOI
         """
         # Create request string
         coordstring, exact = self._geometry2coordstring(geometry)
-        packs = ",".join(packs)
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&packs={packs}&apikey={self.api_key}"
+        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&apikey={self.api_key}"
 
         # Add dates if given
         if since:
             request_string += f"&since={since}"
         if until:
             request_string += f"&until={until}"
+        if packs:
+            packs = ",".join(packs)
+            request_string += f"&packs={packs}"
 
         # Check if it's already cached
         cache_path = self._request_cache_path(request_string)
@@ -164,7 +166,19 @@ class FeaturesApi:
         return data
 
     @staticmethod
+    def link_to_date(link):
+        date = link.split("/")[-1]
+        return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+
+    @staticmethod
     def payload_gdf(payload, aoi_id=None):
+
+        metadata = {
+            "system_version": payload["systemVersion"],
+            "link": payload["link"],
+            "date": FeatureApi.link_to_date(payload["link"]),
+        }
+
         if len(payload["features"]) == 0:
             df = pd.DataFrame(
                 [],
@@ -186,25 +200,25 @@ class FeaturesApi:
             df = pd.DataFrame(payload["features"])
 
         df = df.rename(columns={"id": "feature_id"})
-        df["systemVersion"] = payload["systemVersion"]
-        df["link"] = payload["link"]
         if aoi_id:
             df["aoi_id"] = aoi_id
+            metadata["aoi_id"] = aoi_id
         df.columns = [stringcase.snakecase(c) for c in df.columns]
 
         gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
-        gdf = gdf.set_crs(FeaturesApi.SOURCE_CRS)
-        return gdf
+        gdf = gdf.set_crs(FeatureApi.SOURCE_CRS)
+        return gdf, metadata
 
     def get_features_gdf(self, geometry, packs, aoi_id=None, since=None, until=None):
         try:
             payload = self.get_features(geometry, packs, since, until)
         except (AoiNotFound, AoiExceedsMaxSize) as e:
-            return None, {"aoi_id": aoi_id, "error": str(e)}
+            return None, None, {"aoi_id": aoi_id, "error": str(e)}
 
-        return self.payload_gdf(payload, aoi_id), None
+        features_gdf, metadata = self.payload_gdf(payload, aoi_id)
+        return features_gdf, metadata, None
 
-    def get_features_gdf_bulk(self, gdf, packs, since=None, until=None):
+    def get_features_gdf_bulk(self, gdf, packs=None, since=None, until=None):
         if "aoi_id" not in gdf.columns:
             raise KeyError(f"No 'aoi_id' column in dataframe, {gdf.columns=}")
 
@@ -213,12 +227,19 @@ class FeaturesApi:
             for _, row in gdf.iterrows():
                 jobs.append(executor.submit(self.get_features_gdf, row.geometry, packs, row.aoi_id, since, until))
             data = []
+            metadata = []
             errors = []
             for job in tqdm(jobs):
-                aoi_data, aoi_error = job.result()
+                aoi_data, aoi_metadata, aoi_error = job.result()
                 if aoi_data is not None:
                     data.append(aoi_data)
+                if aoi_metadata is not None:
+                    metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     errors.append(aoi_error)
 
-        return pd.concat(data), pd.DataFrame(errors, columns=["aoi_id", "error"])
+        features_gdf = pd.concat(data)
+        metadata_df = pd.DataFrame(metadata)
+        errors = pd.DataFrame(errors, columns=["aoi_id", "error"])
+
+        return features_gdf, metadata_df, errors

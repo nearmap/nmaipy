@@ -3,6 +3,10 @@ AOI_ID_COLUMN_NAME = "aoi_id"
 LAT_LONG_CRS = "WGS 84"
 AREA_CRS = {"au": "epsg:3577", "ca": "esri:102001", "nz": "epsg:3577", "us": "esri:102003"}
 
+# Units
+FEET_IN_METERS = 3.28084
+SQUARED_FEET_IN_METERS = FEET_IN_METERS * FEET_IN_METERS
+
 # Class IDs
 BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
