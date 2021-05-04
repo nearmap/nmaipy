@@ -57,7 +57,7 @@ class FeatureApi:
                 "No API KEY provided. Provide a key when initializing FeatureApi or set an environmental " "variable"
             )
         self.cache_dir = cache_dir
-        if self.cache_dir:
+        if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._session = self._get_session()
         self.overwrite_cache = overwrite_cache
@@ -73,7 +73,7 @@ class FeatureApi:
         session.mount("https://", HTTPAdapter(max_retries=retries))
         return session
 
-    def get_feature_class_ids(self) -> pd.DataFrame:
+    def get_feature_classes(self) -> pd.DataFrame:
         """
         Get the feature class IDs and descriptions as a dataframe.
         """
@@ -128,7 +128,7 @@ class FeatureApi:
             coordstring = self._polygon_to_coordstring(geometry.envelope)
         return coordstring, exact
 
-    def _request_cache_path(self, request_string: str) -> str:
+    def _request_cache_path(self, request_string: str) -> Path:
         """
         Hash a request string to create a cache path.
         """
@@ -175,8 +175,9 @@ class FeatureApi:
             request_string += f"&packs={packs}"
 
         # Check if it's already cached
-        cache_path = self._request_cache_path(request_string)
-        if self.cache_dir and not self.overwrite_cache:
+        if self.cache_dir is not None and not self.overwrite_cache:
+            cache_path = self._request_cache_path(request_string)
+            print(cache_path)
             if cache_path.exists():
                 logging.info(f"Retrieving payload from cache")
                 with open(cache_path, "r") as f:
@@ -190,6 +191,8 @@ class FeatureApi:
         # Check for errors
         if response.status_code == 404:
             raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
+        elif response.status_code == 400 and response.json()["message"] == "AOI is outside any known content area":
+            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
         elif response.status_code == 400 and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
             raise AoiExceedsMaxSize(f"AOI too large: {self._request_error_message(request_string, response)}")
         elif not response.ok:
@@ -202,7 +205,8 @@ class FeatureApi:
             data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
 
         # Save to cache if configured
-        if self.cache_dir:
+        if self.cache_dir is not None:
+            cache_path = self._request_cache_path(request_string)
             with open(cache_path, "w") as f:
                 json.dump(data, f, indent=2)
         return data
