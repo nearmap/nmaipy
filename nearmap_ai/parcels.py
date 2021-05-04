@@ -1,25 +1,15 @@
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 import geopandas as gpd
 import pandas as pd
 import shapely.wkt
 
-from nearmap_ai.constants import (
-    AOI_ID_COLUMN_NAME,
-    LAT_LONG_CRS,
-    AREA_CRS,
-    BUILDING_ID,
-    ROOF_ID,
-    TRAMPOLINE_ID,
-    POOL_ID,
-    CONSTRUCTION_ID,
-    SOLAR_ID,
-    VEG_IDS,
-    SURFACES_IDS,
-    FEET_IN_METERS,
-    SQUARED_FEET_IN_METERS,
-)
+from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
+                                  CONSTRUCTION_ID, FEET_IN_METERS,
+                                  LAT_LONG_CRS, POOL_ID, ROOF_ID, SOLAR_ID,
+                                  SQUARED_FEET_IN_METERS, SURFACES_IDS,
+                                  TRAMPOLINE_ID, VEG_IDS)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -91,7 +81,6 @@ def read_from_file(
             geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(shapely.wkt.loads),
             crs=source_crs,
         )
-        del parcels_df
     elif path.suffix in (".geojson", ".gpkg"):
         parcels_gdf = gpd.read_file(path)
     else:
@@ -131,10 +120,10 @@ def filter_features_in_parcels(
         parcels_gdf: Parcel data (see nearmap_ai.parcels.read_from_file)
         features_gdf: Features data (see nearmap_ai.FeatureApi.get_features_gdf_bulk)
         country: Country string used for area calculation ("US", "AU", "NZ", ...)
-        config:
+        config: Config dictionary. Can have any or all keys as the default config
+                (see nearmap_ai.parcels.DEFAULT_FILTERING).
 
     Returns: Filtered features_gdf GeoDataFrame
-
     """
     if config is None:
         config = {}
@@ -146,7 +135,7 @@ def filter_features_in_parcels(
     projected_features_gdf = features_gdf.copy().to_crs(AREA_CRS[country])
     projected_parcels_gdf = parcels_gdf.copy().to_crs(AREA_CRS[country])
 
-    #
+    # Merge parcels and features
     gdf = projected_features_gdf.merge(projected_parcels_gdf, on="aoi_id", how="left", suffixes=["_feature", "_aoi"])
     # Calculate the area of each feature that falls within the parcel
     gdf["intersection_area"] = gdf.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
@@ -171,7 +160,7 @@ def filter_features_in_parcels(
     return features_gdf.merge(gdf[["feature_id", "aoi_id"]], on=["feature_id", "aoi_id"], how="inner")
 
 
-def flatten_building_attributes(attributes):
+def flatten_building_attributes(attributes: dict) -> dict:
     """
     Flatten building attributes
     """
@@ -187,7 +176,7 @@ def flatten_building_attributes(attributes):
     return flattened
 
 
-def flatten_roof_attributes(attributes):
+def flatten_roof_attributes(attributes: dict) -> dict:
     """
     Flatten roof attributes
     """
@@ -209,18 +198,28 @@ def flatten_roof_attributes(attributes):
     return flattened
 
 
-def feature_attributes(features_gdf, classes_df):
+def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame) -> dict:
+    """
+    Flatten features for a parcel into a flat dictionary.
+
+    Args:
+        features_gdf: Features for a parcel
+        classes_df: Class name and ID lookup (index of the dataframe) to include.
+
+    Returns: Flat dictionary
+
+    """
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
     for (class_id, name) in classes_df.description.iteritems():
         name = name.lower().replace(" ", "_")
         class_gdf = features_gdf[features_gdf.class_id == class_id]
 
+        # Add attributes that apply to all feature classes
         parcel[f"{name}_present"] = TRUE_STRING if len(class_gdf) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(class_gdf)
         parcel[f"{name}_total_area_sqm"] = class_gdf.area_sqm.sum()
         parcel[f"{name}_total_area_sqft"] = class_gdf.area_sqft.sum()
-
         if len(class_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_gdf.confidence).prod()
         else:
@@ -228,11 +227,13 @@ def feature_attributes(features_gdf, classes_df):
 
         if class_id not in VEG_IDS + SURFACES_IDS:
             if len(class_gdf) > 0:
+                # Add primary feature attributes for discrete features if there are any
                 primary_feature = class_gdf.loc[class_gdf.intersection_area.idxmax()]
                 parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
                 parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
 
+                # Add roof and building attributes
                 if class_id in [ROOF_ID, BUILDING_ID]:
                     if class_id == ROOF_ID:
                         primary_attributes = flatten_roof_attributes(primary_feature.attributes)
@@ -242,6 +243,7 @@ def feature_attributes(features_gdf, classes_df):
                     for key, val in primary_attributes.items():
                         parcel[f"primary_{name}_" + str(key)] = val
             else:
+                # Fill values if there are no features
                 parcel[f"primary_{name}_area_sqm"] = 0.0
                 parcel[f"primary_{name}_area_sqft"] = 0.0
                 parcel[f"primary_{name}_confidence"] = 1.0
@@ -249,17 +251,35 @@ def feature_attributes(features_gdf, classes_df):
     return parcel
 
 
-def parcel_rollup(parcels_gdf, features_gdf, classes_df):
+def parcel_rollup(parcels_gdf: gpd.GeoDataFrame, features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
+    """
+    Summarize feature data to parcel attributes.
+
+    Args:
+        parcels_gdf: Parcels GeoDataFrame
+        features_gdf: Features GeoDataFrame
+        classes_df: Class name and ID lookup
+
+    Returns:
+        Parcel rollup DataFrame
+    """
+    # Get area of intersection between parcels and features
     df = features_gdf.merge(parcels_gdf[["aoi_id", "geometry"]], on="aoi_id", suffixes=["_feature", "_aoi"])
     df["intersection_area"] = df.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
     rollups = []
+    # Loop over parcels with feature data
     for aoi_id, group in df.groupby("aoi_id"):
         parcel = feature_attributes(group, classes_df)
         parcel["aoi_id"] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
+    # Loop over parcels without feature data
     for row in parcels_gdf[~parcels_gdf.aoi_id.isin(features_gdf.aoi_id)].itertuples():
-        parcel = feature_attributes(pd.DataFrame([], columns=["class_id", "area_sqm", "area_sqft"]), classes_df)
+        parcel = feature_attributes(gpd.GeoDataFrame([], columns=["class_id", "area_sqm", "area_sqft"]), classes_df)
         parcel["aoi_id"] = row.aoi_id
         rollups.append(parcel)
-    return pd.DataFrame(rollups)
+    # Combine, validate and return
+    rollup_df = pd.DataFrame(rollups)
+    if len(rollup_df) != len(parcels_gdf):
+        raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
+    return rollup_df

@@ -1,17 +1,20 @@
+import concurrent.futures
+import hashlib
+import json
+import logging
 import os
 import time
-import logging
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
 import requests
+import stringcase
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-import numpy as np
 from shapely.geometry import MultiPolygon, Polygon, shape
-import pandas as pd
-import hashlib
-import geopandas as gpd
-import json
-import concurrent.futures
-import stringcase
 from tqdm import tqdm
 
 
@@ -29,7 +32,22 @@ class FeatureApi:
     CHAR_LIMIT = 3800
     SOURCE_CRS = "EPSG:4326"
 
-    def __init__(self, api_key=None, cache_dir=None, overwrite_cache=False, workers=10):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        cache_dir: Optional[Path] = None,
+        overwrite_cache: Optional[bool] = False,
+        workers: Optional[int] = 10,
+    ):
+        """
+        Initialize FeatureApi class
+
+        Args:
+            api_key: Nearmap API key. If not defined the environment variable will be used
+            cache_dir: Directory to use as a payload cache
+            overwrite_cache: Set to overwrite values stored in the cache
+            workers: Number of threads to spawn for concurrent execution
+        """
         if api_key:
             self.api_key = api_key
         else:
@@ -46,7 +64,7 @@ class FeatureApi:
         self.workers = workers
 
     @staticmethod
-    def _get_session():
+    def _get_session() -> requests.Session:
         """
         Return a request session with retrying configured.
         """
@@ -55,7 +73,7 @@ class FeatureApi:
         session.mount("https://", HTTPAdapter(max_retries=retries))
         return session
 
-    def get_feature_class_ids(self):
+    def get_feature_class_ids(self) -> pd.DataFrame:
         """
         Get the feature class IDs and descriptions as a dataframe.
         """
@@ -76,7 +94,7 @@ class FeatureApi:
         return df_classes
 
     @staticmethod
-    def _polygon2coordstring(poly):
+    def _polygon_to_coordstring(poly: Polygon) -> str:
         """
         Turn a shapely polygon into the format required by the API for a query polygon.
         """
@@ -85,7 +103,7 @@ class FeatureApi:
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
 
-    def _geometry2coordstring(self, geometry):
+    def _geometry_to_coordstring(self, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
         """
         Turn a shapely polygon or multipolygon into a single coord sting to be used in API requests.
         To meet the contraints on the API URL the following changes may be applied:
@@ -97,32 +115,53 @@ class FeatureApi:
         """
 
         if isinstance(geometry, MultiPolygon):
-            coordstring = self._polygon2coordstring(geometry.convex_hull)
+            coordstring = self._polygon_to_coordstring(geometry.convex_hull)
             exact = False
         else:
-            coordstring = self._polygon2coordstring(geometry)
+            coordstring = self._polygon_to_coordstring(geometry)
             exact = True
         if len(coordstring) > self.CHAR_LIMIT:
             exact = False
-            coordstring = self._polygon2coordstring(geometry.convex_hull)
+            coordstring = self._polygon_to_coordstring(geometry.convex_hull)
         if len(coordstring) > self.CHAR_LIMIT:
             exact = False
-            coordstring = self._polygon2coordstring(geometry.envelope)
+            coordstring = self._polygon_to_coordstring(geometry.envelope)
         return coordstring, exact
 
-    def _request_cache_path(self, request_string):
+    def _request_cache_path(self, request_string: str) -> str:
+        """
+        Hash a request string to create a cache path.
+        """
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         return self.cache_dir / f"{request_hash}.json"
 
-    def _request_error_message(self, request_string, response):
+    def _request_error_message(self, request_string: str, response: requests.Response) -> str:
+        """
+        Create a descriptive error message without the API key.
+        """
         return f"\n{request_string.replace(self.api_key, '...')=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
-    def get_features(self, geometry, packs=None, since=None, until=None):
+    def get_features(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ):
         """
-        Get data for a AOI
+        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+
+        Args:
+            geometry: AOI in EPSG4326
+            packs: List of AI packs
+            since: Earliest date to pull data for
+            until: Latest date to pull data for
+
+        Returns:
+            API response as a Dictionary
         """
         # Create request string
-        coordstring, exact = self._geometry2coordstring(geometry)
+        coordstring, exact = self._geometry_to_coordstring(geometry)
         request_string = f"{self.FEATURES_URL}?polygon={coordstring}&apikey={self.api_key}"
 
         # Add dates if given
@@ -130,6 +169,7 @@ class FeatureApi:
             request_string += f"&since={since}"
         if until:
             request_string += f"&until={until}"
+        # Add packs if given
         if packs:
             packs = ",".join(packs)
             request_string += f"&packs={packs}"
@@ -156,29 +196,47 @@ class FeatureApi:
             # Fail hard for unexpected errors
             raise RuntimeError(self._request_error_message(request_string, response))
         data = response.json()
+
         # If the AOI was altered for the API request, we need to filter features in the response
         if not exact:
             data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
 
+        # Save to cache if configured
         if self.cache_dir:
             with open(cache_path, "w") as f:
                 json.dump(data, f, indent=2)
         return data
 
     @staticmethod
-    def link_to_date(link):
+    def link_to_date(link: str) -> str:
+        """
+        Parse the date from a Map Browser link.
+        """
         date = link.split("/")[-1]
         return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
 
     @staticmethod
-    def payload_gdf(payload, aoi_id=None):
+    def payload_gdf(payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
+        """
+        Create a GeoDataFrame from a API response dictionary.
 
+        Args:
+            payload: API response dictionary
+            aoi_id: Optional ID for the AOI to add to the data
+
+        Returns:
+            Features GeoDataFrame
+            Metadata dictionary
+        """
+
+        # Creat metadata
         metadata = {
             "system_version": payload["systemVersion"],
             "link": payload["link"],
             "date": FeatureApi.link_to_date(payload["link"]),
         }
 
+        # Create features DataFrame
         if len(payload["features"]) == 0:
             df = pd.DataFrame(
                 [],
@@ -198,32 +256,73 @@ class FeatureApi:
             )
         else:
             df = pd.DataFrame(payload["features"])
-
         df = df.rename(columns={"id": "feature_id"})
+        df.columns = [stringcase.snakecase(c) for c in df.columns]
+
+        # Add AOI ID if specified
         if aoi_id:
             df["aoi_id"] = aoi_id
             metadata["aoi_id"] = aoi_id
-        df.columns = [stringcase.snakecase(c) for c in df.columns]
-
+        # Cast to GeoDataFrame
         gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
         gdf = gdf.set_crs(FeatureApi.SOURCE_CRS)
         return gdf, metadata
 
-    def get_features_gdf(self, geometry, packs, aoi_id=None, since=None, until=None):
+    def get_features_gdf(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        packs: Optional[List[str]] = None,
+        aoi_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+        """
+        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
+
+        Args:
+            geometry: AOI in EPSG4326
+            packs: List of AI packs
+            aoi_id: ID of the AOI to add to the data
+            since: Earliest date to pull data for
+            until: Latest date to pull data for
+
+        Returns:
+            API response features GeoDataFrame, metadata dictionary, and a error dictionary
+        """
         try:
             payload = self.get_features(geometry, packs, since, until)
         except (AoiNotFound, AoiExceedsMaxSize) as e:
+            # Catch acceptable errors
             return None, None, {"aoi_id": aoi_id, "error": str(e)}
-
         features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         return features_gdf, metadata, None
 
-    def get_features_gdf_bulk(self, gdf, packs=None, since=None, until=None):
+    def get_features_gdf_bulk(
+        self,
+        gdf: gpd.GeoDataFrame,
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Get features data for many AOIs.
+
+        Args:
+            gdf: GeoDataFrame with AOIs
+            packs: List of AI packs
+            since: Earliest date to pull data for
+            until: Latest date to pull data for
+
+        Returns:
+            API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
+        """
         if "aoi_id" not in gdf.columns:
             raise KeyError(f"No 'aoi_id' column in dataframe, {gdf.columns=}")
 
-        jobs = []
+        # Run in thread pool
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+            jobs = []
             for _, row in gdf.iterrows():
                 jobs.append(executor.submit(self.get_features_gdf, row.geometry, packs, row.aoi_id, since, until))
             data = []
@@ -237,9 +336,8 @@ class FeatureApi:
                     metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     errors.append(aoi_error)
-
+        # Combine results
         features_gdf = pd.concat(data)
         metadata_df = pd.DataFrame(metadata)
-        errors = pd.DataFrame(errors, columns=["aoi_id", "error"])
-
-        return features_gdf, metadata_df, errors
+        errors_df = pd.DataFrame(errors, columns=["aoi_id", "error"])
+        return features_gdf, metadata_df, errors_df
