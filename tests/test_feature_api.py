@@ -1,10 +1,12 @@
 from pathlib import Path
+
+import geopandas as gpd
+from shapely.affinity import translate
 from shapely.geometry import Polygon
 from shapely.wkt import loads
-from shapely.affinity import translate
-import geopandas as gpd
-from nearmap_ai.feature_api import FeatureApi
+
 from nearmap_ai.constants import BUILDING_ID
+from nearmap_ai.feature_api import FeatureApi
 
 
 class TestFeatureAPI:

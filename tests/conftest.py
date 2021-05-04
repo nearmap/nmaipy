@@ -1,7 +1,8 @@
 from pathlib import Path
+
+import pytest
 from shapely.geometry import Polygon
 from shapely.wkt import loads
-import pytest
 
 
 @pytest.fixture(scope="session")

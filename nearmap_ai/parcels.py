@@ -5,21 +5,11 @@ import geopandas as gpd
 import pandas as pd
 import shapely.wkt
 
-from nearmap_ai.constants import (
-    AOI_ID_COLUMN_NAME,
-    AREA_CRS,
-    BUILDING_ID,
-    CONSTRUCTION_ID,
-    FEET_IN_METERS,
-    LAT_LONG_CRS,
-    POOL_ID,
-    ROOF_ID,
-    SOLAR_ID,
-    SQUARED_FEET_IN_METERS,
-    SURFACES_IDS,
-    TRAMPOLINE_ID,
-    VEG_IDS,
-)
+from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
+                                  CONSTRUCTION_ID, FEET_IN_METERS,
+                                  LAT_LONG_CRS, POOL_ID, ROOF_ID, SOLAR_ID,
+                                  SQUARED_FEET_IN_METERS, SURFACES_IDS,
+                                  TRAMPOLINE_ID, VEG_IDS)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
