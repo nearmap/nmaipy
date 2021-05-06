@@ -15,7 +15,6 @@ import stringcase
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
-from tqdm import tqdm
 
 
 class AoiNotFound(Exception):
@@ -69,7 +68,7 @@ class FeatureApi:
         Return a request session with retrying configured.
         """
         session = requests.Session()
-        retries = Retry(total=10, backoff_factor=0.1, status_forcelist=[429, 500, 502, 503, 504])
+        retries = Retry(total=25, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount("https://", HTTPAdapter(max_retries=retries))
         return session
 
@@ -132,6 +131,7 @@ class FeatureApi:
         """
         Hash a request string to create a cache path.
         """
+        request_string = request_string.replace(self.api_key, "")
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         return self.cache_dir / f"{request_hash}.json"
 
@@ -177,7 +177,6 @@ class FeatureApi:
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
             cache_path = self._request_cache_path(request_string)
-            print(cache_path)
             if cache_path.exists():
                 logging.info(f"Retrieving payload from cache")
                 with open(cache_path, "r") as f:
@@ -308,7 +307,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
 
@@ -332,7 +331,7 @@ class FeatureApi:
             data = []
             metadata = []
             errors = []
-            for job in tqdm(jobs):
+            for job in jobs:
                 aoi_data, aoi_metadata, aoi_error = job.result()
                 if aoi_data is not None:
                     data.append(aoi_data)
@@ -341,7 +340,7 @@ class FeatureApi:
                 if aoi_error is not None:
                     errors.append(aoi_error)
         # Combine results
-        features_gdf = pd.concat(data)
-        metadata_df = pd.DataFrame(metadata)
+        features_gdf = pd.concat(data) if len(data) > 0 else None
+        metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
         errors_df = pd.DataFrame(errors, columns=["aoi_id", "error"])
         return features_gdf, metadata_df, errors_df

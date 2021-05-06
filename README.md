@@ -4,10 +4,9 @@ A set of customer facing user guides to help them get started with Nearmap AI co
 docker build -t nearmap_ai .
 
 docker run -it --rm \
-  --name nearmap_ai \
+  --name nearmap_ai2 \
   --volume ${PWD}/:/home/jovyan/nearmap-ai-user-guides \
   --volume ${PWD}/../data:/home/jovyan/data \
-  --env PYTHONPATH="/home/jovyan/nearmap-ai-user-guides:" \
   --env API_KEY=${API_KEY} \
   --env NB_UID=$(id -u) \
   --env NB_GID=$(id -g) \
