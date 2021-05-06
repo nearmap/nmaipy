@@ -6,8 +6,8 @@ import pytest
 from shapely.geometry import Polygon
 from shapely.wkt import loads
 
-from nearmap_ai.constants import LAT_LONG_CRS
 from nearmap_ai import parcels
+from nearmap_ai.constants import LAT_LONG_CRS
 
 
 @pytest.fixture(scope="session")

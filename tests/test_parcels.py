@@ -6,8 +6,8 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon
 from shapely.wkt import loads
 
-from nearmap_ai.constants import BUILDING_ID, POOL_ID, LAWN_GRASS_ID
 from nearmap_ai import parcels
+from nearmap_ai.constants import BUILDING_ID, LAWN_GRASS_ID, POOL_ID
 
 
 class TestParcels:
