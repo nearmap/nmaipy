@@ -22,7 +22,7 @@ from nearmap_ai.feature_api import FeatureApi
 #       argument and run with any set of features and attributes.
 
 CHUNK_SIZE = 1000
-PROCESSES = 50
+PROCESSES = 25
 THREADS = 4
 
 PACKS = ["pool", "building"]
@@ -89,7 +89,7 @@ def api_key(key_file: Optional[str] = None) -> str:
 
 
 def process_chunk(
-    chunk_id: str, parcel_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, chunk_path: Path, key_file: str
+    chunk_id: str, parcel_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, output_dir: str, key_file: str
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -98,9 +98,11 @@ def process_chunk(
         chunk_id: Used to save data for the chunk
         parcel_gdf: Parcel set
         classes_df: Classes in output
-        chunk_path: Directory to save data to
+        output_dir: Directory to save data to
         key_file: Path to API key file
     """
+    cache_path = Path(output_dir) / "cache"
+    chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
     if outfile.exists():
@@ -115,7 +117,7 @@ def process_chunk(
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
-    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=packs)
+    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=PACKS)
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
@@ -162,7 +164,7 @@ def main():
             # Chunk parcels and send chunks to process pool
             for i, batch in enumerate(np.array_split(parcels_gdf, len(parcels_gdf) // CHUNK_SIZE)):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                jobs.append(executor.submit(process_chunk, chunk_id, batch, classes_df, chunk_path))
+                jobs.append(executor.submit(process_chunk, chunk_id, batch, classes_df, args.output_dir, args.key_file))
             [j.result() for j in tqdm(jobs)]
 
         # Combine chunks and save
