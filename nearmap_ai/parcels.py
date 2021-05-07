@@ -8,11 +8,22 @@ import shapely.wkb
 import shapely.wkt
 import stringcase
 
-from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
-                                  CONSTRUCTION_ID, FEET_IN_METERS,
-                                  LAT_LONG_CRS, POOL_ID, ROOF_ID, SOLAR_ID,
-                                  SQUARED_FEET_IN_METERS, SURFACES_IDS,
-                                  TRAMPOLINE_ID, TREE_OVERHANG_ID, VEG_IDS)
+from nearmap_ai.constants import (
+    AOI_ID_COLUMN_NAME,
+    AREA_CRS,
+    BUILDING_ID,
+    CONSTRUCTION_ID,
+    METERS_TO_FEET,
+    LAT_LONG_CRS,
+    POOL_ID,
+    ROOF_ID,
+    SOLAR_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
+    SURFACES_IDS,
+    TRAMPOLINE_ID,
+    TREE_OVERHANG_ID,
+    VEG_IDS,
+)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -189,7 +200,7 @@ def flatten_building_attributes(attributes: List[dict]) -> dict:
             flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
                 flattened["height_m"] = round(attribute["height"], 1)
-                flattened["height_ft"] = round(attribute["height"] * FEET_IN_METERS, 1)
+                flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
                 for k, v in attribute["numStories"].items():
                     flattened[f"num_storeys_{k}_confidence"] = v
     return flattened
@@ -240,7 +251,9 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame)
         parcel[f"{name}_total_area_sqm"] = class_gdf.area_sqm.sum()
         parcel[f"{name}_total_area_sqft"] = class_gdf.area_sqft.sum()
         parcel[f"{name}_total_clipped_area_sqm"] = round(class_gdf.intersection_area.sum(), 1)
-        parcel[f"{name}_total_clipped_area_sqft"] = round(class_gdf.intersection_area.sum() * SQUARED_FEET_IN_METERS, 1)
+        parcel[f"{name}_total_clipped_area_sqft"] = round(
+            class_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET, 1
+        )
         if len(class_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_gdf.confidence).prod()
         else:
@@ -254,7 +267,7 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame)
                 parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
                 parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.intersection_area, 1)
                 parcel[f"primary_{name}_clipped_area_sqft"] = round(
-                    primary_feature.intersection_area * SQUARED_FEET_IN_METERS, 1
+                    primary_feature.intersection_area * SQUARED_METERS_TO_SQUARED_FEET, 1
                 )
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
 

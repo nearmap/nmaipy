@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
@@ -58,18 +59,23 @@ class FeatureApi:
         self.cache_dir = cache_dir
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._session = self._get_session()
+        self._sessions = []
+        self._thread_local = threading.local()
         self.overwrite_cache = overwrite_cache
         self.workers = workers
 
-    @staticmethod
-    def _get_session() -> requests.Session:
+    @property
+    def _session(self) -> requests.Session:
         """
         Return a request session with retrying configured.
         """
-        session = requests.Session()
-        retries = Retry(total=25, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-        session.mount("https://", HTTPAdapter(max_retries=retries))
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            retries = Retry(total=25, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+            session.mount("https://", HTTPAdapter(max_retries=retries))
+            self._thread_local.session = session
+            self._sessions.append(session)
         return session
 
     def get_feature_classes(self) -> pd.DataFrame:

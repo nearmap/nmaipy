@@ -88,7 +88,9 @@ def api_key(key_file: Optional[str] = None) -> str:
     return keys[random.randint(0, len(keys) - 1)]
 
 
-def process_chunk(chunk_id, parcel_gdf, classes_df, chunk_path):
+def process_chunk(
+    chunk_id: str, parcel_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, chunk_path: Path, key_file: str
+):
     """
     Create a parcel rollup for a chuck of parcels.
 
@@ -97,6 +99,7 @@ def process_chunk(chunk_id, parcel_gdf, classes_df, chunk_path):
         parcel_gdf: Parcel set
         classes_df: Classes in output
         chunk_path: Directory to save data to
+        key_file: Path to API key file
     """
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
@@ -111,7 +114,7 @@ def process_chunk(chunk_id, parcel_gdf, classes_df, chunk_path):
     del parcel_temp_gdf
 
     # Get features
-    feature_api = FeatureApi(api_key=api_key(), cache_dir=cache_path, workers=THREADS)
+    feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=packs)
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
