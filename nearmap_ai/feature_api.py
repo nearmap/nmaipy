@@ -200,6 +200,9 @@ class FeatureApi:
             raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
         elif response.status_code == 400 and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
             raise AoiExceedsMaxSize(f"AOI too large: {self._request_error_message(request_string, response)}")
+        elif response.status_code == 403 and response.json()["message"] == "User is not authorized to access this area":
+            # Note, this error is returned for AOI outside of all Nearmap coverage
+            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
         elif not response.ok:
             # Fail hard for unexpected errors
             raise RuntimeError(self._request_error_message(request_string, response))
