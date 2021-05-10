@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+from http import HTTPStatus
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -72,7 +73,17 @@ class FeatureApi:
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
-            retries = Retry(total=25, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+            retries = Retry(
+                total=25,
+                backoff_factor=1,
+                status_forcelist=[
+                    HTTPStatus.TOO_MANY_REQUESTS,
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    HTTPStatus.BAD_GATEWAY,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    HTTPStatus.GATEWAY_TIMEOUT,
+                ],
+            )
             session.mount("https://", HTTPAdapter(max_retries=retries))
             self._thread_local.session = session
             self._sessions.append(session)
@@ -194,13 +205,19 @@ class FeatureApi:
         response_time_ms = (time.monotonic() - t1) * 1e3
         logging.info(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
         # Check for errors
-        if response.status_code == 404:
+        if response.status_code == HTTPStatus.NOT_FOUND:
             raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif response.status_code == 400 and response.json()["message"] == "AOI is outside any known content area":
+        elif (
+            response.status_code == HTTPStatus.BAD_REQUEST
+            and response.json()["message"] == "AOI is outside any known content area"
+        ):
             raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif response.status_code == 400 and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
+        elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
             raise AoiExceedsMaxSize(f"AOI too large: {self._request_error_message(request_string, response)}")
-        elif response.status_code == 403 and response.json()["message"] == "User is not authorized to access this area":
+        elif (
+            response.status_code == HTTPStatus.FORBIDDEN
+            and response.json()["message"] == "User is not authorized to access this area"
+        ):
             # Note, this error is returned for AOI outside of all Nearmap coverage
             raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
         elif not response.ok:
