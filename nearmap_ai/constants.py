@@ -1,5 +1,7 @@
-# Projections
+# Default columns
 AOI_ID_COLUMN_NAME = "aoi_id"
+
+# Projections
 LAT_LONG_CRS = "WGS 84"
 AREA_CRS = {"au": "epsg:3577", "ca": "esri:102001", "nz": "epsg:3577", "us": "esri:102003"}
 
@@ -54,3 +56,4 @@ ROOF_CHAR_IDS = [
     TURRET_ROOF_ID,
     TREE_OVERHANG_ID,
 ]
+CLASSES_WITH_NO_PRIMARY_FEATURE = VEG_IDS + SURFACES_IDS + [TREE_OVERHANG_ID]

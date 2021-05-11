@@ -18,6 +18,8 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
 
+from nearmap_ai.constants import LAT_LONG_CRS
+
 
 class AoiNotFound(Exception):
     pass
@@ -31,7 +33,7 @@ class FeatureApi:
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
     CHAR_LIMIT = 3800
-    SOURCE_CRS = "EPSG:4326"
+    SOURCE_CRS = LAT_LONG_CRS
 
     def __init__(
         self,
@@ -119,10 +121,11 @@ class FeatureApi:
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
 
-    def _geometry_to_coordstring(self, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
+    @classmethod
+    def _geometry_to_coordstring(cls, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
         """
         Turn a shapely polygon or multipolygon into a single coord sting to be used in API requests.
-        To meet the contraints on the API URL the following changes may be applied:
+        To meet the constraints on the API URL the following changes may be applied:
          - Multipolygons are simplified to single polygons by taking the convex hull
          - Polygons that have too many coordinates (resulting in strings that are too long) are
            simplified by taking the convex hull.
@@ -131,17 +134,17 @@ class FeatureApi:
         """
 
         if isinstance(geometry, MultiPolygon):
-            coordstring = self._polygon_to_coordstring(geometry.convex_hull)
+            coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
             exact = False
         else:
-            coordstring = self._polygon_to_coordstring(geometry)
+            coordstring = cls._polygon_to_coordstring(geometry)
             exact = True
-        if len(coordstring) > self.CHAR_LIMIT:
+        if len(coordstring) > cls.CHAR_LIMIT:
             exact = False
-            coordstring = self._polygon_to_coordstring(geometry.convex_hull)
-        if len(coordstring) > self.CHAR_LIMIT:
+            coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+        if len(coordstring) > cls.CHAR_LIMIT:
             exact = False
-            coordstring = self._polygon_to_coordstring(geometry.envelope)
+            coordstring = cls._polygon_to_coordstring(geometry.envelope)
         return coordstring, exact
 
     def _request_cache_path(self, request_string: str) -> Path:
@@ -157,6 +160,53 @@ class FeatureApi:
         Create a descriptive error message without the API key.
         """
         return f"\n{request_string.replace(self.api_key, '...')=}\n\n{response.status_code=}\n\n{response.text}\n\n"
+
+    def _handle_response_errors(self, response: requests.Response, request_string: str):
+        """
+        Handle errors returned from the feature API
+        """
+        if response.status_code == HTTPStatus.NOT_FOUND:
+            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
+        elif (
+            response.status_code == HTTPStatus.BAD_REQUEST
+            and response.json()["message"] == "AOI is outside any known content area"
+        ):
+            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
+        elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
+            raise AoiExceedsMaxSize(f"AOI too large: {self._request_error_message(request_string, response)}")
+        elif (
+            response.status_code == HTTPStatus.FORBIDDEN
+            and response.json()["message"] == "User is not authorized to access this area"
+        ):
+            # Note, this error is returned for AOI outside of all Nearmap coverage
+            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
+        elif not response.ok:
+            # Fail hard for unexpected errors
+            raise RuntimeError(self._request_error_message(request_string, response))
+
+    def _create_request_string(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> Tuple[str, bool]:
+        """
+        Create a request string with given parameters
+        """
+        coordstring, exact = self._geometry_to_coordstring(geometry)
+        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&apikey={self.api_key}"
+
+        # Add dates if given
+        if since:
+            request_string += f"&since={since}"
+        if until:
+            request_string += f"&until={until}"
+        # Add packs if given
+        if packs:
+            packs = ",".join(packs)
+            request_string += f"&packs={packs}"
+        return request_string, exact
 
     def get_features(
         self,
@@ -178,18 +228,7 @@ class FeatureApi:
             API response as a Dictionary
         """
         # Create request string
-        coordstring, exact = self._geometry_to_coordstring(geometry)
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&apikey={self.api_key}"
-
-        # Add dates if given
-        if since:
-            request_string += f"&since={since}"
-        if until:
-            request_string += f"&until={until}"
-        # Add packs if given
-        if packs:
-            packs = ",".join(packs)
-            request_string += f"&packs={packs}"
+        request_string, exact = self._create_request_string(geometry, packs, since, until)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
@@ -205,24 +244,8 @@ class FeatureApi:
         response_time_ms = (time.monotonic() - t1) * 1e3
         logging.info(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
         # Check for errors
-        if response.status_code == HTTPStatus.NOT_FOUND:
-            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif (
-            response.status_code == HTTPStatus.BAD_REQUEST
-            and response.json()["message"] == "AOI is outside any known content area"
-        ):
-            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
-            raise AoiExceedsMaxSize(f"AOI too large: {self._request_error_message(request_string, response)}")
-        elif (
-            response.status_code == HTTPStatus.FORBIDDEN
-            and response.json()["message"] == "User is not authorized to access this area"
-        ):
-            # Note, this error is returned for AOI outside of all Nearmap coverage
-            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif not response.ok:
-            # Fail hard for unexpected errors
-            raise RuntimeError(self._request_error_message(request_string, response))
+        self._handle_response_errors(response, request_string)
+        # Parse results
         data = response.json()
 
         # If the AOI was altered for the API request, we need to filter features in the response
@@ -233,7 +256,7 @@ class FeatureApi:
         if self.cache_dir is not None:
             cache_path = self._request_cache_path(request_string)
             with open(cache_path, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f)
         return data
 
     @staticmethod
@@ -244,8 +267,8 @@ class FeatureApi:
         date = link.split("/")[-1]
         return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
 
-    @staticmethod
-    def payload_gdf(payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
+    @classmethod
+    def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a API response dictionary.
 
@@ -262,29 +285,33 @@ class FeatureApi:
         metadata = {
             "system_version": payload["systemVersion"],
             "link": payload["link"],
-            "date": FeatureApi.link_to_date(payload["link"]),
+            "date": cls.link_to_date(payload["link"]),
         }
+
+        columns = [
+            "id",
+            "classId",
+            "description",
+            "confidence",
+            "parentId",
+            "geometry",
+            "areaSqm",
+            "areaSqft",
+            "attributes",
+            "surveyDate",
+            "meshDate",
+        ]
 
         # Create features DataFrame
         if len(payload["features"]) == 0:
-            df = pd.DataFrame(
-                [],
-                columns=[
-                    "id",
-                    "classId",
-                    "description",
-                    "confidence",
-                    "parentId",
-                    "geometry",
-                    "areaSqm",
-                    "areaSqft",
-                    "attributes",
-                    "surveyDate",
-                    "meshDate",
-                ],
-            )
+            df = pd.DataFrame([], columns=columns)
         else:
             df = pd.DataFrame(payload["features"])
+            # TODO: Uncomment this validation. If this method is used with v3 data, validating will fail.
+            # For the time being we have use cases to process cached v3 payloads, this should stop being the case soon.
+            # if column_mismatch := set(df.columns).symmetric_difference(set(columns)):
+            #     raise ValueError(f"Unexpected columns: {column_mismatch=}")
+
         df = df.rename(columns={"id": "feature_id"})
         df.columns = [stringcase.snakecase(c) for c in df.columns]
 
@@ -294,7 +321,7 @@ class FeatureApi:
             metadata["aoi_id"] = aoi_id
         # Cast to GeoDataFrame
         gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
-        gdf = gdf.set_crs(FeatureApi.SOURCE_CRS)
+        gdf = gdf.set_crs(cls.SOURCE_CRS)
         return gdf, metadata
 
     def get_features_gdf(
@@ -321,11 +348,15 @@ class FeatureApi:
         """
         try:
             payload = self.get_features(geometry, packs, since, until)
+            features_gdf, metadata = self.payload_gdf(payload, aoi_id)
+            error = None
         except (AoiNotFound, AoiExceedsMaxSize) as e:
             # Catch acceptable errors
-            return None, None, {"aoi_id": aoi_id, "error": str(e)}
-        features_gdf, metadata = self.payload_gdf(payload, aoi_id)
-        return features_gdf, metadata, None
+            features_gdf = None
+            metadata = None
+            error = {"aoi_id": aoi_id, "error": str(e)}
+
+        return features_gdf, metadata, error
 
     def get_features_gdf_bulk(
         self,

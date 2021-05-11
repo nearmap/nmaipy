@@ -1,7 +1,5 @@
 import argparse
-import ast
 import concurrent.futures
-import json
 import os
 import random
 from pathlib import Path
@@ -10,12 +8,10 @@ from typing import Optional
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import shapely.wkt
-from shapely.geometry import Point
 from tqdm import tqdm
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import AREA_CRS, BUILDING_ID, LAT_LONG_CRS, POOL_ID
+from nearmap_ai.constants import AREA_CRS, BUILDING_ID, POOL_ID
 from nearmap_ai.feature_api import FeatureApi
 
 # TODO: This script is currently set up to run with buildings and pools, it should be generalized to take packs as an
@@ -170,7 +166,9 @@ def main():
                 # Chunk parcels and send chunks to process pool
                 for i, batch in enumerate(np.array_split(parcels_gdf, len(parcels_gdf) // CHUNK_SIZE)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                    jobs.append(executor.submit(process_chunk, chunk_id, batch, classes_df, args.output_dir, args.key_file))
+                    jobs.append(
+                        executor.submit(process_chunk, chunk_id, batch, classes_df, args.output_dir, args.key_file)
+                    )
                 [j.result() for j in tqdm(jobs)]
         else:
             # If we only have one worker, run in main process

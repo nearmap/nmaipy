@@ -212,7 +212,7 @@ class TestParcels:
         ]
         expected = {
             "has_3d_attributes": "Y",
-            "pitch": 26.21,
+            "pitch_degrees": 26.21,
             "structurally_damaged_roof_present": "N",
             "structurally_damaged_roof_area_sqm": 0,
             "structurally_damaged_roof_area_sqft": 0,

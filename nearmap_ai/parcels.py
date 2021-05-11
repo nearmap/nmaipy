@@ -19,15 +19,14 @@ from nearmap_ai.constants import (
     ROOF_ID,
     SOLAR_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
-    SURFACES_IDS,
     TRAMPOLINE_ID,
-    TREE_OVERHANG_ID,
-    VEG_IDS,
+    CLASSES_WITH_NO_PRIMARY_FEATURE,
 )
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
 
+# All area values are in squared metres
 DEFAULT_FILTERING = {
     "min_size": {
         BUILDING_ID: 16,
@@ -118,11 +117,15 @@ def read_from_file(
     if drop_empty:
         parcels_gdf = parcels_gdf.dropna(subset=["geometry"])
         parcels_gdf = parcels_gdf[~parcels_gdf.is_empty]
+        parcels_gdf = parcels_gdf[parcels_gdf.is_valid]
         # For this we only check if the shape has a non-zero area, the value doesn't matter, so the warning can be
         # ignored.
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
             parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+
+    if len(parcels_gdf) == 0:
+        raise RuntimeError(f"No valid parcels in {path=}")
 
     # Check that identifier is unique
     if parcels_gdf[id_column].duplicated().any():
@@ -224,7 +227,7 @@ def flatten_roof_attributes(attributes: List[dict]) -> dict:
         elif "has3dAttributes" in attribute:
             flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
-                flattened["pitch"] = attribute["pitch"]
+                flattened["pitch_degrees"] = attribute["pitch"]
     return flattened
 
 
@@ -239,30 +242,33 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame)
     Returns: Flat dictionary
 
     """
+    if "intersection_area" not in features_gdf.columns:
+        raise ValueError("`intersection_area` is a required column, see nearmap_ai.parcels.filter_features_in_parcels")
+
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
     for (class_id, name) in classes_df.description.iteritems():
         name = name.lower().replace(" ", "_")
-        class_gdf = features_gdf[features_gdf.class_id == class_id]
+        class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
         # Add attributes that apply to all feature classes
-        parcel[f"{name}_present"] = TRUE_STRING if len(class_gdf) > 0 else FALSE_STRING
-        parcel[f"{name}_count"] = len(class_gdf)
-        parcel[f"{name}_total_area_sqm"] = class_gdf.area_sqm.sum()
-        parcel[f"{name}_total_area_sqft"] = class_gdf.area_sqft.sum()
-        parcel[f"{name}_total_clipped_area_sqm"] = round(class_gdf.intersection_area.sum(), 1)
+        parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
+        parcel[f"{name}_count"] = len(class_features_gdf)
+        parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum()
+        parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
+        parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.intersection_area.sum(), 1)
         parcel[f"{name}_total_clipped_area_sqft"] = round(
-            class_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET, 1
+            class_features_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET, 1
         )
-        if len(class_gdf) > 0:
-            parcel[f"{name}_confidence"] = 1 - (1 - class_gdf.confidence).prod()
+        if len(class_features_gdf) > 0:
+            parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
         else:
             parcel[f"{name}_confidence"] = 1.0
 
-        if class_id not in VEG_IDS + SURFACES_IDS + [TREE_OVERHANG_ID]:
-            if len(class_gdf) > 0:
+        if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
+            if len(class_features_gdf) > 0:
                 # Add primary feature attributes for discrete features if there are any
-                primary_feature = class_gdf.loc[class_gdf.intersection_area.idxmax()]
+                primary_feature = class_features_gdf.loc[class_features_gdf.intersection_area.idxmax()]
                 parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
                 parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
                 parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.intersection_area, 1)
