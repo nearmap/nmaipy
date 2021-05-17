@@ -8,20 +8,12 @@ import shapely.wkb
 import shapely.wkt
 import stringcase
 
-from nearmap_ai.constants import (
-    AOI_ID_COLUMN_NAME,
-    AREA_CRS,
-    BUILDING_ID,
-    CONSTRUCTION_ID,
-    LAT_LONG_CRS,
-    METERS_TO_FEET,
-    POOL_ID,
-    ROOF_ID,
-    SOLAR_ID,
-    SQUARED_METERS_TO_SQUARED_FEET,
-    TRAMPOLINE_ID,
-    CLASSES_WITH_NO_PRIMARY_FEATURE,
-)
+from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
+                                  CLASSES_WITH_NO_PRIMARY_FEATURE,
+                                  CONSTRUCTION_ID, LAT_LONG_CRS,
+                                  METERS_TO_FEET, POOL_ID, ROOF_ID, SOLAR_ID,
+                                  SQUARED_METERS_TO_SQUARED_FEET,
+                                  TRAMPOLINE_ID)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -137,7 +129,10 @@ def read_from_file(
 
 
 def filter_features_in_parcels(
-    parcels_gdf: gpd.GeoDataFrame, features_gdf: gpd.GeoDataFrame, country: str, config: Optional[dict] = None
+    parcels_gdf: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+    country: str,
+    config: Optional[dict] = None,
 ) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
@@ -189,7 +184,9 @@ def filter_features_in_parcels(
     gdf = gdf[area_mask | ratio_mask]
 
     return features_gdf.merge(
-        gdf[["feature_id", "aoi_id", "intersection_area"]], on=["feature_id", "aoi_id"], how="inner"
+        gdf[["feature_id", "aoi_id", "intersection_area"]],
+        on=["feature_id", "aoi_id"],
+        how="inner",
     )
 
 
@@ -258,7 +255,8 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame)
         parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
         parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.intersection_area.sum(), 1)
         parcel[f"{name}_total_clipped_area_sqft"] = round(
-            class_features_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET, 1
+            class_features_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET,
+            1,
         )
         if len(class_features_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
@@ -273,7 +271,8 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame)
                 parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
                 parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.intersection_area, 1)
                 parcel[f"primary_{name}_clipped_area_sqft"] = round(
-                    primary_feature.intersection_area * SQUARED_METERS_TO_SQUARED_FEET, 1
+                    primary_feature.intersection_area * SQUARED_METERS_TO_SQUARED_FEET,
+                    1,
                 )
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
 
@@ -297,7 +296,11 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame)
     return parcel
 
 
-def parcel_rollup(parcels_gdf: gpd.GeoDataFrame, features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
+def parcel_rollup(
+    parcels_gdf: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+    classes_df: pd.DataFrame,
+):
     """
     Summarize feature data to parcel attributes.
 
@@ -320,7 +323,8 @@ def parcel_rollup(parcels_gdf: gpd.GeoDataFrame, features_gdf: gpd.GeoDataFrame,
     # Loop over parcels without features in them
     for row in parcels_gdf[~parcels_gdf.aoi_id.isin(features_gdf.aoi_id)].itertuples():
         parcel = feature_attributes(
-            gpd.GeoDataFrame([], columns=["class_id", "area_sqm", "area_sqft", "intersection_area"]), classes_df
+            gpd.GeoDataFrame([], columns=["class_id", "area_sqm", "area_sqft", "intersection_area"]),
+            classes_df,
         )
         parcel["aoi_id"] = row.aoi_id
         rollups.append(parcel)

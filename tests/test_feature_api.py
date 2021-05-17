@@ -5,7 +5,7 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon
 from shapely.wkt import loads
 
-from nearmap_ai.constants import BUILDING_ID
+from nearmap_ai.constants import BUILDING_ID, SOLAR_ID
 from nearmap_ai.feature_api import FeatureApi
 
 
@@ -114,3 +114,10 @@ class TestFeatureAPI:
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes()
         assert classes_df.loc[BUILDING_ID].description == "Building"
+
+    def test_classes_filtered(self):
+        feature_api = FeatureApi()
+        classes_df = feature_api.get_feature_classes(packs=["solar", "building"])
+        assert classes_df.loc[BUILDING_ID].description == "Building"
+        assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
+        assert len(classes_df) == 2
