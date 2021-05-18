@@ -54,6 +54,11 @@ def parse_arguments():
         help="If set, parcel geometries will be in the output",
         action="store_true",
     )
+    parser.add_argument(
+        "--country",
+        help="Country code for area calculations (au, us, ca, nz)",
+        required=True,
+    )
     return parser.parse_args()
 
 
@@ -74,6 +79,7 @@ def process_chunk(
     classes_df: pd.DataFrame,
     output_dir: str,
     key_file: str,
+    country: str,
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
 ):
@@ -88,6 +94,7 @@ def process_chunk(
         key_file: Path to API key file
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
+        country: The country code for area calcs (au, us, ca, nz)
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
@@ -111,7 +118,7 @@ def process_chunk(
         return
 
     # Filter features
-    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country="au")
+    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df)
@@ -180,6 +187,7 @@ def main():
                             classes_df,
                             args.output_dir,
                             args.key_file,
+                            args.country,
                             args.packs,
                             args.include_parcel_geometry,
                         )
@@ -189,7 +197,7 @@ def main():
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file)
+                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file, args.country, args.packs, args.include_parcel_geometry)
 
         # Combine chunks and save
         data = []
