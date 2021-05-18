@@ -5,9 +5,10 @@ import logging
 import os
 import threading
 import time
+import uuid
 from http import HTTPStatus
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -32,6 +33,7 @@ class AoiExceedsMaxSize(Exception):
 class FeatureApi:
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
+    PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
 
@@ -91,9 +93,30 @@ class FeatureApi:
             self._sessions.append(session)
         return session
 
-    def get_feature_classes(self) -> pd.DataFrame:
+    def get_packs(self) -> Dict[str, List[str]]:
+        """
+        Get packs with class IDs
+        """
+        # Create request string
+        request_string = f"{self.PACKS_URL}?apikey={self.api_key}"
+        # Request data
+        t1 = time.monotonic()
+        response = self._session.get(request_string)
+        response_time_ms = (time.monotonic() - t1) * 1e3
+        logging.info(f"{response_time_ms:.1f}ms response time for packs.json")
+        # Check for errors
+        if not response.ok:
+            # Fail hard for unexpected errors
+            raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
+        data = response.json()
+        return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
+
+    def get_feature_classes(self, packs: List[str] = None) -> pd.DataFrame:
         """
         Get the feature class IDs and descriptions as a dataframe.
+
+        Args:
+            packs: If defined, classes will be filtered to the set of packs
         """
         # Create request string
         request_string = f"{self.CLASSES_URL}?apikey={self.api_key}"
@@ -109,6 +132,15 @@ class FeatureApi:
             raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
         data = response.json()
         df_classes = pd.DataFrame(data["classes"]).set_index("id")
+
+        # Filter classes to packs
+        if packs:
+            pack_classes = self.get_packs()
+            if diff := set(packs) - set(pack_classes.keys()):
+                raise ValueError(f"Unknown packs: {diff}")
+            all_classes = set([class_id for p in packs for class_id in pack_classes[p]])
+            df_classes = df_classes.loc[all_classes]
+
         return df_classes
 
     @staticmethod
@@ -184,6 +216,17 @@ class FeatureApi:
             # Fail hard for unexpected errors
             raise RuntimeError(self._request_error_message(request_string, response))
 
+    def _write_to_cache(self, path, payload):
+        """
+        Write a payload to the cache. To make the write atomic, data is first written to a temp file and then renamed.
+        """
+        temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
+        with open(temp_path, "w") as f:
+            json.dump(payload, f)
+            f.flush()
+            os.fsync(f.fileno())
+        temp_path.replace(path)
+
     def _create_request_string(
         self,
         geometry: Union[Polygon, MultiPolygon],
@@ -254,9 +297,7 @@ class FeatureApi:
 
         # Save to cache if configured
         if self.cache_dir is not None:
-            cache_path = self._request_cache_path(request_string)
-            with open(cache_path, "w") as f:
-                json.dump(data, f)
+            self._write_to_cache(self._request_cache_path(request_string), data)
         return data
 
     @staticmethod
@@ -384,7 +425,16 @@ class FeatureApi:
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
             jobs = []
             for _, row in gdf.iterrows():
-                jobs.append(executor.submit(self.get_features_gdf, row.geometry, packs, row.aoi_id, since, until))
+                jobs.append(
+                    executor.submit(
+                        self.get_features_gdf,
+                        row.geometry,
+                        packs,
+                        row.aoi_id,
+                        since,
+                        until,
+                    )
+                )
             data = []
             metadata = []
             errors = []
