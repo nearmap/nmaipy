@@ -10,6 +10,6 @@ services:
         "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
         "--parcel-dir", "/home/jovyan/data/parcel_samples",
         "--output-dir", "/home/jovyan/data/parcel_samples_rollup",
-        "--include-parcel-geometry"
-        # "--packs", "solar,building"
+        "--include-parcel-geometry",
+        "--packs", "solar", "building"
     ]

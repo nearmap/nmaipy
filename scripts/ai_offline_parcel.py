@@ -36,8 +36,9 @@ def parse_arguments():
     )
     parser.add_argument(
         "--packs",
-        help="Comma separated list of AI packs",
+        help="List of AI packs",
         type=str,
+        nargs="+",
         required=False,
         default=None,
     )
@@ -149,11 +150,7 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    if args.packs is not None:
-        packs = args.packs.split(",")
-    else:
-        packs = None
-    classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(packs)
+    classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(args.packs)
 
     # Loop over parcel files
     for f in parcel_paths:
@@ -179,7 +176,7 @@ def main():
                             classes_df,
                             args.output_dir,
                             args.key_file,
-                            packs,
+                            args.packs,
                             args.include_parcel_geometry,
                         )
                     )
