@@ -12,7 +12,7 @@ import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import AREA_CRS
+from nearmap_ai.constants import AREA_CRS, AOI_ID_COLUMN_NAME
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -124,7 +124,7 @@ def process_chunk(
     rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df)
 
     # Put it all together and save
-    final_df = metadata_df.merge(rollup_df, on="aoi_id").merge(parcel_gdf, on="aoi_id")
+    final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]

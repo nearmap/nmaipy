@@ -19,7 +19,7 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
 
-from nearmap_ai.constants import LAT_LONG_CRS
+from nearmap_ai.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
 
 
 class AoiNotFound(Exception):
@@ -357,9 +357,9 @@ class FeatureApi:
         df.columns = [stringcase.snakecase(c) for c in df.columns]
 
         # Add AOI ID if specified
-        if aoi_id:
-            df["aoi_id"] = aoi_id
-            metadata["aoi_id"] = aoi_id
+        if aoi_id is not None:
+            df[AOI_ID_COLUMN_NAME] = aoi_id
+            metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
         gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
         gdf = gdf.set_crs(cls.SOURCE_CRS)
@@ -395,7 +395,7 @@ class FeatureApi:
             # Catch acceptable errors
             features_gdf = None
             metadata = None
-            error = {"aoi_id": aoi_id, "error": str(e)}
+            error = {AOI_ID_COLUMN_NAME: aoi_id, "error": str(e)}
 
         return features_gdf, metadata, error
 
@@ -418,7 +418,7 @@ class FeatureApi:
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
         """
-        if "aoi_id" not in gdf.columns:
+        if AOI_ID_COLUMN_NAME not in gdf.columns:
             raise KeyError(f"No 'aoi_id' column in dataframe, {gdf.columns=}")
 
         # Run in thread pool
@@ -430,7 +430,7 @@ class FeatureApi:
                         self.get_features_gdf,
                         row.geometry,
                         packs,
-                        row.aoi_id,
+                        row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
                     )
@@ -449,5 +449,5 @@ class FeatureApi:
         # Combine results
         features_gdf = pd.concat(data) if len(data) > 0 else None
         metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
-        errors_df = pd.DataFrame(errors, columns=["aoi_id", "error"])
+        errors_df = pd.DataFrame(errors, columns=[AOI_ID_COLUMN_NAME, "error"])
         return features_gdf, metadata_df, errors_df

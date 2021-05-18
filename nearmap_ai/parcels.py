@@ -164,7 +164,7 @@ def filter_features_in_parcels(
     projected_parcels_gdf = parcels_gdf.to_crs(AREA_CRS[country])
 
     # Merge parcels and features
-    gdf = projected_features_gdf.merge(projected_parcels_gdf, on="aoi_id", how="left", suffixes=["_feature", "_aoi"])
+    gdf = projected_features_gdf.merge(projected_parcels_gdf, on=AOI_ID_COLUMN_NAME, how="left", suffixes=["_feature", "_aoi"])
     # Calculate the area of each feature that falls within the parcel
     gdf["intersection_area"] = gdf.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
     # Calculate the ratio of a feature that falls within the parcel
@@ -186,8 +186,8 @@ def filter_features_in_parcels(
     gdf = gdf[area_mask | ratio_mask]
 
     return features_gdf.merge(
-        gdf[["feature_id", "aoi_id", "intersection_area"]],
-        on=["feature_id", "aoi_id"],
+        gdf[["feature_id", AOI_ID_COLUMN_NAME, "intersection_area"]],
+        on=["feature_id", AOI_ID_COLUMN_NAME],
         how="inner",
     )
 
@@ -314,21 +314,21 @@ def parcel_rollup(
     Returns:
         Parcel rollup DataFrame
     """
-    df = features_gdf.merge(parcels_gdf[["aoi_id", "geometry"]], on="aoi_id", suffixes=["_feature", "_aoi"])
+    df = features_gdf.merge(parcels_gdf[[AOI_ID_COLUMN_NAME, "geometry"]], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
     rollups = []
     # Loop over parcels with features in them
-    for aoi_id, group in df.groupby("aoi_id"):
+    for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
         parcel = feature_attributes(group, classes_df)
-        parcel["aoi_id"] = aoi_id
+        parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
     # Loop over parcels without features in them
-    for row in parcels_gdf[~parcels_gdf.aoi_id.isin(features_gdf.aoi_id)].itertuples():
+    for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", "area_sqm", "area_sqft", "intersection_area"]),
             classes_df,
         )
-        parcel["aoi_id"] = row.aoi_id
+        parcel[AOI_ID_COLUMN_NAME] = row[AOI_ID_COLUMN_NAME]
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
