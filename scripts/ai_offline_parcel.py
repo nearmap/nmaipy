@@ -164,11 +164,9 @@ def main():
 
         jobs = []
 
-        # Figure out how many chunks to divide the query AOI set into.
-        num_chunks = len(parcels_gdf) // CHUNK_SIZE
-        if num_chunks == 0:
-            raise ValueError(
-                f'CHUNK_SIZE must be smaller than the number of query AOIs ({CHUNK_SIZE} > {len(parcels_gdf)})')
+        # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
+        num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
+
         if args.workers > 1:
             with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
                 # Chunk parcels and send chunks to process pool
