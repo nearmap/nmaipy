@@ -3,63 +3,21 @@ import concurrent.futures
 import os
 import random
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import AREA_CRS, BUILDING_ID, POOL_ID
+from nearmap_ai.constants import AREA_CRS
 from nearmap_ai.feature_api import FeatureApi
-
-# TODO: This script is currently set up to run with buildings and pools, it should be generalized to take packs as an
-#       argument and run with any set of features and attributes.
 
 CHUNK_SIZE = 1000
 PROCESSES = 20
 THREADS = 4
-
-PACKS = ["pool", "building"]
-PARCEL_PROPERTIES = [
-    "aoi_id",
-    "address",
-    "address_id",
-    "geom_id",
-    "jurisdiction_id",
-    "lga_pid",
-    "loc_pid",
-    "locality",
-    "lot_number",
-    "parcl_stts",
-    "plan_number",
-    "latitude",
-    "longitude",
-    "parcel_area_sqm",
-]
-
-FINAL_COLUMNS = PARCEL_PROPERTIES + [
-    "date",
-    "building_present",
-    "building_count",
-    "building_total_area_sqm",
-    "building_total_clipped_area_sqm",
-    "building_confidence",
-    "primary_building_area_sqm",
-    "primary_building_clipped_area_sqm",
-    "primary_building_confidence",
-    "swimming_pool_present",
-    "swimming_pool_count",
-    "swimming_pool_total_area_sqm",
-    "swimming_pool_total_clipped_area_sqm",
-    "swimming_pool_confidence",
-    "primary_swimming_pool_area_sqm",
-    "primary_swimming_pool_clipped_area_sqm",
-    "primary_swimming_pool_confidence",
-    "system_version",
-    "link",
-]
 
 
 def parse_arguments():
@@ -69,8 +27,33 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--parcel-dir", help="Directory with parcel files", type=str, required=True)
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
-    parser.add_argument("--key-file", help="Path to file with API keys", type=str, required=False, default=None)
-    parser.add_argument("--workers", help="Number of processes", type=int, required=False, default=PROCESSES)
+    parser.add_argument(
+        "--key-file",
+        help="Path to file with API keys",
+        type=str,
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--packs",
+        help="List of AI packs",
+        type=str,
+        nargs="+",
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--workers",
+        help="Number of processes",
+        type=int,
+        required=False,
+        default=PROCESSES,
+    )
+    parser.add_argument(
+        "--include-parcel-geometry",
+        help="If set, parcel geometries will be in the output",
+        action="store_true",
+    )
     return parser.parse_args()
 
 
@@ -86,7 +69,13 @@ def api_key(key_file: Optional[str] = None) -> str:
 
 
 def process_chunk(
-    chunk_id: str, parcel_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, output_dir: str, key_file: str
+    chunk_id: str,
+    parcel_gdf: gpd.GeoDataFrame,
+    classes_df: pd.DataFrame,
+    output_dir: str,
+    key_file: str,
+    packs: Optional[List[str]] = None,
+    include_parcel_geometry: Optional[bool] = False,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -97,6 +86,8 @@ def process_chunk(
         classes_df: Classes in output
         output_dir: Directory to save data to
         key_file: Path to API key file
+        packs: AI packs to include. Defaults to all packs
+        include_parcel_geometry: Set to true to include parcel geometries in final output
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
@@ -114,7 +105,7 @@ def process_chunk(
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
-    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=PACKS)
+    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=packs)
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
@@ -126,8 +117,21 @@ def process_chunk(
     rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df)
 
     # Put it all together and save
-    final_df = metadata_df.merge(rollup_df, on="aoi_id").merge(parcel_gdf[PARCEL_PROPERTIES], on="aoi_id")
-    final_df = final_df[FINAL_COLUMNS]
+    final_df = metadata_df.merge(rollup_df, on="aoi_id").merge(parcel_gdf, on="aoi_id")
+
+    # Order the columns: parcel properties, meta data, data, parcel geometry.
+    parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
+    meta_data_columns = ["system_version", "link", "date"]
+    columns = (
+        parcel_columns
+        + meta_data_columns
+        + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
+    )
+    if include_parcel_geometry:
+        columns.append("geometry")
+        final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
+    final_df = final_df[columns]
+
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
 
@@ -135,7 +139,9 @@ def process_chunk(
 def main():
     args = parse_arguments()
     # Path setup
-    parcel_paths = list(Path(args.parcel_dir).glob("*.parquet"))
+    parcel_paths = []
+    for file_type in ["*.parquet", "*.csv", "*.gpkg", "*.geojson"]:
+        parcel_paths.extend(Path(args.parcel_dir).glob(file_type))
     cache_path = Path(args.output_dir) / "cache"
     chunk_path = Path(args.output_dir) / "chunks"
     final_path = Path(args.output_dir) / "final"
@@ -144,8 +150,7 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes()
-    classes_df = classes_df.loc[[BUILDING_ID, POOL_ID]]
+    classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(args.packs)
 
     # Loop over parcel files
     for f in parcel_paths:
@@ -156,10 +161,7 @@ def main():
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f)
-        # Some parcel properties only exist for certain batches, so if they do not appear we fill them with Nones
-        for parcel_prop in PARCEL_PROPERTIES:
-            if parcel_prop not in parcels_gdf.columns:
-                parcels_gdf[parcel_prop] = None
+
         jobs = []
 
         # Figure out how many chunks to divide the query AOI set into.
@@ -173,7 +175,16 @@ def main():
                 for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                     jobs.append(
-                        executor.submit(process_chunk, chunk_id, batch, classes_df, args.output_dir, args.key_file)
+                        executor.submit(
+                            process_chunk,
+                            chunk_id,
+                            batch,
+                            classes_df,
+                            args.output_dir,
+                            args.key_file,
+                            args.packs,
+                            args.include_parcel_geometry,
+                        )
                     )
                 [j.result() for j in tqdm(jobs)]
         else:
