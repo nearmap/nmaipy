@@ -161,10 +161,16 @@ def main():
             if parcel_prop not in parcels_gdf.columns:
                 parcels_gdf[parcel_prop] = None
         jobs = []
+
+        # Figure out how many chunks to divide the query AOI set into.
+        num_chunks = len(parcels_gdf) // CHUNK_SIZE
+        if num_chunks == 0:
+            raise ValueError(
+                f'CHUNK_SIZE must be smaller than the number of query AOIs ({CHUNK_SIZE} > {len(parcels_gdf)})')
         if args.workers > 1:
             with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
                 # Chunk parcels and send chunks to process pool
-                for i, batch in enumerate(np.array_split(parcels_gdf, len(parcels_gdf) // CHUNK_SIZE)):
+                for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                     jobs.append(
                         executor.submit(process_chunk, chunk_id, batch, classes_df, args.output_dir, args.key_file)
@@ -172,7 +178,7 @@ def main():
                 [j.result() for j in tqdm(jobs)]
         else:
             # If we only have one worker, run in main process
-            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, len(parcels_gdf) // CHUNK_SIZE))):
+            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                 process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file)
 
