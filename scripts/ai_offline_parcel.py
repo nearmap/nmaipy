@@ -43,6 +43,13 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument(
+        "--primary-decision",
+        help="Primary feature decision method: largest|nearest",
+        type=str,
+        required=False,
+        default="largest",
+    )
+    parser.add_argument(
         "--workers",
         help="Number of processes",
         type=int,
@@ -74,14 +81,15 @@ def api_key(key_file: Optional[str] = None) -> str:
 
 
 def process_chunk(
-    chunk_id: str,
-    parcel_gdf: gpd.GeoDataFrame,
-    classes_df: pd.DataFrame,
-    output_dir: str,
-    key_file: str,
-    country: str,
-    packs: Optional[List[str]] = None,
-    include_parcel_geometry: Optional[bool] = False,
+        chunk_id: str,
+        parcel_gdf: gpd.GeoDataFrame,
+        classes_df: pd.DataFrame,
+        output_dir: str,
+        key_file: str,
+        country: str,
+        packs: Optional[List[str]] = None,
+        include_parcel_geometry: Optional[bool] = False,
+        primary_decision: str = "largest",
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -95,6 +103,7 @@ def process_chunk(
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
         country: The country code for area calcs (au, us, ca, nz)
+        primary_decision: The basis on which the primary feature is chosen (largest|nearest)
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
@@ -106,7 +115,7 @@ def process_chunk(
     # Get additional parcel attributes from parcel geometry
     parcel_gdf["latitude"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
     parcel_gdf["longitude"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
-    parcel_temp_gdf = parcel_gdf.to_crs(AREA_CRS["au"])
+    parcel_temp_gdf = parcel_gdf.to_crs(AREA_CRS[country])
     parcel_gdf["parcel_area_sqm"] = parcel_temp_gdf.area.round(1)
     del parcel_temp_gdf
 
@@ -121,7 +130,7 @@ def process_chunk(
     features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
 
     # Create rollup
-    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df)
+    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df, primary_decision=primary_decision)
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -130,9 +139,9 @@ def process_chunk(
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
     meta_data_columns = ["system_version", "link", "date"]
     columns = (
-        parcel_columns
-        + meta_data_columns
-        + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
+            parcel_columns
+            + meta_data_columns
+            + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
     )
     if include_parcel_geometry:
         columns.append("geometry")
@@ -190,6 +199,7 @@ def main():
                             args.country,
                             args.packs,
                             args.include_parcel_geometry,
+                            args.primary_decision,
                         )
                     )
                 [j.result() for j in tqdm(jobs)]
@@ -197,7 +207,8 @@ def main():
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file, args.country, args.packs, args.include_parcel_geometry)
+                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file, args.country, args.packs,
+                              args.include_parcel_geometry, args.primary_decision,)
 
         # Combine chunks and save
         data = []

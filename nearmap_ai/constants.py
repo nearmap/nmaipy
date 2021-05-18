@@ -1,5 +1,7 @@
 # Default columns
 AOI_ID_COLUMN_NAME = "aoi_id"
+LAT_PRIMARY_COL_NAME = "lat"
+LON_PRIMARY_COL_NAME = "lon"
 
 # Projections
 LAT_LONG_CRS = "WGS 84"
