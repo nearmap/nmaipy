@@ -116,7 +116,6 @@ def process_chunk(
     parcel_gdf["latitude"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
     parcel_gdf["longitude"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
     parcel_temp_gdf = parcel_gdf.to_crs(AREA_CRS[country])
-    parcel_gdf["parcel_area_sqm"] = parcel_temp_gdf.area.round(1)
     del parcel_temp_gdf
 
     # Get features
