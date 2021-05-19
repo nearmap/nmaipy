@@ -130,7 +130,7 @@ def process_chunk(
     features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
 
     # Create rollup
-    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df, primary_decision=primary_decision)
+    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision)
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)

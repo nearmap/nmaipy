@@ -13,7 +13,8 @@ from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
                                   CONSTRUCTION_ID, LAT_LONG_CRS,
                                   METERS_TO_FEET, POOL_ID, ROOF_ID, SOLAR_ID,
                                   SQUARED_METERS_TO_SQUARED_FEET,
-                                  TRAMPOLINE_ID, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME)
+                                  TRAMPOLINE_ID, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME,
+                                  IMPERIAL_COUNTRIES)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -193,7 +194,7 @@ def filter_features_in_parcels(
     )
 
 
-def flatten_building_attributes(attributes: List[dict]) -> dict:
+def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
     """
     Flatten building attributes
     """
@@ -202,14 +203,16 @@ def flatten_building_attributes(attributes: List[dict]) -> dict:
         if "has3dAttributes" in attribute:
             flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
-                flattened["height_m"] = round(attribute["height"], 1)
-                flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
+                if country in IMPERIAL_COUNTRIES:
+                    flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
+                else:
+                    flattened["height_m"] = round(attribute["height"], 1)
                 for k, v in attribute["numStories"].items():
                     flattened[f"num_storeys_{k}_confidence"] = v
     return flattened
 
 
-def flatten_roof_attributes(attributes: List[dict]) -> dict:
+def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
     """
     Flatten roof attributes
     """
@@ -219,8 +222,10 @@ def flatten_roof_attributes(attributes: List[dict]) -> dict:
             for component in attribute["components"]:
                 name = component["description"].lower().replace(" ", "_")
                 flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                flattened[f"{name}_area_sqm"] = component["areaSqm"]
-                flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                else:
+                    flattened[f"{name}_area_sqm"] = component["areaSqm"]
                 flattened[f"{name}_confidence"] = component["confidence"]
                 if "dominant" in component:
                     flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
@@ -231,7 +236,7 @@ def flatten_roof_attributes(attributes: List[dict]) -> dict:
     return flattened
 
 
-def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, primary_decision: str,
+def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, country: str, primary_decision: str,
                        primary_lat: float = None, primary_lon: float = None) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -239,7 +244,8 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
     Args:
         features_gdf: Features for a parcel
         classes_df: Class name and ID lookup (index of the dataframe) to include.
-        primary_decision: "largest" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates.
+        country: The country code for map projections and units.
+        primary_decision: "largest" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
 
@@ -258,18 +264,22 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
         # Add attributes that apply to all feature classes
         parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(class_features_gdf)
-        parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum()
-        parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
-        parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.intersection_area.sum(), 1)
-        parcel[f"{name}_total_clipped_area_sqft"] = round(
-            class_features_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET,
-            1,
-        )
+        if country in IMPERIAL_COUNTRIES:
+            parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
+            parcel[f"{name}_total_clipped_area_sqft"] = round(
+                class_features_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET,
+                1,
+            )
+        else:
+            parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum()
+            parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.intersection_area.sum(), 1)
         if len(class_features_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
         else:
             parcel[f"{name}_confidence"] = 1.0
 
+        # Select and produce results for the primary feature of each feature class
+        HIGH_CONF_THRESH = 0.9
         if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
             if len(class_features_gdf) > 0:
 
@@ -278,34 +288,46 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
                     primary_feature = class_features_gdf.loc[class_features_gdf.intersection_area.idxmax()]
                 elif primary_decision == "nearest":
                     primary_point = shapely.geometry.Point(primary_lon, primary_lat)
-                    dist_to_primary_point = class_features_gdf.set_geometry('geometry_feature').distance(primary_point)
-                    #TODO: Finish implementing!
+                    primary_point = gpd.GeoSeries(primary_point).set_crs('EPSG:4326').to_crs('EPSG:3857')[0]
+                    class_features_gdf_top = class_features_gdf.query('confidence >= @HIGH_CONF_THRESH')
+
+                    if len(class_features_gdf_top) > 0:
+                        nearest_feature_idx = class_features_gdf_top.set_geometry('geometry_feature').to_crs(
+                            'EPSG:3857').distance(primary_point).idxmin()
+                    else:
+                        nearest_feature_idx = class_features_gdf.set_geometry('geometry_feature').to_crs(
+                            'EPSG:3857').distance(primary_point).idxmin()
+                    primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
                 else:
                     raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
-                parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
-                parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
-                parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.intersection_area, 1)
-                parcel[f"primary_{name}_clipped_area_sqft"] = round(
-                    primary_feature.intersection_area * SQUARED_METERS_TO_SQUARED_FEET,
-                    1,
-                )
+                if country in IMPERIAL_COUNTRIES:
+                    parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
+                    parcel[f"primary_{name}_clipped_area_sqft"] = round(
+                        primary_feature.intersection_area * SQUARED_METERS_TO_SQUARED_FEET,
+                        1,
+                    )
+                else:
+                    parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
+                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.intersection_area, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
 
                 # Add roof and building attributes
                 if class_id in [ROOF_ID, BUILDING_ID]:
                     if class_id == ROOF_ID:
-                        primary_attributes = flatten_roof_attributes(primary_feature.attributes)
+                        primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
                     else:
-                        primary_attributes = flatten_building_attributes(primary_feature.attributes)
+                        primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
 
                     for key, val in primary_attributes.items():
                         parcel[f"primary_{name}_" + str(key)] = val
             else:
                 # Fill values if there are no features
-                parcel[f"primary_{name}_area_sqm"] = 0.0
-                parcel[f"primary_{name}_area_sqft"] = 0.0
-                parcel[f"primary_{name}_clipped_area_sqm"] = 0.0
-                parcel[f"primary_{name}_clipped_area_sqft"] = 0.0
+                if country in IMPERIAL_COUNTRIES:
+                    parcel[f"primary_{name}_area_sqft"] = 0.0
+                    parcel[f"primary_{name}_clipped_area_sqft"] = 0.0
+                else:
+                    parcel[f"primary_{name}_area_sqm"] = 0.0
+                    parcel[f"primary_{name}_clipped_area_sqm"] = 0.0
                 parcel[f"primary_{name}_confidence"] = 1.0
 
     return parcel
@@ -315,6 +337,7 @@ def parcel_rollup(
         parcels_gdf: gpd.GeoDataFrame,
         features_gdf: gpd.GeoDataFrame,
         classes_df: pd.DataFrame,
+        country: str,
         primary_decision: str,
 ):
     """
@@ -324,6 +347,7 @@ def parcel_rollup(
         parcels_gdf: Parcels GeoDataFrame
         features_gdf: Features GeoDataFrame
         classes_df: Class name and ID lookup
+        country: Country code for units.
         primary_decision: The basis on which the primary features are chosen
 
     Returns:
@@ -344,18 +368,22 @@ def parcel_rollup(
         assert len(primary_lat) == 1
         primary_lat = primary_lat[0]
 
-        parcel = feature_attributes(group, classes_df, primary_decision=primary_decision, primary_lat=primary_lat,
-                                    primary_lon=primary_lon)
+        parcel = feature_attributes(group, classes_df, country=country, primary_decision=primary_decision,
+                                    primary_lat=primary_lat, primary_lon=primary_lon)
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
     # Loop over parcels without features in them
+    if country in IMPERIAL_COUNTRIES:
+        area_name = "area_sqft"
+    else:
+        area_name = "area_sqm"
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
-            gpd.GeoDataFrame([], columns=["class_id", "area_sqm", "area_sqft", "intersection_area"]),
-            classes_df,
+            gpd.GeoDataFrame([], columns=["class_id", area_name, "intersection_area"]),
+            classes_df, country=country, primary_decision=primary_decision
         )
-        parcel[AOI_ID_COLUMN_NAME] = row[AOI_ID_COLUMN_NAME]
+        parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
