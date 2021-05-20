@@ -44,10 +44,10 @@ def parse_arguments():
     )
     parser.add_argument(
         "--primary-decision",
-        help="Primary feature decision method: largest|nearest",
+        help="Primary feature decision method: largest_intersection|nearest",
         type=str,
         required=False,
-        default="largest",
+        default="largest_intersection",
     )
     parser.add_argument(
         "--workers",
@@ -89,7 +89,7 @@ def process_chunk(
         country: str,
         packs: Optional[List[str]] = None,
         include_parcel_geometry: Optional[bool] = False,
-        primary_decision: str = "largest",
+        primary_decision: str = "largest_intersection",
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -103,7 +103,7 @@ def process_chunk(
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
         country: The country code for area calcs (au, us, ca, nz)
-        primary_decision: The basis on which the primary feature is chosen (largest|nearest)
+        primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"

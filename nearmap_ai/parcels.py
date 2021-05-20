@@ -245,7 +245,7 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
         features_gdf: Features for a parcel
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
-        primary_decision: "largest" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
+        primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
 
@@ -284,7 +284,7 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
             if len(class_features_gdf) > 0:
 
                 # Add primary feature attributes for discrete features if there are any
-                if primary_decision == "largest":
+                if primary_decision == "largest_intersection":
                     primary_feature = class_features_gdf.loc[class_features_gdf.intersection_area.idxmax()]
                 elif primary_decision == "nearest":
                     primary_point = shapely.geometry.Point(primary_lon, primary_lat)
