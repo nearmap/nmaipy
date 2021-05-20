@@ -12,7 +12,7 @@ AREA_CRS = {
     "us": "esri:102003",
 }
 
-IMPERIAL_COUNTRIES = ['us']
+IMPERIAL_COUNTRIES = ["us"]
 
 # Units
 METERS_TO_FEET = 3.28084

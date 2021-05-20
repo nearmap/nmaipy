@@ -1,9 +1,5 @@
-from pathlib import Path
-
 import geopandas as gpd
 import pandas as pd
-from shapely.affinity import translate
-from shapely.geometry import Polygon
 from shapely.wkt import loads
 
 from nearmap_ai import parcels
@@ -47,12 +43,11 @@ class TestParcels:
         expected = {
             "has_3d_attributes": "Y",
             "height_m": 8.9,
-            "height_ft": 29.2,
             "num_storeys_1_confidence": 0.057618971750252275,
             "num_storeys_2_confidence": 0.8145058300927666,
             "num_storeys_3+_confidence": 0.1278751981569811,
         }
-        assert expected == parcels.flatten_building_attributes(attributes)
+        assert expected == parcels.flatten_building_attributes(attributes, "au")
 
     def test_flatten_roof(self):
         attributes = [
@@ -215,69 +210,54 @@ class TestParcels:
             "pitch_degrees": 26.21,
             "structurally_damaged_roof_present": "N",
             "structurally_damaged_roof_area_sqm": 0,
-            "structurally_damaged_roof_area_sqft": 0,
             "structurally_damaged_roof_confidence": 1,
             "roof_with_temporary_repair_present": "N",
             "roof_with_temporary_repair_area_sqm": 0,
-            "roof_with_temporary_repair_area_sqft": 0,
             "roof_with_temporary_repair_confidence": 1,
             "roof_ponding_present": "N",
             "roof_ponding_area_sqm": 0,
-            "roof_ponding_area_sqft": 0,
             "roof_ponding_confidence": 1,
             "roof_rusting_present": "N",
             "roof_rusting_area_sqm": 0,
-            "roof_rusting_area_sqft": 0,
             "roof_rusting_confidence": 1,
             "roof_tile/shingle_discolouration_present": "N",
             "roof_tile/shingle_discolouration_area_sqm": 0,
-            "roof_tile/shingle_discolouration_area_sqft": 0,
             "roof_tile/shingle_discolouration_confidence": 1,
             "tile_roof_present": "Y",
             "tile_roof_area_sqm": 284.2,
-            "tile_roof_area_sqft": 3059,
             "tile_roof_confidence": 0.9904731109239588,
             "tile_roof_dominant": "Y",
             "shingle_roof_present": "N",
             "shingle_roof_area_sqm": 0,
-            "shingle_roof_area_sqft": 0,
             "shingle_roof_confidence": 1,
             "shingle_roof_dominant": "N",
             "metal_roof_present": "N",
             "metal_roof_area_sqm": 0,
-            "metal_roof_area_sqft": 0,
             "metal_roof_confidence": 1,
             "metal_roof_dominant": "N",
             "hip_present": "Y",
             "hip_area_sqm": 48,
-            "hip_area_sqft": 517,
             "hip_confidence": 0.7464101831606086,
             "gable_present": "Y",
             "gable_area_sqm": 74.8,
-            "gable_area_sqft": 805,
             "gable_confidence": 0.7787800614990344,
             "dutch_gable_present": "N",
             "dutch_gable_area_sqm": 0,
-            "dutch_gable_area_sqft": 0,
             "dutch_gable_confidence": 1,
             "flat_present": "N",
             "flat_area_sqm": 0,
-            "flat_area_sqft": 0,
             "flat_confidence": 1,
             "turret_present": "N",
             "turret_area_sqm": 0,
-            "turret_area_sqft": 0,
             "turret_confidence": 1,
             "other_roof_shape_present": "Y",
             "other_roof_shape_area_sqm": 6.1,
-            "other_roof_shape_area_sqft": 66,
             "other_roof_shape_confidence": 0.5372738248389376,
             "tree_overhang_present": "N",
             "tree_overhang_area_sqm": 0,
-            "tree_overhang_area_sqft": 0,
             "tree_overhang_confidence": 1,
         }
-        assert expected == parcels.flatten_roof_attributes(attributes)
+        assert expected == parcels.flatten_roof_attributes(attributes, "au")
 
     def test_rollup(self, parcels_gdf, features_gdf):
         classes_df = pd.DataFrame(
@@ -286,7 +266,7 @@ class TestParcels:
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         features_gdf = parcels.filter_features_in_parcels(parcels_gdf, features_gdf, country="au")
-        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df)
+        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, "au", "largest_intersection")
 
         expected = pd.DataFrame(
             [
@@ -294,14 +274,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 1,
                     "building_total_area_sqm": 459.0,
-                    "building_total_area_sqft": 4941,
                     "building_total_clipped_area_sqm": 437.9,
-                    "building_total_clipped_area_sqft": 4713.7,
                     "building_confidence": 0.994140625,
                     "primary_building_area_sqm": 459.0,
-                    "primary_building_area_sqft": 4941.0,
                     "primary_building_clipped_area_sqm": 437.9,
-                    "primary_building_clipped_area_sqft": 4713.7,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "0_0",
                     "mesh_date": "2020-02-27",
@@ -310,14 +286,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 3,
                     "building_total_area_sqm": 794.8,
-                    "building_total_area_sqft": 8555,
                     "building_total_clipped_area_sqm": 589.0,
-                    "building_total_clipped_area_sqft": 6339.7,
                     "building_confidence": 0.9999997988343239,
                     "primary_building_area_sqm": 426.9,
-                    "primary_building_area_sqft": 4595.0,
                     "primary_building_clipped_area_sqm": 357.6,
-                    "primary_building_clipped_area_sqft": 3849.0,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "0_1",
                     "mesh_date": "2020-02-27",
@@ -326,14 +298,10 @@ class TestParcels:
                     "building_present": "N",
                     "building_count": 0,
                     "building_total_area_sqm": 0.0,
-                    "building_total_area_sqft": 0,
                     "building_total_clipped_area_sqm": 0.0,
-                    "building_total_clipped_area_sqft": 0.0,
                     "building_confidence": 1.0,
                     "primary_building_area_sqm": 0.0,
-                    "primary_building_area_sqft": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
-                    "primary_building_clipped_area_sqft": 0.0,
                     "primary_building_confidence": 1.0,
                     "aoi_id": "0_2",
                     "mesh_date": "2020-02-27",
@@ -342,14 +310,10 @@ class TestParcels:
                     "building_present": "N",
                     "building_count": 0,
                     "building_total_area_sqm": 0.0,
-                    "building_total_area_sqft": 0,
                     "building_total_clipped_area_sqm": 0.0,
-                    "building_total_clipped_area_sqft": 0.0,
                     "building_confidence": 1.0,
                     "primary_building_area_sqm": 0.0,
-                    "primary_building_area_sqft": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
-                    "primary_building_clipped_area_sqft": 0.0,
                     "primary_building_confidence": 1.0,
                     "aoi_id": "0_3",
                     "mesh_date": "2020-02-27",
@@ -358,14 +322,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 4,
                     "building_total_area_sqm": 1080.3999999999999,
-                    "building_total_area_sqft": 11629,
                     "building_total_clipped_area_sqm": 669.9,
-                    "building_total_clipped_area_sqft": 7210.8,
                     "building_confidence": 0.9999999989086064,
                     "primary_building_area_sqm": 361.8,
-                    "primary_building_area_sqft": 3894.0,
                     "primary_building_clipped_area_sqm": 361.8,
-                    "primary_building_clipped_area_sqft": 3894.3,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "1_0",
                     "mesh_date": "2020-02-27",
@@ -374,14 +334,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 7,
                     "building_total_area_sqm": 941.0,
-                    "building_total_area_sqft": 10128,
                     "building_total_clipped_area_sqm": 661.3,
-                    "building_total_clipped_area_sqft": 7118.1,
                     "building_confidence": 0.9999999999998976,
                     "primary_building_area_sqm": 332.7,
-                    "primary_building_area_sqft": 3581.0,
                     "primary_building_clipped_area_sqm": 316.5,
-                    "primary_building_clipped_area_sqft": 3406.3,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "1_1",
                     "mesh_date": "2020-02-27",
@@ -390,14 +346,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 5,
                     "building_total_area_sqm": 1272.8,
-                    "building_total_area_sqft": 13700,
                     "building_total_clipped_area_sqm": 643.2,
-                    "building_total_clipped_area_sqft": 6923.3,
                     "building_confidence": 0.999999999998721,
                     "primary_building_area_sqm": 261.8,
-                    "primary_building_area_sqft": 2818.0,
                     "primary_building_clipped_area_sqm": 255.4,
-                    "primary_building_clipped_area_sqft": 2748.7,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "1_2",
                     "mesh_date": "2020-02-27",
@@ -406,14 +358,10 @@ class TestParcels:
                     "building_present": "N",
                     "building_count": 0,
                     "building_total_area_sqm": 0.0,
-                    "building_total_area_sqft": 0,
                     "building_total_clipped_area_sqm": 0.0,
-                    "building_total_clipped_area_sqft": 0.0,
                     "building_confidence": 1.0,
                     "primary_building_area_sqm": 0.0,
-                    "primary_building_area_sqft": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
-                    "primary_building_clipped_area_sqft": 0.0,
                     "primary_building_confidence": 1.0,
                     "aoi_id": "1_3",
                     "mesh_date": "2020-02-27",
@@ -422,14 +370,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 5,
                     "building_total_area_sqm": 882.0,
-                    "building_total_area_sqft": 9492,
                     "building_total_clipped_area_sqm": 724.2,
-                    "building_total_clipped_area_sqft": 7794.7,
                     "building_confidence": 0.9999999999999147,
                     "primary_building_area_sqm": 315.7,
-                    "primary_building_area_sqft": 3398.0,
                     "primary_building_clipped_area_sqm": 309.0,
-                    "primary_building_clipped_area_sqft": 3326.3,
                     "primary_building_confidence": 0.998046875,
                     "aoi_id": "2_0",
                     "mesh_date": "2020-02-27",
@@ -438,14 +382,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 4,
                     "building_total_area_sqm": 528.7,
-                    "building_total_area_sqft": 5692,
                     "building_total_clipped_area_sqm": 492.1,
-                    "building_total_clipped_area_sqft": 5297.0,
                     "building_confidence": 0.9999999985593604,
                     "primary_building_area_sqm": 172.1,
-                    "primary_building_area_sqft": 1853.0,
                     "primary_building_clipped_area_sqm": 170.6,
-                    "primary_building_clipped_area_sqft": 1836.8,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "2_1",
                     "mesh_date": "2020-02-27",
@@ -454,14 +394,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 2,
                     "building_total_area_sqm": 704.2,
-                    "building_total_area_sqft": 7579,
                     "building_total_clipped_area_sqm": 441.0,
-                    "building_total_clipped_area_sqft": 4747.0,
                     "building_confidence": 0.9999427795410156,
                     "primary_building_area_sqm": 512.9,
-                    "primary_building_area_sqft": 5520.0,
                     "primary_building_clipped_area_sqm": 314.6,
-                    "primary_building_clipped_area_sqft": 3386.8,
                     "primary_building_confidence": 0.994140625,
                     "aoi_id": "2_2",
                     "mesh_date": "2020-02-27",
@@ -470,14 +406,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 1,
                     "building_total_area_sqm": 3719.3,
-                    "building_total_area_sqft": 40034,
                     "building_total_clipped_area_sqm": 595.3,
-                    "building_total_clipped_area_sqft": 6407.8,
                     "building_confidence": 0.998046875,
                     "primary_building_area_sqm": 3719.3,
-                    "primary_building_area_sqft": 40034.0,
                     "primary_building_clipped_area_sqm": 595.3,
-                    "primary_building_clipped_area_sqft": 6407.8,
                     "primary_building_confidence": 0.998046875,
                     "aoi_id": "2_3",
                     "mesh_date": "2020-02-27",
@@ -486,14 +418,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 3,
                     "building_total_area_sqm": 1566.5000000000002,
-                    "building_total_area_sqft": 16862,
                     "building_total_clipped_area_sqm": 628.3,
-                    "building_total_clipped_area_sqft": 6763.2,
                     "building_confidence": 0.999999962747097,
                     "primary_building_area_sqm": 1059.2,
-                    "primary_building_area_sqft": 11402.0,
                     "primary_building_clipped_area_sqm": 300.1,
-                    "primary_building_clipped_area_sqft": 3230.4,
                     "primary_building_confidence": 0.990234375,
                     "aoi_id": "3_0",
                     "mesh_date": "2020-02-27",
@@ -502,14 +430,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 6,
                     "building_total_area_sqm": 1137.3,
-                    "building_total_area_sqft": 12241,
                     "building_total_clipped_area_sqm": 620.0,
-                    "building_total_clipped_area_sqft": 6673.4,
                     "building_confidence": 0.9999999999998777,
                     "primary_building_area_sqm": 150.1,
-                    "primary_building_area_sqft": 1615.0,
                     "primary_building_clipped_area_sqm": 150.1,
-                    "primary_building_clipped_area_sqft": 1615.2,
                     "primary_building_confidence": 0.986328125,
                     "aoi_id": "3_1",
                     "mesh_date": "2020-02-27",
@@ -518,14 +442,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 6,
                     "building_total_area_sqm": 1190.6,
-                    "building_total_area_sqft": 12817,
                     "building_total_clipped_area_sqm": 584.8,
-                    "building_total_clipped_area_sqft": 6294.2,
                     "building_confidence": 0.9999999999999942,
                     "primary_building_area_sqm": 256.3,
-                    "primary_building_area_sqft": 2759.0,
                     "primary_building_clipped_area_sqm": 247.9,
-                    "primary_building_clipped_area_sqft": 2667.9,
                     "primary_building_confidence": 0.998046875,
                     "aoi_id": "3_2",
                     "mesh_date": "2020-02-27",
@@ -534,14 +454,10 @@ class TestParcels:
                     "building_present": "Y",
                     "building_count": 1,
                     "building_total_area_sqm": 307.4,
-                    "building_total_area_sqft": 3309,
                     "building_total_clipped_area_sqm": 72.0,
-                    "building_total_clipped_area_sqft": 774.6,
                     "building_confidence": 0.990234375,
                     "primary_building_area_sqm": 307.4,
-                    "primary_building_area_sqft": 3309.0,
                     "primary_building_clipped_area_sqm": 72.0,
-                    "primary_building_clipped_area_sqft": 774.6,
                     "primary_building_confidence": 0.990234375,
                     "aoi_id": "3_3",
                     "mesh_date": "2020-02-27",
@@ -549,3 +465,89 @@ class TestParcels:
             ]
         )
         pd.testing.assert_frame_equal(df, expected)
+
+    def test_nearest_primary(self):
+        parcels_gdf = gpd.GeoDataFrame(
+            [
+                {
+                    "aoi_id": 0,
+                    "lat": 42.0005,
+                    "lon": -114.9997,
+                    "geometry": loads("POLYGON ((-114.999 42, -114.999 42.001, -115 42.001, -115 42, -114.999 42))"),
+                }
+            ],
+            geometry="geometry",
+        )
+        parcels_gdf = parcels_gdf.set_crs("EPSG:4326")
+        features_gdf = gpd.GeoDataFrame(
+            [
+                # This should be the primary
+                {
+                    "feature_id": 0,
+                    "aoi_id": 0,
+                    "confidence": 0.94,
+                    "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
+                    "mesh_date": "2021-10-10",
+                    "geometry": loads(
+                        "POLYGON ((-114.9996 42.0001, -114.9996 42.00040000000001, -114.9999 42.00040000000001, -114.9999 42.0001, -114.9996 42.0001))"
+                    ),
+                },
+                # Larger, but further away
+                {
+                    "feature_id": 1,
+                    "aoi_id": 0,
+                    "confidence": 0.92,
+                    "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
+                    "mesh_date": "2021-10-10",
+                    "geometry": loads(
+                        "POLYGON ((-114.9991 42.0001, -114.9991 42.00040000000001, -114.9995 42.00040000000001, -114.9995 42.0001, -114.9991 42.0001))"
+                    ),
+                },
+                # Closer, but low confidence
+                {
+                    "feature_id": 2,
+                    "aoi_id": 0,
+                    "confidence": 0.85,
+                    "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
+                    "mesh_date": "2021-10-10",
+                    "geometry": loads(
+                        "POLYGON ((-114.9996 42.0005, -114.9996 42.00056, -114.9999 42.00056, -114.9999 42.0005, -114.9996 42.0005))"
+                    ),
+                },
+            ]
+        )
+        features_gdf = features_gdf.set_crs("EPSG:4326")
+        features_gdf = features_gdf.to_crs("esri:102003")
+        features_gdf["area_sqm"] = features_gdf.area
+        features_gdf["area_sqft"] = features_gdf.area * 3.28084
+        features_gdf = features_gdf.to_crs("EPSG:4326")
+
+        classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
+
+        features_gdf = parcels.filter_features_in_parcels(parcels_gdf, features_gdf, "au")
+
+        rollup_df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            "us",
+            "nearest",
+        )
+
+        expected = pd.DataFrame(
+            [
+                {
+                    "pool_present": "Y",
+                    "pool_count": 3,
+                    "pool_total_area_sqft": 6883.735654712847,
+                    "pool_total_clipped_area_sqft": 22584.4,
+                    "pool_confidence": 0.99928,
+                    "primary_pool_area_sqft": 2717.2650041320935,
+                    "primary_pool_clipped_area_sqft": 8914.9,
+                    "primary_pool_confidence": 0.94,
+                    "aoi_id": 0,
+                    "mesh_date": "2021-10-10",
+                }
+            ]
+        )
+        pd.testing.assert_frame_equal(rollup_df, expected)

@@ -8,13 +8,23 @@ import shapely.wkb
 import shapely.wkt
 import stringcase
 
-from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
-                                  CLASSES_WITH_NO_PRIMARY_FEATURE,
-                                  CONSTRUCTION_ID, LAT_LONG_CRS,
-                                  METERS_TO_FEET, POOL_ID, ROOF_ID, SOLAR_ID,
-                                  SQUARED_METERS_TO_SQUARED_FEET,
-                                  TRAMPOLINE_ID, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME,
-                                  IMPERIAL_COUNTRIES)
+from nearmap_ai.constants import (
+    AOI_ID_COLUMN_NAME,
+    AREA_CRS,
+    BUILDING_ID,
+    CLASSES_WITH_NO_PRIMARY_FEATURE,
+    CONSTRUCTION_ID,
+    LAT_LONG_CRS,
+    METERS_TO_FEET,
+    POOL_ID,
+    ROOF_ID,
+    SOLAR_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
+    TRAMPOLINE_ID,
+    LAT_PRIMARY_COL_NAME,
+    LON_PRIMARY_COL_NAME,
+    IMPERIAL_COUNTRIES,
+)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -58,11 +68,11 @@ DEFAULT_FILTERING = {
 
 
 def read_from_file(
-        path: Path,
-        drop_empty: Optional[bool] = True,
-        id_column: Optional[str] = "id",
-        source_crs: Optional[str] = LAT_LONG_CRS,
-        target_crs: Optional[str] = LAT_LONG_CRS,
+    path: Path,
+    drop_empty: Optional[bool] = True,
+    id_column: Optional[str] = "id",
+    source_crs: Optional[str] = LAT_LONG_CRS,
+    target_crs: Optional[str] = LAT_LONG_CRS,
 ) -> gpd.GeoDataFrame:
     """
     Read parcel data from a file. Supported formats are:
@@ -133,10 +143,10 @@ def read_from_file(
 
 
 def filter_features_in_parcels(
-        parcels_gdf: gpd.GeoDataFrame,
-        features_gdf: gpd.GeoDataFrame,
-        country: str,
-        config: Optional[dict] = None,
+    parcels_gdf: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+    country: str,
+    config: Optional[dict] = None,
 ) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
@@ -166,8 +176,9 @@ def filter_features_in_parcels(
     projected_parcels_gdf = parcels_gdf.to_crs(AREA_CRS[country])
 
     # Merge parcels and features
-    gdf = projected_features_gdf.merge(projected_parcels_gdf, on=AOI_ID_COLUMN_NAME, how="left",
-                                       suffixes=["_feature", "_aoi"])
+    gdf = projected_features_gdf.merge(
+        projected_parcels_gdf, on=AOI_ID_COLUMN_NAME, how="left", suffixes=["_feature", "_aoi"]
+    )
     # Calculate the area of each feature that falls within the parcel
     gdf["intersection_area"] = gdf.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
     # Calculate the ratio of a feature that falls within the parcel
@@ -237,8 +248,14 @@ def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
     return flattened
 
 
-def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, country: str, primary_decision: str,
-                       primary_lat: float = None, primary_lon: float = None) -> dict:
+def feature_attributes(
+    features_gdf: gpd.GeoDataFrame,
+    classes_df: pd.DataFrame,
+    country: str,
+    primary_decision: str,
+    primary_lat: float = None,
+    primary_lon: float = None,
+) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
 
@@ -288,15 +305,23 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
                     primary_feature = class_features_gdf.loc[class_features_gdf.intersection_area.idxmax()]
                 elif primary_decision == "nearest":
                     primary_point = shapely.geometry.Point(primary_lon, primary_lat)
-                    primary_point = gpd.GeoSeries(primary_point).set_crs('EPSG:4326').to_crs('EPSG:3857')[0]
-                    class_features_gdf_top = class_features_gdf.query('confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH')
+                    primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
+                    class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
 
                     if len(class_features_gdf_top) > 0:
-                        nearest_feature_idx = class_features_gdf_top.set_geometry('geometry_feature').to_crs(
-                            'EPSG:3857').distance(primary_point).idxmin()
+                        nearest_feature_idx = (
+                            class_features_gdf_top.set_geometry("geometry_feature")
+                            .to_crs("EPSG:3857")
+                            .distance(primary_point)
+                            .idxmin()
+                        )
                     else:
-                        nearest_feature_idx = class_features_gdf.set_geometry('geometry_feature').to_crs(
-                            'EPSG:3857').distance(primary_point).idxmin()
+                        nearest_feature_idx = (
+                            class_features_gdf.set_geometry("geometry_feature")
+                            .to_crs("EPSG:3857")
+                            .distance(primary_point)
+                            .idxmin()
+                        )
                     primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
                 else:
                     raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
@@ -334,11 +359,11 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
 
 
 def parcel_rollup(
-        parcels_gdf: gpd.GeoDataFrame,
-        features_gdf: gpd.GeoDataFrame,
-        classes_df: pd.DataFrame,
-        country: str,
-        primary_decision: str,
+    parcels_gdf: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+    classes_df: pd.DataFrame,
+    country: str,
+    primary_decision: str,
 ):
     """
     Summarize feature data to parcel attributes.
@@ -361,19 +386,29 @@ def parcel_rollup(
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
-        primary_lon = group[LON_PRIMARY_COL_NAME].unique()
-        if len(primary_lon) == 1:
-            primary_lon = primary_lon[0]
+        if primary_decision == "nearest":
+            primary_lon = group[LON_PRIMARY_COL_NAME].unique()
+            if len(primary_lon) == 1:
+                primary_lon = primary_lon[0]
+            else:
+                raise ValueError("More than one primary longitude for this query AOI")
+            primary_lat = group[LAT_PRIMARY_COL_NAME].unique()
+            if len(primary_lat) == 1:
+                primary_lat = primary_lat[0]
+            else:
+                raise ValueError("More than one primary latitude for this query AOI")
         else:
-            raise ValueError("More than one primary longitude for this query AOI")
-        primary_lat = group[LAT_PRIMARY_COL_NAME].unique()
-        if len(primary_lat) == 1:
-            primary_lat = primary_lat[0]
-        else:
-            raise ValueError("More than one primary latitude for this query AOI")
+            primary_lon = None
+            primary_lat = None
 
-        parcel = feature_attributes(group, classes_df, country=country, primary_decision=primary_decision,
-                                    primary_lat=primary_lat, primary_lon=primary_lon)
+        parcel = feature_attributes(
+            group,
+            classes_df,
+            country=country,
+            primary_decision=primary_decision,
+            primary_lat=primary_lat,
+            primary_lon=primary_lon,
+        )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
@@ -385,7 +420,9 @@ def parcel_rollup(
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", area_name, "intersection_area"]),
-            classes_df, country=country, primary_decision=primary_decision
+            classes_df,
+            country=country,
+            primary_decision=primary_decision,
         )
         parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
         rollups.append(parcel)
