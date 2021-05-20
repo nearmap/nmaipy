@@ -18,6 +18,7 @@ from nearmap_ai.constants import (AOI_ID_COLUMN_NAME, AREA_CRS, BUILDING_ID,
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
+PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 
 # All area values are in squared metres
 DEFAULT_FILTERING = {
@@ -279,7 +280,6 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
             parcel[f"{name}_confidence"] = 1.0
 
         # Select and produce results for the primary feature of each feature class
-        HIGH_CONF_THRESH = 0.9
         if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
             if len(class_features_gdf) > 0:
 
@@ -289,7 +289,7 @@ def feature_attributes(features_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame,
                 elif primary_decision == "nearest":
                     primary_point = shapely.geometry.Point(primary_lon, primary_lat)
                     primary_point = gpd.GeoSeries(primary_point).set_crs('EPSG:4326').to_crs('EPSG:3857')[0]
-                    class_features_gdf_top = class_features_gdf.query('confidence >= @HIGH_CONF_THRESH')
+                    class_features_gdf_top = class_features_gdf.query('confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH')
 
                     if len(class_features_gdf_top) > 0:
                         nearest_feature_idx = class_features_gdf_top.set_geometry('geometry_feature').to_crs(
