@@ -362,11 +362,15 @@ def parcel_rollup(
     # Loop over parcels with features in them
     for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
         primary_lon = group[LON_PRIMARY_COL_NAME].unique()
-        assert len(primary_lon) == 1
-        primary_lon = primary_lon[0]
+        if len(primary_lon) == 1:
+            primary_lon = primary_lon[0]
+        else:
+            raise ValueError("More than one primary longitude for this query AOI")
         primary_lat = group[LAT_PRIMARY_COL_NAME].unique()
-        assert len(primary_lat) == 1
-        primary_lat = primary_lat[0]
+        if len(primary_lat) == 1:
+            primary_lat = primary_lat[0]
+        else:
+            raise ValueError("More than one primary latitude for this query AOI")
 
         parcel = feature_attributes(group, classes_df, country=country, primary_decision=primary_decision,
                                     primary_lat=primary_lat, primary_lon=primary_lon)
