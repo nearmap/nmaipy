@@ -1,0 +1,17 @@
+version: '2'
+services:
+  nearmap_ai:
+    build: .
+    environment:
+      - API_KEY=${API_KEY}
+    volumes:
+      - ../data:/home/jovyan/data
+    entrypoint: [
+        "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
+        "--parcel-dir", "/home/jovyan/data/parcel_samples",
+        "--output-dir", "/home/jovyan/data/parcel_samples_rollup",
+        "--include-parcel-geometry",
+        "--packs", "solar", "building"
+        "--country", "us",
+        "--primary-decision", "largest_intersection"
+    ]
