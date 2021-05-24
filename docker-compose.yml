@@ -12,4 +12,6 @@ services:
         "--output-dir", "/home/jovyan/data/parcel_samples_rollup",
         "--include-parcel-geometry",
         "--packs", "solar", "building"
+        "--country", "us",
+        "--primary-decision", "largest_intersection"
     ]

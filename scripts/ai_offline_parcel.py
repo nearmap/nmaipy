@@ -12,7 +12,7 @@ import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import AREA_CRS
+from nearmap_ai.constants import AREA_CRS, AOI_ID_COLUMN_NAME
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -43,6 +43,13 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument(
+        "--primary-decision",
+        help="Primary feature decision method: largest_intersection|nearest",
+        type=str,
+        required=False,
+        default="largest_intersection",
+    )
+    parser.add_argument(
         "--workers",
         help="Number of processes",
         type=int,
@@ -53,6 +60,11 @@ def parse_arguments():
         "--include-parcel-geometry",
         help="If set, parcel geometries will be in the output",
         action="store_true",
+    )
+    parser.add_argument(
+        "--country",
+        help="Country code for area calculations (au, us, ca, nz)",
+        required=True,
     )
     return parser.parse_args()
 
@@ -69,13 +81,15 @@ def api_key(key_file: Optional[str] = None) -> str:
 
 
 def process_chunk(
-    chunk_id: str,
-    parcel_gdf: gpd.GeoDataFrame,
-    classes_df: pd.DataFrame,
-    output_dir: str,
-    key_file: str,
-    packs: Optional[List[str]] = None,
-    include_parcel_geometry: Optional[bool] = False,
+        chunk_id: str,
+        parcel_gdf: gpd.GeoDataFrame,
+        classes_df: pd.DataFrame,
+        output_dir: str,
+        key_file: str,
+        country: str,
+        packs: Optional[List[str]] = None,
+        include_parcel_geometry: Optional[bool] = False,
+        primary_decision: str = "largest_intersection",
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -88,6 +102,8 @@ def process_chunk(
         key_file: Path to API key file
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
+        country: The country code for area calcs (au, us, ca, nz)
+        primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
@@ -97,11 +113,8 @@ def process_chunk(
         return
 
     # Get additional parcel attributes from parcel geometry
-    parcel_gdf["latitude"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
-    parcel_gdf["longitude"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
-    parcel_temp_gdf = parcel_gdf.to_crs(AREA_CRS["au"])
-    parcel_gdf["parcel_area_sqm"] = parcel_temp_gdf.area.round(1)
-    del parcel_temp_gdf
+    parcel_gdf["query_aoi_lat"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
+    parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
@@ -111,21 +124,21 @@ def process_chunk(
         return
 
     # Filter features
-    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country="au")
+    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
 
     # Create rollup
-    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df)
+    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision)
 
     # Put it all together and save
-    final_df = metadata_df.merge(rollup_df, on="aoi_id").merge(parcel_gdf, on="aoi_id")
+    final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
     meta_data_columns = ["system_version", "link", "date"]
     columns = (
-        parcel_columns
-        + meta_data_columns
-        + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
+            parcel_columns
+            + meta_data_columns
+            + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
     )
     if include_parcel_geometry:
         columns.append("geometry")
@@ -163,10 +176,14 @@ def main():
         parcels_gdf = parcels.read_from_file(f)
 
         jobs = []
+
+        # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
+        num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
+
         if args.workers > 1:
             with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
                 # Chunk parcels and send chunks to process pool
-                for i, batch in enumerate(np.array_split(parcels_gdf, len(parcels_gdf) // CHUNK_SIZE)):
+                for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                     jobs.append(
                         executor.submit(
@@ -176,16 +193,19 @@ def main():
                             classes_df,
                             args.output_dir,
                             args.key_file,
+                            args.country,
                             args.packs,
                             args.include_parcel_geometry,
+                            args.primary_decision,
                         )
                     )
                 [j.result() for j in tqdm(jobs)]
         else:
             # If we only have one worker, run in main process
-            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, len(parcels_gdf) // CHUNK_SIZE))):
+            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file)
+                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file, args.country, args.packs,
+                              args.include_parcel_geometry, args.primary_decision,)
 
         # Combine chunks and save
         data = []

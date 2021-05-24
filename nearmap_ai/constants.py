@@ -1,5 +1,7 @@
 # Default columns
 AOI_ID_COLUMN_NAME = "aoi_id"
+LAT_PRIMARY_COL_NAME = "lat"
+LON_PRIMARY_COL_NAME = "lon"
 
 # Projections
 LAT_LONG_CRS = "WGS 84"
@@ -9,6 +11,8 @@ AREA_CRS = {
     "nz": "epsg:3577",
     "us": "esri:102003",
 }
+
+IMPERIAL_COUNTRIES = ["us"]
 
 # Units
 METERS_TO_FEET = 3.28084
