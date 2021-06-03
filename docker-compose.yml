@@ -4,14 +4,18 @@ services:
     build: .
     environment:
       - API_KEY=${API_KEY}
+      - GRANT_SUDO=yes
+      - GEN_CERT=yes
+      - JUPYTER_LAB_ENABLE=yes
     volumes:
-      - ../data:/home/jovyan/data
+      - ./data:/home/jovyan/data
     entrypoint: [
         "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
         "--parcel-dir", "/home/jovyan/data/parcel_samples",
         "--output-dir", "/home/jovyan/data/parcel_samples_rollup",
         "--include-parcel-geometry",
-        "--packs", "solar", "building"
+        "--packs", "building", "building_char", "roof_char", "roof_cond", "pool", "solar", "trampoline", "construction", "vegetation", "surfaces",
         "--country", "us",
-        "--primary-decision", "largest_intersection"
+        "--primary-decision", "largest_intersection",
+        "--workers",  "10",
     ]

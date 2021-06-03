@@ -19,7 +19,7 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
 
-from nearmap_ai.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
+from nearmap_ai.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME
 
 
 class AoiNotFound(Exception):
@@ -425,6 +425,12 @@ class FeatureApi:
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
             jobs = []
             for _, row in gdf.iterrows():
+
+                # Overwrite blanket since/until dates with per request since/until if columns are present
+                if SINCE_COL_NAME in row:
+                    since = row[SINCE_COL_NAME]
+                if UNTIL_COL_NAME in row:
+                    until = row[UNTIL_COL_NAME]
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,
