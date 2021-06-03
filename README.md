@@ -28,3 +28,9 @@ Start a notebook server in the Docker container:
 jupyter notebook --port=8888 --no-browser --ip=* --allow-root
 ```
 You should now be able to access the notebook server at `localhost:8888` (get the token in the notebook logs).
+
+To run batches you can use docker-compose. Update the variables in `docker-compose.yaml` and run:
+
+```
+export NB_UID=$(id -u) && export NB_GID=$(id -g) && docker-compose build && docker-compose up --remove-orphans
+```
