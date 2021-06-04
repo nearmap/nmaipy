@@ -4,14 +4,19 @@ services:
     build: .
     environment:
       - API_KEY=${API_KEY}
+      - NB_UID=${NB_UID}
+      - NB_GID=${NB_GID}
+      - GRANT_SUDO=yes
+    user: root
     volumes:
-      - ../data:/home/jovyan/data
+      - <local path to data directory>:/home/jovyan/data
     entrypoint: [
+        "start.sh",
         "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
-        "--parcel-dir", "/home/jovyan/data/parcel_samples",
-        "--output-dir", "/home/jovyan/data/parcel_samples_rollup",
+        "--parcel-dir", "/home/jovyan/data/<path to parcels>",
+        "--output-dir", "/home/jovyan/data/<path to results>",
         "--include-parcel-geometry",
-        "--packs", "solar", "building"
-        "--country", "us",
+        "--packs", "pool",
+        "--country", "au",
         "--primary-decision", "largest_intersection"
     ]
