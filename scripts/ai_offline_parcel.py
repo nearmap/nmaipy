@@ -12,7 +12,7 @@ import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import AREA_CRS, AOI_ID_COLUMN_NAME
+from nearmap_ai.constants import AREA_CRS, AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -174,6 +174,13 @@ def main():
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f)
+
+        # Print out info around what is being inferred from column names:
+        if SINCE_COL_NAME:
+            print(f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.')
+        if UNTIL_COL_NAME:
+            print(f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.')
+
 
         jobs = []
 

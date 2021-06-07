@@ -403,8 +403,8 @@ class FeatureApi:
         self,
         gdf: gpd.GeoDataFrame,
         packs: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
+        since_bulk: Optional[str] = None,
+        until_bulk: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -412,8 +412,8 @@ class FeatureApi:
         Args:
             gdf: GeoDataFrame with AOIs
             packs: List of AI packs
-            since: Earliest date to pull data for
-            until: Latest date to pull data for
+            since_bulk: Earliest date to pull data for, applied across all Query AOIs.
+            until_bulk: Latest date to pull data for, applied across all Query AOIs.
 
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
@@ -427,10 +427,14 @@ class FeatureApi:
             for _, row in gdf.iterrows():
 
                 # Overwrite blanket since/until dates with per request since/until if columns are present
+                since = since_bulk
                 if SINCE_COL_NAME in row:
-                    since = row[SINCE_COL_NAME]
+                    if isinstance(row[SINCE_COL_NAME], str):
+                        since = row[SINCE_COL_NAME]
+                until = until_bulk
                 if UNTIL_COL_NAME in row:
-                    until = row[UNTIL_COL_NAME]
+                    if isinstance(row[UNTIL_COL_NAME], str):
+                        until = row[UNTIL_COL_NAME]
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,
