@@ -66,6 +66,16 @@ def parse_arguments():
         help="Country code for area calculations (au, us, ca, nz)",
         required=True,
     )
+    parser.add_argument(
+        "--since",
+        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
+        required=False,
+    )
+    parser.add_argument(
+        "--until",
+        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'until' column in data takes precedent.",
+        required=False,
+    )
     return parser.parse_args()
 
 
@@ -176,9 +186,9 @@ def main():
         parcels_gdf = parcels.read_from_file(f)
 
         # Print out info around what is being inferred from column names:
-        if SINCE_COL_NAME:
+        if SINCE_COL_NAME in parcels_gdf:
             print(f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.')
-        if UNTIL_COL_NAME:
+        if UNTIL_COL_NAME in parcels_gdf:
             print(f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.')
 
 
