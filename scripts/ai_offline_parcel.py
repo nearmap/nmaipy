@@ -17,7 +17,7 @@ from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
 PROCESSES = 20
-THREADS = 4
+THREADS = 8
 
 
 def parse_arguments():
@@ -100,6 +100,8 @@ def process_chunk(
         packs: Optional[List[str]] = None,
         include_parcel_geometry: Optional[bool] = False,
         primary_decision: str = "largest_intersection",
+        since_bulk: str = None,
+        until_bulk: str = None,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -128,7 +130,7 @@ def process_chunk(
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
-    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=packs)
+    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs)
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
@@ -188,9 +190,12 @@ def main():
         # Print out info around what is being inferred from column names:
         if SINCE_COL_NAME in parcels_gdf:
             print(f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.')
+        elif args.since is not None:
+            print(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
         if UNTIL_COL_NAME in parcels_gdf:
             print(f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.')
-
+        elif args.until is not None:
+            print(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
 
         jobs = []
 
@@ -214,6 +219,8 @@ def main():
                             args.packs,
                             args.include_parcel_geometry,
                             args.primary_decision,
+                            args.since,
+                            args.until,
                         )
                     )
                 [j.result() for j in tqdm(jobs)]
@@ -222,7 +229,7 @@ def main():
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                 process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file, args.country, args.packs,
-                              args.include_parcel_geometry, args.primary_decision,)
+                              args.include_parcel_geometry, args.primary_decision, args.since, args.until)
 
         # Combine chunks and save
         data = []
