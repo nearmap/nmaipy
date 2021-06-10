@@ -180,7 +180,11 @@ def filter_features_in_parcels(
         projected_parcels_gdf, on=AOI_ID_COLUMN_NAME, how="left", suffixes=["_feature", "_aoi"]
     )
     # Calculate the area of each feature that falls within the parcel
-    gdf["intersection_area"] = gdf.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
+    if len(gdf) == 0:
+        # Pandas infers apply return type, so if there is nothing to infer it from we get issues.
+        gdf["intersection_area"] = []
+    else:
+        gdf["intersection_area"] = gdf.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf.intersection_area / gdf.area_sqm
 
