@@ -1,7 +1,6 @@
 import concurrent.futures
 import hashlib
 import json
-import logging
 import os
 import threading
 import time
@@ -19,7 +18,10 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
 
-from nearmap_ai.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
+from nearmap_ai import log
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME
+
+logger = log.get_logger()
 
 
 class AoiNotFound(Exception):
@@ -103,7 +105,7 @@ class FeatureApi:
         t1 = time.monotonic()
         response = self._session.get(request_string)
         response_time_ms = (time.monotonic() - t1) * 1e3
-        logging.info(f"{response_time_ms:.1f}ms response time for packs.json")
+        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         # Check for errors
         if not response.ok:
             # Fail hard for unexpected errors
@@ -125,7 +127,7 @@ class FeatureApi:
         t1 = time.monotonic()
         response = self._session.get(request_string)
         response_time_ms = (time.monotonic() - t1) * 1e3
-        logging.info(f"{response_time_ms:.1f}ms response time for classes.json")
+        logger.debug(f"{response_time_ms:.1f}ms response time for classes.json")
         # Check for errors
         if not response.ok:
             # Fail hard for unexpected errors
@@ -277,7 +279,7 @@ class FeatureApi:
         if self.cache_dir is not None and not self.overwrite_cache:
             cache_path = self._request_cache_path(request_string)
             if cache_path.exists():
-                logging.info(f"Retrieving payload from cache")
+                logger.debug(f"Retrieving payload from cache")
                 with open(cache_path, "r") as f:
                     return json.load(f)
 
@@ -285,7 +287,7 @@ class FeatureApi:
         t1 = time.monotonic()
         response = self._session.get(request_string)
         response_time_ms = (time.monotonic() - t1) * 1e3
-        logging.info(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+        logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
         # Check for errors
         self._handle_response_errors(response, request_string)
         # Parse results
@@ -403,8 +405,8 @@ class FeatureApi:
         self,
         gdf: gpd.GeoDataFrame,
         packs: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
+        since_bulk: Optional[str] = None,
+        until_bulk: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -412,8 +414,8 @@ class FeatureApi:
         Args:
             gdf: GeoDataFrame with AOIs
             packs: List of AI packs
-            since: Earliest date to pull data for
-            until: Latest date to pull data for
+            since_bulk: Earliest date to pull data for, applied across all Query AOIs.
+            until_bulk: Latest date to pull data for, applied across all Query AOIs.
 
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
@@ -425,6 +427,17 @@ class FeatureApi:
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
             jobs = []
             for _, row in gdf.iterrows():
+
+                # Overwrite blanket since/until dates with per request since/until if columns are present
+                since = since_bulk
+                if SINCE_COL_NAME in row:
+                    if isinstance(row[SINCE_COL_NAME], str):
+                        since = row[SINCE_COL_NAME]
+                until = until_bulk
+                if UNTIL_COL_NAME in row:
+                    if isinstance(row[UNTIL_COL_NAME], str):
+                        until = row[UNTIL_COL_NAME]
+
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,

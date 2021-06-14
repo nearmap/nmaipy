@@ -86,9 +86,39 @@ class TestFeatureAPI:
         # Check error
         assert len(errors_df) == 1
         assert errors_df.iloc[0].aoi_id == "error_case"
-        # We get 3 buildings
+        # We get only buildings
         assert len(features_gdf) == 69
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
+
+    def test_get_bulk_with_data_dates(self, cache_directory: Path, sydney_aoi: Polygon):
+        aois = []
+        for i in range(4):
+            for j in range(4):
+                aois.append(
+                    {
+                        "aoi_id": f"{i}_{j}",
+                        "since": "2020-01-01",
+                        "until": "2020-03-01",
+                        "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j),
+                    }
+                )
+
+        aoi_gdf = gpd.GeoDataFrame(aois)
+        packs = ["building"]
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, packs)
+        # Check metadata
+        assert len(metadata_df) == 16
+        assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
+
+        # We get only buildings
+        assert len(features_gdf) == 70
+        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 70
+        # The dates are within range
+        for row in features_gdf.itertuples():
+            print(row.survey_date)
+            assert "2020-01-01" <= row.survey_date <= "2020-03-01"
 
     def test_multipolygon(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))

@@ -11,13 +11,15 @@ import pandas as pd
 import shapely.wkt
 from tqdm import tqdm
 
-from nearmap_ai import parcels
-from nearmap_ai.constants import AREA_CRS, AOI_ID_COLUMN_NAME
+from nearmap_ai import log, parcels
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
 PROCESSES = 20
-THREADS = 4
+THREADS = 8
+
+logger = log.get_logger()
 
 
 def parse_arguments():
@@ -66,6 +68,19 @@ def parse_arguments():
         help="Country code for area calculations (au, us, ca, nz)",
         required=True,
     )
+    parser.add_argument(
+        "--since",
+        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
+        required=False,
+        type=str,
+    )
+    parser.add_argument(
+        "--until",
+        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'until' column in data takes precedent.",
+        required=False,
+        type=str,
+    )
+    parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     return parser.parse_args()
 
 
@@ -81,15 +96,17 @@ def api_key(key_file: Optional[str] = None) -> str:
 
 
 def process_chunk(
-        chunk_id: str,
-        parcel_gdf: gpd.GeoDataFrame,
-        classes_df: pd.DataFrame,
-        output_dir: str,
-        key_file: str,
-        country: str,
-        packs: Optional[List[str]] = None,
-        include_parcel_geometry: Optional[bool] = False,
-        primary_decision: str = "largest_intersection",
+    chunk_id: str,
+    parcel_gdf: gpd.GeoDataFrame,
+    classes_df: pd.DataFrame,
+    output_dir: str,
+    key_file: str,
+    country: str,
+    packs: Optional[List[str]] = None,
+    include_parcel_geometry: Optional[bool] = False,
+    primary_decision: str = "largest_intersection",
+    since_bulk: str = None,
+    until_bulk: str = None,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -104,6 +121,8 @@ def process_chunk(
         include_parcel_geometry: Set to true to include parcel geometries in final output
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
+        since_bulk: Earliest date used to pull features
+        until_bulk: LAtest date used to pull features
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
@@ -118,7 +137,9 @@ def process_chunk(
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
-    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(parcel_gdf, packs=packs)
+    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+        parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
+    )
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
@@ -127,7 +148,9 @@ def process_chunk(
     features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
 
     # Create rollup
-    rollup_df = parcels.parcel_rollup(parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision)
+    rollup_df = parcels.parcel_rollup(
+        parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision
+    )
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -136,9 +159,9 @@ def process_chunk(
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
     meta_data_columns = ["system_version", "link", "date"]
     columns = (
-            parcel_columns
-            + meta_data_columns
-            + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
+        parcel_columns
+        + meta_data_columns
+        + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
     )
     if include_parcel_geometry:
         columns.append("geometry")
@@ -151,6 +174,9 @@ def process_chunk(
 
 def main():
     args = parse_arguments()
+    # Configure logger
+    log.configure_logger(args.log_level)
+    logger.info("Starting parcel rollup")
     # Path setup
     parcel_paths = []
     for file_type in ["*.parquet", "*.csv", "*.gpkg", "*.geojson"]:
@@ -167,13 +193,32 @@ def main():
 
     # Loop over parcel files
     for f in parcel_paths:
-        print(f)
+        logger.info(f"Processing parcel file {f}")
         # If output exists, skip
         outpath = final_path / f"{f.stem}.csv"
         if outpath.exists():
+            logger.info("Output already exist, skipping ({outpath})")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f)
+
+        # Print out info around what is being inferred from column names:
+        if SINCE_COL_NAME in parcels_gdf:
+            logger.info(
+                f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
+            )
+        elif args.since is not None:
+            logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
+        else:
+            logger.info("No earliest date will used")
+        if UNTIL_COL_NAME in parcels_gdf:
+            logger.info(
+                f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
+            )
+        elif args.until is not None:
+            logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
+        else:
+            logger.info("No latest date will used")
 
         jobs = []
 
@@ -197,6 +242,8 @@ def main():
                             args.packs,
                             args.include_parcel_geometry,
                             args.primary_decision,
+                            args.since,
+                            args.until,
                         )
                     )
                 [j.result() for j in tqdm(jobs)]
@@ -204,8 +251,19 @@ def main():
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                process_chunk(chunk_id, batch, classes_df, args.output_dir, args.key_file, args.country, args.packs,
-                              args.include_parcel_geometry, args.primary_decision,)
+                process_chunk(
+                    chunk_id,
+                    batch,
+                    classes_df,
+                    args.output_dir,
+                    args.key_file,
+                    args.country,
+                    args.packs,
+                    args.include_parcel_geometry,
+                    args.primary_decision,
+                    args.since,
+                    args.until,
+                )
 
         # Combine chunks and save
         data = []
@@ -216,6 +274,7 @@ def main():
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)
+        logger.info(f"Save data to {outpath}")
 
 
 if __name__ == "__main__":

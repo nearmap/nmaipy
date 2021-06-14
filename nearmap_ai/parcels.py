@@ -14,16 +14,16 @@ from nearmap_ai.constants import (
     BUILDING_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
     CONSTRUCTION_ID,
+    IMPERIAL_COUNTRIES,
     LAT_LONG_CRS,
+    LAT_PRIMARY_COL_NAME,
+    LON_PRIMARY_COL_NAME,
     METERS_TO_FEET,
     POOL_ID,
     ROOF_ID,
     SOLAR_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     TRAMPOLINE_ID,
-    LAT_PRIMARY_COL_NAME,
-    LON_PRIMARY_COL_NAME,
-    IMPERIAL_COUNTRIES,
 )
 
 TRUE_STRING = "Y"
@@ -180,7 +180,13 @@ def filter_features_in_parcels(
         projected_parcels_gdf, on=AOI_ID_COLUMN_NAME, how="left", suffixes=["_feature", "_aoi"]
     )
     # Calculate the area of each feature that falls within the parcel
-    gdf["intersection_area"] = gdf.apply(lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1)
+    if len(gdf) == 0:
+        # Pandas infers apply return type, so if there is nothing to infer it from we get issues.
+        gdf["intersection_area"] = []
+    else:
+        gdf["intersection_area"] = gdf.apply(
+            lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
+        )
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf.intersection_area / gdf.area_sqm
 
