@@ -4,6 +4,7 @@ import os
 import random
 from pathlib import Path
 from typing import List, Optional
+import json
 
 import geopandas as gpd
 import numpy as np
@@ -127,6 +128,7 @@ def process_chunk(
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
+    outfile_features = chunk_path / f"features_{chunk_id}.geojson"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
     if outfile.exists():
         return
@@ -154,6 +156,14 @@ def process_chunk(
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
+    final_features_df = gpd.GeoDataFrame(
+        metadata_df
+        .merge(features_gdf, on=AOI_ID_COLUMN_NAME)
+        .merge(parcel_gdf.rename(columns=dict(geometry='aoi_geometry')), on=AOI_ID_COLUMN_NAME), # Drop the parcel geometry and use the object geometries instead
+        crs='EPSG:4326',
+    )
+    final_features_df['aoi_geometry'] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+    final_features_df['attributes'] = final_features_df.attributes.apply(lambda d: json.dumps(d))
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
@@ -170,6 +180,7 @@ def process_chunk(
 
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
+    final_features_df.to_file(outfile_features, driver='GeoJSON')
 
 
 def main():
@@ -198,6 +209,10 @@ def main():
         outpath = final_path / f"{f.stem}.csv"
         if outpath.exists():
             logger.info("Output already exist, skipping ({outpath})")
+            continue
+        outpath_features = final_path / f"{f.stem}_features.geojson"
+        if outpath_features.exists():
+            logger.info("Output already exist, skipping ({outpath_features})")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f)
@@ -267,10 +282,14 @@ def main():
 
         # Combine chunks and save
         data = []
+        data_features = []
         errors = []
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
         pd.concat(data).to_csv(outpath, index=False)
+        for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
+            data_features.append(gpd.read_file(cp))
+        pd.concat(data_features).to_file(outpath_features, driver='GeoJSON')
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)
