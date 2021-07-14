@@ -138,7 +138,6 @@ def read_from_file(
         raise ValueError(f"Duplicate IDs found for {id_column=}")
 
     parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
-    parcels_gdf.columns = [stringcase.snakecase(c) for c in parcels_gdf.columns]
     return parcels_gdf
 
 

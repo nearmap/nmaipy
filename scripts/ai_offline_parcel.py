@@ -180,7 +180,8 @@ def process_chunk(
 
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
-    final_features_df.to_file(outfile_features, driver='GeoJSON')
+    if len(final_features_df) > 0:
+        final_features_df.to_file(outfile_features, driver='GeoJSON')
 
 
 def main():
@@ -289,7 +290,8 @@ def main():
         pd.concat(data).to_csv(outpath, index=False)
         for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
             data_features.append(gpd.read_file(cp))
-        pd.concat(data_features).to_file(outpath_features, driver='GeoJSON')
+        if len(data_features) > 0:
+            pd.concat(data_features).to_file(outpath_features, driver='GeoJSON')
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)
