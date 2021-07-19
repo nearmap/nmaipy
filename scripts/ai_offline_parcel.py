@@ -216,8 +216,9 @@ def main():
     classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(args.packs)
 
     # Parse config
-    if 'config_file' in args:
-        config = args.config_file
+    if args.config_file is not None:
+        with open(args.config_file, 'r') as fp:
+            config = json.load(fp)
     else:
         config = None
 
