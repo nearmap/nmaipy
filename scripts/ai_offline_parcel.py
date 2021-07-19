@@ -38,6 +38,13 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument(
+        "--config-file",
+        help="Path to json file with config dictionary (min confidences, areas and ratios)",
+        type=str,
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
         "--packs",
         help="List of AI packs",
         type=str,
@@ -102,6 +109,7 @@ def process_chunk(
     classes_df: pd.DataFrame,
     output_dir: str,
     key_file: str,
+    config: dict,
     country: str,
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
@@ -118,6 +126,7 @@ def process_chunk(
         classes_df: Classes in output
         output_dir: Directory to save data to
         key_file: Path to API key file
+        config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
         country: The country code for area calcs (au, us, ca, nz)
@@ -147,7 +156,7 @@ def process_chunk(
         return
 
     # Filter features
-    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
+    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country, config=config)
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(
@@ -181,6 +190,9 @@ def process_chunk(
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
     if len(final_features_df) > 0:
+        if not include_parcel_geometry:
+            final_features_df = final_features_df.drop(columns=['aoi_geometry'])
+        final_features_df = final_features_df[~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())]
         final_features_df.to_file(outfile_features, driver='GeoJSON')
 
 
@@ -202,6 +214,12 @@ def main():
 
     # Get classes
     classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(args.packs)
+
+    # Parse config
+    if 'config_file' in args:
+        config = args.config_file
+    else:
+        config = None
 
     # Loop over parcel files
     for f in parcel_paths:
@@ -254,6 +272,7 @@ def main():
                             classes_df,
                             args.output_dir,
                             args.key_file,
+                            config,
                             args.country,
                             args.packs,
                             args.include_parcel_geometry,
@@ -273,6 +292,7 @@ def main():
                     classes_df,
                     args.output_dir,
                     args.key_file,
+                    config,
                     args.country,
                     args.packs,
                     args.include_parcel_geometry,
