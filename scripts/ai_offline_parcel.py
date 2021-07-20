@@ -13,7 +13,7 @@ import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import log, parcels
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -235,7 +235,7 @@ def main():
             logger.info("Output already exist, skipping ({outpath_features})")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f)
+        parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
 
         # Print out info around what is being inferred from column names:
         if SINCE_COL_NAME in parcels_gdf:
