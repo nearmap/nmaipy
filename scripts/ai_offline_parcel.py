@@ -190,10 +190,13 @@ def process_chunk(
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
     if len(final_features_df) > 0:
-        if not include_parcel_geometry:
-            final_features_df = final_features_df.drop(columns=['aoi_geometry'])
-        final_features_df = final_features_df[~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())]
-        final_features_df.to_file(outfile_features, driver='GeoJSON')
+        try:
+            if not include_parcel_geometry:
+                final_features_df = final_features_df.drop(columns=['aoi_geometry'])
+            final_features_df = final_features_df[~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())]
+            final_features_df.to_file(outfile_features, driver='GeoJSON')
+        except Exception:
+            logger.error(f'Failed to save features geojson for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}.')
 
 
 def main():
