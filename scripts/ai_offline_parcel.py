@@ -152,7 +152,9 @@ def process_chunk(
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
     )
-    logger.debug(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned.")
+    logger.debug(
+        f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
+    )
     if len(errors_df) > 0:
         logger.debug(errors_df.value_counts("message"))
     if len(errors_df) == len(parcel_gdf):
@@ -163,7 +165,9 @@ def process_chunk(
     len_all_features = len(features_gdf)
     features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country, config=config)
     len_filtered_features = len(features_gdf)
-    logger.debug(f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}")
+    logger.debug(
+        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}"
+    )
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(
@@ -192,21 +196,25 @@ def process_chunk(
 
     # Save features as geojson, shift the parcel geometry to "aoi_geometry"
     final_features_df = gpd.GeoDataFrame(
-        metadata_df
-        .merge(features_gdf, on=AOI_ID_COLUMN_NAME)
-        .merge(parcel_gdf.rename(columns=dict(geometry='aoi_geometry')), on=AOI_ID_COLUMN_NAME),
+        metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
+            parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
+        ),
         crs=API_CRS,
     )
-    final_features_df['aoi_geometry'] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
-    final_features_df['attributes'] = final_features_df.attributes.apply(json.dumps)
+    final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+    final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
     if len(final_features_df) > 0:
         try:
             if not include_parcel_geometry:
-                final_features_df = final_features_df.drop(columns=['aoi_geometry'])
-            final_features_df = final_features_df[~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())]
-            final_features_df.to_file(outfile_features, driver='GeoJSON')
+                final_features_df = final_features_df.drop(columns=["aoi_geometry"])
+            final_features_df = final_features_df[
+                ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
+            ]
+            final_features_df.to_file(outfile_features, driver="GeoJSON")
         except Exception:
-            logger.error(f'Failed to save features geojson for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}.')
+            logger.error(
+                f"Failed to save features geojson for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+            )
 
 
 def main():
@@ -230,7 +238,7 @@ def main():
 
     # Parse config
     if args.config_file is not None:
-        with open(args.config_file, 'r') as fp:
+        with open(args.config_file, "r") as fp:
             config = json.load(fp)
     else:
         config = None
@@ -325,7 +333,7 @@ def main():
         for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
             data_features.append(gpd.read_file(cp))
         if len(data_features) > 0:
-            pd.concat(data_features).to_file(outpath_features, driver='GeoJSON')
+            pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)
