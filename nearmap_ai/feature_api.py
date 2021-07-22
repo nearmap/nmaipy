@@ -32,7 +32,6 @@ class AIFeatureAPIError(Exception):
         self.request_string = request_string
 
 
-
 class FeatureApi:
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
@@ -201,7 +200,7 @@ class FeatureApi:
         Handle errors returned from the feature API
         """
         if not response.ok:
-            clean_request_string = request_string.replace(self.api_key, '...')
+            clean_request_string = request_string.replace(self.api_key, "...")
             raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
@@ -386,7 +385,13 @@ class FeatureApi:
             # Catch acceptable errors
             features_gdf = None
             metadata = None
-            error = {AOI_ID_COLUMN_NAME: aoi_id, "status_code": e.status_code, "message": e.message, "text": e.text, "request": e.request_string}
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": e.status_code,
+                "message": e.message,
+                "text": e.text,
+                "request": e.request_string,
+            }
 
         return features_gdf, metadata, error
 

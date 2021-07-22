@@ -238,6 +238,7 @@ def main():
 
     # Parse config
     if args.config_file is not None:
+        #TODO: Add validation of the config file in future to strictly enforce valid feature class ids.
         with open(args.config_file, "r") as fp:
             config = json.load(fp)
     else:
