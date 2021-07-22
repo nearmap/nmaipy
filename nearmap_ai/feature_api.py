@@ -273,7 +273,10 @@ class FeatureApi:
         t1 = time.monotonic()
         response = self._session.get(request_string)
         response_time_ms = (time.monotonic() - t1) * 1e3
-        logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+        if response.ok:
+            logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+        else:
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
         # Check for errors
         self._handle_response_errors(response, request_string)
         # Parse results

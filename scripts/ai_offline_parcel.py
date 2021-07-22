@@ -148,15 +148,22 @@ def process_chunk(
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
+    logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
     )
+    logger.debug(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned.")
+    if len(errors_df) > 0:
+        logger.debug(errors_df.value_counts("message"))
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
 
     # Filter features
+    len_all_features = len(features_gdf)
     features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country, config=config)
+    len_filtered_features = len(features_gdf)
+    logger.debug(f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}")
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(
@@ -165,14 +172,6 @@ def process_chunk(
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
-    final_features_df = gpd.GeoDataFrame(
-        metadata_df
-        .merge(features_gdf, on=AOI_ID_COLUMN_NAME)
-        .merge(parcel_gdf.rename(columns=dict(geometry='aoi_geometry')), on=AOI_ID_COLUMN_NAME), # Drop the parcel geometry and use the object geometries instead
-        crs='EPSG:4326',
-    )
-    final_features_df['aoi_geometry'] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
-    final_features_df['attributes'] = final_features_df.attributes.apply(lambda d: json.dumps(d))
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
@@ -187,8 +186,19 @@ def process_chunk(
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
 
+    logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
+
+    # Save features as geojson, shift the parcel geometry to "aoi_geometry"
+    final_features_df = gpd.GeoDataFrame(
+        metadata_df
+        .merge(features_gdf, on=AOI_ID_COLUMN_NAME)
+        .merge(parcel_gdf.rename(columns=dict(geometry='aoi_geometry')), on=AOI_ID_COLUMN_NAME),
+        crs='EPSG:4326',
+    )
+    final_features_df['aoi_geometry'] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+    final_features_df['attributes'] = final_features_df.attributes.apply(lambda d: json.dumps(d))
     if len(final_features_df) > 0:
         try:
             if not include_parcel_geometry:
@@ -231,11 +241,11 @@ def main():
         # If output exists, skip
         outpath = final_path / f"{f.stem}.csv"
         if outpath.exists():
-            logger.info("Output already exist, skipping ({outpath})")
+            logger.info(f"Output already exist, skipping ({outpath})")
             continue
         outpath_features = final_path / f"{f.stem}_features.geojson"
         if outpath_features.exists():
-            logger.info("Output already exist, skipping ({outpath_features})")
+            logger.info(f"Output already exist, skipping ({outpath_features})")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
