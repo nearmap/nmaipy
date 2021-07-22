@@ -195,10 +195,10 @@ def process_chunk(
         metadata_df
         .merge(features_gdf, on=AOI_ID_COLUMN_NAME)
         .merge(parcel_gdf.rename(columns=dict(geometry='aoi_geometry')), on=AOI_ID_COLUMN_NAME),
-        crs='EPSG:4326',
+        crs=API_CRS,
     )
     final_features_df['aoi_geometry'] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
-    final_features_df['attributes'] = final_features_df.attributes.apply(lambda d: json.dumps(d))
+    final_features_df['attributes'] = final_features_df.attributes.apply(json.dumps)
     if len(final_features_df) > 0:
         try:
             if not include_parcel_geometry:
