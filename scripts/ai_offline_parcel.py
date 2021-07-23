@@ -4,6 +4,7 @@ import os
 import random
 from pathlib import Path
 from typing import List, Optional
+import json
 
 import geopandas as gpd
 import numpy as np
@@ -12,7 +13,7 @@ import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import log, parcels
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -32,6 +33,13 @@ def parse_arguments():
     parser.add_argument(
         "--key-file",
         help="Path to file with API keys",
+        type=str,
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--config-file",
+        help="Path to json file with config dictionary (min confidences, areas and ratios)",
         type=str,
         required=False,
         default=None,
@@ -101,6 +109,7 @@ def process_chunk(
     classes_df: pd.DataFrame,
     output_dir: str,
     key_file: str,
+    config: dict,
     country: str,
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
@@ -117,6 +126,7 @@ def process_chunk(
         classes_df: Classes in output
         output_dir: Directory to save data to
         key_file: Path to API key file
+        config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
         country: The country code for area calcs (au, us, ca, nz)
@@ -127,6 +137,7 @@ def process_chunk(
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
+    outfile_features = chunk_path / f"features_{chunk_id}.geojson"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
     if outfile.exists():
         return
@@ -137,15 +148,26 @@ def process_chunk(
 
     # Get features
     feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
+    logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
     )
+    logger.debug(
+        f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
+    )
+    if len(errors_df) > 0:
+        logger.debug(errors_df.value_counts("message"))
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
 
     # Filter features
-    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country)
+    len_all_features = len(features_gdf)
+    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country, config=config)
+    len_filtered_features = len(features_gdf)
+    logger.debug(
+        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}"
+    )
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(
@@ -168,8 +190,31 @@ def process_chunk(
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
 
+    logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
+
+    # Save features as geojson, shift the parcel geometry to "aoi_geometry"
+    final_features_df = gpd.GeoDataFrame(
+        metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
+            parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
+        ),
+        crs=API_CRS,
+    )
+    final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+    final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
+    if len(final_features_df) > 0:
+        try:
+            if not include_parcel_geometry:
+                final_features_df = final_features_df.drop(columns=["aoi_geometry"])
+            final_features_df = final_features_df[
+                ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
+            ]
+            final_features_df.to_file(outfile_features, driver="GeoJSON")
+        except Exception:
+            logger.error(
+                f"Failed to save features geojson for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+            )
 
 
 def main():
@@ -191,16 +236,28 @@ def main():
     # Get classes
     classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(args.packs)
 
+    # Parse config
+    if args.config_file is not None:
+        #TODO: Add validation of the config file in future to strictly enforce valid feature class ids.
+        with open(args.config_file, "r") as fp:
+            config = json.load(fp)
+    else:
+        config = None
+
     # Loop over parcel files
     for f in parcel_paths:
         logger.info(f"Processing parcel file {f}")
         # If output exists, skip
         outpath = final_path / f"{f.stem}.csv"
         if outpath.exists():
-            logger.info("Output already exist, skipping ({outpath})")
+            logger.info(f"Output already exist, skipping ({outpath})")
+            continue
+        outpath_features = final_path / f"{f.stem}_features.geojson"
+        if outpath_features.exists():
+            logger.info(f"Output already exist, skipping ({outpath_features})")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f)
+        parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
 
         # Print out info around what is being inferred from column names:
         if SINCE_COL_NAME in parcels_gdf:
@@ -238,6 +295,7 @@ def main():
                             classes_df,
                             args.output_dir,
                             args.key_file,
+                            config,
                             args.country,
                             args.packs,
                             args.include_parcel_geometry,
@@ -257,6 +315,7 @@ def main():
                     classes_df,
                     args.output_dir,
                     args.key_file,
+                    config,
                     args.country,
                     args.packs,
                     args.include_parcel_geometry,
@@ -267,10 +326,15 @@ def main():
 
         # Combine chunks and save
         data = []
+        data_features = []
         errors = []
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
         pd.concat(data).to_csv(outpath, index=False)
+        for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
+            data_features.append(gpd.read_file(cp))
+        if len(data_features) > 0:
+            pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)

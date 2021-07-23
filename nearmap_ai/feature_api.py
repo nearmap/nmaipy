@@ -24,12 +24,12 @@ from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAM
 logger = log.get_logger()
 
 
-class AoiNotFound(Exception):
-    pass
-
-
-class AoiExceedsMaxSize(Exception):
-    pass
+class AIFeatureAPIError(Exception):
+    def __init__(self, response, request_string):
+        self.status_code = response.status_code
+        self.message = response.json()["message"]
+        self.text = response.text
+        self.request_string = request_string
 
 
 class FeatureApi:
@@ -199,24 +199,9 @@ class FeatureApi:
         """
         Handle errors returned from the feature API
         """
-        if response.status_code == HTTPStatus.NOT_FOUND:
-            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif (
-            response.status_code == HTTPStatus.BAD_REQUEST
-            and response.json()["message"] == "AOI is outside any known content area"
-        ):
-            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()["code"] == "AOI_EXCEEDS_MAX_SIZE":
-            raise AoiExceedsMaxSize(f"AOI too large: {self._request_error_message(request_string, response)}")
-        elif (
-            response.status_code == HTTPStatus.FORBIDDEN
-            and response.json()["message"] == "User is not authorized to access this area"
-        ):
-            # Note, this error is returned for AOI outside of all Nearmap coverage
-            raise AoiNotFound(f"AOI not found: {self._request_error_message(request_string, response)}")
-        elif not response.ok:
-            # Fail hard for unexpected errors
-            raise RuntimeError(self._request_error_message(request_string, response))
+        if not response.ok:
+            clean_request_string = request_string.replace(self.api_key, "...")
+            raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
         """
@@ -287,7 +272,10 @@ class FeatureApi:
         t1 = time.monotonic()
         response = self._session.get(request_string)
         response_time_ms = (time.monotonic() - t1) * 1e3
-        logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+        if response.ok:
+            logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+        else:
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
         # Check for errors
         self._handle_response_errors(response, request_string)
         # Parse results
@@ -393,11 +381,17 @@ class FeatureApi:
             payload = self.get_features(geometry, packs, since, until)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
             error = None
-        except (AoiNotFound, AoiExceedsMaxSize) as e:
+        except AIFeatureAPIError as e:
             # Catch acceptable errors
             features_gdf = None
             metadata = None
-            error = {AOI_ID_COLUMN_NAME: aoi_id, "error": str(e)}
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": e.status_code,
+                "message": e.message,
+                "text": e.text,
+                "request": e.request_string,
+            }
 
         return features_gdf, metadata, error
 
@@ -462,5 +456,5 @@ class FeatureApi:
         # Combine results
         features_gdf = pd.concat(data) if len(data) > 0 else None
         metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
-        errors_df = pd.DataFrame(errors, columns=[AOI_ID_COLUMN_NAME, "error"])
+        errors_df = pd.DataFrame(errors)
         return features_gdf, metadata_df, errors_df
