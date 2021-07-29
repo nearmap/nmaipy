@@ -27,9 +27,12 @@ logger = log.get_logger()
 class AIFeatureAPIError(Exception):
     def __init__(self, response, request_string):
         self.status_code = response.status_code
-        self.message = response.json()["message"]
         self.text = response.text
         self.request_string = request_string
+        try:
+            self.message = response.json()["message"]
+        except json.JSONDecodeError:
+            self.message = ""
 
 
 class FeatureApi:
@@ -87,7 +90,6 @@ class FeatureApi:
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     HTTPStatus.BAD_GATEWAY,
                     HTTPStatus.SERVICE_UNAVAILABLE,
-                    HTTPStatus.GATEWAY_TIMEOUT,
                 ],
             )
             session.mount("https://", HTTPAdapter(max_retries=retries))
@@ -391,6 +393,17 @@ class FeatureApi:
                 "message": e.message,
                 "text": e.text,
                 "request": e.request_string,
+            }
+        except requests.exceptions.RetryError as e:
+            logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
+            features_gdf = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": "RETRY_ERROR",
+                "message": "",
+                "text": str(e),
+                "request": "",
             }
 
         return features_gdf, metadata, error
