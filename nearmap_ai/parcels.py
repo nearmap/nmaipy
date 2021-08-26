@@ -7,6 +7,7 @@ import pandas as pd
 import shapely.wkb
 import shapely.wkt
 import stringcase
+from nearmap_ai import log
 
 from nearmap_ai.constants import (
     AOI_ID_COLUMN_NAME,
@@ -66,6 +67,8 @@ DEFAULT_FILTERING = {
     },
 }
 
+logger = log.get_logger()
+
 
 def read_from_file(
     path: Path,
@@ -92,8 +95,13 @@ def read_from_file(
 
     Returns: GeoDataFrame
     """
-    if path.suffix == ".csv":
-        parcels_df = pd.read_csv(path)
+    if path.suffix in (".csv", ".psv", ".tsv"):
+        if path.suffix == ".csv":
+            parcels_df = pd.read_csv(path)
+        elif path.suffix == ".psv":
+            parcels_df = pd.read_csv(path, sep="|")
+        elif path.suffix == ".tsv":
+            parcels_df = pd.read_csv(path, sep="\t")
         parcels_gdf = gpd.GeoDataFrame(
             parcels_df.drop("geometry", axis=1),
             geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(shapely.wkt.loads),
@@ -183,9 +191,19 @@ def filter_features_in_parcels(
         # Pandas infers apply return type, so if there is nothing to infer it from we get issues.
         gdf["intersection_area"] = []
     else:
-        gdf["intersection_area"] = gdf.apply(
-            lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
-        )
+        try:
+            gdf["intersection_area"] = gdf.apply(
+                lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
+            )
+        except shapely.errors.TopologicalError:
+            logger.error(gdf)
+            logger.error(f"Topological Error. Assuming all objects fall within parcel. Len gdf: {len(gdf)}. Len valid geometry feature {gpd.GeoSeries(gdf.geometry_feature).is_valid.sum()}.")
+            row = gdf[~gpd.GeoSeries(gdf.geometry_feature).is_valid]
+            logger.error(str(row))
+            logger.error(str(row.geometry_feature))
+            logger.error(f"Len valid geometry aoi {gpd.GeoSeries(gdf.geometry_aoi).is_valid.sum()}.")
+            gdf["intersection_area"] = gpd.GeoSeries(gdf.geometry_feature).area
+
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf.intersection_area / gdf.area_sqm
 

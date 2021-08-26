@@ -24,12 +24,19 @@ from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAM
 logger = log.get_logger()
 
 
+class RetryRequest(Retry):
+    BACKOFF_MAX = 0.6
+
+
 class AIFeatureAPIError(Exception):
     def __init__(self, response, request_string):
         self.status_code = response.status_code
-        self.message = response.json()["message"]
         self.text = response.text
         self.request_string = request_string
+        try:
+            self.message = response.json()["message"]
+        except json.JSONDecodeError:
+            self.message = ""
 
 
 class FeatureApi:
@@ -79,15 +86,14 @@ class FeatureApi:
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
-            retries = Retry(
-                total=25,
-                backoff_factor=1,
+            retries = RetryRequest(
+                total=100,
+                backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     HTTPStatus.BAD_GATEWAY,
                     HTTPStatus.SERVICE_UNAVAILABLE,
-                    HTTPStatus.GATEWAY_TIMEOUT,
                 ],
             )
             session.mount("https://", HTTPAdapter(max_retries=retries))
@@ -279,7 +285,11 @@ class FeatureApi:
         # Check for errors
         self._handle_response_errors(response, request_string)
         # Parse results
-        data = response.json()
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            logger.error(response.text)
+            raise json.JSONDEcodeError
 
         # If the AOI was altered for the API request, we need to filter features in the response
         if not exact:
@@ -391,6 +401,17 @@ class FeatureApi:
                 "message": e.message,
                 "text": e.text,
                 "request": e.request_string,
+            }
+        except requests.exceptions.RetryError as e:
+            logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
+            features_gdf = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": "RETRY_ERROR",
+                "message": "",
+                "text": str(e),
+                "request": "",
             }
 
         return features_gdf, metadata, error

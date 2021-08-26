@@ -18,7 +18,7 @@ from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
 PROCESSES = 20
-THREADS = 8
+THREADS = 4
 
 logger = log.get_logger()
 
@@ -224,8 +224,11 @@ def main():
     logger.info("Starting parcel rollup")
     # Path setup
     parcel_paths = []
-    for file_type in ["*.parquet", "*.csv", "*.gpkg", "*.geojson"]:
+    for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
         parcel_paths.extend(Path(args.parcel_dir).glob(file_type))
+    parcel_paths.sort()
+    logger.info(f"Running the following parcel files: {parcel_paths}")
+
     cache_path = Path(args.output_dir) / "cache"
     chunk_path = Path(args.output_dir) / "chunks"
     final_path = Path(args.output_dir) / "final"
@@ -258,6 +261,8 @@ def main():
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
+
+        logger.info(f"Exporting {len(parcels_gdf)} parcels.")
 
         # Print out info around what is being inferred from column names:
         if SINCE_COL_NAME in parcels_gdf:
