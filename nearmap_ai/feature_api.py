@@ -24,6 +24,10 @@ from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAM
 logger = log.get_logger()
 
 
+class RetryRequest(Retry):
+    BACKOFF_MAX = 0.6
+
+
 class AIFeatureAPIError(Exception):
     def __init__(self, response, request_string):
         self.status_code = response.status_code
@@ -82,9 +86,9 @@ class FeatureApi:
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
-            retries = Retry(
-                total=25,
-                backoff_factor=1,
+            retries = RetryRequest(
+                total=100,
+                backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
                     HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -281,7 +285,11 @@ class FeatureApi:
         # Check for errors
         self._handle_response_errors(response, request_string)
         # Parse results
-        data = response.json()
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            logger.error(response.text)
+            raise json.JSONDEcodeError
 
         # If the AOI was altered for the API request, we need to filter features in the response
         if not exact:
