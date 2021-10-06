@@ -338,7 +338,7 @@ def main():
         errors = []
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
-        pd.concat(data).to_csv(outpath, index=False)
+        pd.concat(data).to_csv(outpath, index=True)
         for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
             data_features.append(gpd.read_file(cp))
         if len(data_features) > 0:
