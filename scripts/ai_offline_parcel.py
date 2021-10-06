@@ -156,7 +156,10 @@ def process_chunk(
         f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
     )
     if len(errors_df) > 0:
-        logger.debug(errors_df.value_counts("message"))
+        if "message" in errors_df:
+            logger.debug(errors_df.value_counts("message"))
+        else:
+            logger.debug(f"Found {len(errors_df)} errors")
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
@@ -342,7 +345,7 @@ def main():
             pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)
+        pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=True)
         logger.info(f"Save data to {outpath}")
 
 
