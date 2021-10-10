@@ -152,9 +152,10 @@ def process_chunk(
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
     )
-    logger.debug(
-        f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
-    )
+    if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
+        logger.debug(
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
+        )
     if len(errors_df) > 0:
         if "message" in errors_df:
             logger.debug(errors_df.value_counts("message"))
