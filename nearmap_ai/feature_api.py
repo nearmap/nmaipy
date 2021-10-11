@@ -156,7 +156,7 @@ class FeatureApi:
         """
         Turn a shapely polygon into the format required by the API for a query polygon.
         """
-        coords = poly.boundary.coords[:]
+        coords = poly.exterior.coords[:]
         flat_coords = np.array(coords).flatten()
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
@@ -174,11 +174,17 @@ class FeatureApi:
         """
 
         if isinstance(geometry, MultiPolygon):
-            coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
-            exact = False
+            if len(geometry) == 1:
+                coordstring = cls._polygon_to_coordstring(geometry[0])
+                exact = True
+            else:
+                logger.warning("Geometry is a multipolygon - approximating.")
+                coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+                exact = False
         else:
             coordstring = cls._polygon_to_coordstring(geometry)
             exact = True
+
         if len(coordstring) > cls.CHAR_LIMIT:
             exact = False
             coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
