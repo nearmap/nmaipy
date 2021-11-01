@@ -237,7 +237,7 @@ class FeatureApi:
         Create a request string with given parameters
         """
         coordstring, exact = self._geometry_to_coordstring(geometry)
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&apikey={self.api_key}"
+        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk=true&apikey={self.api_key}"
 
         # Add dates if given
         if since:
