@@ -77,6 +77,13 @@ def parse_arguments():
         required=True,
     )
     parser.add_argument(
+        "--bulk-mode",
+        help="Use bulk mode API",
+        required=False,
+        type=bool,
+        default=True,
+    )
+    parser.add_argument(
         "--since",
         help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
         required=False,
@@ -114,6 +121,7 @@ def process_chunk(
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
     primary_decision: str = "largest_intersection",
+    bulk_mode: Optional[bool] = True,
     since_bulk: str = None,
     until_bulk: str = None,
 ):
@@ -147,7 +155,7 @@ def process_chunk(
     parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
 
     # Get features
-    feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
+    feature_api = FeatureApi(api_key=api_key(key_file), bulk_mode=bulk_mode, cache_dir=cache_path, workers=THREADS)
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
@@ -309,6 +317,7 @@ def main():
                             args.packs,
                             args.include_parcel_geometry,
                             args.primary_decision,
+                            args.bulk_mode,
                             args.since,
                             args.until,
                         )
@@ -329,6 +338,7 @@ def main():
                     args.packs,
                     args.include_parcel_geometry,
                     args.primary_decision,
+                    args.bulk_mode,
                     args.since,
                     args.until,
                 )

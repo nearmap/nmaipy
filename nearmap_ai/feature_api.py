@@ -49,6 +49,7 @@ class FeatureApi:
     def __init__(
         self,
         api_key: Optional[str] = None,
+        bulk_mode: Optional[bool] = True,
         cache_dir: Optional[Path] = None,
         overwrite_cache: Optional[bool] = False,
         workers: Optional[int] = 10,
@@ -77,6 +78,7 @@ class FeatureApi:
         self._thread_local = threading.local()
         self.overwrite_cache = overwrite_cache
         self.workers = workers
+        self.bulk_mode = bulk_mode
 
     @property
     def _session(self) -> requests.Session:
@@ -178,7 +180,8 @@ class FeatureApi:
                 coordstring = cls._polygon_to_coordstring(geometry[0])
                 exact = True
             else:
-                logger.warning("Geometry is a multipolygon - approximating.")
+                logger.warning(f"Geometry is a multipolygon - approximating. Length: {len(geometry)}")
+                logger.warning(geometry)
                 coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
                 exact = False
         else:
@@ -237,7 +240,7 @@ class FeatureApi:
         Create a request string with given parameters
         """
         coordstring, exact = self._geometry_to_coordstring(geometry)
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk=true&apikey={self.api_key}"
+        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={self.bulk_mode}&apikey={self.api_key}"
 
         # Add dates if given
         if since:
