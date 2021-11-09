@@ -49,6 +49,7 @@ class FeatureApi:
     def __init__(
         self,
         api_key: Optional[str] = None,
+        bulk_mode: Optional[bool] = True,
         cache_dir: Optional[Path] = None,
         overwrite_cache: Optional[bool] = False,
         workers: Optional[int] = 10,
@@ -77,6 +78,7 @@ class FeatureApi:
         self._thread_local = threading.local()
         self.overwrite_cache = overwrite_cache
         self.workers = workers
+        self.bulk_mode = bulk_mode
 
     @property
     def _session(self) -> requests.Session:
@@ -156,7 +158,7 @@ class FeatureApi:
         """
         Turn a shapely polygon into the format required by the API for a query polygon.
         """
-        coords = poly.boundary.coords[:]
+        coords = poly.exterior.coords[:]
         flat_coords = np.array(coords).flatten()
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
@@ -174,11 +176,18 @@ class FeatureApi:
         """
 
         if isinstance(geometry, MultiPolygon):
-            coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
-            exact = False
+            if len(geometry) == 1:
+                coordstring = cls._polygon_to_coordstring(geometry[0])
+                exact = True
+            else:
+                logger.warning(f"Geometry is a multipolygon - approximating. Length: {len(geometry)}")
+                logger.warning(geometry)
+                coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+                exact = False
         else:
             coordstring = cls._polygon_to_coordstring(geometry)
             exact = True
+
         if len(coordstring) > cls.CHAR_LIMIT:
             exact = False
             coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
@@ -187,13 +196,21 @@ class FeatureApi:
             coordstring = cls._polygon_to_coordstring(geometry.envelope)
         return coordstring, exact
 
+    def _make_latlon_path_for_cache(self, request_string):
+        r = request_string.split("?")[-1]
+        dic = dict([token.split("=") for token in r.split("&")])
+        lon, lat = np.array(dic["polygon"].split(",")).astype("float").round().astype("int").astype("str")[:2]
+        return lon, lat
+
     def _request_cache_path(self, request_string: str) -> Path:
         """
         Hash a request string to create a cache path.
         """
         request_string = request_string.replace(self.api_key, "")
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
-        return self.cache_dir / f"{request_hash}.json"
+        lon, lat = self._make_latlon_path_for_cache(request_string)
+        (self.cache_dir / lon / lat).mkdir(parents=True, exist_ok=True)
+        return self.cache_dir / lon / lat / f"{request_hash}.json"
 
     def _request_error_message(self, request_string: str, response: requests.Response) -> str:
         """
@@ -213,6 +230,7 @@ class FeatureApi:
         """
         Write a payload to the cache. To make the write atomic, data is first written to a temp file and then renamed.
         """
+
         temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
         with open(temp_path, "w") as f:
             json.dump(payload, f)
@@ -231,7 +249,8 @@ class FeatureApi:
         Create a request string with given parameters
         """
         coordstring, exact = self._geometry_to_coordstring(geometry)
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&apikey={self.api_key}"
+        bulk_str = str(self.bulk_mode).lower()
+        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
 
         # Add dates if given
         if since:

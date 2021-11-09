@@ -77,6 +77,13 @@ def parse_arguments():
         required=True,
     )
     parser.add_argument(
+        "--bulk-mode",
+        help="Use bulk mode API",
+        required=False,
+        type=bool,
+        default=True,
+    )
+    parser.add_argument(
         "--since",
         help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
         required=False,
@@ -114,6 +121,7 @@ def process_chunk(
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
     primary_decision: str = "largest_intersection",
+    bulk_mode: Optional[bool] = True,
     since_bulk: str = None,
     until_bulk: str = None,
 ):
@@ -147,16 +155,20 @@ def process_chunk(
     parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
 
     # Get features
-    feature_api = FeatureApi(api_key=api_key(key_file), cache_dir=cache_path, workers=THREADS)
+    feature_api = FeatureApi(api_key=api_key(key_file), bulk_mode=bulk_mode, cache_dir=cache_path, workers=THREADS)
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
     )
-    logger.debug(
-        f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
-    )
+    if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
+        logger.debug(
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
+        )
     if len(errors_df) > 0:
-        logger.debug(errors_df.value_counts("message"))
+        if "message" in errors_df:
+            logger.debug(errors_df.value_counts("message"))
+        else:
+            logger.debug(f"Found {len(errors_df)} errors")
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
@@ -305,6 +317,7 @@ def main():
                             args.packs,
                             args.include_parcel_geometry,
                             args.primary_decision,
+                            args.bulk_mode,
                             args.since,
                             args.until,
                         )
@@ -325,6 +338,7 @@ def main():
                     args.packs,
                     args.include_parcel_geometry,
                     args.primary_decision,
+                    args.bulk_mode,
                     args.since,
                     args.until,
                 )
@@ -335,14 +349,14 @@ def main():
         errors = []
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
-        pd.concat(data).to_csv(outpath, index=False)
+        pd.concat(data).to_csv(outpath, index=True)
         for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
             data_features.append(gpd.read_file(cp))
         if len(data_features) > 0:
             pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=False)
+        pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=True)
         logger.info(f"Save data to {outpath}")
 
 
