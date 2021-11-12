@@ -332,8 +332,8 @@ class FeatureApi:
         """
         Check whether the link contains the locationmarker flag, and add it if not present..
         """
-        location_marker_string = "?locationmarker"
-        if not link.contains(location_marker_string):
+        location_marker_string = "?locationMarker"
+        if not location_marker_string not in link:
             return link.append(location_marker_string)
         else:
             return link
