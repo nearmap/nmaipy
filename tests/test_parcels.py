@@ -1,14 +1,28 @@
 import geopandas as gpd
 import pandas as pd
+import pytest
 from shapely.wkt import loads
 
 from nearmap_ai import parcels
 from nearmap_ai.constants import BUILDING_ID, LAWN_GRASS_ID, POOL_ID
 
 
+@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+def test_gen_data(parcels_gdf, data_directory):
+    outfname = data_directory / "test_features.csv"
+    from nearmap_ai.feature_api import FeatureApi
+
+    packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
+    features_gdf, _, _ = FeatureApi().get_features_gdf_bulk(parcels_gdf, packs=packs)
+    features_gdf.to_csv(outfname, index=False)
+
+
 class TestParcels:
     def test_filter(self, parcels_gdf, features_gdf):
+        assert len(features_gdf) == 602
         features_gdf = features_gdf[features_gdf.class_id == BUILDING_ID]
+        assert len(features_gdf) == 68
+
         config = {
             "min_size": {
                 BUILDING_ID: 25,
@@ -23,12 +37,12 @@ class TestParcels:
                 BUILDING_ID: 0.5,
             },
         }
-        filtered_gdf = parcels.filter_features_in_parcels(parcels_gdf, features_gdf, country="au", config=config)
-
-        assert len(filtered_gdf) == 47
-        assert len(features_gdf) == 71
-        assert (filtered_gdf.confidence < 0.8).sum() == 0
-        assert (filtered_gdf.area_sqm < 25).sum() == 0
+        filtered_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
+        assert len(filtered_gdf) == 44
+        assert not (filtered_gdf.confidence < 0.8).any()
+        assert not (filtered_gdf.unclipped_area_sqm < 25).any()
+        intersection_mask = (filtered_gdf.intersection_ratio < 0.5) & (filtered_gdf.clipped_area_sqm < 25)
+        assert not intersection_mask.any()
 
     def test_flatten_building(self):
         attributes = [
@@ -265,7 +279,7 @@ class TestParcels:
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(parcels_gdf, features_gdf, country="au")
+        features_gdf = parcels.filter_features_in_parcels(features_gdf)
         df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, "au", "largest_intersection")
 
         expected = pd.DataFrame(
@@ -273,194 +287,226 @@ class TestParcels:
                 {
                     "building_present": "Y",
                     "building_count": 1,
-                    "building_total_area_sqm": 459.0,
-                    "building_total_clipped_area_sqm": 437.9,
-                    "building_confidence": 0.994140625,
-                    "primary_building_area_sqm": 459.0,
-                    "primary_building_clipped_area_sqm": 437.9,
-                    "primary_building_confidence": 0.994140625,
+                    "building_total_area_sqm": 459.2,
+                    "building_total_clipped_area_sqm": 438.5,
+                    "building_total_unclipped_area_sqm": 459.2,
+                    "building_confidence": 0.990234375,
+                    "primary_building_area_sqm": 459.2,
+                    "primary_building_clipped_area_sqm": 438.5,
+                    "primary_building_unclipped_area_sqm": 459.2,
+                    "primary_building_confidence": 0.990234375,
                     "aoi_id": "0_0",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 3,
-                    "building_total_area_sqm": 794.8,
-                    "building_total_clipped_area_sqm": 589.0,
-                    "building_confidence": 0.9999997988343239,
-                    "primary_building_area_sqm": 426.9,
-                    "primary_building_clipped_area_sqm": 357.6,
-                    "primary_building_confidence": 0.994140625,
+                    "building_total_area_sqm": 778.0999999999999,
+                    "building_total_clipped_area_sqm": 562.5,
+                    "building_total_unclipped_area_sqm": 778.1,
+                    "building_confidence": 0.9999999478459358,
+                    "primary_building_area_sqm": 412.7,
+                    "primary_building_clipped_area_sqm": 335.7,
+                    "primary_building_unclipped_area_sqm": 412.7,
+                    "primary_building_confidence": 0.998046875,
                     "aoi_id": "0_1",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "N",
                     "building_count": 0,
                     "building_total_area_sqm": 0.0,
                     "building_total_clipped_area_sqm": 0.0,
+                    "building_total_unclipped_area_sqm": 0.0,
                     "building_confidence": 1.0,
                     "primary_building_area_sqm": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
+                    "primary_building_unclipped_area_sqm": 0.0,
                     "primary_building_confidence": 1.0,
                     "aoi_id": "0_2",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "N",
                     "building_count": 0,
                     "building_total_area_sqm": 0.0,
                     "building_total_clipped_area_sqm": 0.0,
+                    "building_total_unclipped_area_sqm": 0.0,
                     "building_confidence": 1.0,
                     "primary_building_area_sqm": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
+                    "primary_building_unclipped_area_sqm": 0.0,
                     "primary_building_confidence": 1.0,
                     "aoi_id": "0_3",
-                    "mesh_date": "2020-02-27",
-                },
-                {
-                    "building_present": "Y",
-                    "building_count": 4,
-                    "building_total_area_sqm": 1080.3999999999999,
-                    "building_total_clipped_area_sqm": 669.9,
-                    "building_confidence": 0.9999999989086064,
-                    "primary_building_area_sqm": 361.8,
-                    "primary_building_clipped_area_sqm": 361.8,
-                    "primary_building_confidence": 0.994140625,
-                    "aoi_id": "1_0",
-                    "mesh_date": "2020-02-27",
-                },
-                {
-                    "building_present": "Y",
-                    "building_count": 7,
-                    "building_total_area_sqm": 941.0,
-                    "building_total_clipped_area_sqm": 661.3,
-                    "building_confidence": 0.9999999999998976,
-                    "primary_building_area_sqm": 332.7,
-                    "primary_building_clipped_area_sqm": 316.5,
-                    "primary_building_confidence": 0.994140625,
-                    "aoi_id": "1_1",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 5,
-                    "building_total_area_sqm": 1272.8,
-                    "building_total_clipped_area_sqm": 643.2,
-                    "building_confidence": 0.999999999998721,
-                    "primary_building_area_sqm": 261.8,
-                    "primary_building_clipped_area_sqm": 255.4,
+                    "building_total_area_sqm": 1028.7999999999997,
+                    "building_total_clipped_area_sqm": 632.9,
+                    "building_total_unclipped_area_sqm": 1028.8,
+                    "building_confidence": 0.999999999987466,
+                    "primary_building_area_sqm": 211.7,
+                    "primary_building_clipped_area_sqm": 211.7,
+                    "primary_building_unclipped_area_sqm": 211.7,
                     "primary_building_confidence": 0.994140625,
+                    "aoi_id": "1_0",
+                    "mesh_date": "2021-01-23",
+                },
+                {
+                    "building_present": "Y",
+                    "building_count": 6,
+                    "building_total_area_sqm": 892.8999999999999,
+                    "building_total_clipped_area_sqm": 620.9,
+                    "building_total_unclipped_area_sqm": 892.9,
+                    "building_confidence": 0.9999999999997962,
+                    "primary_building_area_sqm": 324.8,
+                    "primary_building_clipped_area_sqm": 308.2,
+                    "primary_building_unclipped_area_sqm": 324.8,
+                    "primary_building_confidence": 0.994140625,
+                    "aoi_id": "1_1",
+                    "mesh_date": "2021-01-23",
+                },
+                {
+                    "building_present": "Y",
+                    "building_count": 4,
+                    "building_total_area_sqm": 943.2,
+                    "building_total_clipped_area_sqm": 635.7,
+                    "building_total_unclipped_area_sqm": 943.2,
+                    "building_confidence": 0.9999999999272404,
+                    "primary_building_area_sqm": 419.5,
+                    "primary_building_clipped_area_sqm": 403.4,
+                    "primary_building_unclipped_area_sqm": 419.5,
+                    "primary_building_confidence": 0.998046875,
                     "aoi_id": "1_2",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "N",
                     "building_count": 0,
                     "building_total_area_sqm": 0.0,
                     "building_total_clipped_area_sqm": 0.0,
+                    "building_total_unclipped_area_sqm": 0.0,
                     "building_confidence": 1.0,
                     "primary_building_area_sqm": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
+                    "primary_building_unclipped_area_sqm": 0.0,
                     "primary_building_confidence": 1.0,
                     "aoi_id": "1_3",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 5,
-                    "building_total_area_sqm": 882.0,
-                    "building_total_clipped_area_sqm": 724.2,
-                    "building_confidence": 0.9999999999999147,
-                    "primary_building_area_sqm": 315.7,
-                    "primary_building_clipped_area_sqm": 309.0,
-                    "primary_building_confidence": 0.998046875,
+                    "building_total_area_sqm": 873.0999999999999,
+                    "building_total_clipped_area_sqm": 719.4,
+                    "building_total_unclipped_area_sqm": 873.1,
+                    "building_confidence": 0.9999999999992326,
+                    "primary_building_area_sqm": 314.0,
+                    "primary_building_clipped_area_sqm": 304.8,
+                    "primary_building_unclipped_area_sqm": 314.0,
+                    "primary_building_confidence": 0.994140625,
                     "aoi_id": "2_0",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 4,
-                    "building_total_area_sqm": 528.7,
-                    "building_total_clipped_area_sqm": 492.1,
-                    "building_confidence": 0.9999999985593604,
-                    "primary_building_area_sqm": 172.1,
-                    "primary_building_clipped_area_sqm": 170.6,
-                    "primary_building_confidence": 0.994140625,
+                    "building_total_area_sqm": 528.8000000000001,
+                    "building_total_clipped_area_sqm": 492.8,
+                    "building_total_unclipped_area_sqm": 528.8,
+                    "building_confidence": 0.9999999996944098,
+                    "primary_building_area_sqm": 178.9,
+                    "primary_building_clipped_area_sqm": 177.7,
+                    "primary_building_unclipped_area_sqm": 178.9,
+                    "primary_building_confidence": 0.998046875,
                     "aoi_id": "2_1",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 2,
-                    "building_total_area_sqm": 704.2,
-                    "building_total_clipped_area_sqm": 441.0,
-                    "building_confidence": 0.9999427795410156,
-                    "primary_building_area_sqm": 512.9,
-                    "primary_building_clipped_area_sqm": 314.6,
-                    "primary_building_confidence": 0.994140625,
+                    "building_total_area_sqm": 689.1,
+                    "building_total_clipped_area_sqm": 449.5,
+                    "building_total_unclipped_area_sqm": 689.1,
+                    "building_confidence": 0.9999809265136719,
+                    "primary_building_area_sqm": 508.6,
+                    "primary_building_clipped_area_sqm": 329.9,
+                    "primary_building_unclipped_area_sqm": 508.6,
+                    "primary_building_confidence": 0.998046875,
                     "aoi_id": "2_2",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 1,
-                    "building_total_area_sqm": 3719.3,
-                    "building_total_clipped_area_sqm": 595.3,
+                    "building_total_area_sqm": 3717.3,
+                    "building_total_clipped_area_sqm": 637.0,
+                    "building_total_unclipped_area_sqm": 3717.3,
                     "building_confidence": 0.998046875,
-                    "primary_building_area_sqm": 3719.3,
-                    "primary_building_clipped_area_sqm": 595.3,
+                    "primary_building_area_sqm": 3717.3,
+                    "primary_building_clipped_area_sqm": 637.0,
+                    "primary_building_unclipped_area_sqm": 3717.3,
                     "primary_building_confidence": 0.998046875,
                     "aoi_id": "2_3",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 3,
-                    "building_total_area_sqm": 1566.5000000000002,
-                    "building_total_clipped_area_sqm": 628.3,
+                    "building_total_area_sqm": 1589.5,
+                    "building_total_clipped_area_sqm": 636.3,
+                    "building_total_unclipped_area_sqm": 1589.5,
                     "building_confidence": 0.999999962747097,
-                    "primary_building_area_sqm": 1059.2,
-                    "primary_building_clipped_area_sqm": 300.1,
+                    "primary_building_area_sqm": 1089.8,
+                    "primary_building_clipped_area_sqm": 316.9,
+                    "primary_building_unclipped_area_sqm": 1089.8,
                     "primary_building_confidence": 0.990234375,
                     "aoi_id": "3_0",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 6,
-                    "building_total_area_sqm": 1137.3,
-                    "building_total_clipped_area_sqm": 620.0,
-                    "building_confidence": 0.9999999999998777,
-                    "primary_building_area_sqm": 150.1,
-                    "primary_building_clipped_area_sqm": 150.1,
-                    "primary_building_confidence": 0.986328125,
+                    "building_count": 4,
+                    "building_total_area_sqm": 1139.0,
+                    "building_total_clipped_area_sqm": 626.4,
+                    "building_total_unclipped_area_sqm": 1139.0,
+                    "building_confidence": 0.9999999981810106,
+                    "primary_building_area_sqm": 457.5,
+                    "primary_building_clipped_area_sqm": 346.3,
+                    "primary_building_unclipped_area_sqm": 457.5,
+                    "primary_building_confidence": 0.990234375,
                     "aoi_id": "3_1",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 6,
-                    "building_total_area_sqm": 1190.6,
-                    "building_total_clipped_area_sqm": 584.8,
-                    "building_confidence": 0.9999999999999942,
-                    "primary_building_area_sqm": 256.3,
-                    "primary_building_clipped_area_sqm": 247.9,
+                    "building_count": 5,
+                    "building_total_area_sqm": 1048.7,
+                    "building_total_clipped_area_sqm": 531.3,
+                    "building_total_unclipped_area_sqm": 1048.7,
+                    "building_confidence": 0.999999999998721,
+                    "primary_building_area_sqm": 250.2,
+                    "primary_building_clipped_area_sqm": 240.9,
+                    "primary_building_unclipped_area_sqm": 250.2,
                     "primary_building_confidence": 0.998046875,
                     "aoi_id": "3_2",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
                 {
                     "building_present": "Y",
                     "building_count": 1,
-                    "building_total_area_sqm": 307.4,
-                    "building_total_clipped_area_sqm": 72.0,
+                    "building_total_area_sqm": 306.2,
+                    "building_total_clipped_area_sqm": 70.3,
+                    "building_total_unclipped_area_sqm": 306.2,
                     "building_confidence": 0.990234375,
-                    "primary_building_area_sqm": 307.4,
-                    "primary_building_clipped_area_sqm": 72.0,
+                    "primary_building_area_sqm": 306.2,
+                    "primary_building_clipped_area_sqm": 70.3,
+                    "primary_building_unclipped_area_sqm": 306.2,
                     "primary_building_confidence": 0.990234375,
                     "aoi_id": "3_3",
-                    "mesh_date": "2020-02-27",
+                    "mesh_date": "2021-01-23",
                 },
             ]
         )
@@ -517,33 +563,39 @@ class TestParcels:
             ]
         )
         features_gdf = features_gdf.set_crs("EPSG:4326")
+
+        # calculate areas
+        parcels_gdf = parcels_gdf.to_crs("esri:102003")
         features_gdf = features_gdf.to_crs("esri:102003")
         features_gdf["area_sqm"] = features_gdf.area
-        features_gdf["area_sqft"] = features_gdf.area * 3.28084
+        features_gdf["unclipped_area_sqm"] = features_gdf["area_sqm"]
+        gdf = features_gdf.merge(parcels_gdf, on="aoi_id", how="left", suffixes=["_feature", "_aoi"])
+        gdf["clipped_area_sqm"] = gdf.apply(
+            lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
+        )
+        features_gdf = features_gdf.merge(gdf[["feature_id", "clipped_area_sqm"]])
+        for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
+            features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
+        parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
         features_gdf = features_gdf.to_crs("EPSG:4326")
 
         classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
 
-        features_gdf = parcels.filter_features_in_parcels(parcels_gdf, features_gdf, "au")
+        features_gdf = parcels.filter_features_in_parcels(features_gdf)
 
-        rollup_df = parcels.parcel_rollup(
-            parcels_gdf,
-            features_gdf,
-            classes_df,
-            "us",
-            "nearest",
-        )
-
+        rollup_df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, "us", "nearest")
         expected = pd.DataFrame(
             [
                 {
                     "pool_present": "Y",
                     "pool_count": 3,
                     "pool_total_area_sqft": 6883.735654712847,
-                    "pool_total_clipped_area_sqft": 22584.4,
+                    "pool_total_clipped_area_sqft": 6883.7,
+                    "pool_total_unclipped_area_sqft": 6883.7,
                     "pool_confidence": 0.99928,
                     "primary_pool_area_sqft": 2717.2650041320935,
-                    "primary_pool_clipped_area_sqft": 8914.9,
+                    "primary_pool_clipped_area_sqft": 2717.3,
+                    "primary_pool_unclipped_area_sqft": 2717.3,
                     "primary_pool_confidence": 0.94,
                     "aoi_id": 0,
                     "mesh_date": "2021-10-10",

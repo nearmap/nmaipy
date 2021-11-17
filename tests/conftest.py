@@ -31,13 +31,18 @@ def sydney_aoi() -> Polygon:
 
 
 @pytest.fixture(scope="session")
-def parcels_gdf() -> gpd.GeoDataFrame:
-    return parcels.read_from_file(Path(__file__).parent.absolute() / "data" / "test_parcels.csv")
+def data_directory() -> Path:
+    return Path(__file__).parent.absolute() / "data"
 
 
 @pytest.fixture(scope="session")
-def features_gdf() -> gpd.GeoDataFrame:
-    df = pd.read_csv(Path(__file__).parent.absolute() / "data" / "test_features.csv")
+def parcels_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    return parcels.read_from_file(data_directory / "test_parcels.csv")
+
+
+@pytest.fixture(scope="session")
+def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    df = pd.read_csv(data_directory / "test_features.csv")
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
         geometry=df.geometry.apply(loads),

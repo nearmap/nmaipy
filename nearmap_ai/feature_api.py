@@ -1,22 +1,22 @@
 import concurrent.futures
 import hashlib
+from http import HTTPStatus
 import json
 import os
+from pathlib import Path
 import threading
 import time
-import uuid
-from http import HTTPStatus
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+import uuid
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
-import stringcase
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
+import stringcase
 
 from nearmap_ai import log
 from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME
@@ -34,7 +34,8 @@ class AIFeatureAPIError(Exception):
         self.text = response.text
         self.request_string = request_string
         try:
-            self.message = response.json()["message"]
+            err_body = response.json()
+            self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
         except json.JSONDecodeError:
             self.message = ""
 
@@ -209,7 +210,6 @@ class FeatureApi:
         request_string = request_string.replace(self.api_key, "")
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = self._make_latlon_path_for_cache(request_string)
-        (self.cache_dir / lon / lat).mkdir(parents=True, exist_ok=True)
         return self.cache_dir / lon / lat / f"{request_hash}.json"
 
     def _request_error_message(self, request_string: str, response: requests.Response) -> str:
@@ -230,7 +230,7 @@ class FeatureApi:
         """
         Write a payload to the cache. To make the write atomic, data is first written to a temp file and then renamed.
         """
-
+        path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
         with open(temp_path, "w") as f:
             json.dump(payload, f)
@@ -353,10 +353,15 @@ class FeatureApi:
             "classId",
             "description",
             "confidence",
+            "fidelity",  # not on every class
             "parentId",
             "geometry",
             "areaSqm",
+            "clippedAreaSqm",
+            "unclippedAreaSqm",
             "areaSqft",
+            "clippedAreaSqft",
+            "unclippedAreaSqft",
             "attributes",
             "surveyDate",
             "meshDate",
@@ -367,10 +372,8 @@ class FeatureApi:
             df = pd.DataFrame([], columns=columns)
         else:
             df = pd.DataFrame(payload["features"])
-            # TODO: Uncomment this validation. If this method is used with v3 data, validating will fail.
-            # For the time being we have use cases to process cached v3 payloads, this should stop being the case soon.
-            # if column_mismatch := set(df.columns).symmetric_difference(set(columns)):
-            #     raise ValueError(f"Unexpected columns: {column_mismatch=}")
+            for colname in set(columns).difference(set(df.columns)):
+                df[colname] = None
 
         df = df.rename(columns={"id": "feature_id"})
         df.columns = [stringcase.snakecase(c) for c in df.columns]

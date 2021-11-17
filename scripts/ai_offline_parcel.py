@@ -175,7 +175,7 @@ def process_chunk(
 
     # Filter features
     len_all_features = len(features_gdf)
-    features_gdf = parcels.filter_features_in_parcels(parcel_gdf, features_gdf, country=country, config=config)
+    features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
     len_filtered_features = len(features_gdf)
     logger.debug(
         f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}"
