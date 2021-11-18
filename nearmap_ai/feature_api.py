@@ -327,6 +327,17 @@ class FeatureApi:
         date = link.split("/")[-1]
         return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
 
+    @staticmethod
+    def add_location_marker_to_link(link: str) -> str:
+        """
+        Check whether the link contains the locationmarker flag, and add it if not present..
+        """
+        location_marker_string = "?locationMarker"
+        if not location_marker_string not in link:
+            return link.append(location_marker_string)
+        else:
+            return link
+
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
@@ -344,7 +355,7 @@ class FeatureApi:
         # Creat metadata
         metadata = {
             "system_version": payload["systemVersion"],
-            "link": payload["link"],
+            "link": cls.add_location_marker_to_link(payload["link"]),
             "date": cls.link_to_date(payload["link"]),
         }
 
