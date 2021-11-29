@@ -18,7 +18,7 @@ def test_gen_data(parcels_gdf, data_directory):
 
 
 class TestParcels:
-    def test_filter(self, parcels_gdf, features_gdf):
+    def test_filter(self, features_gdf):
         assert len(features_gdf) == 602
         features_gdf = features_gdf[features_gdf.class_id == BUILDING_ID]
         assert len(features_gdf) == 68
