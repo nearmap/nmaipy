@@ -11,13 +11,13 @@ from nearmap_ai.feature_api import FeatureApi
 
 
 class TestFeatureAPI:
-    def test_get_features_gdf(self, sydney_aoi: Polygon):
+    def test_get_features_gdf(self, sydney_aoi: Polygon, cache_directory: Path):
         date_1 = "2020-01-01"
         date_2 = "2020-06-01"
         packs = ["building"]
         aoi_id = "123"
 
-        feature_api = FeatureApi()
+        feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
         # No error
         assert error is None
@@ -29,7 +29,7 @@ class TestFeatureAPI:
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 3
 
-    def test_not_found(self):
+    def test_not_found(self, cache_directory: Path):
         # Somewhere in the Pacific
         aoi = loads(
             """
@@ -42,13 +42,13 @@ class TestFeatureAPI:
                 ))
         """
         )
-        feature_api = FeatureApi()
+        feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi)
         # No data
         assert features_gdf is None
         assert metadata is None
         # There is a error message
-        assert isinstance(error["error"], str)
+        assert isinstance(error["message"], str)
 
     def test_get_cache(self, cache_directory: Path, sydney_aoi: Polygon):
         date_1 = "2020-06-01"
@@ -141,20 +141,26 @@ class TestFeatureAPI:
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 6
 
-    def test_classes(self):
-        feature_api = FeatureApi()
+    def test_classes(self, cache_directory: Path):
+        feature_api = FeatureApi(cache_dir=cache_directory)
         classes_df = feature_api.get_feature_classes()
         assert classes_df.loc[BUILDING_ID].description == "Building"
 
-    def test_classes_filtered(self):
-        feature_api = FeatureApi()
+    def test_classes_filtered(self, cache_directory: Path):
+        feature_api = FeatureApi(cache_dir=cache_directory)
         classes_df = feature_api.get_feature_classes(packs=["solar", "building"])
         assert classes_df.loc[BUILDING_ID].description == "Building"
         assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
         assert len(classes_df) == 2
 
-    def test_unknown_pack(self):
-        feature_api = FeatureApi()
+    def test_unknown_pack(self, cache_directory: Path):
+        feature_api = FeatureApi(cache_dir=cache_directory)
         with pytest.raises(ValueError) as excinfo:
             feature_api.get_feature_classes(packs=["solar", "foobar"])
         assert "foobar" in str(excinfo.value)
+
+    def test_packs(self, cache_directory: Path):
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        packs = feature_api.get_packs()
+        expected_subset = {"building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"}
+        assert not expected_subset.difference(packs.keys())

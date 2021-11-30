@@ -1,14 +1,14 @@
-import warnings
 from pathlib import Path
 from typing import List, Optional
+import warnings
 
 import geopandas as gpd
 import pandas as pd
 import shapely.wkb
 import shapely.wkt
 import stringcase
-from nearmap_ai import log
 
+from nearmap_ai import log
 from nearmap_ai.constants import (
     AOI_ID_COLUMN_NAME,
     AREA_CRS,
@@ -149,12 +149,7 @@ def read_from_file(
     return parcels_gdf
 
 
-def filter_features_in_parcels(
-    parcels_gdf: gpd.GeoDataFrame,
-    features_gdf: gpd.GeoDataFrame,
-    country: str,
-    config: Optional[dict] = None,
-) -> gpd.GeoDataFrame:
+def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[dict] = None) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
      - Features that are considered noise (small or low confidence)
@@ -164,9 +159,7 @@ def filter_features_in_parcels(
     Default thresholds to make theses decisions are defined, but can be overwritten at runtime.
 
     Args:
-        parcels_gdf: Parcel data (see nearmap_ai.parcels.read_from_file)
         features_gdf: Features data (see nearmap_ai.FeatureApi.get_features_gdf_bulk)
-        country: Country string used for area calculation ("US", "AU", "NZ", ...)
         config: Config dictionary. Can have any or all keys as the default config
                 (see nearmap_ai.parcels.DEFAULT_FILTERING).
 
@@ -174,42 +167,14 @@ def filter_features_in_parcels(
     """
     if config is None:
         config = {}
-
-    # Project to Albers equal area to enable area calculation in squared metres
-    country = country.lower()
-    if country not in AREA_CRS.keys():
-        raise ValueError(f"Unsupported country ({country=})")
-    projected_features_gdf = features_gdf.to_crs(AREA_CRS[country])
-    projected_parcels_gdf = parcels_gdf.to_crs(AREA_CRS[country])
-
-    # Merge parcels and features
-    gdf = projected_features_gdf.merge(
-        projected_parcels_gdf, on=AOI_ID_COLUMN_NAME, how="left", suffixes=["_feature", "_aoi"]
-    )
-    # Calculate the area of each feature that falls within the parcel
-    if len(gdf) == 0:
-        # Pandas infers apply return type, so if there is nothing to infer it from we get issues.
-        gdf["intersection_area"] = []
-    else:
-        try:
-            gdf["intersection_area"] = gdf.apply(
-                lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
-            )
-        except shapely.errors.TopologicalError:
-            logger.error(gdf)
-            logger.error(f"Topological Error. Assuming all objects fall within parcel. Len gdf: {len(gdf)}. Len valid geometry feature {gpd.GeoSeries(gdf.geometry_feature).is_valid.sum()}.")
-            row = gdf[~gpd.GeoSeries(gdf.geometry_feature).is_valid]
-            logger.error(str(row))
-            logger.error(str(row.geometry_feature))
-            logger.error(f"Len valid geometry aoi {gpd.GeoSeries(gdf.geometry_aoi).is_valid.sum()}.")
-            gdf["intersection_area"] = gpd.GeoSeries(gdf.geometry_feature).area
+    gdf = features_gdf.copy()
 
     # Calculate the ratio of a feature that falls within the parcel
-    gdf["intersection_ratio"] = gdf.intersection_area / gdf.area_sqm
+    gdf["intersection_ratio"] = gdf.clipped_area_sqm / gdf.unclipped_area_sqm
 
     # Filter small features
     filter = config.get("min_size", DEFAULT_FILTERING["min_size"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.area_sqm]
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.unclipped_area_sqm]
 
     # Filter low confidence features
     filter = config.get("min_confidence", DEFAULT_FILTERING["min_confidence"])
@@ -217,16 +182,18 @@ def filter_features_in_parcels(
 
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
-    area_mask = gdf.class_id.map(filter).fillna(0) < gdf.intersection_area
+    area_mask = gdf.class_id.map(filter).fillna(0) < gdf.clipped_area_sqm
     filter = config.get("min_ratio_in_parcel", DEFAULT_FILTERING["min_ratio_in_parcel"])
     ratio_mask = gdf.class_id.map(filter).fillna(0) < gdf.intersection_ratio
     gdf = gdf[area_mask | ratio_mask]
 
-    return features_gdf.merge(
-        gdf[["feature_id", AOI_ID_COLUMN_NAME, "intersection_area"]],
-        on=["feature_id", AOI_ID_COLUMN_NAME],
-        how="inner",
-    )
+    # filter any children that no longer have a parent
+    if "parent_id" in gdf:
+        parent_exists = gdf.parent_id.isin(gdf.feature_id)
+        no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
+        gdf = gdf.loc[parent_exists | no_parent]
+
+    return gdf.reset_index(drop=True)
 
 
 def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
@@ -293,9 +260,6 @@ def feature_attributes(
     Returns: Flat dictionary
 
     """
-    if "intersection_area" not in features_gdf.columns:
-        raise ValueError("`intersection_area` is a required column, see nearmap_ai.parcels.filter_features_in_parcels")
-
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
     for (class_id, name) in classes_df.description.iteritems():
@@ -307,13 +271,12 @@ def feature_attributes(
         parcel[f"{name}_count"] = len(class_features_gdf)
         if country in IMPERIAL_COUNTRIES:
             parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
-            parcel[f"{name}_total_clipped_area_sqft"] = round(
-                class_features_gdf.intersection_area.sum() * SQUARED_METERS_TO_SQUARED_FEET,
-                1,
-            )
+            parcel[f"{name}_total_clipped_area_sqft"] = round(class_features_gdf.clipped_area_sqft.sum(), 1)
+            parcel[f"{name}_total_unclipped_area_sqft"] = round(class_features_gdf.unclipped_area_sqft.sum(), 1)
         else:
             parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum()
-            parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.intersection_area.sum(), 1)
+            parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.clipped_area_sqm.sum(), 1)
+            parcel[f"{name}_total_unclipped_area_sqm"] = round(class_features_gdf.unclipped_area_sqm.sum(), 1)
         if len(class_features_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
         else:
@@ -325,7 +288,7 @@ def feature_attributes(
 
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
-                    primary_feature = class_features_gdf.loc[class_features_gdf.intersection_area.idxmax()]
+                    primary_feature = class_features_gdf.loc[class_features_gdf.clipped_area_sqm.idxmax()]
                 elif primary_decision == "nearest":
                     primary_point = shapely.geometry.Point(primary_lon, primary_lat)
                     primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
@@ -350,13 +313,12 @@ def feature_attributes(
                     raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
-                    parcel[f"primary_{name}_clipped_area_sqft"] = round(
-                        primary_feature.intersection_area * SQUARED_METERS_TO_SQUARED_FEET,
-                        1,
-                    )
+                    parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
                 else:
                     parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
-                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.intersection_area, 1)
+                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
 
                 # Add roof and building attributes
@@ -373,9 +335,11 @@ def feature_attributes(
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_area_sqft"] = 0.0
                     parcel[f"primary_{name}_clipped_area_sqft"] = 0.0
+                    parcel[f"primary_{name}_unclipped_area_sqft"] = 0.0
                 else:
                     parcel[f"primary_{name}_area_sqm"] = 0.0
                     parcel[f"primary_{name}_clipped_area_sqm"] = 0.0
+                    parcel[f"primary_{name}_unclipped_area_sqm"] = 0.0
                 parcel[f"primary_{name}_confidence"] = 1.0
 
     return parcel
@@ -442,7 +406,7 @@ def parcel_rollup(
         area_name = "area_sqm"
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
-            gpd.GeoDataFrame([], columns=["class_id", area_name, "intersection_area"]),
+            gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
             classes_df,
             country=country,
             primary_decision=primary_decision,
