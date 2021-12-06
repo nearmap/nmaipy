@@ -307,8 +307,8 @@ class FeatureApi:
             if cache_path.exists():
                 logger.debug(f"Retrieving payload from cache")
                 if self.compress_cache:
-                    with gzip.open(cache_path, 'r') as f:
-                        return json.loads(f.read().decode('utf-8'))
+                    with gzip.open(cache_path, "r") as f:
+                        return json.loads(f.read().decode("utf-8"))
                 else:
                     with open(cache_path, "r") as f:
                         return json.load(f)
