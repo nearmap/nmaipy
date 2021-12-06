@@ -1,3 +1,5 @@
+import logging
+
 import concurrent.futures
 import hashlib
 from http import HTTPStatus
@@ -307,8 +309,13 @@ class FeatureApi:
             if cache_path.exists():
                 logger.debug(f"Retrieving payload from cache")
                 if self.compress_cache:
-                    with gzip.open(cache_path, "r") as f:
-                        return json.loads(f.read().decode("utf-8"))
+                    with gzip.open(cache_path, "rt", encoding="utf-8") as f:
+                        try:
+                            payload_str = f.read()
+                            return json.loads(payload_str)
+                        except EOFError as e:
+                            logging.error(f"Error loading compressed cache file {cache_path}.")
+                            logging.error(payload_str)
                 else:
                     with open(cache_path, "r") as f:
                         return json.load(f)
