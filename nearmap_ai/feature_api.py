@@ -9,6 +9,7 @@ import time
 from typing import Dict, List, Optional, Tuple, Union
 import uuid
 
+import gzip
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -53,6 +54,7 @@ class FeatureApi:
         bulk_mode: Optional[bool] = True,
         cache_dir: Optional[Path] = None,
         overwrite_cache: Optional[bool] = False,
+        compress_cache: Optional[bool] = False,
         workers: Optional[int] = 10,
     ):
         """
@@ -62,6 +64,7 @@ class FeatureApi:
             api_key: Nearmap API key. If not defined the environment variable will be used
             cache_dir: Directory to use as a payload cache
             overwrite_cache: Set to overwrite values stored in the cache
+            compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
             workers: Number of threads to spawn for concurrent execution
         """
         if api_key:
@@ -78,6 +81,7 @@ class FeatureApi:
         self._sessions = []
         self._thread_local = threading.local()
         self.overwrite_cache = overwrite_cache
+        self.compress_cache = compress_cache
         self.workers = workers
         self.bulk_mode = bulk_mode
 
@@ -210,7 +214,10 @@ class FeatureApi:
         request_string = request_string.replace(self.api_key, "")
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = self._make_latlon_path_for_cache(request_string)
-        return self.cache_dir / lon / lat / f"{request_hash}.json"
+        if self.compress_cache:
+            return self.cache_dir / lon / lat / f"{request_hash}.json.gz"
+        else:
+            return self.cache_dir / lon / lat / f"{request_hash}.json"
 
     def _request_error_message(self, request_string: str, response: requests.Response) -> str:
         """
@@ -232,11 +239,20 @@ class FeatureApi:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
-        with open(temp_path, "w") as f:
-            json.dump(payload, f)
+        if self.compress_cache:
+            temp_path = Path(str(temp_path) + ".gz")
+            with gzip.open(temp_path, "w") as f:
+                payload_bytes = json.dumps(payload).encode("utf-8")
+                f.write(payload_bytes)
+                f.flush()
+                os.fsync(f.fileno())
+                temp_path.replace(path)
+        else:
+            with open(temp_path, "w") as f:
+                json.dump(payload, f)
             f.flush()
             os.fsync(f.fileno())
-        temp_path.replace(path)
+            temp_path.replace(path)
 
     def _create_request_string(
         self,
@@ -290,8 +306,12 @@ class FeatureApi:
             cache_path = self._request_cache_path(request_string)
             if cache_path.exists():
                 logger.debug(f"Retrieving payload from cache")
-                with open(cache_path, "r") as f:
-                    return json.load(f)
+                if self.compress_cache:
+                    with gzip.open(cache_path, 'r') as f:
+                        return json.loads(f.read().decode('utf-8'))
+                else:
+                    with open(cache_path, "r") as f:
+                        return json.load(f)
 
         # Request data
         t1 = time.monotonic()
