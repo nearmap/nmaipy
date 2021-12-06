@@ -216,10 +216,8 @@ class FeatureApi:
         request_string = request_string.replace(self.api_key, "")
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = self._make_latlon_path_for_cache(request_string)
-        if self.compress_cache:
-            return self.cache_dir / lon / lat / f"{request_hash}.json.gz"
-        else:
-            return self.cache_dir / lon / lat / f"{request_hash}.json"
+        ext = ".json.gz" if self.compress_cache else ".json"
+        return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
 
     def _request_error_message(self, request_string: str, response: requests.Response) -> str:
         """
