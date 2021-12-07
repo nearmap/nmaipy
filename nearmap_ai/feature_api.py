@@ -216,7 +216,7 @@ class FeatureApi:
         request_string = request_string.replace(self.api_key, "")
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = self._make_latlon_path_for_cache(request_string)
-        ext = ".json.gz" if self.compress_cache else ".json"
+        ext = "json.gz" if self.compress_cache else "json"
         return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
 
     def _request_error_message(self, request_string: str, response: requests.Response) -> str:
@@ -239,20 +239,23 @@ class FeatureApi:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
-        if self.compress_cache:
-            temp_path = Path(str(temp_path) + ".gz")
-            with gzip.open(temp_path, "w") as f:
-                payload_bytes = json.dumps(payload).encode("utf-8")
-                f.write(payload_bytes)
-                f.flush()
-                os.fsync(f.fileno())
-                temp_path.replace(path)
-        else:
-            with open(temp_path, "w") as f:
-                json.dump(payload, f)
-            f.flush()
-            os.fsync(f.fileno())
+        try:
+            if self.compress_cache:
+                temp_path = temp_path.parent / f"{temp_path.name}.gz"
+                with gzip.open(temp_path, "w") as f:
+                    payload_bytes = json.dumps(payload).encode("utf-8")
+                    f.write(payload_bytes)
+                    f.flush()
+                    os.fsync(f.fileno())
+            else:
+                with open(temp_path, "w") as f:
+                    json.dump(payload, f)
+                    f.flush()
+                    os.fsync(f.fileno())
             temp_path.replace(path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _create_request_string(
         self,
