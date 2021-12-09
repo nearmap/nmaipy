@@ -4,7 +4,6 @@ import concurrent.futures
 import hashlib
 from http import HTTPStatus
 import json
-import json.decoder
 import os
 from pathlib import Path
 import threading
@@ -233,9 +232,6 @@ class FeatureApi:
         clean_request_string = request_string.replace(self.api_key, "...")
         if not response.ok:
             raise AIFeatureAPIError(response, clean_request_string)
-        else:
-            raise AIFeatureAPIError(response, clean_request_string)
-
 
     def _write_to_cache(self, path, payload):
         """
@@ -336,11 +332,7 @@ class FeatureApi:
         # Check for errors
         self._handle_response_errors(response, request_string)
         # Parse results
-        try:
-            data = response.json()
-        except json.decoder.JSONDecodeError:
-            logger.error(f"Incomplete response with JSONDecodeError for payload.")
-            self._handle_response_errors(response, request_string)
+        data = response.json()
 
         # If the AOI was altered for the API request, we need to filter features in the response
         if not exact:
