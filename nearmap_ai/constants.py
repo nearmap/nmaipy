@@ -5,6 +5,8 @@ LON_PRIMARY_COL_NAME = "lon"
 SINCE_COL_NAME = "since"
 UNTIL_COL_NAME = "until"
 
+MAX_RETRIES = 100
+
 # Projections
 LAT_LONG_CRS = "WGS 84"
 AREA_CRS = {

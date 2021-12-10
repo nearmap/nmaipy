@@ -22,13 +22,13 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 import stringcase
 
 from nearmap_ai import log
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME, MAX_RETRIES
 
 logger = log.get_logger()
 
 
 class RetryRequest(Retry):
-    BACKOFF_MAX = 0.6
+    BACKOFF_MAX = 1
 
 
 class AIFeatureAPIError(Exception):
@@ -41,6 +41,13 @@ class AIFeatureAPIError(Exception):
             self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
         except json.JSONDecodeError:
             self.message = "JSONDecodeError"
+
+
+class AIFeatureAPIRequestSizeError(Exception):
+    """
+    Use do indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
+    """
+    pass
 
 
 class FeatureApi:
@@ -96,7 +103,7 @@ class FeatureApi:
         if session is None:
             session = requests.Session()
             retries = RetryRequest(
-                total=100,
+                total=MAX_RETRIES,
                 backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
@@ -231,7 +238,10 @@ class FeatureApi:
         """
         clean_request_string = request_string.replace(self.api_key, "...")
         if not response.ok:
-            raise AIFeatureAPIError(response, clean_request_string)
+            if response.status_code in (HTTPStatus.GATEWAY_TIMEOUT, HTTPStatus.REQUEST_ENTITY_TOO_LARGE):
+                pass
+            else:
+                raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
         """
@@ -331,17 +341,21 @@ class FeatureApi:
             logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
         # Check for errors
         self._handle_response_errors(response, request_string)
-        # Parse results
-        data = response.json()
 
-        # If the AOI was altered for the API request, we need to filter features in the response
-        if not exact:
-            data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+        if response.status_code == HTTPStatus.GATEWAY_TIMEOUT:
+            #TODO: Grid this up and retry in future! For now, just fail.
+            raise AIFeatureAPIError(response, request_string)
+        else:
+            data = response.json()
 
-        # Save to cache if configured
-        if self.cache_dir is not None:
-            self._write_to_cache(self._request_cache_path(request_string), data)
-        return data
+            # If the AOI was altered for the API request, we need to filter features in the response
+            if not exact:
+                data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+
+            # Save to cache if configured
+            if self.cache_dir is not None:
+                self._write_to_cache(self._request_cache_path(request_string), data)
+            return data
 
     @staticmethod
     def link_to_date(link: str) -> str:
@@ -459,19 +473,53 @@ class FeatureApi:
                 "text": e.text,
                 "request": e.request_string,
             }
+        except AIFeatureAPIRequestSizeError as e:
+            # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
+            feeatures_gdf, metadata = self.get_features_gdf_gridded(geometry, packs, aoi_id, since, until)
+            error = None
         except requests.exceptions.RetryError as e:
             logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
             features_gdf = None
             metadata = None
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
-                "status_code": "RETRY_ERROR",
-                "message": "",
+                "status_code": -1,
+                "message": "RETRY_ERROR",
                 "text": str(e),
                 "request": "",
             }
 
         return features_gdf, metadata, error
+
+    def get_features_gdf_gridded(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        packs: Optional[List[str]] = None,
+        aoi_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        grid_size_degrees: Optional[float] = 0.001  # Approx 100m at the equator
+
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+        """
+        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
+
+        Args:
+            geometry: AOI in EPSG4326
+            packs: List of AI packs
+            aoi_id: ID of the AOI to add to the data
+            since: Earliest date to pull data for
+            until: Latest date to pull data for
+            grid_size_degrees: Generally it would be unwise to use degrees to grid, however speed is more important than having grid areas consistent.
+
+        Returns:
+            API response features GeoDataFrame, metadata dictionary, and a error dictionary
+        """
+        #TODO: Write this function...
+
+        if response.status_code in (HTTPStatus.GATEWAY_TIMEOUT, HTTPStatus.REQUEST_ENTITY_TOO_LARGE):
+            data = self.get_features_gridded(geometry, packs, since, until)
 
     def get_features_gdf_bulk(
         self,
