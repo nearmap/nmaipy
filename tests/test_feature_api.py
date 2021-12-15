@@ -65,6 +65,21 @@ class TestFeatureAPI:
         assert date_1 <= metadata["date"] <= date_2
         assert len(features_gdf) == 3
 
+    def test_get_compressed_cache(self, cache_directory: Path, sydney_aoi: Polygon):
+        date_1 = "2020-06-01"
+        date_2 = "2020-12-01"
+        packs = ["building"]
+        aoi_id = "123"
+        # Use an invalid API key to ensure the data is not being pulled from the API but read from the cache.
+        api_key = "not an api key"
+        # Run
+        feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        # Check output
+        assert error is None
+        assert date_1 <= metadata["date"] <= date_2
+        assert len(features_gdf) == 3
+
     def test_get_bulk(self, cache_directory: Path, sydney_aoi: Polygon):
         aois = []
         for i in range(4):

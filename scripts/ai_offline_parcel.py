@@ -72,6 +72,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--compress-cache",
+        help="If set, use gzip compression on each json payload in the cache.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--country",
         help="Country code for area calculations (au, us, ca, nz)",
         required=True,
@@ -122,6 +127,7 @@ def process_chunk(
     include_parcel_geometry: Optional[bool] = False,
     primary_decision: str = "largest_intersection",
     bulk_mode: Optional[bool] = True,
+    compress_cache: Optional[bool] = False,
     since_bulk: str = None,
     until_bulk: str = None,
 ):
@@ -139,6 +145,8 @@ def process_chunk(
         include_parcel_geometry: Set to true to include parcel geometries in final output
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
+        bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
+        compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
         since_bulk: Earliest date used to pull features
         until_bulk: LAtest date used to pull features
     """
@@ -155,7 +163,13 @@ def process_chunk(
     parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
 
     # Get features
-    feature_api = FeatureApi(api_key=api_key(key_file), bulk_mode=bulk_mode, cache_dir=cache_path, workers=THREADS)
+    feature_api = FeatureApi(
+        api_key=api_key(key_file),
+        bulk_mode=bulk_mode,
+        cache_dir=cache_path,
+        compress_cache=compress_cache,
+        workers=THREADS,
+    )
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
@@ -253,7 +267,7 @@ def main():
 
     # Parse config
     if args.config_file is not None:
-        #TODO: Add validation of the config file in future to strictly enforce valid feature class ids.
+        # TODO: Add validation of the config file in future to strictly enforce valid feature class ids.
         with open(args.config_file, "r") as fp:
             config = json.load(fp)
     else:
@@ -318,6 +332,7 @@ def main():
                             args.include_parcel_geometry,
                             args.primary_decision,
                             args.bulk_mode,
+                            args.compress_cache,
                             args.since,
                             args.until,
                         )
@@ -339,6 +354,7 @@ def main():
                     args.include_parcel_geometry,
                     args.primary_decision,
                     args.bulk_mode,
+                    args.compress_cache,
                     args.since,
                     args.until,
                 )
