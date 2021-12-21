@@ -283,6 +283,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        survey_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
@@ -292,10 +293,16 @@ class FeatureApi:
         request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
 
         # Add dates if given
-        if since:
-            request_string += f"&since={since}"
-        if until:
-            request_string += f"&until={until}"
+        if (since is not None) or (until is not None):
+            if since:
+                request_string += f"&since={since}"
+            if until:
+                request_string += f"&until={until}"
+        elif (since is None) and (until is None) and (survey_id is not None):
+            request_string += f"surveyResourceId={survey_id}"
+        else:
+            raise ValueError("Invalid combination of since, until and survey_id requested")
+
         # Add packs if given
         if packs:
             packs = ",".join(packs)
@@ -308,6 +315,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        survey_id: Optional[str] = None,
     ):
         """
         Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
@@ -317,12 +325,14 @@ class FeatureApi:
             packs: List of AI packs
             since: Earliest date to pull data for
             until: Latest date to pull data for
+            survey_id: The ID of the survey if an exact survey is requested for the pull
 
         Returns:
             API response as a Dictionary
         """
+
         # Create request string
-        request_string, exact = self._create_request_string(geometry, packs, since, until)
+        request_string, exact = self._create_request_string(geometry, packs, since, until, survey_id=survey_id)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
