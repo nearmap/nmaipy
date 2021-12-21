@@ -578,7 +578,7 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
-        logging.debug(f"Gridding AOI into {grid_size_metres}m squares.")
+        logging.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
         # Retrieve the features for every one of the cells in the gridded AOIs
