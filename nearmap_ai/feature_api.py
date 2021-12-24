@@ -22,7 +22,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 import stringcase
 
 from nearmap_ai import log
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME, MAX_RETRIES
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME, SURVEY_ID_COL_NAME, MAX_RETRIES
 from nearmap_ai.constants import AREA_CRS, API_CRS
 
 logger = log.get_logger()
@@ -52,7 +52,7 @@ class AIFeatureAPIGridError(Exception):
         self.message = ""
 
 
-class AIFeatureAPIRequestSizeError(Exception):
+class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
     """
     Use do indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
     """
@@ -504,6 +504,7 @@ class FeatureApi:
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        survey_id: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
@@ -515,12 +516,13 @@ class FeatureApi:
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
+            survey_id: Alternative query mechanism to retrieve precise survey's results from coverage.
 
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
         try:
-            payload = self.get_features(geometry, packs, since, until)
+            payload = self.get_features(geometry, packs, since, until, survey_id)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
             error = None
         except AIFeatureAPIError as e:
@@ -535,21 +537,22 @@ class FeatureApi:
                 "request": e.request_string,
             }
         except AIFeatureAPIRequestSizeError as e:
-            # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
-            try:
-                features_gdf, metadata = self.get_features_gdf_gridded(geometry, packs, aoi_id, since, until)
-                error = None
-            except AIFeatureAPIError as e:
-                # Catch acceptable errors
-                features_gdf = None
-                metadata = None
-                error = {
-                    AOI_ID_COLUMN_NAME: aoi_id,
-                    "status_code": e.status_code,
-                    "message": e.message,
-                    "text": e.text,
-                    "request": e.request_string,
-                }
+            # # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
+            # try:
+            #     features_gdf, metadata = self.get_features_gdf_gridded(geometry, packs, aoi_id, since, until, survey_id)
+            #     error = None
+            #
+            # except AIFeatureAPIError as e:
+            # Catch acceptable errors
+            features_gdf = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": e.status_code,
+                "message": e.message,
+                "text": e.text,
+                "request": e.request_string,
+            }
         except requests.exceptions.RetryError as e:
             logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
             features_gdf = None
@@ -571,6 +574,7 @@ class FeatureApi:
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        survey_id: Optional[str] = None,
         grid_size: Optional[float] = 0.001,  # Approx 100m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
@@ -588,6 +592,8 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
+        if survey_id is None:
+            raise ValueError("Can't do a grid query unless survey_id has been specified.")
         logging.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
@@ -597,11 +603,12 @@ class FeatureApi:
             packs=packs,
             since_bulk=since,
             until_bulk=until,
+            survey_id_bulk=survey_id,
         )
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
         else:
-            # TODO: Combine cells into one. Need to hit coverage to force results from same survey ID, so can deduplicate IDs.
+            # TODO: Combine cells into one ONLY IF survey_id is being used - otherwise give up. Need to hit coverage to force results from same survey ID, so can deduplicate IDs.
             raise NotImplementedError
 
             return features_gdf, metadata_df, errors_df
@@ -612,6 +619,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
+        survey_id_bulk: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -621,6 +629,7 @@ class FeatureApi:
             packs: List of AI packs
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
+            survey_id_bulk: Impose a single survey ID from which to pull all responses.
 
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
@@ -642,6 +651,10 @@ class FeatureApi:
                 if UNTIL_COL_NAME in row:
                     if isinstance(row[UNTIL_COL_NAME], str):
                         until = row[UNTIL_COL_NAME]
+                survey_id = survey_id_bulk
+                if SURVEY_ID_COL_NAME in row:
+                    if isinstance(row[SURVEY_ID_COL_NAME], str):
+                        survey_id = row[SURVEY_ID_COL_NAME]
 
                 jobs.append(
                     executor.submit(
@@ -651,6 +664,7 @@ class FeatureApi:
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
+                        survey_id,
                     )
                 )
             data = []
