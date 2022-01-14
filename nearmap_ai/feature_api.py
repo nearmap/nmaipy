@@ -299,7 +299,7 @@ class FeatureApi:
             if until:
                 request_string += f"&until={until}"
         elif (since is None) and (until is None) and (survey_id is not None):
-            request_string += f"surveyResourceId={survey_id}"
+            request_string += f"&surveyResourceId={survey_id}"
         else:
             raise ValueError("Invalid combination of since, until and survey_id requested")
 
@@ -307,6 +307,7 @@ class FeatureApi:
         if packs:
             packs = ",".join(packs)
             request_string += f"&packs={packs}"
+
         return request_string, exact
 
     def get_features(

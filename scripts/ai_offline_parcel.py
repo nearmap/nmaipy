@@ -13,7 +13,7 @@ import shapely.wkt
 from tqdm import tqdm
 
 from nearmap_ai import log, parcels
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS, SURVEY_ID_COL_NAME
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -291,22 +291,26 @@ def main():
         logger.info(f"Exporting {len(parcels_gdf)} parcels.")
 
         # Print out info around what is being inferred from column names:
-        if SINCE_COL_NAME in parcels_gdf:
-            logger.info(
-                f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
-            )
-        elif args.since is not None:
-            logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
+        if SURVEY_ID_COL_NAME in parcels_gdf:
+            logger.info(f"{SURVEY_ID_COL_NAME} will be used to get results from the exact Survey ID, instead of using date based filtering.")
         else:
-            logger.info("No earliest date will used")
-        if UNTIL_COL_NAME in parcels_gdf:
-            logger.info(
-                f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
-            )
-        elif args.until is not None:
-            logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
-        else:
-            logger.info("No latest date will used")
+            logger.info(f"No {SURVEY_ID_COL_NAME} column provided, so date based endpoint will be used.")
+            if SINCE_COL_NAME in parcels_gdf:
+                logger.info(
+                    f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
+                )
+            elif args.since is not None:
+                logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
+            else:
+                logger.info("No earliest date will used")
+            if UNTIL_COL_NAME in parcels_gdf:
+                logger.info(
+                    f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
+                )
+            elif args.until is not None:
+                logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
+            else:
+                logger.info("No latest date will used")
 
         jobs = []
 
