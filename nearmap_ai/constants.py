@@ -4,7 +4,7 @@ LAT_PRIMARY_COL_NAME = "lat"
 LON_PRIMARY_COL_NAME = "lon"
 SINCE_COL_NAME = "since"
 UNTIL_COL_NAME = "until"
-SURVEY_ID_COL_NAME = "survey_id"
+SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 
 
 MAX_RETRIES = 300

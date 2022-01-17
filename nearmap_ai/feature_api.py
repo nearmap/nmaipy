@@ -22,7 +22,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 import stringcase
 
 from nearmap_ai import log
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME, SURVEY_ID_COL_NAME, MAX_RETRIES
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME, SURVEY_RESOURCE_ID_COL_NAME, MAX_RETRIES
 from nearmap_ai.constants import AREA_CRS, API_CRS
 
 logger = log.get_logger()
@@ -62,6 +62,7 @@ class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
 
 class FeatureApi:
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
+    FEATURES_SURVEY_RESOURCE_URL = "https://api.nearmap.com/ai/features/v4/surveyresources"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
     PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
@@ -283,7 +284,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        survey_id: Optional[str] = None,
+        survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
@@ -298,10 +299,10 @@ class FeatureApi:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-        elif (since is None) and (until is None) and (survey_id is not None):
-            request_string += f"&surveyResourceId={survey_id}"
+        elif (since is None) and (until is None) and (survey_resource_id is not None):
+            request_string = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
         else:
-            raise ValueError("Invalid combination of since, until and survey_id requested")
+            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
 
         # Add packs if given
         if packs:
@@ -316,7 +317,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        survey_id: Optional[str] = None,
+        survey_resource_id: Optional[str] = None,
     ):
         """
         Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
@@ -326,14 +327,15 @@ class FeatureApi:
             packs: List of AI packs
             since: Earliest date to pull data for
             until: Latest date to pull data for
-            survey_id: The ID of the survey if an exact survey is requested for the pull
+            survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull. NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
 
         Returns:
             API response as a Dictionary
         """
 
         # Create request string
-        request_string, exact = self._create_request_string(geometry, packs, since, until, survey_id=survey_id)
+        request_string, exact = self._create_request_string(geometry, packs, since, until, survey_resource_id=survey_resource_id)
+        logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
@@ -505,7 +507,7 @@ class FeatureApi:
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        survey_id: Optional[str] = None,
+        survey_resource_id: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
@@ -517,13 +519,13 @@ class FeatureApi:
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
-            survey_id: Alternative query mechanism to retrieve precise survey's results from coverage.
+            survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
 
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
         try:
-            payload = self.get_features(geometry, packs, since, until, survey_id)
+            payload = self.get_features(geometry, packs, since, until, survey_resource_id)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
             error = None
         except AIFeatureAPIError as e:
@@ -540,7 +542,7 @@ class FeatureApi:
         except AIFeatureAPIRequestSizeError as e:
             # # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
             # try:
-            #     features_gdf, metadata = self.get_features_gdf_gridded(geometry, packs, aoi_id, since, until, survey_id)
+            #     features_gdf, metadata = self.get_features_gdf_gridded(geometry, packs, aoi_id, since, until, survey_resource_id)
             #     error = None
             #
             # except AIFeatureAPIError as e:
@@ -575,7 +577,7 @@ class FeatureApi:
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        survey_id: Optional[str] = None,
+        survey_resource_id: Optional[str] = None,
         grid_size: Optional[float] = 0.001,  # Approx 100m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
@@ -593,8 +595,8 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
-        if survey_id is None:
-            raise ValueError("Can't do a grid query unless survey_id has been specified.")
+        if survey_resource_id is None:
+            raise ValueError("Can't do a grid query unless survey_resource_id has been specified.")
         logging.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
@@ -604,12 +606,12 @@ class FeatureApi:
             packs=packs,
             since_bulk=since,
             until_bulk=until,
-            survey_id_bulk=survey_id,
+            survey_resource_id_bulk=survey_resource_id,
         )
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
         else:
-            # TODO: Combine cells into one ONLY IF survey_id is being used - otherwise give up. Need to hit coverage to force results from same survey ID, so can deduplicate IDs.
+            # TODO: Combine cells into one ONLY IF survey_resource_id is being used - otherwise give up. Need to hit coverage to force results from same survey ID, so can deduplicate IDs.
             raise NotImplementedError
 
             return features_gdf, metadata_df, errors_df
@@ -620,7 +622,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
-        survey_id_bulk: Optional[str] = None,
+        survey_resource_id_bulk: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -630,7 +632,7 @@ class FeatureApi:
             packs: List of AI packs
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
-            survey_id_bulk: Impose a single survey ID from which to pull all responses.
+            survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
 
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
@@ -652,10 +654,10 @@ class FeatureApi:
                 if UNTIL_COL_NAME in row:
                     if isinstance(row[UNTIL_COL_NAME], str):
                         until = row[UNTIL_COL_NAME]
-                survey_id = survey_id_bulk
-                if SURVEY_ID_COL_NAME in row:
-                    if isinstance(row[SURVEY_ID_COL_NAME], str):
-                        survey_id = row[SURVEY_ID_COL_NAME]
+                survey_resource_id = survey_resource_id_bulk
+                if SURVEY_RESOURCE_ID_COL_NAME in row:
+                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
 
                 jobs.append(
                     executor.submit(
@@ -665,7 +667,7 @@ class FeatureApi:
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
-                        survey_id,
+                        survey_resource_id,
                     )
                 )
             data = []

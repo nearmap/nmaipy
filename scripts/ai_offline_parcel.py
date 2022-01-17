@@ -11,9 +11,10 @@ import numpy as np
 import pandas as pd
 import shapely.wkt
 from tqdm import tqdm
+import fiona.errors
 
 from nearmap_ai import log, parcels
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS, SURVEY_ID_COL_NAME
+from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS, SURVEY_RESOURCE_ID_COL_NAME
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -291,10 +292,10 @@ def main():
         logger.info(f"Exporting {len(parcels_gdf)} parcels.")
 
         # Print out info around what is being inferred from column names:
-        if SURVEY_ID_COL_NAME in parcels_gdf:
-            logger.info(f"{SURVEY_ID_COL_NAME} will be used to get results from the exact Survey ID, instead of using date based filtering.")
+        if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
+            logger.info(f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey ID, instead of using date based filtering.")
         else:
-            logger.info(f"No {SURVEY_ID_COL_NAME} column provided, so date based endpoint will be used.")
+            logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
             if SINCE_COL_NAME in parcels_gdf:
                 logger.info(
                     f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
@@ -367,17 +368,29 @@ def main():
         data = []
         data_features = []
         errors = []
+
+        logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
         pd.concat(data).to_csv(outpath, index=True)
-        for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
-            data_features.append(gpd.read_file(cp))
+
+        logger.info(f"Saving feature data as .geojson to {outpath_features}")
+        geojson_paths = chunk_path.glob(f"features_{f.stem}_*.geojson")
+        for cp in tqdm(geojson_paths):
+            try:
+                df_feature_chunk = gpd.read_file(cp)
+            except fiona.errors.DriverError as e:
+                logger.error(f"Failed to read {cp}.")
+            data_features.append(df_feature_chunk)
         if len(data_features) > 0:
             pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
+
+        outpath_errors = final_path / f"{f.stem}_errors.csv"
+        logger.info(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=True)
-        logger.info(f"Save data to {outpath}")
+        pd.concat(errors).to_csv(outpath_errors, index=True)
+
 
 
 if __name__ == "__main__":
