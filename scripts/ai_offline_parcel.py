@@ -154,7 +154,7 @@ def process_chunk(
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
-    outfile_features = chunk_path / f"features_{chunk_id}.geojson"
+    outfile_features = chunk_path / f"features_{chunk_id}.gpkg"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
     if outfile.exists():
         return
@@ -221,7 +221,7 @@ def process_chunk(
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
 
-    # Save features as geojson, shift the parcel geometry to "aoi_geometry"
+    # Save features as gpkg, shift the parcel geometry to "aoi_geometry"
     final_features_df = gpd.GeoDataFrame(
         metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
             parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
@@ -237,10 +237,10 @@ def process_chunk(
             final_features_df = final_features_df[
                 ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
             ]
-            final_features_df.to_file(outfile_features, driver="GeoJSON")
+            final_features_df.to_file(outfile_features, driver="GPKG")
         except Exception:
             logger.error(
-                f"Failed to save features geojson for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+                f"Failed to save features gpkg for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
             )
 
 
@@ -282,7 +282,7 @@ def main():
         if outpath.exists():
             logger.info(f"Output already exist, skipping ({outpath})")
             continue
-        outpath_features = final_path / f"{f.stem}_features.geojson"
+        outpath_features = final_path / f"{f.stem}_features.gpkg"
         if outpath_features.exists():
             logger.info(f"Output already exist, skipping ({outpath_features})")
             continue
@@ -293,7 +293,7 @@ def main():
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
-            logger.info(f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey ID, instead of using date based filtering.")
+            logger.info(f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering.")
         else:
             logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
             if SINCE_COL_NAME in parcels_gdf:
@@ -374,22 +374,22 @@ def main():
             data.append(pd.read_parquet(cp))
         pd.concat(data).to_csv(outpath, index=True)
 
-        logger.info(f"Saving feature data as .geojson to {outpath_features}")
-        geojson_paths = chunk_path.glob(f"features_{f.stem}_*.geojson")
-        for cp in tqdm(geojson_paths):
+        outpath_errors = final_path / f"{f.stem}_errors.csv"
+        logger.info(f"Saving error data as .csv to {outpath_errors}")
+        for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
+            errors.append(pd.read_parquet(cp))
+        pd.concat(errors).to_csv(outpath_errors, index=True)
+
+        logger.info(f"Saving feature data as .gpkg to {outpath_features}")
+        gpkg_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.gpkg")]
+        for cp in tqdm(gpkg_paths, total=len(gpkg_paths)):
             try:
                 df_feature_chunk = gpd.read_file(cp)
             except fiona.errors.DriverError as e:
                 logger.error(f"Failed to read {cp}.")
             data_features.append(df_feature_chunk)
         if len(data_features) > 0:
-            pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
-
-        outpath_errors = final_path / f"{f.stem}_errors.csv"
-        logger.info(f"Saving error data as .csv to {outpath_errors}")
-        for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
-            errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(outpath_errors, index=True)
+            pd.concat(data_features).to_file(outpath_features, driver="GPKG")
 
 
 
