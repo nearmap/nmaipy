@@ -22,7 +22,15 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 import stringcase
 
 from nearmap_ai import log
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME, SURVEY_RESOURCE_ID_COL_NAME, MAX_RETRIES
+from nearmap_ai.constants import (
+    AOI_ID_COLUMN_NAME,
+    LAT_LONG_CRS,
+    SINCE_COL_NAME,
+    UNTIL_COL_NAME,
+    SURVEY_RESOURCE_ID_COL_NAME,
+    MAX_RETRIES,
+    AOI_EXCEEDS_MAX_SIZE,
+)
 from nearmap_ai.constants import AREA_CRS, API_CRS
 
 logger = log.get_logger()
@@ -53,6 +61,9 @@ class AIFeatureAPIGridError(Exception):
 
 
 class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
+    status_codes = (HTTPStatus.GATEWAY_TIMEOUT,)
+    codes = (AOI_EXCEEDS_MAX_SIZE,)
+
     """
     Use do indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
     """
@@ -249,10 +260,7 @@ class FeatureApi:
         """
         clean_request_string = request_string.replace(self.api_key, "...")
         if not response.ok:
-            if response.status_code in (HTTPStatus.GATEWAY_TIMEOUT, HTTPStatus.REQUEST_ENTITY_TOO_LARGE):
-                pass
-            else:
-                raise AIFeatureAPIError(response, clean_request_string)
+            raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
         """
@@ -334,7 +342,9 @@ class FeatureApi:
         """
 
         # Create request string
-        request_string, exact = self._create_request_string(geometry, packs, since, until, survey_resource_id=survey_resource_id)
+        request_string, exact = self._create_request_string(
+            geometry, packs, since, until, survey_resource_id=survey_resource_id
+        )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
 
         # Check if it's already cached
@@ -360,14 +370,6 @@ class FeatureApi:
         response_time_ms = (time.monotonic() - t1) * 1e3
         if response.ok:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
-        else:
-            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
-        # Check for errors
-        self._handle_response_errors(response, request_string)
-
-        if response.status_code in (HTTPStatus.GATEWAY_TIMEOUT, HTTPStatus.REQUEST_ENTITY_TOO_LARGE):
-            raise AIFeatureAPIRequestSizeError(response, request_string)
-        else:
             data = response.json()
 
             # If the AOI was altered for the API request, we need to filter features in the response
@@ -378,6 +380,21 @@ class FeatureApi:
             if self.cache_dir is not None:
                 self._write_to_cache(self._request_cache_path(request_string), data)
             return data
+        else:
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
+
+            if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
+                raise AIFeatureAPIRequestSizeError(response, request_string)
+            elif response.status_code == HTTPStatus.BAD_REQUEST:
+                error_code = json.loads(response.text)["code"]
+                if error_code in AIFeatureAPIRequestSizeError.codes:
+                    raise AIFeatureAPIRequestSizeError(response, request_string)
+                else:
+                    # Check for errors
+                    self._handle_response_errors(response, request_string)
+            else:
+                # Check for errors
+                self._handle_response_errors(response, request_string)
 
     @staticmethod
     def link_to_date(link: str) -> str:
@@ -439,6 +456,55 @@ class FeatureApi:
         df_gridded = df_gridded.explode(index_parts=False)  # Break apart grid squares that are multipolygons.
         df_gridded = df_gridded.to_crs(API_CRS)
         return df_gridded
+
+    @staticmethod
+    def combine_features_gdf_from_grid(features_gdf: gpd.GeoDataFrame):
+        """
+        Where a grid of adjacent queries has been used to pull features, remove duplicates for discrete classes,
+        and recombine geometries of connected classes (including reconciling areas correctly) where the feature id
+        of the larger object is the same.
+
+        :param features_gdf:
+        :return:
+        """
+
+        # First, remove any duplicated discrete classes. After this line, all duplicated feature_ids are connected
+        # classes, and can be dealt with accordingly.
+        features_gdf_out = features_gdf.drop_duplicates(["feature_id", "geometry"])
+
+        # Columns that don't require aggregation.
+        agg_cols_first = [
+            "class_id",
+            "description",
+            "confidence",
+            "parent_id",
+            "unclipped_area_sqm",
+            "unclipped_area_sqft",
+            "attributes",
+            "survey_date",
+            "mesh_date",
+            "fidelity",
+        ]
+
+        features_gdf_dissolved = (
+            features_gdf_out.filter(agg_cols_first + ["geometry", "feature_id"], axis=1)
+            .dissolve(by="feature_id", aggfunc="first")
+            .reset_index()
+            .set_index("feature_id")
+        )
+
+        # Columns with clipped areas that should be summed when geometries are merged.
+        agg_cols_sum = ["area_sqm", "area_sqft", "clipped_area_sqm", "clipped_area_sqft"]
+
+        features_gdf_summed = (
+            features_gdf_out.filter(agg_cols_sum + ["feature_id"], axis=1)
+            .groupby("feature_id")
+            .aggregate(dict([c, "sum"] for c in agg_cols_sum))
+        )
+
+        # final output - same format, same set of feature_ids, but fewer rows due to dedup and merging.
+        features_gdf_out = features_gdf_dissolved.join(features_gdf_summed)
+        return features_gdf_out
 
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
@@ -528,6 +594,51 @@ class FeatureApi:
             payload = self.get_features(geometry, packs, since, until, survey_resource_id)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
             error = None
+        except AIFeatureAPIRequestSizeError as e:
+            # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
+            logger.debug("Found an oversized AOI. Trying gridding...")
+            try:
+                features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
+                    geometry, packs, aoi_id, since, until, survey_resource_id
+                )
+                if len(errors_df) == 0:
+                    error = None
+                else:
+                    raise Exception("This shouldn't happen")
+
+                # Recombine gridded features
+                features_gdf = self.combine_features_gdf_from_grid(features_gdf)
+
+                # Creat metadata
+                metadata_df = metadata_df.drop_duplicates().iloc[0]
+
+                metadata = {
+                    "system_version": metadata_df["system_version"],
+                    "link": metadata_df["link"],
+                    "date": metadata_df["date"],
+                }
+            except AIFeatureAPIError as e:
+                # Catch acceptable errors
+                features_gdf = None
+                metadata = None
+                error = {
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "status_code": e.status_code,
+                    "message": e.message,
+                    "text": e.text,
+                    "request": e.request_string,
+                }
+            except AIFeatureAPIGridError as e:
+                # Catch acceptable errors
+                features_gdf = None
+                metadata = None
+                error = {
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "status_code": e.status_code,
+                    "message": e.message,
+                    "text": e.text,
+                    "request": e.request_string,
+                }
         except AIFeatureAPIError as e:
             # Catch acceptable errors
             features_gdf = None
@@ -539,23 +650,7 @@ class FeatureApi:
                 "text": e.text,
                 "request": e.request_string,
             }
-        except AIFeatureAPIRequestSizeError as e:
-            # # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
-            # try:
-            #     features_gdf, metadata = self.get_features_gdf_gridded(geometry, packs, aoi_id, since, until, survey_resource_id)
-            #     error = None
-            #
-            # except AIFeatureAPIError as e:
-            # Catch acceptable errors
-            features_gdf = None
-            metadata = None
-            error = {
-                AOI_ID_COLUMN_NAME: aoi_id,
-                "status_code": e.status_code,
-                "message": e.message,
-                "text": e.text,
-                "request": e.request_string,
-            }
+
         except requests.exceptions.RetryError as e:
             logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
             features_gdf = None
@@ -590,6 +685,7 @@ class FeatureApi:
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
+            survey_resource_id: The survey resource ID for the vector tile resources.
             grid_size: The AOI is gridded in the native projection (constants.API_CRS) to save compute.
 
         Returns:
@@ -601,6 +697,8 @@ class FeatureApi:
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
         # Retrieve the features for every one of the cells in the gridded AOIs
+        aoi_id_tmp = range(len(df_gridded))
+        df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
         features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
             df_gridded,
             packs=packs,
@@ -611,8 +709,7 @@ class FeatureApi:
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
         else:
-            # TODO: Combine cells into one ONLY IF survey_resource_id is being used - otherwise give up. Need to hit coverage to force results from same survey ID, so can deduplicate IDs.
-            raise NotImplementedError
+            logger.debug(f"Successfully gridded results for AOI ID: {aoi_id}, survey_resource_id: {survey_resource_id}")
 
             return features_gdf, metadata_df, errors_df
 
