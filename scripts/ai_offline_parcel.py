@@ -12,6 +12,7 @@ import pandas as pd
 import shapely.wkt
 from tqdm import tqdm
 import fiona.errors
+import warnings; warnings.filterwarnings('ignore', message='.*initial implementation of Parquet.*')
 
 from nearmap_ai import log, parcels
 from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS, SURVEY_RESOURCE_ID_COL_NAME
@@ -221,7 +222,7 @@ def process_chunk(
     errors_df.to_parquet(outfile_errors)
     final_df.to_parquet(outfile)
 
-    # Save features as gpkg, shift the parcel geometry to "aoi_geometry"
+    # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
     final_features_df = gpd.GeoDataFrame(
         metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
             parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
@@ -243,6 +244,7 @@ def process_chunk(
                 f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
             )
             logger.error(e)
+    logger.info(f"Finished saving chunk {chunk_id}")
 
 
 def main():

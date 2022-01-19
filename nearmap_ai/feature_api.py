@@ -452,8 +452,8 @@ class FeatureApi:
         """
         df = gpd.GeoDataFrame(geometry=[geometry], crs=API_CRS)
         df_gridded = FeatureApi.create_grid(df, cell_size)
-        df_gridded = df.overlay(df_gridded)
-        df_gridded = df_gridded.explode(index_parts=False)  # Break apart grid squares that are multipolygons.
+        df_gridded = gpd.overlay(df, df_gridded, keep_geom_type=False)
+        df_gridded = df_gridded.explode()  # Break apart grid squares that are multipolygons.
         df_gridded = df_gridded.to_crs(API_CRS)
         return df_gridded
 
@@ -607,7 +607,7 @@ class FeatureApi:
                     raise Exception("This shouldn't happen")
 
                 # Recombine gridded features
-                features_gdf = self.combine_features_gdf_from_grid(features_gdf)
+                features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
 
                 # Creat metadata
                 metadata_df = metadata_df.drop_duplicates().iloc[0]
