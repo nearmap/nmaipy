@@ -154,7 +154,7 @@ def process_chunk(
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
-    outfile_features = chunk_path / f"features_{chunk_id}.gpkg"
+    outfile_features = chunk_path / f"features_{chunk_id}.parquet"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
     if outfile.exists():
         return
@@ -237,11 +237,12 @@ def process_chunk(
             final_features_df = final_features_df[
                 ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
             ]
-            final_features_df.to_file(outfile_features, driver="GPKG")
-        except Exception:
+            final_features_df.to_parquet(outfile_features)
+        except Exception as e:
             logger.error(
-                f"Failed to save features gpkg for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+                f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
             )
+            logger.error(e)
 
 
 def main():
@@ -279,12 +280,10 @@ def main():
         logger.info(f"Processing parcel file {f}")
         # If output exists, skip
         outpath = final_path / f"{f.stem}.csv"
-        if outpath.exists():
-            logger.info(f"Output already exist, skipping ({outpath})")
-            continue
         outpath_features = final_path / f"{f.stem}_features.gpkg"
-        if outpath_features.exists():
-            logger.info(f"Output already exist, skipping ({outpath_features})")
+
+        if outpath.exists() and outpath_features.exists():
+            logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
@@ -381,10 +380,10 @@ def main():
         pd.concat(errors).to_csv(outpath_errors, index=True)
 
         logger.info(f"Saving feature data as .gpkg to {outpath_features}")
-        gpkg_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.gpkg")]
-        for cp in tqdm(gpkg_paths, total=len(gpkg_paths)):
+        feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
+        for cp in tqdm(feature_paths, total=len(feature_paths)):
             try:
-                df_feature_chunk = gpd.read_file(cp)
+                df_feature_chunk = gpd.read_parquet(cp)
             except fiona.errors.DriverError as e:
                 logger.error(f"Failed to read {cp}.")
             data_features.append(df_feature_chunk)
