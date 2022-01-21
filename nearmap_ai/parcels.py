@@ -187,11 +187,12 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
     ratio_mask = gdf.class_id.map(filter).fillna(0) < gdf.intersection_ratio
     gdf = gdf[area_mask | ratio_mask]
 
-    # filter any children that no longer have a parent
+    # Only drop objects where the parent has been explicitly removed as above (otherwise we drop solar panels without a building request, etc.)
     if "parent_id" in gdf:
-        parent_exists = gdf.parent_id.isin(gdf.feature_id)
+        feature_ids_removed = set(features_gdf.feature_id) - set(gdf.feature_id)
+        parent_removed = gdf.parent_id.isin(feature_ids_removed)
         no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
-        gdf = gdf.loc[parent_exists | no_parent]
+        gdf = gdf.loc[ ~parent_removed | no_parent]
 
     return gdf.reset_index(drop=True)
 
