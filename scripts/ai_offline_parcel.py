@@ -174,7 +174,7 @@ def process_chunk(
     )
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-        parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
+        parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs, instant_fail_batch=False,
     )
     if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
         logger.debug(
@@ -219,7 +219,13 @@ def process_chunk(
     final_df = final_df[columns]
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
-    errors_df.to_parquet(outfile_errors)
+    try:
+        errors_df.to_parquet(outfile_errors)
+    except Exception as e:
+        logger.error(errors_df.shape)
+        logger.error(errors_df)
+
+
     final_df.to_parquet(outfile)
 
     # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
