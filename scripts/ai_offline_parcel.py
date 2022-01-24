@@ -74,6 +74,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--save-features",
+        help="If set, save the raw vectors as a geospatial file for loading in GIS tools. This can be quite time consuming.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--compress-cache",
         help="If set, use gzip compression on each json payload in the cache.",
         action="store_true",
@@ -127,6 +132,7 @@ def process_chunk(
     country: str,
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
+    save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
     bulk_mode: Optional[bool] = True,
     compress_cache: Optional[bool] = False,
@@ -145,6 +151,7 @@ def process_chunk(
         config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
+        save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
         bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
@@ -228,28 +235,29 @@ def process_chunk(
 
     final_df.to_parquet(outfile)
 
-    # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
-    final_features_df = gpd.GeoDataFrame(
-        metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
-            parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
-        ),
-        crs=API_CRS,
-    )
-    final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
-    final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
-    if len(final_features_df) > 0:
-        try:
-            if not include_parcel_geometry:
-                final_features_df = final_features_df.drop(columns=["aoi_geometry"])
-            final_features_df = final_features_df[
-                ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
-            ]
-            final_features_df.to_parquet(outfile_features)
-        except Exception as e:
-            logger.error(
-                f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
-            )
-            logger.error(e)
+    if save_features:
+        # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
+        final_features_df = gpd.GeoDataFrame(
+            metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
+                parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
+            ),
+            crs=API_CRS,
+        )
+        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+        final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
+        if len(final_features_df) > 0:
+            try:
+                if not include_parcel_geometry:
+                    final_features_df = final_features_df.drop(columns=["aoi_geometry"])
+                final_features_df = final_features_df[
+                    ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
+                ]
+                final_features_df.to_parquet(outfile_features)
+            except Exception as e:
+                logger.error(
+                    f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+                )
+                logger.error(e)
     logger.info(f"Finished saving chunk {chunk_id}")
 
 
@@ -263,7 +271,9 @@ def main():
     for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
         parcel_paths.extend(Path(args.parcel_dir).glob(file_type))
     parcel_paths.sort()
-    logger.info(f"Running the following parcel files: {parcel_paths}")
+    logger.info(f"Running the following parcel files:")
+    for parcel_path in parcel_paths:
+        logger.info(f"\t{str(parcel_path)}")
 
     cache_path = Path(args.output_dir) / "cache"
     chunk_path = Path(args.output_dir) / "chunks"
@@ -342,6 +352,7 @@ def main():
                             args.country,
                             args.packs,
                             args.include_parcel_geometry,
+                            args.save_features,
                             args.primary_decision,
                             args.bulk_mode,
                             args.compress_cache,
@@ -364,6 +375,7 @@ def main():
                     args.country,
                     args.packs,
                     args.include_parcel_geometry,
+                    args.save_features,
                     args.primary_decision,
                     args.bulk_mode,
                     args.compress_cache,
@@ -387,16 +399,17 @@ def main():
             errors.append(pd.read_parquet(cp))
         pd.concat(errors).to_csv(outpath_errors, index=True)
 
-        logger.info(f"Saving feature data as .gpkg to {outpath_features}")
-        feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
-        for cp in tqdm(feature_paths, total=len(feature_paths)):
-            try:
-                df_feature_chunk = gpd.read_parquet(cp)
-            except fiona.errors.DriverError as e:
-                logger.error(f"Failed to read {cp}.")
-            data_features.append(df_feature_chunk)
-        if len(data_features) > 0:
-            pd.concat(data_features).to_file(outpath_features, driver="GPKG")
+        if args.save_features:
+            logger.info(f"Saving feature data as .gpkg to {outpath_features}")
+            feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
+            for cp in tqdm(feature_paths, total=len(feature_paths)):
+                try:
+                    df_feature_chunk = gpd.read_parquet(cp)
+                except fiona.errors.DriverError as e:
+                    logger.error(f"Failed to read {cp}.")
+                data_features.append(df_feature_chunk)
+            if len(data_features) > 0:
+                pd.concat(data_features).to_file(outpath_features, driver="GPKG")
 
 
 
