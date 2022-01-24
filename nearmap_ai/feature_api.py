@@ -683,7 +683,7 @@ class FeatureApi:
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
-        grid_size: Optional[float] = 0.001,  # Approx 100m at the equator
+        grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
