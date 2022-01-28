@@ -479,6 +479,7 @@ class FeatureApi:
 
         # Columns that don't require aggregation.
         agg_cols_first = [
+            "aoi_id",
             "class_id",
             "description",
             "confidence",
@@ -605,7 +606,7 @@ class FeatureApi:
             error = None
         except AIFeatureAPIRequestSizeError as e:
             # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
-            logger.debug("Found an oversized AOI. Trying gridding...")
+            logger.info(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
             try:
                 if survey_resource_id is None:
                     logging.debug("Currently don't support auto gridding of AOIs unless request is a single survey_resource_id")
@@ -638,6 +639,11 @@ class FeatureApi:
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
                     }
+                    logger.debug(
+                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}")
+
+
+
             except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
                 # Catch acceptable errors
                 features_gdf = None
@@ -728,8 +734,11 @@ class FeatureApi:
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
         else:
-            logger.debug(f"Successfully gridded results for AOI ID: {aoi_id}, survey_resource_id: {survey_resource_id}")
+            logger.info(f"Successfully gridded results for AOI ID: {aoi_id}, survey_resource_id: {survey_resource_id}")
 
+            # Reset the correct aoi_id for the gridded result
+            features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
+            metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
             return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(

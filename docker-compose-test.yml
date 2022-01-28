@@ -11,7 +11,7 @@ services:
       - JUPYTER_LAB_ENABLE=yes
     user: root
     volumes:
-      - <local path to data directory>:/home/jovyan/data
+      - /mnt/DATA/data_michaelbewley/Development/datascience/nearmap-ai-user-guides/data:/home/jovyan/data
     entrypoint: [
         "pytest", "/home/jovyan/nearmap-ai-user-guides",
     ]

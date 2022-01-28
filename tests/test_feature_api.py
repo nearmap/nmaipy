@@ -6,7 +6,7 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon
 from shapely.wkt import loads
 
-from nearmap_ai.constants import BUILDING_ID, SOLAR_ID
+from nearmap_ai.constants import BUILDING_ID, SOLAR_ID, VEG_MEDHIGH_ID
 from nearmap_ai.feature_api import FeatureApi
 
 
@@ -28,6 +28,28 @@ class TestFeatureAPI:
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 3
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 3
+
+    def test_large_aoi(self, cache_directory: Path, large_adelaide_aoi: Polygon):
+        survey_resource_id = "fe48a583-da45-5cd3-9fee-8321354bdf7a" # 2011-03-03
+        packs = ["building", "vegetation"]
+        aoi_id = "0"
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata, error = feature_api.get_features_gdf(large_adelaide_aoi, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id)
+        # No error
+        assert error is None
+        # We get 3 buildings
+        assert len(features_gdf.query("class_id == @BUILDING_ID")) == 6 # Guessed
+        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213 # Guessed
+
+        # Assert that buildings aren't overhanging the edge of the parcel. If this fails, the clipped/unclipped hasn't been managed correctly during the grid merge.
+        assert features_gdf.query("class_id == @BUILDING_ID").clipped_area_sqm.sum() == features_gdf.query("class_id == @BUILDING_ID").unclipped_area_sqm.sum()
+
+
+        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
+
+        # The AOI ID has been assigned to all features
+        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == len(features_gdf)
 
     def test_not_found(self, cache_directory: Path):
         # Somewhere in the Pacific
@@ -55,10 +77,15 @@ class TestFeatureAPI:
         date_2 = "2020-12-01"
         packs = ["building"]
         aoi_id = "123"
-        # Use an invalid API key to ensure the data is not being pulled from the API but read from the cache.
+        # First do a standard pull to ensure the file is populated in the cache.
+        feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=False)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        assert error is None
+
+        # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
-        feature_api = FeatureApi(api_key, cache_dir=cache_directory)
+        feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=False)
         features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
         # Check output
         assert error is None
@@ -70,7 +97,12 @@ class TestFeatureAPI:
         date_2 = "2020-12-01"
         packs = ["building"]
         aoi_id = "123"
-        # Use an invalid API key to ensure the data is not being pulled from the API but read from the cache.
+        # First do a standard pull to ensure the file is populated in the cache.
+        feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        assert error is None
+
+        # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
@@ -175,7 +207,22 @@ class TestFeatureAPI:
         assert "foobar" in str(excinfo.value)
 
     def test_packs(self, cache_directory: Path):
+        """
+        Test that this set of packs are all valid. Does not check whether additional packs have been made available.
+        """
         feature_api = FeatureApi(cache_dir=cache_directory)
         packs = feature_api.get_packs()
-        expected_subset = {"building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"}
+        expected_subset = {
+            "building",
+            "building_char",
+            "roof_char",
+            "roof_cond",
+            "surfaces",
+            "vegetation",
+            "poles",
+            "construction",
+            "pool",
+            "solar",
+            "trampoline",
+        }
         assert not expected_subset.difference(packs.keys())

@@ -184,8 +184,8 @@ def process_chunk(
         parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs, instant_fail_batch=False,
     )
     if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
-        logger.debug(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
+        logger.info(
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
         )
     if len(errors_df) > 0:
         if "message" in errors_df:
@@ -200,8 +200,8 @@ def process_chunk(
     len_all_features = len(features_gdf)
     features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
     len_filtered_features = len(features_gdf)
-    logger.debug(
-        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}"
+    logger.info(
+        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
     )
 
     # Create rollup
@@ -300,13 +300,12 @@ def main():
         outpath = final_path / f"{f.stem}.csv"
         outpath_features = final_path / f"{f.stem}_features.gpkg"
 
-        if outpath.exists() and outpath_features.exists():
+        if outpath.exists() and (outpath_features.exists() or not args.save_features):
             logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
 
-        logger.info(f"Exporting {len(parcels_gdf)} parcels.")
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
@@ -334,12 +333,14 @@ def main():
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
+        logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
 
         if args.workers > 1:
             with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
                 # Chunk parcels and send chunks to process pool
                 for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
+                    logger.debug((f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"))
                     jobs.append(
                         executor.submit(
                             process_chunk,
@@ -365,6 +366,7 @@ def main():
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
+                logger.debug((f"Processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"))
                 process_chunk(
                     chunk_id,
                     batch,
