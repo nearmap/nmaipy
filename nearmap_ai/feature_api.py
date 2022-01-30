@@ -473,10 +473,6 @@ class FeatureApi:
         :return:
         """
 
-        # First, remove any duplicated discrete classes. After this line, all duplicated feature_ids are connected
-        # classes, and can be dealt with accordingly.
-        features_gdf_out = features_gdf.drop_duplicates(["feature_id", "geometry"])
-
         # Columns that don't require aggregation.
         agg_cols_first = [
             "aoi_id",
@@ -492,27 +488,29 @@ class FeatureApi:
             "fidelity",
         ]
 
+        # Columns with clipped areas that should be summed when geometries are merged.
+        agg_cols_sum = ["area_sqm", "area_sqft", "clipped_area_sqm", "clipped_area_sqft"]
+
         features_gdf_dissolved = (
-            features_gdf_out.filter(agg_cols_first + ["geometry", "feature_id"], axis=1)
-            .dissolve(by="feature_id", aggfunc="first")
+            features_gdf.drop_duplicates(
+                ["feature_id", "geometry"]
+            )  # First, drop duplicate geometries rather than dissolving them together.
+            .filter(agg_cols_first + ["geometry", "feature_id"], axis=1)
+            .dissolve(
+                by="feature_id", aggfunc="first"
+            )  # Then dissolvee any remaining features that represent a single feature_id that has been split.
             .reset_index()
             .set_index("feature_id")
         )
 
-        # Columns with clipped areas that should be summed when geometries are merged.
-        agg_cols_sum = ["area_sqm", "area_sqft", "clipped_area_sqm", "clipped_area_sqft"]
-
         features_gdf_summed = (
-            features_gdf_out.filter(agg_cols_sum + ["feature_id"], axis=1)
+            features_gdf.filter(agg_cols_sum + ["feature_id"], axis=1)
             .groupby("feature_id")
             .aggregate(dict([c, "sum"] for c in agg_cols_sum))
         )
 
         # final output - same format, same set of feature_ids, but fewer rows due to dedup and merging.
-        features_gdf_out = (features_gdf_dissolved
-                            .join(features_gdf_summed)
-                            .reset_index()
-                            )
+        features_gdf_out = features_gdf_dissolved.join(features_gdf_summed).reset_index()
 
         return features_gdf_out
 
@@ -609,7 +607,9 @@ class FeatureApi:
             logger.info(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
             try:
                 if survey_resource_id is None:
-                    logging.debug("Currently don't support auto gridding of AOIs unless request is a single survey_resource_id")
+                    logging.debug(
+                        "Currently don't support auto gridding of AOIs unless request is a single survey_resource_id"
+                    )
                     features_gdf = None
                     metadata = None
                     error = {
@@ -640,9 +640,8 @@ class FeatureApi:
                         "date": metadata_df["date"],
                     }
                     logger.debug(
-                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}")
-
-
+                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
+                    )
 
             except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
                 # Catch acceptable errors
@@ -711,7 +710,7 @@ class FeatureApi:
             raise ValueError("Can't do a grid query unless survey_resource_id has been specified.")
         logging.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
-        #TODO: At this point, we should hit coverage to check that each of the grid squares falls within the AOI. That way we can fail fast before retrieving any payloads. Currently pulls every possible payload before failing.
+        # TODO: At this point, we should hit coverage to check that each of the grid squares falls within the AOI. That way we can fail fast before retrieving any payloads. Currently pulls every possible payload before failing.
 
         # Retrieve the features for every one of the cells in the gridded AOIs
         aoi_id_tmp = range(len(df_gridded))

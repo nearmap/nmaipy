@@ -8,6 +8,8 @@ from shapely.wkt import loads
 
 from nearmap_ai.constants import BUILDING_ID, SOLAR_ID, VEG_MEDHIGH_ID
 from nearmap_ai.feature_api import FeatureApi
+import nearmap_ai.log
+import logging
 
 
 class TestFeatureAPI:
@@ -29,22 +31,44 @@ class TestFeatureAPI:
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 3
 
+    def test_split_geometry_into_grid(self, sydney_aoi: Polygon):
+        aoi = sydney_aoi
+        b = aoi.bounds
+        width = b[2] - b[0]
+        height = b[3] - b[1]
+        d = max(width, height)
+
+        for cell_size in [d / 5, width, height, d, 2 * d]:
+            df_gridded = FeatureApi.split_geometry_into_grid(aoi, cell_size)
+            geom_recombined = df_gridded.geometry.unary_union
+            assert geom_recombined.difference(aoi).area == pytest.approx(0)
+            assert aoi.difference(geom_recombined).area == pytest.approx(0)
+
+    def test_combine_features_gdf_from_grid(
+        self,
+    ):
+        pass
+        # TODO: Write a bunch of tests here for different nuanced scenarios.
+
     def test_large_aoi(self, cache_directory: Path, large_adelaide_aoi: Polygon):
-        survey_resource_id = "fe48a583-da45-5cd3-9fee-8321354bdf7a" # 2011-03-03
+        survey_resource_id = "fe48a583-da45-5cd3-9fee-8321354bdf7a"  # 2011-03-03
         packs = ["building", "vegetation"]
         aoi_id = "0"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(large_adelaide_aoi, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            large_adelaide_aoi, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id
+        )
         # No error
         assert error is None
         # We get 3 buildings
-        assert len(features_gdf.query("class_id == @BUILDING_ID")) == 6 # Guessed
-        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213 # Guessed
+        assert len(features_gdf.query("class_id == @BUILDING_ID")) == 6  # Guessed
+        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
 
         # Assert that buildings aren't overhanging the edge of the parcel. If this fails, the clipped/unclipped hasn't been managed correctly during the grid merge.
-        assert features_gdf.query("class_id == @BUILDING_ID").clipped_area_sqm.sum() == features_gdf.query("class_id == @BUILDING_ID").unclipped_area_sqm.sum()
-
+        assert features_gdf.query("class_id == @BUILDING_ID").clipped_area_sqm.sum() == pytest.approx(
+            features_gdf.query("class_id == @BUILDING_ID").unclipped_area_sqm.sum(), 0.1
+        )
 
         assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
 
