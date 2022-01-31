@@ -19,30 +19,12 @@ import ai_offline_parcel
 class TestAIOfflineParcel:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
     def test_process_chunk_au(
-        self, sydney_aoi: Polygon, large_adelaide_aoi: Polygon, cache_directory: Path, processed_output_directory: Path
+        self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
     ):
-        aoi = large_adelaide_aoi
         tag = "tests_au"
-
-        # Syd
-        syd_row = {
-            "since": "2020-01-01",
-            "until": "2020-06-01",
-            "geometry": sydney_aoi,
-        }
-
-        adelaide_row = {
-            "geometry": sydney_aoi,
-            "survey_resource_id": "fe48a583-da45-5cd3-9fee-8321354bdf7a",  # 2011-03-03
-        }
-
         chunk_id = 0
 
         output_dir = Path("/home/jovyan/data/tmp") / tag
-
-        parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row])
-        parcel_gdf[AOI_ID_COLUMN_NAME] = range(len(parcel_gdf))
-
         packs = ["building", "vegetation"]
         country = "au"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
@@ -58,7 +40,7 @@ class TestAIOfflineParcel:
 
         ai_offline_parcel.process_chunk(
             chunk_id=chunk_id,
-            parcel_gdf=parcel_gdf,
+            parcel_gdf=parcel_gdf_au_tests,
             classes_df=classes_df,
             output_dir=output_dir,
             key_file=None,
@@ -101,4 +83,4 @@ class TestAIOfflineParcel:
         assert outpath_errors.exists()
         assert outpath_features.exists()
 
-        assert len(data) == len(parcel_gdf)  # Assert got a result for every parcel.
+        assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.

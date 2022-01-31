@@ -7,7 +7,7 @@ from shapely.geometry import Polygon
 from shapely.wkt import loads
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import LAT_LONG_CRS
+from nearmap_ai.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
 
 
 @pytest.fixture(scope="session")
@@ -80,3 +80,20 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
         geometry=df.geometry.apply(loads),
         crs=LAT_LONG_CRS,
     )
+
+@pytest.fixture(scope="session")
+def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd.GeoDataFrame:
+    # Syd
+    syd_row = {
+        "since": "2020-01-01",
+        "until": "2020-06-01",
+        "geometry": sydney_aoi,
+    }
+    adelaide_row = {
+        "survey_resource_id": "fe48a583-da45-5cd3-9fee-8321354bdf7a",  # 2011-03-03
+        "geometry": large_adelaide_aoi,
+    }
+
+    parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row])
+    parcel_gdf[AOI_ID_COLUMN_NAME] = range(len(parcel_gdf))
+    return parcel_gdf

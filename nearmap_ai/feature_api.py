@@ -635,6 +635,7 @@ class FeatureApi:
                     metadata_df = metadata_df.drop_duplicates().iloc[0]
 
                     metadata = {
+                        "aoi_id": metadata_df["aoi_id"],
                         "system_version": metadata_df["system_version"],
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
