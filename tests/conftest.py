@@ -15,6 +15,11 @@ def cache_directory() -> Path:
     return Path(__file__).parent.absolute() / "cache"
 
 
+@pytest.fixture(scope="function")
+def processed_output_directory() -> Path:
+    return Path(__file__).parent.absolute() / "data" / "processed"
+
+
 @pytest.fixture(scope="session")
 def sydney_aoi() -> Polygon:
     return loads(

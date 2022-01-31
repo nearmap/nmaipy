@@ -12,10 +12,18 @@ import pandas as pd
 import shapely.wkt
 from tqdm import tqdm
 import fiona.errors
-import warnings; warnings.filterwarnings('ignore', message='.*initial implementation of Parquet.*')
+import warnings
+
+warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
 from nearmap_ai import log, parcels
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS, SURVEY_RESOURCE_ID_COL_NAME
+from nearmap_ai.constants import (
+    AOI_ID_COLUMN_NAME,
+    SINCE_COL_NAME,
+    UNTIL_COL_NAME,
+    API_CRS,
+    SURVEY_RESOURCE_ID_COL_NAME,
+)
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -181,7 +189,11 @@ def process_chunk(
     )
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-        parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs, instant_fail_batch=False,
+        parcel_gdf,
+        since_bulk=since_bulk,
+        until_bulk=until_bulk,
+        packs=packs,
+        instant_fail_batch=False,
     )
     if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
         logger.info(
@@ -231,7 +243,6 @@ def process_chunk(
     except Exception as e:
         logger.error(errors_df.shape)
         logger.error(errors_df)
-
 
     final_df.to_parquet(outfile)
 
@@ -306,10 +317,11 @@ def main():
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
 
-
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
-            logger.info(f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering.")
+            logger.info(
+                f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
+            )
         else:
             logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
             if SINCE_COL_NAME in parcels_gdf:
@@ -340,7 +352,11 @@ def main():
                 # Chunk parcels and send chunks to process pool
                 for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                    logger.debug((f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"))
+                    logger.debug(
+                        (
+                            f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
+                        )
+                    )
                     jobs.append(
                         executor.submit(
                             process_chunk,
@@ -366,7 +382,11 @@ def main():
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                logger.debug((f"Processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"))
+                logger.debug(
+                    (
+                        f"Processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
+                    )
+                )
                 process_chunk(
                     chunk_id,
                     batch,
@@ -412,7 +432,6 @@ def main():
                 data_features.append(df_feature_chunk)
             if len(data_features) > 0:
                 pd.concat(data_features).to_file(outpath_features, driver="GPKG")
-
 
 
 if __name__ == "__main__":
