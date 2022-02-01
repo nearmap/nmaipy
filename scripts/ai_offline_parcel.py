@@ -212,7 +212,7 @@ def process_chunk(
     len_all_features = len(features_gdf)
     features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
     len_filtered_features = len(features_gdf)
-    logger.info(
+    logger.debug(
         f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
     )
 
@@ -269,7 +269,7 @@ def process_chunk(
                     f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
                 )
                 logger.error(e)
-    logger.info(f"Finished saving chunk {chunk_id}")
+    logger.debug(f"Finished saving chunk {chunk_id}")
 
 
 def main():

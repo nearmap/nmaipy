@@ -604,7 +604,7 @@ class FeatureApi:
             error = None
         except AIFeatureAPIRequestSizeError as e:
             # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
-            logger.info(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
+            logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
             try:
                 if survey_resource_id is None:
                     logging.debug(
@@ -727,14 +727,13 @@ class FeatureApi:
                 instant_fail_batch=True,
             )
         except AIFeatureAPIError as e:
-            logging.error(f"Failed whole grid for aoi_id {aoi_id} on single error")
-            logging.error(e)
+            logging.debug(f"Failed whole grid for aoi_id {aoi_id} on single error")
             raise AIFeatureAPIGridError(e.status_code)
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
         else:
-            logger.info(f"Successfully gridded results for AOI ID: {aoi_id}, survey_resource_id: {survey_resource_id}")
+            logger.debug(f"Successfully gridded results for AOI ID: {aoi_id}, survey_resource_id: {survey_resource_id}")
 
             # Reset the correct aoi_id for the gridded result
             features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
