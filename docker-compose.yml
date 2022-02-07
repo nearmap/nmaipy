@@ -3,7 +3,7 @@ services:
   nearmap_ai:
     build: .
     environment:
-      - API_KEY=${APIKEYPROD}
+      - API_KEY=${API_KEY}
       - NB_UID=${NB_UID}
       - NB_GID=${NB_GID}
       - GRANT_SUDO=yes
@@ -11,7 +11,7 @@ services:
       - JUPYTER_LAB_ENABLE=yes
     user: root
     volumes:
-      - ./data:/home/jovyan/data
+      - <local path to data directory>:/home/jovyan/data
     entrypoint: [
         "start.sh",
         "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
