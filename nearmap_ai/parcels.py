@@ -224,6 +224,8 @@ def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
         if "components" in attribute:
             for component in attribute["components"]:
                 name = component["description"].lower().replace(" ", "_")
+                if "Low confidence" in attribute["description"]:
+                    name = f"low_conf_{name}"
                 flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                 if country in IMPERIAL_COUNTRIES:
                     flattened[f"{name}_area_sqft"] = component["areaSqft"]
