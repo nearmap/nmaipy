@@ -4,6 +4,10 @@ LAT_PRIMARY_COL_NAME = "lat"
 LON_PRIMARY_COL_NAME = "lon"
 SINCE_COL_NAME = "since"
 UNTIL_COL_NAME = "until"
+SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
+
+
+MAX_RETRIES = 300
 
 # Projections
 LAT_LONG_CRS = "WGS 84"
@@ -16,6 +20,9 @@ AREA_CRS = {
 API_CRS = "epsg:4326"
 
 IMPERIAL_COUNTRIES = ["us"]
+
+# Error Codes
+AOI_EXCEEDS_MAX_SIZE = "AOI_EXCEEDS_MAX_SIZE"
 
 # Units
 METERS_TO_FEET = 3.28084
