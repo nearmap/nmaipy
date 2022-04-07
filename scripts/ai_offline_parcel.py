@@ -11,9 +11,19 @@ import numpy as np
 import pandas as pd
 import shapely.wkt
 from tqdm import tqdm
+import fiona.errors
+import warnings
+
+warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
 from nearmap_ai import log, parcels
-from nearmap_ai.constants import AOI_ID_COLUMN_NAME, SINCE_COL_NAME, UNTIL_COL_NAME, API_CRS
+from nearmap_ai.constants import (
+    AOI_ID_COLUMN_NAME,
+    SINCE_COL_NAME,
+    UNTIL_COL_NAME,
+    API_CRS,
+    SURVEY_RESOURCE_ID_COL_NAME,
+)
 from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
@@ -72,6 +82,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--save-features",
+        help="If set, save the raw vectors as a geospatial file for loading in GIS tools. This can be quite time consuming.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--compress-cache",
         help="If set, use gzip compression on each json payload in the cache.",
         action="store_true",
@@ -125,6 +140,7 @@ def process_chunk(
     country: str,
     packs: Optional[List[str]] = None,
     include_parcel_geometry: Optional[bool] = False,
+    save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
     bulk_mode: Optional[bool] = True,
     compress_cache: Optional[bool] = False,
@@ -143,6 +159,7 @@ def process_chunk(
         config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
         include_parcel_geometry: Set to true to include parcel geometries in final output
+        save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
         bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
@@ -153,7 +170,7 @@ def process_chunk(
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
-    outfile_features = chunk_path / f"features_{chunk_id}.geojson"
+    outfile_features = chunk_path / f"features_{chunk_id}.parquet"
     outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
     if outfile.exists():
         return
@@ -172,11 +189,15 @@ def process_chunk(
     )
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-        parcel_gdf, since_bulk=since_bulk, until_bulk=until_bulk, packs=packs
+        parcel_gdf,
+        since_bulk=since_bulk,
+        until_bulk=until_bulk,
+        packs=packs,
+        instant_fail_batch=False,
     )
     if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
-        logger.debug(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned."
+        logger.info(
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
         )
     if len(errors_df) > 0:
         if "message" in errors_df:
@@ -192,7 +213,7 @@ def process_chunk(
     features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
     len_filtered_features = len(features_gdf)
     logger.debug(
-        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features}"
+        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
     )
 
     # Create rollup
@@ -217,30 +238,38 @@ def process_chunk(
     final_df = final_df[columns]
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
-    errors_df.to_parquet(outfile_errors)
+    try:
+        errors_df.to_parquet(outfile_errors)
+    except Exception as e:
+        logger.error(errors_df.shape)
+        logger.error(errors_df)
+
     final_df.to_parquet(outfile)
 
-    # Save features as geojson, shift the parcel geometry to "aoi_geometry"
-    final_features_df = gpd.GeoDataFrame(
-        metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
-            parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
-        ),
-        crs=API_CRS,
-    )
-    final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
-    final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
-    if len(final_features_df) > 0:
-        try:
-            if not include_parcel_geometry:
-                final_features_df = final_features_df.drop(columns=["aoi_geometry"])
-            final_features_df = final_features_df[
-                ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
-            ]
-            final_features_df.to_file(outfile_features, driver="GeoJSON")
-        except Exception:
-            logger.error(
-                f"Failed to save features geojson for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
-            )
+    if save_features:
+        # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
+        final_features_df = gpd.GeoDataFrame(
+            metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
+                parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
+            ),
+            crs=API_CRS,
+        )
+        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+        final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
+        if len(final_features_df) > 0:
+            try:
+                if not include_parcel_geometry:
+                    final_features_df = final_features_df.drop(columns=["aoi_geometry"])
+                final_features_df = final_features_df[
+                    ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
+                ]
+                final_features_df.to_parquet(outfile_features)
+            except Exception as e:
+                logger.error(
+                    f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+                )
+                logger.error(e)
+    logger.debug(f"Finished saving chunk {chunk_id}")
 
 
 def main():
@@ -253,7 +282,9 @@ def main():
     for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
         parcel_paths.extend(Path(args.parcel_dir).glob(file_type))
     parcel_paths.sort()
-    logger.info(f"Running the following parcel files: {parcel_paths}")
+    logger.info(f"Running the following parcel files:")
+    for parcel_path in parcel_paths:
+        logger.info(f"\t{str(parcel_path)}")
 
     cache_path = Path(args.output_dir) / "cache"
     chunk_path = Path(args.output_dir) / "chunks"
@@ -278,46 +309,54 @@ def main():
         logger.info(f"Processing parcel file {f}")
         # If output exists, skip
         outpath = final_path / f"{f.stem}.csv"
-        if outpath.exists():
-            logger.info(f"Output already exist, skipping ({outpath})")
-            continue
-        outpath_features = final_path / f"{f.stem}_features.geojson"
-        if outpath_features.exists():
-            logger.info(f"Output already exist, skipping ({outpath_features})")
+        outpath_features = final_path / f"{f.stem}_features.gpkg"
+
+        if outpath.exists() and (outpath_features.exists() or not args.save_features):
+            logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
 
-        logger.info(f"Exporting {len(parcels_gdf)} parcels.")
-
         # Print out info around what is being inferred from column names:
-        if SINCE_COL_NAME in parcels_gdf:
+        if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
             logger.info(
-                f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
+                f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
             )
-        elif args.since is not None:
-            logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
         else:
-            logger.info("No earliest date will used")
-        if UNTIL_COL_NAME in parcels_gdf:
-            logger.info(
-                f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
-            )
-        elif args.until is not None:
-            logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
-        else:
-            logger.info("No latest date will used")
+            logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
+            if SINCE_COL_NAME in parcels_gdf:
+                logger.info(
+                    f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
+                )
+            elif args.since is not None:
+                logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
+            else:
+                logger.info("No earliest date will used")
+            if UNTIL_COL_NAME in parcels_gdf:
+                logger.info(
+                    f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
+                )
+            elif args.until is not None:
+                logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
+            else:
+                logger.info("No latest date will used")
 
         jobs = []
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
+        logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
 
         if args.workers > 1:
             with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
                 # Chunk parcels and send chunks to process pool
                 for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
+                    logger.debug(
+                        (
+                            f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
+                        )
+                    )
                     jobs.append(
                         executor.submit(
                             process_chunk,
@@ -330,6 +369,7 @@ def main():
                             args.country,
                             args.packs,
                             args.include_parcel_geometry,
+                            args.save_features,
                             args.primary_decision,
                             args.bulk_mode,
                             args.compress_cache,
@@ -342,6 +382,11 @@ def main():
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
+                logger.debug(
+                    (
+                        f"Processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
+                    )
+                )
                 process_chunk(
                     chunk_id,
                     batch,
@@ -352,6 +397,7 @@ def main():
                     args.country,
                     args.packs,
                     args.include_parcel_geometry,
+                    args.save_features,
                     args.primary_decision,
                     args.bulk_mode,
                     args.compress_cache,
@@ -363,17 +409,29 @@ def main():
         data = []
         data_features = []
         errors = []
+
+        logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
         pd.concat(data).to_csv(outpath, index=True)
-        for cp in chunk_path.glob(f"features_{f.stem}_*.geojson"):
-            data_features.append(gpd.read_file(cp))
-        if len(data_features) > 0:
-            pd.concat(data_features).to_file(outpath_features, driver="GeoJSON")
+
+        outpath_errors = final_path / f"{f.stem}_errors.csv"
+        logger.info(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(final_path / f"{f.stem}_errors.csv", index=True)
-        logger.info(f"Save data to {outpath}")
+        pd.concat(errors).to_csv(outpath_errors, index=True)
+
+        if args.save_features:
+            logger.info(f"Saving feature data as .gpkg to {outpath_features}")
+            feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
+            for cp in tqdm(feature_paths, total=len(feature_paths)):
+                try:
+                    df_feature_chunk = gpd.read_parquet(cp)
+                except fiona.errors.DriverError as e:
+                    logger.error(f"Failed to read {cp}.")
+                data_features.append(df_feature_chunk)
+            if len(data_features) > 0:
+                pd.concat(data_features).to_file(outpath_features, driver="GPKG")
 
 
 if __name__ == "__main__":

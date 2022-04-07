@@ -1,10 +1,14 @@
+from pathlib import Path
+import warnings
+
 import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.wkt import loads
 
 from nearmap_ai import parcels
-from nearmap_ai.constants import BUILDING_ID, LAWN_GRASS_ID, POOL_ID
+from nearmap_ai.constants import BUILDING_ID, LAWN_GRASS_ID, POOL_ID, VEG_MEDHIGH_ID, AOI_ID_COLUMN_NAME
+from nearmap_ai.feature_api import FeatureApi
 
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
@@ -603,3 +607,38 @@ class TestParcels:
             ]
         )
         pd.testing.assert_frame_equal(rollup_df, expected)
+
+    def test_filter_and_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
+
+        packs = ["building", "vegetation"]
+        country = "au"
+        parcel_gdf = parcel_gdf_au_tests
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        classes_df = feature_api.get_feature_classes(packs)
+
+        features_gdf, metadata_df, error_df = feature_api.get_features_gdf_bulk(
+            parcel_gdf, packs=packs
+        )
+
+        # No error
+        assert len(error_df) == 0
+
+        # Had a bug that didn't do AOI IDs properly
+        assert features_gdf[AOI_ID_COLUMN_NAME].isna().sum() == 0
+        assert metadata_df[AOI_ID_COLUMN_NAME].isna().sum() == 0
+
+        # We get results in all AOIs
+        assert len(features_gdf.aoi_id.unique()) == len(parcel_gdf)
+
+        features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, config=None)
+        assert len(features_gdf) > len(features_gdf_filtered)*0.95 # Very little should have been filtered out in these examples.
+        assert len(features_gdf_filtered.aoi_id.unique()) == len(parcel_gdf)
+
+        # Check rollup matches what's expected
+        rollup_df = parcels.parcel_rollup(
+            parcel_gdf, features_gdf, classes_df, country=country, primary_decision="largest_intersection"
+        )
+        assert len(rollup_df) == len(parcel_gdf)
+        final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
+        assert len(final_df) == len(parcel_gdf)

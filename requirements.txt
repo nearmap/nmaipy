@@ -4,6 +4,7 @@ pandas==1.2.*
 
 # GIS
 shapely==1.7.*
+rtree
 geopandas==0.8.*
 
 # Plotting
