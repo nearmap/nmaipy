@@ -377,7 +377,11 @@ def main():
                             args.until,
                         )
                     )
-                [j.result() for j in tqdm(jobs)]
+                for j in tqdm(jobs):
+                    try:
+                        j.result()
+                    except Exception as e:
+                        print(f"FAILURE TO PARSE RESULT FROM j.result(), DROPPING DUE TO ERROR {e}")
         else:
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):

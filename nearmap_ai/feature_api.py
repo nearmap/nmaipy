@@ -208,7 +208,7 @@ class FeatureApi:
     @classmethod
     def _geometry_to_coordstring(cls, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
         """
-        Turn a shapely polygon or multipolygon into a single coord sting to be used in API requests.
+        Turn a shapely polygon or multipolygon into a single coord string to be used in API requests.
         To meet the constraints on the API URL the following changes may be applied:
          - Multipolygons are simplified to single polygons by taking the convex hull
          - Polygons that have too many coordinates (resulting in strings that are too long) are
@@ -218,11 +218,11 @@ class FeatureApi:
         """
 
         if isinstance(geometry, MultiPolygon):
-            if len(geometry) == 1:
-                coordstring = cls._polygon_to_coordstring(geometry[0])
+            if len(geometry.geoms) == 1:
+                coordstring = cls._polygon_to_coordstring(geometry.geoms[0])
                 exact = True
             else:
-                logger.warning(f"Geometry is a multipolygon - approximating. Length: {len(geometry)}")
+                logger.warning(f"Geometry is a multipolygon - approximating. Length: {len(geometry.geoms)}")
                 coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
                 exact = False
         else:
@@ -458,7 +458,9 @@ class FeatureApi:
         df = gpd.GeoDataFrame(geometry=[geometry], crs=API_CRS)
         df_gridded = FeatureApi.create_grid(df, cell_size)
         df_gridded = gpd.overlay(df, df_gridded, keep_geom_type=True)
-        df_gridded = df_gridded.explode()  # Break apart grid squares that are multipolygons.
+        # explicit index_parts added to get rid of warning, and this was the default behaviour so I am
+        # assuming this is the behaviour that is intended
+        df_gridded = df_gridded.explode(index_parts=True)  # Break apart grid squares that are multipolygons.
         df_gridded = df_gridded.to_crs(API_CRS)
         return df_gridded
 
