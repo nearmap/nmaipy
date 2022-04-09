@@ -190,7 +190,7 @@ class FeatureApi:
             pack_classes = self.get_packs()
             if diff := set(packs) - set(pack_classes.keys()):
                 raise ValueError(f"Unknown packs: {diff}")
-            all_classes = set([class_id for p in packs for class_id in pack_classes[p]])
+            all_classes = list(set([class_id for p in packs for class_id in pack_classes[p]]))
             df_classes = df_classes.loc[all_classes]
 
         return df_classes
