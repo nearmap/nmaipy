@@ -28,7 +28,7 @@ from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
 PROCESSES = 20
-THREADS = 4
+THREADS = 8
 
 logger = log.get_logger()
 
@@ -348,7 +348,8 @@ def main():
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
 
         if args.workers > 1:
-            with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
+            processes = int(args.workers)
+            with concurrent.futures.ProcessPoolExecutor(processes) as executor:
                 # Chunk parcels and send chunks to process pool
                 for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
