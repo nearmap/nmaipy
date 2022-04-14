@@ -386,13 +386,15 @@ class FeatureApi:
                 self._write_to_cache(self._request_cache_path(request_string), data)
             return data
         else:
-            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text} {response.status_code}")
 
             if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
+                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {response.status_code=}")
                 raise AIFeatureAPIRequestSizeError(response, request_string)
             elif response.status_code == HTTPStatus.BAD_REQUEST:
                 error_code = json.loads(response.text)["code"]
                 if error_code in AIFeatureAPIRequestSizeError.codes:
+                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from 2ndary status code {response.status_code=}")
                     raise AIFeatureAPIRequestSizeError(response, request_string)
                 else:
                     # Check for errors
@@ -584,6 +586,7 @@ class FeatureApi:
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
+        fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
@@ -596,22 +599,73 @@ class FeatureApi:
             since: Earliest date to pull data for
             until: Latest date to pull data for
             survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
-
+            fail_hard_regrid: If set to true, don't try and grid on an AIFeatureAPIRequestSizeError,
+                              This option is here because we can get stuck in an infinite loop of
+                              get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
+                              and we need to be able to stop at 2nd call to get_features_gdf if we get another
+                              AIFeatureAPIRequestSizeError
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
+        features_gdf, metadata, error = None, None, None
         try:
             payload = self.get_features(geometry, packs, since, until, survey_resource_id)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
-            error = None
         except AIFeatureAPIRequestSizeError as e:
-            # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
-            logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
-            try:
-                if survey_resource_id is None:
-                    logging.debug(
-                        "Currently don't support auto gridding of AOIs unless request is a single survey_resource_id"
-                    )
+            logging.debug(f"{fail_hard_regrid=}")
+            if fail_hard_regrid:  # Do not get stuck in an infinite loop of regridding and timing out
+                logger.error("Failing hard and NOT regridding....")
+                error = {
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "status_code": e.status_code,
+                    "message": e.message,
+                    "text": e.text,
+                    "request": e.request_string,
+                }
+            else:
+                # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
+                logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
+                try:
+                    if survey_resource_id is None:
+                        logging.debug(
+                            "Currently don't support auto gridding of AOIs unless request is a single survey_resource_id"
+                        )
+                        features_gdf = None
+                        metadata = None
+                        error = {
+                            AOI_ID_COLUMN_NAME: aoi_id,
+                            "status_code": e.status_code,
+                            "message": e.message,
+                            "text": e.text,
+                            "request": e.request_string,
+                        }
+                    else:
+                        features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
+                            geometry, packs, aoi_id, since, until, survey_resource_id
+                        )
+                        if len(errors_df) == 0:
+                            error = None
+                        else:
+                            raise Exception("This shouldn't happen")
+
+                        # Recombine gridded features
+                        features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
+
+                        # Creat metadata
+                        metadata_df = metadata_df.drop_duplicates().iloc[0]
+
+                        metadata = {
+                            "aoi_id": metadata_df["aoi_id"],
+                            "system_version": metadata_df["system_version"],
+                            "link": metadata_df["link"],
+                            "date": metadata_df["date"],
+                        }
+                        logger.debug(
+                            f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
+                        )
+
+                except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
+                    # Catch acceptable errors
                     features_gdf = None
                     metadata = None
                     error = {
@@ -621,42 +675,6 @@ class FeatureApi:
                         "text": e.text,
                         "request": e.request_string,
                     }
-                else:
-                    features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, packs, aoi_id, since, until, survey_resource_id
-                    )
-                    if len(errors_df) == 0:
-                        error = None
-                    else:
-                        raise Exception("This shouldn't happen")
-
-                    # Recombine gridded features
-                    features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
-
-                    # Creat metadata
-                    metadata_df = metadata_df.drop_duplicates().iloc[0]
-
-                    metadata = {
-                        "aoi_id": metadata_df["aoi_id"],
-                        "system_version": metadata_df["system_version"],
-                        "link": metadata_df["link"],
-                        "date": metadata_df["date"],
-                    }
-                    logger.debug(
-                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
-                    )
-
-            except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
-                # Catch acceptable errors
-                features_gdf = None
-                metadata = None
-                error = {
-                    AOI_ID_COLUMN_NAME: aoi_id,
-                    "status_code": e.status_code,
-                    "message": e.message,
-                    "text": e.text,
-                    "request": e.request_string,
-                }
 
         except AIFeatureAPIError as e:
             # Catch acceptable errors
@@ -720,6 +738,8 @@ class FeatureApi:
         df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
 
         try:
+            # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
+            # we need to pass in fail_hard_regrid=True so we dont get stuck in an endless loop
             features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
                 df_gridded,
                 packs=packs,
@@ -727,6 +747,7 @@ class FeatureApi:
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
                 instant_fail_batch=True,
+                fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
             logging.debug(f"Failed whole grid for aoi_id {aoi_id} on single error")
@@ -750,6 +771,7 @@ class FeatureApi:
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
         instant_fail_batch: Optional[bool] = False,
+        fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -762,6 +784,8 @@ class FeatureApi:
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
             instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and return
             all good data available.
+            fail_hard_regrid: pass this through jobs so that we dont get stuck in an infinite loop of
+                  get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
 
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
@@ -797,6 +821,7 @@ class FeatureApi:
                         since,
                         until,
                         survey_resource_id,
+                        fail_hard_regrid,
                     )
                 )
             data = []
