@@ -30,7 +30,7 @@ from nearmap_ai.feature_api import FeatureApi
 
 CHUNK_SIZE = 1000
 PROCESSES = 20
-THREADS = 8
+THREADS = 6
 
 logger = log.get_logger()
 
