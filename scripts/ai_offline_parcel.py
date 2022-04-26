@@ -5,6 +5,7 @@ import random
 from pathlib import Path
 from typing import List, Optional
 import json
+import sys
 
 import geopandas as gpd
 import numpy as np
@@ -13,6 +14,7 @@ import shapely.wkt
 from tqdm import tqdm
 import fiona.errors
 import warnings
+import traceback
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
@@ -378,11 +380,12 @@ def main():
                             args.until,
                         )
                     )
-                for j in tqdm(jobs):
+                for j in jobs:
                     try:
                         j.result()
                     except Exception as e:
-                        print(f"FAILURE TO PARSE RESULT FROM j.result(), DROPPING DUE TO ERROR {e}")
+                        logger.error(f"FAILURE TO COMPLETE JOB {chunk_id}, DROPPING DUE TO ERROR {e}")
+                        logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
@@ -418,7 +421,9 @@ def main():
         logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
-        pd.concat(data).to_csv(outpath, index=True)
+        data = pd.concat(data)
+        if len(data) > 0:
+            data.to_csv(outpath, index=True)
 
         outpath_errors = final_path / f"{f.stem}_errors.csv"
         logger.info(f"Saving error data as .csv to {outpath_errors}")
