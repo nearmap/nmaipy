@@ -84,6 +84,8 @@ class FeatureApi:
     PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
+    FLOAT_COLS = ["fidelity", "confidence", "areaSqm", "clippedAreaSqm", "unclippedAreaSqm", "areaSqft",
+                  "clippedSreaSqft", "unclippedAreaSqft"]
 
     def __init__(
         self,
@@ -565,6 +567,10 @@ class FeatureApi:
             df = pd.DataFrame(payload["features"])
             for colname in set(columns).difference(set(df.columns)):
                 df[colname] = None
+
+        for col in FeatureApi.FLOAT_COLS:
+            if col in df:
+                df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
         df.columns = [stringcase.snakecase(c) for c in df.columns]
