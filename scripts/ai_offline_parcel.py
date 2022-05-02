@@ -222,6 +222,7 @@ def process_chunk(
     rollup_df = parcels.parcel_rollup(
         parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision
     )
+    logger.info(f"Finished rollup for chunk {chunk_id}")
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -429,7 +430,8 @@ def main():
         logger.info(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(outpath_errors, index=True)
+        if len(errors) > 0:
+            pd.concat(errors).to_csv(outpath_errors, index=True)
 
         if args.save_features:
             logger.info(f"Saving feature data as .gpkg to {outpath_features}")
