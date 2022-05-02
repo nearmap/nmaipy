@@ -84,8 +84,16 @@ class FeatureApi:
     PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
-    FLOAT_COLS = ["fidelity", "confidence", "areaSqm", "clippedAreaSqm", "unclippedAreaSqm", "areaSqft",
-                  "clippedSreaSqft", "unclippedAreaSqft"]
+    FLOAT_COLS = [
+        "fidelity",
+        "confidence",
+        "areaSqm",
+        "clippedAreaSqm",
+        "unclippedAreaSqm",
+        "areaSqft",
+        "clippedSreaSqft",
+        "unclippedAreaSqft",
+    ]
 
     def __init__(
         self,
@@ -396,7 +404,9 @@ class FeatureApi:
             elif response.status_code == HTTPStatus.BAD_REQUEST:
                 error_code = json.loads(response.text)["code"]
                 if error_code in AIFeatureAPIRequestSizeError.codes:
-                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from 2ndary status code {response.status_code=}")
+                    logger.debug(
+                        f"Raising AIFeatureAPIRequestSizeError from 2ndary status code {response.status_code=}"
+                    )
                     raise AIFeatureAPIRequestSizeError(response, request_string)
                 else:
                     # Check for errors
