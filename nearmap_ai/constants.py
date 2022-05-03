@@ -28,6 +28,10 @@ AOI_EXCEEDS_MAX_SIZE = "AOI_EXCEEDS_MAX_SIZE"
 METERS_TO_FEET = 3.28084
 SQUARED_METERS_TO_SQUARED_FEET = METERS_TO_FEET * METERS_TO_FEET
 
+# The address fields expected by the address endpoint. state should be statecode (2 digit) but these
+# are the API fields
+ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
+
 # Class IDs
 BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
