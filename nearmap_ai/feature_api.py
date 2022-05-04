@@ -433,7 +433,7 @@ class FeatureApi:
     @staticmethod
     def add_location_marker_to_link(link: str) -> str:
         """
-        Check whether the link contains the locationmarker flag, and add it if not present..
+        Check whether the link contains the locationmarker flag, and add it if not present.
         """
         location_marker_string = "?locationMarker"
         if not location_marker_string not in link:
@@ -442,7 +442,7 @@ class FeatureApi:
             return link
 
     @staticmethod
-    def create_grid(df: gpd.GeoDataFrame, cell_size: int):
+    def create_grid(df: gpd.GeoDataFrame, cell_size: float):
         """
         Create a GeodataFrame of grid squares, matching the extent of an input GeoDataFrame.
         """
@@ -469,7 +469,7 @@ class FeatureApi:
         return df_grid
 
     @staticmethod
-    def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: int):
+    def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: float):
         """
         Take a geometry (implied CRS as API_CRS), and split it into a grid of given height/width cells (in degrees).
 
@@ -655,7 +655,7 @@ class FeatureApi:
                 logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, packs, aoi_id, since, until, address_fields, survey_resource_id
+                        geometry, packs, aoi_id, since, until, survey_resource_id
                     )
                     if len(errors_df) == 0:
                         error = None
@@ -726,7 +726,7 @@ class FeatureApi:
         grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
-        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
 
         Args:
