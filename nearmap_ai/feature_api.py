@@ -59,11 +59,11 @@ class AIFeatureAPIError(Exception):
 
 
 class AIFeatureAPIGridError(Exception):
-    def __init__(self, status_code_error_mode):
+    def __init__(self, status_code_error_mode, message=""):
         self.status_code = status_code_error_mode
         self.text = "Gridding and re-requesting failed on one or more grid cell queries."
         self.request_string = ""
-        self.message = ""
+        self.message = message
 
 
 class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
@@ -642,43 +642,29 @@ class FeatureApi:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
                 logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
                 try:
-                    if survey_resource_id is None:
-                        logging.debug(
-                            "Currently don't support auto gridding of AOIs unless request is a single survey_resource_id"
-                        )
-                        features_gdf = None
-                        metadata = None
-                        error = {
-                            AOI_ID_COLUMN_NAME: aoi_id,
-                            "status_code": e.status_code,
-                            "message": e.message,
-                            "text": e.text,
-                            "request": e.request_string,
-                        }
+                    features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
+                        geometry, packs, aoi_id, since, until, survey_resource_id
+                    )
+                    if len(errors_df) == 0:
+                        error = None
                     else:
-                        features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                            geometry, packs, aoi_id, since, until, survey_resource_id
-                        )
-                        if len(errors_df) == 0:
-                            error = None
-                        else:
-                            raise Exception("This shouldn't happen")
+                        raise Exception("This shouldn't happen")
 
-                        # Recombine gridded features
-                        features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
+                    # Recombine gridded features
+                    features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
 
-                        # Creat metadata
-                        metadata_df = metadata_df.drop_duplicates().iloc[0]
+                    # Creat metadata
+                    metadata_df = metadata_df.drop_duplicates().iloc[0]
 
-                        metadata = {
-                            "aoi_id": metadata_df["aoi_id"],
-                            "system_version": metadata_df["system_version"],
-                            "link": metadata_df["link"],
-                            "date": metadata_df["date"],
-                        }
-                        logger.debug(
-                            f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
-                        )
+                    metadata = {
+                        "aoi_id": metadata_df["aoi_id"],
+                        "system_version": metadata_df["system_version"],
+                        "link": metadata_df["link"],
+                        "date": metadata_df["date"],
+                    }
+                    logger.debug(
+                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
+                    )
 
                 except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
                     # Catch acceptable errors
@@ -743,9 +729,7 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
-        if survey_resource_id is None:
-            raise ValueError("Can't do a grid query unless survey_resource_id has been specified.")
-        logging.debug(f"Gridding AOI into {grid_size} squares.")
+        logger.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
         # TODO: At this point, we should hit coverage to check that each of the grid squares falls within the AOI. That way we can fail fast before retrieving any payloads. Currently pulls every possible payload before failing.
 
@@ -766,8 +750,13 @@ class FeatureApi:
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
-            logging.debug(f"Failed whole grid for aoi_id {aoi_id} on single error")
+            logger.warning(f"Failed whole grid for aoi_id {aoi_id}. Single error")
             raise AIFeatureAPIGridError(e.status_code)
+        if len(features_gdf["survey_date"].unique()) > 1:
+            logger.warning(f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries.")
+            raise AIFeatureAPIGridError(-1, message="Multiple dates on non survey resource ID query.")
+        elif survey_resource_id is None:
+            logger.warning(f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date).")
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())

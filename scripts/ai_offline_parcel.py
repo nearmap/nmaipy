@@ -79,6 +79,11 @@ def parse_arguments():
         default=PROCESSES,
     )
     parser.add_argument(
+        "--calc-buffers",
+        help="Calculate buffered features (compute expensive).",
+        action="store_true",
+    )
+    parser.add_argument(
         "--include-parcel-geometry",
         help="If set, parcel geometries will be in the output",
         action="store_true",
@@ -141,6 +146,7 @@ def process_chunk(
     config: dict,
     country: str,
     packs: Optional[List[str]] = None,
+    calc_buffers: Optional[bool] = False,
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
@@ -160,6 +166,7 @@ def process_chunk(
         key_file: Path to API key file
         config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
+        calc_buffers: Whether to calculate buffered features (compute expensive).
         include_parcel_geometry: Set to true to include parcel geometries in final output
         save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
@@ -220,7 +227,12 @@ def process_chunk(
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(
-        parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision
+        parcel_gdf,
+        features_gdf,
+        classes_df,
+        country=country,
+        calc_buffers=calc_buffers,
+        primary_decision=primary_decision,
     )
     logger.info(f"Finished rollup for chunk {chunk_id}")
 
@@ -372,6 +384,7 @@ def main():
                             config,
                             args.country,
                             args.packs,
+                            args.calc_buffers,
                             args.include_parcel_geometry,
                             args.save_features,
                             args.primary_decision,
@@ -405,6 +418,7 @@ def main():
                     config,
                     args.country,
                     args.packs,
+                    args.calc_buffers,
                     args.include_parcel_geometry,
                     args.save_features,
                     args.primary_decision,
