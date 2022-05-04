@@ -30,6 +30,7 @@ from nearmap_ai.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     MAX_RETRIES,
     AOI_EXCEEDS_MAX_SIZE,
+    ADDRESS_FIELDS
 )
 from nearmap_ai.constants import AREA_CRS, API_CRS
 
@@ -307,14 +308,19 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        address_fields: Optional[Dict[str,str]] = None,
         survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
         """
-        coordstring, exact = self._geometry_to_coordstring(geometry)
         bulk_str = str(self.bulk_mode).lower()
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+        if geometry is not None:
+            coordstring, exact = self._geometry_to_coordstring(geometry)
+            request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+        else:
+            addrparams = "&".join([f"{s}={address_fields[s]}" for s in address_fields])
+            request_string = f"{self.FEATURES_URL}?{addrparams}&bulk={bulk_str}&apikey={self.api_key}"
 
         # Add dates if given
         if (since is not None) or (until is not None):
@@ -340,6 +346,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        address_fields: Optional[Dict[str,str]] = None,
         survey_resource_id: Optional[str] = None,
     ):
         """
@@ -358,7 +365,7 @@ class FeatureApi:
 
         # Create request string
         request_string, exact = self._create_request_string(
-            geometry, packs, since, until, survey_resource_id=survey_resource_id
+            geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
 
@@ -601,6 +608,7 @@ class FeatureApi:
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
@@ -614,6 +622,7 @@ class FeatureApi:
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
+            address_fields: dictionary with values for the address fields, if available, or else None
             survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
             fail_hard_regrid: If set to true, don't try and grid on an AIFeatureAPIRequestSizeError,
                               This option is here because we can get stuck in an infinite loop of
@@ -623,13 +632,16 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
+        if geometry is None and address_fields is None:
+            raise Exception(f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible")
+
         features_gdf, metadata, error = None, None, None
         try:
-            payload = self.get_features(geometry, packs, since, until, survey_resource_id)
+            payload = self.get_features(geometry, packs, since, until, address_fields, survey_resource_id)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
             logging.debug(f"{fail_hard_regrid=}")
-            if fail_hard_regrid:  # Do not get stuck in an infinite loop of regridding and timing out
+            if fail_hard_regrid or geometry is None:  # Do not get stuck in an infinite loop of regridding and timing out
                 logger.error("Failing hard and NOT regridding....")
                 error = {
                     AOI_ID_COLUMN_NAME: aoi_id,
@@ -643,7 +655,7 @@ class FeatureApi:
                 logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, packs, aoi_id, since, until, survey_resource_id
+                        geometry, packs, aoi_id, since, until, address_fields, survey_resource_id
                     )
                     if len(errors_df) == 0:
                         error = None
@@ -787,16 +799,22 @@ class FeatureApi:
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and return
-            all good data available.
-            fail_hard_regrid: pass this through jobs so that we dont get stuck in an infinite loop of
-                  get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
+            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
+            return all good data available.
+            fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
+                              getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
+                                                                   get_features_gdf_bulk -> get_features_gdf
 
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
         """
         if AOI_ID_COLUMN_NAME not in gdf.columns:
-            raise KeyError(f"No 'aoi_id' column in dataframe, {gdf.columns=}")
+            raise KeyError(f"No 'aoi_id' column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+
+        # are address fields present?
+        has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
+        # is a geometry field present?
+        hasgeom = 'geometry' in gdf.columns
 
         # Run in thread pool
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
@@ -820,11 +838,12 @@ class FeatureApi:
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,
-                        row.geometry,
+                        row.geometry if hasgeom else None,
                         packs,
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
+                        {f : row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
                         survey_resource_id,
                         fail_hard_regrid,
                     )
