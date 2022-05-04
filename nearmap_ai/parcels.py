@@ -250,6 +250,7 @@ def feature_attributes(
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
+    calc_buffers: bool = False,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -261,6 +262,7 @@ def feature_attributes(
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
+        calc_buffers: Whether to calculate and include buffers
 
     Returns: Flat dictionary
 
@@ -347,15 +349,14 @@ def feature_attributes(
                     parcel[f"primary_{name}_unclipped_area_sqm"] = 0.0
                 parcel[f"primary_{name}_confidence"] = 1.0
 
-        if len(class_features_gdf) > 0:
-            if class_id == BUILDING_ID:
+        if class_id == BUILDING_ID:
+            if len(class_features_gdf) > 0 and calc_buffers:
                 # Create vegetation buffers.
                 BUFFERS = dict(
                     buffer_5ft=1.524,
                     buffer_10ft=3.048,
                     buffer_30ft=9.144,
                     buffer_100ft=30.48,
-                    buffer_100m=100,
                 )
                 veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
                 if len(veg_medhigh_features_gdf) > 0:
@@ -399,6 +400,7 @@ def parcel_rollup(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
+    calc_buffers: bool,
     primary_decision: str,
 ):
     """
@@ -409,6 +411,7 @@ def parcel_rollup(
         features_gdf: Features GeoDataFrame
         classes_df: Class name and ID lookup
         country: Country code for units.
+        calc_buffers: Calculate buffered features
         primary_decision: The basis on which the primary features are chosen
 
     Returns:
@@ -444,6 +447,7 @@ def parcel_rollup(
             primary_decision=primary_decision,
             primary_lat=primary_lat,
             primary_lon=primary_lon,
+            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
@@ -459,6 +463,7 @@ def parcel_rollup(
             classes_df,
             country=country,
             primary_decision=primary_decision,
+            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
         rollups.append(parcel)
