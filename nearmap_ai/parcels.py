@@ -379,7 +379,7 @@ def feature_attributes(
                         gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
                         gdf_intersection_areas_sqm = gdf_intersection.to_crs(AREA_CRS[country]).area
                         parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection_areas_sqm.sum()
-                        parcel[f"building_count_nonzero_{B}_tree_zone"] = gdf_intersection_areas_sqm[gdf_intersection_areas_sqm.area > 0]
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = len(gdf_intersection_areas_sqm[gdf_intersection_areas_sqm > 0])
     return parcel
 
 
