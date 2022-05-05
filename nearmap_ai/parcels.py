@@ -69,6 +69,13 @@ DEFAULT_FILTERING = {
     },
 }
 
+TREE_BUFFERS_M = dict(
+    buffer_5ft=1.524,
+    buffer_10ft=3.048,
+    buffer_30ft=9.144,
+    buffer_100ft=30.48,
+)
+
 logger = log.get_logger()
 
 
@@ -352,46 +359,27 @@ def feature_attributes(
         if class_id == BUILDING_ID:
             if len(class_features_gdf) > 0 and calc_buffers:
                 # Create vegetation buffers.
-                BUFFERS = dict(
-                    buffer_5ft=1.524,
-                    buffer_10ft=3.048,
-                    buffer_30ft=9.144,
-                    buffer_100ft=30.48,
-                )
                 veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
                 if len(veg_medhigh_features_gdf) > 0:
                     veg_medhigh_features_gdf = gpd.GeoDataFrame(
                         veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
                     )
 
-                veg_low_features_gdf = features_gdf[features_gdf.class_id == VEG_LOW_ID]
-                if len(veg_low_features_gdf) > 0:
-                    veg_low_features_gdf = gpd.GeoDataFrame(
-                        veg_low_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
-                    )
-
-                for B in BUFFERS:
+                for B in TREE_BUFFERS_M:
                     gdf_buffered_buildings = gpd.GeoDataFrame(
                         class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
                     )
 
                     # Wipe over feature geometries with their buffered version...
                     gdf_buffered_buildings["geometry_feature"] = (
-                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(BUFFERS[B]).to_crs(LAT_LONG_CRS)
+                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
                     )
 
                     if len(veg_medhigh_features_gdf) > 0:
-                        parcel[f"building_{B}_zone_veg_medhigh_sqm"] = (
-                            gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
-                            .to_crs(AREA_CRS[country])
-                            .area.sum()
-                        )
-                    if len(veg_low_features_gdf) > 0:
-                        parcel[f"building_{B}_zone_veg_low_sqm"] = (
-                            gdf_buffered_buildings.overlay(veg_low_features_gdf, how="intersection")
-                            .to_crs(AREA_CRS[country])
-                            .area.sum()
-                        )
+                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
+                        gdf_intersection_areas_sqm = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection_areas_sqm.sum()
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = len(gdf_intersection_areas_sqm[gdf_intersection_areas_sqm > 0])
     return parcel
 
 
