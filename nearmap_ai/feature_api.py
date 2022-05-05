@@ -809,7 +809,7 @@ class FeatureApi:
             API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
         """
         if AOI_ID_COLUMN_NAME not in gdf.columns:
-            raise KeyError(f"No 'aoi_id' column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+            raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
 
         # are address fields present?
         has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
