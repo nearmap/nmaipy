@@ -377,9 +377,15 @@ def feature_attributes(
 
                     if len(veg_medhigh_features_gdf) > 0:
                         gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
-                        gdf_intersection_areas_sqm = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection_areas_sqm.sum()
-                        parcel[f"building_count_nonzero_{B}_tree_zone"] = len(gdf_intersection_areas_sqm[gdf_intersection_areas_sqm > 0])
+                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        bldg_count = (gdf_intersection
+                                      .groupby("feature_id_1")
+                                      .aggregate({"buff_area_sqm": "sum"})
+                                      .query("buff_area_sqm > 0")
+                                      )
+                        bldg_count = len(bldg_count)
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
     return parcel
 
 
