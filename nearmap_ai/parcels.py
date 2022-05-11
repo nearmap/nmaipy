@@ -405,11 +405,18 @@ def parcel_rollup(
     Returns:
         Parcel rollup DataFrame
     """
+    if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
+        raise Exception(f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe")
     if primary_decision == "nearest":
         merge_cols = [AOI_ID_COLUMN_NAME, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME, "geometry"]
     else:
-        merge_cols = [AOI_ID_COLUMN_NAME, "geometry"]
+        if 'geometry' in parcels_gdf.columns:
+            merge_cols = [AOI_ID_COLUMN_NAME, 'geometry']
+        else:
+            merge_cols = [AOI_ID_COLUMN_NAME]
+
     df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
+
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
