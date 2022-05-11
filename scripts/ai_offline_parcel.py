@@ -206,7 +206,7 @@ def process_chunk(
     )
     if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
         logger.info(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
         )
     if len(errors_df) > 0:
         if "message" in errors_df:
@@ -222,7 +222,7 @@ def process_chunk(
     features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
     len_filtered_features = len(features_gdf)
     logger.debug(
-        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
+        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
     )
 
     # Create rollup
