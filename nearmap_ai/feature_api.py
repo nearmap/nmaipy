@@ -314,24 +314,24 @@ class FeatureApi:
         """
         Create a request string with given parameters
         """
+        urlbase = self.FEATURES_URL if survey_resource_id is None else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
-            request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+            request_string = f"{urlbase}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
         else:
+            exact = True  # we treat address-based as exact always
             addrparams = "&".join([f"{s}={address_fields[s]}" for s in address_fields])
-            request_string = f"{self.FEATURES_URL}?{addrparams}&bulk={bulk_str}&apikey={self.api_key}"
+            request_string = f"{urlbase}?{addrparams}&bulk={bulk_str}&apikey={self.api_key}"
 
         # Add dates if given
-        if (since is not None) or (until is not None):
+        if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
+            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
+        elif (since is not None) or (until is not None):
             if since:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-        elif (since is None) and (until is None) and (survey_resource_id is not None):
-            request_string = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
-        elif ((since is not None) or (until is not None)) and (survey_resource_id is not None):
-            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
 
         # Add packs if given
         if packs:
@@ -597,8 +597,11 @@ class FeatureApi:
             df[AOI_ID_COLUMN_NAME] = aoi_id
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
-        gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
-        gdf = gdf.set_crs(cls.SOURCE_CRS)
+        if 'geometry' in df.columns:
+            gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
+            gdf = gdf.set_crs(cls.SOURCE_CRS)
+        else:
+            gdf = df
         return gdf, metadata
 
     def get_features_gdf(
@@ -763,6 +766,7 @@ class FeatureApi:
             )
         except AIFeatureAPIError as e:
             logger.warning(f"Failed whole grid for aoi_id {aoi_id}. Single error")
+            logger.info(f"Exception is {e}")
             raise AIFeatureAPIGridError(e.status_code)
         if len(features_gdf["survey_date"].unique()) > 1:
             logger.warning(f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries.")
