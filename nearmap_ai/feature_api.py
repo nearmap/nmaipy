@@ -202,6 +202,8 @@ class FeatureApi:
             if diff := set(packs) - set(pack_classes.keys()):
                 raise ValueError(f"Unknown packs: {diff}")
             all_classes = list(set([class_id for p in packs for class_id in pack_classes[p]]))
+            # Strip out any classes that we don't get a valid description for from the packs endpoint.
+            all_classes = [c for c in all_classes if c in df_classes.index]
             df_classes = df_classes.loc[all_classes]
 
         return df_classes
