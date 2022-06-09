@@ -42,21 +42,28 @@ class RetryRequest(Retry):
 
 
 class AIFeatureAPIError(Exception):
+    DUMMY_STATUS_CODE = -1
+    
     def __init__(self, response, request_string):
-        try:
-            self.status_code = response.status_code
-            self.text = response.text
-        except AttributeError:
-            self.status_code = response["status_code"]
-            self.text = response["text"]
+        if response is None:
+            self.status_code = self.DUMMY_STATUS_CODE
+            self.text = "Query Not Attempted"
+            self.message = "Error with query AOI, API response not even attempted - e.g. exact polygon not possible."
+        else:
+            try:
+                self.status_code = response.status_code
+                self.text = response.text
+            except AttributeError:
+                self.status_code = response["status_code"]
+                self.text = response["text"]
+            try:
+                err_body = response.json()
+                self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
+            except json.JSONDecodeError:
+                self.message = "JSONDecodeError"
+            except AttributeError:
+                self.message = ""
         self.request_string = request_string
-        try:
-            err_body = response.json()
-            self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
-        except json.JSONDecodeError:
-            self.message = "JSONDecodeError"
-        except AttributeError:
-            self.message = ""
 
 
 class AIFeatureAPIGridError(Exception):
@@ -235,7 +242,7 @@ class FeatureApi:
                 coordstring = cls._polygon_to_coordstring(geometry.geoms[0])
                 exact = True
             else:
-                logger.warning(f"Geometry is a multipolygon - approximating. Length: {len(geometry.geoms)}")
+                logger.warning(f"Geometry is a multipolygon - approximating with convex hull.")
                 coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
                 exact = False
         else:
@@ -243,11 +250,13 @@ class FeatureApi:
             exact = True
 
         if len(coordstring) > cls.CHAR_LIMIT:
+            logger.warning(f"Geometry exceeds character limit - approximating with convex hull.")
             exact = False
             coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
-        if len(coordstring) > cls.CHAR_LIMIT:
-            exact = False
-            coordstring = cls._polygon_to_coordstring(geometry.envelope)
+            if len(coordstring) > cls.CHAR_LIMIT:
+                exact = False
+                coordstring = cls._polygon_to_coordstring(geometry.envelope)
+        
         return coordstring, exact
 
     def _make_latlon_path_for_cache(self, request_string):
@@ -277,7 +286,9 @@ class FeatureApi:
         Handle errors returned from the feature API
         """
         clean_request_string = request_string.replace(self.api_key, "...")
-        if not response.ok:
+        if response is None:
+            raise AIFeatureAPIError(response, clean_request_string)
+        elif not response.ok:
             raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
@@ -374,6 +385,10 @@ class FeatureApi:
             geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
+        # TODO: The above deals correctly with discrete classes like buildings, but not connected classes like trees. Need to trim continuous classes by intersection with true query AOI, and create multipolygon groups by id.
+        if not exact:
+            logging.error("Currently deals incorrectly with convex hulled query AOIs and connected classes.")
+            self._handle_response_errors(None, request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
@@ -403,8 +418,6 @@ class FeatureApi:
             # If the AOI was altered for the API request, we need to filter features in the response
             if not exact:
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
-                # TODO: The above deals correctly with discrete classes like buildings, but not connected classes like trees. Need to trim continuous classes by intersection with true query AOI, and create multipolygon groups by id.
-                raise AIFeatureAPIError
             # Save to cache if configured
             if self.cache_dir is not None:
                 self._write_to_cache(self._request_cache_path(request_string), data)

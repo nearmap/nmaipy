@@ -436,7 +436,10 @@ def main():
         logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
-        data = pd.concat(data)
+        if len(data) > 0:
+            data = pd.concat(data)
+        else:
+            data = pd.DataFrame(data)
         if len(data) > 0:
             data.to_csv(outpath, index=True)
 
@@ -445,7 +448,10 @@ def main():
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
-            pd.concat(errors).to_csv(outpath_errors, index=True)
+            errors = pd.concat(errors)
+        else:
+            errors = pd.DataFrame(errors)
+        errors.to_csv(outpath_errors, index=True)
 
         if args.save_features:
             logger.info(f"Saving feature data as .gpkg to {outpath_features}")
