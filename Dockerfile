@@ -1,4 +1,4 @@
-FROM jupyter/minimal-notebook:4d9c9bd9ced0
+FROM jupyter/minimal-notebook:latest
 
 USER root
 RUN apt-get update && apt-get install -y libspatialindex-dev

@@ -379,11 +379,11 @@ def feature_attributes(
                         gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
                         gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
                         parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-                        bldg_count = (gdf_intersection
-                                      .groupby("feature_id_1")
-                                      .aggregate({"buff_area_sqm": "sum"})
-                                      .query("buff_area_sqm > 0")
-                                      )
+                        bldg_count = (
+                            gdf_intersection.groupby("feature_id_1")
+                            .aggregate({"buff_area_sqm": "sum"})
+                            .query("buff_area_sqm > 0")
+                        )
                         bldg_count = len(bldg_count)
                         parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
     return parcel
@@ -412,12 +412,14 @@ def parcel_rollup(
         Parcel rollup DataFrame
     """
     if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
-        raise Exception(f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe")
+        raise Exception(
+            f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+        )
     if primary_decision == "nearest":
         merge_cols = [AOI_ID_COLUMN_NAME, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME, "geometry"]
     else:
-        if 'geometry' in parcels_gdf.columns:
-            merge_cols = [AOI_ID_COLUMN_NAME, 'geometry']
+        if "geometry" in parcels_gdf.columns:
+            merge_cols = [AOI_ID_COLUMN_NAME, "geometry"]
         else:
             merge_cols = [AOI_ID_COLUMN_NAME]
 

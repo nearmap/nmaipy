@@ -30,7 +30,7 @@ from nearmap_ai.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     MAX_RETRIES,
     AOI_EXCEEDS_MAX_SIZE,
-    ADDRESS_FIELDS
+    ADDRESS_FIELDS,
 )
 from nearmap_ai.constants import AREA_CRS, API_CRS
 
@@ -310,13 +310,17 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        address_fields: Optional[Dict[str,str]] = None,
+        address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
         """
-        urlbase = self.FEATURES_URL if survey_resource_id is None else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        urlbase = (
+            self.FEATURES_URL
+            if survey_resource_id is None
+            else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        )
         bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
@@ -348,7 +352,7 @@ class FeatureApi:
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        address_fields: Optional[Dict[str,str]] = None,
+        address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
     ):
         """
@@ -399,7 +403,8 @@ class FeatureApi:
             # If the AOI was altered for the API request, we need to filter features in the response
             if not exact:
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
-
+                # TODO: The above deals correctly with discrete classes like buildings, but not connected classes like trees. Need to trim continuous classes by intersection with true query AOI, and create multipolygon groups by id.
+                raise AIFeatureAPIError
             # Save to cache if configured
             if self.cache_dir is not None:
                 self._write_to_cache(self._request_cache_path(request_string), data)
@@ -539,6 +544,17 @@ class FeatureApi:
 
         return features_gdf_out
 
+    @staticmethod
+    def trim_features_to_aoi(df_features: pd.DataFrame, query_aoi_polygon: Polygon) -> pd.DataFrame:
+        """
+        Trim all features (regardless of class) by performing intersection with the correct query AOI.
+        :param df_features: The dataframe of features, as returned by
+        :param query_aoi_polygon:
+        :return:
+        """
+        # TODO: Implement! Note it would also need to recalculate clipped areas.
+        raise NotImplementedError
+
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
@@ -599,7 +615,7 @@ class FeatureApi:
             df[AOI_ID_COLUMN_NAME] = aoi_id
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
-        if 'geometry' in df.columns:
+        if "geometry" in df.columns:
             gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
             gdf = gdf.set_crs(cls.SOURCE_CRS)
         else:
@@ -638,7 +654,9 @@ class FeatureApi:
             API response features GeoDataFrame, metadata dictionary, and a error dictionary
         """
         if geometry is None and address_fields is None:
-            raise Exception(f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible")
+            raise Exception(
+                f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
+            )
 
         features_gdf, metadata, error = None, None, None
         try:
@@ -646,7 +664,9 @@ class FeatureApi:
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
             logging.debug(f"{fail_hard_regrid=}")
-            if fail_hard_regrid or geometry is None:  # Do not get stuck in an infinite loop of regridding and timing out
+            if (
+                fail_hard_regrid or geometry is None
+            ):  # Do not get stuck in an infinite loop of regridding and timing out
                 logger.error("Failing hard and NOT regridding....")
                 error = {
                     AOI_ID_COLUMN_NAME: aoi_id,
@@ -771,10 +791,14 @@ class FeatureApi:
             logger.info(f"Exception is {e}")
             raise AIFeatureAPIGridError(e.status_code)
         if len(features_gdf["survey_date"].unique()) > 1:
-            logger.warning(f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries.")
+            logger.warning(
+                f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+            )
             raise AIFeatureAPIGridError(-1, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
-            logger.warning(f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date).")
+            logger.warning(
+                f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
+            )
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
@@ -820,7 +844,7 @@ class FeatureApi:
         # are address fields present?
         has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
         # is a geometry field present?
-        hasgeom = 'geometry' in gdf.columns
+        hasgeom = "geometry" in gdf.columns
 
         # Run in thread pool
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
@@ -849,7 +873,7 @@ class FeatureApi:
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
-                        {f : row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                        {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
                         survey_resource_id,
                         fail_hard_regrid,
                     )

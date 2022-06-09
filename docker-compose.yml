@@ -11,15 +11,19 @@ services:
       - JUPYTER_LAB_ENABLE=yes
     user: root
     volumes:
-      - <local path to data directory>:/home/jovyan/data
+      - /mnt/DATA/data_michaelbewley/Development/datascience/nearmap-ai-user-guides/data:/home/jovyan/data
+      - /mnt/DATA2/offline_exports/processed:/home/jovyan/offline_exports/processed
     entrypoint: [
         "start.sh",
         "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
-        "--parcel-dir", "/home/jovyan/data/<path to parcels>",
-        "--output-dir", "/home/jovyan/data/<path to results>",
-        "--include-parcel-geometry",
-        "--packs", "building", "building_char", "roof_char", "roof_cond", "pool", "solar", "trampoline", "construction", "vegetation", "surfaces",
+        "--parcel-dir", "/home/jovyan/data/parcels/DS-7498_TM002-us-tree-cover",
+        "--output-dir", "/home/jovyan/offline_exports/processed/DS-7498_TM002-us-tree-cover",
+        "--packs", "building", "vegetation",
         "--country", "us",
         "--primary-decision", "largest_intersection",
-        "--workers",  "10",
+        "--workers",  "32",
+        "--compress-cache",
+        "--log-level", "INFO",
+        "--include-parcel-geometry",
+        "--save-features",
     ]
