@@ -242,7 +242,7 @@ class FeatureApi:
                 coordstring = cls._polygon_to_coordstring(geometry.geoms[0])
                 exact = True
             else:
-                logger.warning(f"Geometry is a multipolygon - approximating with convex hull.")
+                logger.debug(f"Geometry is a multipolygon - approximating with convex hull.")
                 coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
                 exact = False
         else:
@@ -250,7 +250,7 @@ class FeatureApi:
             exact = True
 
         if len(coordstring) > cls.CHAR_LIMIT:
-            logger.warning(f"Geometry exceeds character limit - approximating with convex hull.")
+            logger.debug(f"Geometry exceeds character limit - approximating with convex hull.")
             exact = False
             coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
             if len(coordstring) > cls.CHAR_LIMIT:
@@ -387,7 +387,7 @@ class FeatureApi:
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
         # TODO: The above deals correctly with discrete classes like buildings, but not connected classes like trees. Need to trim continuous classes by intersection with true query AOI, and create multipolygon groups by id.
         if not exact:
-            logging.error("Currently deals incorrectly with convex hulled query AOIs and connected classes.")
+            logger.debug("Currently deals incorrectly with convex hulled query AOIs and connected classes.")
             self._handle_response_errors(None, request_string)
 
         # Check if it's already cached
@@ -680,7 +680,7 @@ class FeatureApi:
             if (
                 fail_hard_regrid or geometry is None
             ):  # Do not get stuck in an infinite loop of regridding and timing out
-                logger.error("Failing hard and NOT regridding....")
+                logger.debug("Failing hard and NOT regridding....")
                 error = {
                     AOI_ID_COLUMN_NAME: aoi_id,
                     "status_code": e.status_code,
@@ -741,7 +741,7 @@ class FeatureApi:
             }
 
         except requests.exceptions.RetryError as e:
-            logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
+            logger.debug(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
             features_gdf = None
             metadata = None
             error = {
@@ -800,8 +800,8 @@ class FeatureApi:
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
-            logger.warning(f"Failed whole grid for aoi_id {aoi_id}. Single error")
-            logger.info(f"Exception is {e}")
+            logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error")
+            logger.debug(f"Exception is {e}")
             raise AIFeatureAPIGridError(e.status_code)
         if len(features_gdf["survey_date"].unique()) > 1:
             logger.warning(

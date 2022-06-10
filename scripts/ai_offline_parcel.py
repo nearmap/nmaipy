@@ -28,7 +28,7 @@ from nearmap_ai.constants import (
 )
 from nearmap_ai.feature_api import FeatureApi
 
-CHUNK_SIZE = 1000
+CHUNK_SIZE = 10000
 PROCESSES = 20
 THREADS = 6
 
@@ -234,7 +234,7 @@ def process_chunk(
         calc_buffers=calc_buffers,
         primary_decision=primary_decision,
     )
-    logger.info(f"Finished rollup for chunk {chunk_id}")
+    logger.debug(f"Finished rollup for chunk {chunk_id}")
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -291,7 +291,7 @@ def main():
     args = parse_arguments()
     # Configure logger
     log.configure_logger(args.log_level)
-    logger.info("Starting parcel rollup")
+    logger.debug("Starting parcel rollup")
     # Path setup
     parcel_paths = []
     for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
