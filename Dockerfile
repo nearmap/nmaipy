@@ -11,6 +11,7 @@ RUN cd /home/jovyan/nearmap-ai-user-guides \
 
 COPY ./ /home/jovyan/nearmap-ai-user-guides
 USER root
+RUN fix-permissions /home/jovyan
+USER jovyan
 RUN cd /home/jovyan/nearmap-ai-user-guides \
  && pip install .
-USER jovyan
