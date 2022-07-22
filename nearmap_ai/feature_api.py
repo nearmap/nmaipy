@@ -32,7 +32,7 @@ from nearmap_ai.constants import (
     AOI_EXCEEDS_MAX_SIZE,
     ADDRESS_FIELDS,
 )
-from nearmap_ai.constants import AREA_CRS, API_CRS
+from nearmap_ai.constants import AREA_CRS, API_CRS, CONNECTED_CLASS_IDS
 
 logger = log.get_logger()
 
@@ -415,9 +415,26 @@ class FeatureApi:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
             data = response.json()
 
-            # If the AOI was altered for the API request, we need to filter features in the response
+            # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
             if not exact:
+                # Filter out any features that are not a candidate (e.g. ones that touch only the gap between two parts of a multipolygon).
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+
+                for f in data["features"]:
+                    g = shape(f["geometry"])
+                    logger.error(f)
+                    logger.error(f["geometry"], isinstance(f, str))
+                    area_clipped_sqm = 0 # TODO: Calculate sqft and sqm
+                    if f["class_id"] in CONNECTED_CLASS_IDS:
+                        g_new = g.intersection(geometry)
+                        logger.error(str(g_new))
+                        f["geometry"] = str(g_new)
+                        # f["area_sqm"] = #TODO: Legacy, straight up area for connected classes is clipped.
+                    # f["area_sqm_clipped"] =
+                    # f["area_sqft_clipped"] =
+                # TODO: Trim connected class geometries, and correct the areas.
+                # TODO: Correct the "clipped area" of discrete classes.
+
             # Save to cache if configured
             if self.cache_dir is not None:
                 self._write_to_cache(self._request_cache_path(request_string), data)
