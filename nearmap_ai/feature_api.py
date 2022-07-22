@@ -239,8 +239,14 @@ class FeatureApi:
 
         if isinstance(geometry, MultiPolygon):
             if len(geometry.geoms) == 1:
-                coordstring = cls._polygon_to_coordstring(geometry.geoms[0])
-                exact = True
+                g = geometry.geoms[0]
+                coordstring = cls._polygon_to_coordstring(g)
+                if len(g.interiors) == 0:
+                    exact = True
+                else:
+                    logger.debug(f"Geometry is a multi-part polygon with interiors - approximating with convex hull.")
+                    exact = False
+
             else:
                 logger.debug(f"Geometry is a multipolygon - approximating with convex hull.")
                 coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
