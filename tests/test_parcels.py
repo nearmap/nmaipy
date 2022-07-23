@@ -284,7 +284,7 @@ class TestParcels:
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
-        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, "au", "largest_intersection")
+        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, country="au", calc_buffers=False, primary_decision="largest_intersection")
 
         expected = pd.DataFrame(
             [
@@ -587,7 +587,7 @@ class TestParcels:
 
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
 
-        rollup_df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, "us", "nearest")
+        rollup_df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, country="us", calc_buffers=False, primary_decision="nearest")
         expected = pd.DataFrame(
             [
                 {
@@ -637,7 +637,7 @@ class TestParcels:
 
         # Check rollup matches what's expected
         rollup_df = parcels.parcel_rollup(
-            parcel_gdf, features_gdf, classes_df, country=country, primary_decision="largest_intersection"
+            parcel_gdf, features_gdf, classes_df, country=country, calc_buffers=False, primary_decision="largest_intersection"
         )
         assert len(rollup_df) == len(parcel_gdf)
         final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)

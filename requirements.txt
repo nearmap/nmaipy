@@ -1,24 +1,24 @@
 # Scientific
-numpy==1.22.2
-pandas==1.3.5
+numpy
+pandas
 
 # GIS
-shapely==1.8.0
+shapely
 rtree
-geopandas==0.10.2
+geopandas
 
 # Plotting
-matplotlib==3.5.1
-descartes==1.1.0
+matplotlib
+descartes
 
 # Utilities
-tqdm>=4.63.0
-stringcase==1.2.0
-pyarrow==5.0.0
+tqdm
+stringcase
+pyarrow
 
 # Style
-isort==5.10.1
-black==21.12b0
+isort
+black
 
 # Testing
-pytest==7.0.1
+pytest

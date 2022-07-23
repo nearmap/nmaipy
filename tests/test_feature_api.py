@@ -3,7 +3,7 @@ from pathlib import Path
 import geopandas as gpd
 import pytest
 from shapely.affinity import translate
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.wkt import loads
 
 from nearmap_ai.constants import BUILDING_ID, SOLAR_ID, VEG_MEDHIGH_ID
@@ -141,8 +141,8 @@ class TestFeatureAPI:
         for i in range(4):
             for j in range(4):
                 aois.append({"aoi_id": f"{i}_{j}", "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j)})
-        # Add a massive AOI to test an error care
-        aois.append({"aoi_id": "error_case", "geometry": sydney_aoi.buffer(1)})
+        # Add an AOI with an invalid type to test an error case - multipolygon of two separate chunks
+        aois.append({"aoi_id": "error_case", "geometry": MultiPolygon([translate(sydney_aoi, 0.001, 0.001), translate(sydney_aoi, 0.003, 0.003)])})
 
         aoi_gdf = gpd.GeoDataFrame(aois)
         date_1 = "2020-01-01"
@@ -188,7 +188,6 @@ class TestFeatureAPI:
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 70
         # The dates are within range
         for row in features_gdf.itertuples():
-            print(row.survey_date)
             assert "2020-01-01" <= row.survey_date <= "2020-03-01"
 
     def test_multipolygon(self, cache_directory: Path, sydney_aoi: Polygon):
