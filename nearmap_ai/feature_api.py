@@ -19,6 +19,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
+import shapely.geometry
 import stringcase
 
 from nearmap_ai import log
@@ -241,23 +242,34 @@ class FeatureApi:
         if isinstance(geometry, MultiPolygon):
             if len(geometry.geoms) == 1:
                 g = geometry.geoms[0]
-                coordstring = cls._polygon_to_coordstring(g)
-                exact = len(g.interiors) == 0
+
+                if len(g.interiors) > 0:
+                    logger.debug(f"Geometry has inner rings - approximating query with convex hull.")
+                    coordstring = cls._polygon_to_coordstring(g.convex_hull)
+                    exact = False
+                else:
+                    coordstring = cls._polygon_to_coordstring(g)
+                    exact = True
             else:
                 raise ValueError("Must not be called with a multipolygon - separate parts should be iterated externally.")
         else:
-            coordstring = cls._polygon_to_coordstring(geometry)
             # Tests whether the polygon has inner rings/holes.
             exact = len(geometry.interiors) == 0
-
+            if len(geometry.interiors) > 0:
+                logger.debug(f"Geometry has inner rings - approximating query with convex hull.")
+                coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+                exact = False
+            else:
+                coordstring = cls._polygon_to_coordstring(geometry)
+                exact = True
         if len(coordstring) > cls.CHAR_LIMIT:
-            logger.debug(f"Geometry exceeds character limit - approximating with convex hull.")
+            logger.debug(f"Geometry exceeds character limit - approximating query with convex hull.")
             exact = False
             coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
             if len(coordstring) > cls.CHAR_LIMIT:
                 exact = False
                 coordstring = cls._polygon_to_coordstring(geometry.envelope)
-        
+
         return coordstring, exact
 
     def _make_latlon_path_for_cache(self, request_string):
@@ -421,16 +433,16 @@ class FeatureApi:
 
                 for f in data["features"]:
                     g = shape(f["geometry"])
-                    g_clipped = g.intersection(geometry)
+                    g_clipped = shapely.geometry.mapping(g.intersection(geometry)) # Back to geojson, like it was before...
                     clipped_area_sqm = gpd.GeoSeries(g, crs=API_CRS).intersection(geometry).to_crs(
-                        AREA_CRS[region]).area
-                    clipped_area_sqft = round(clipped_area_sqm / SQUARED_METERS_TO_SQUARED_FEET)
-                    clipped_area_sqm = round(clipped_area_sqm)
+                        AREA_CRS[region]).area.iloc[0]
+                    clipped_area_sqft = int(round(clipped_area_sqm / SQUARED_METERS_TO_SQUARED_FEET))
+                    clipped_area_sqm = round(clipped_area_sqm, 1)
                     f["clippedAreaSqm"] = clipped_area_sqm
                     f["clippedAreaSqft"] = clipped_area_sqft
 
                     if f["classId"] in CONNECTED_CLASS_IDS:
-                        f["geometry"] = str(g_clipped)
+                        f["geometry"] = g_clipped
                         f["areaSqm"] = clipped_area_sqm
                         f["areaSqft"] = clipped_area_sqft
 
@@ -645,7 +657,7 @@ class FeatureApi:
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
         if "geometry" in df.columns:
-            gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
+            gdf = gpd.GeoDataFrame(df.assign(geometry=df.geometry.apply(shape)))
             gdf = gdf.set_crs(cls.SOURCE_CRS)
         else:
             gdf = df

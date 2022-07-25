@@ -6,7 +6,7 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.wkt import loads
 
-from nearmap_ai.constants import BUILDING_ID, SOLAR_ID, VEG_MEDHIGH_ID
+from nearmap_ai.constants import BUILDING_ID, SOLAR_ID, VEG_MEDHIGH_ID, ASPHALT_ID
 from nearmap_ai.feature_api import FeatureApi
 import nearmap_ai.log
 import logging
@@ -253,7 +253,7 @@ class TestFeatureAPI:
         date_1 = "2022-04-21"
         date_2 = "2022-04-21"
         packs = ["building"]
-        aoi_id = 5
+        aoi_id = 11
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
@@ -266,6 +266,31 @@ class TestFeatureAPI:
         # We get no buildings (inner gets discarded)
         assert len(features_gdf) == 0
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 0
+
+    def test_polygon_with_hole_2(self, cache_directory: Path):
+        """
+        Test correct behaviour of a connected class, with complex many holed query AOI.
+        """
+        aoi = loads("Polygon ((-87.98869354480743254 42.98720736071164339, -87.98869354480743254 42.98745790451570059, -87.98832791466347203 42.98745790451570059, -87.98832791466347203 42.98720736071164339, -87.98869354480743254 42.98720736071164339),(-87.98862916890175256 42.9874149280962996, -87.98856291796968776 42.98741401370408255, -87.98856229296089282 42.9873628077175951, -87.98862916890175256 42.9874149280962996),(-87.98843666619346493 42.98739206828654602, -87.98848416686175256 42.98736737968242494, -87.98842104097366246 42.98729559979562254, -87.9883935405867561 42.98732120282217295, -87.98834416489208365 42.98737743800379718, -87.98837854037572015 42.98741355650798823, -87.98840979081536773 42.98735457818008854, -87.98840979081536773 42.98735457818008854, -87.98843666619346493 42.98739206828654602),(-87.9883354147689829 42.9873874963235707, -87.98833916482176676 42.9874492177950458, -87.98868416967553685 42.98745013218676547, -87.98868604470192167 42.98742315762577704, -87.9883697902526194 42.98741858566508256, -87.9883354147689829 42.9873874963235707),(-87.98868104463157636 42.98741721407682803, -87.98868104463157636 42.98721467587366618, -87.98833228972502241 42.98721238988563442, -87.98864729415674901 42.9874149280962996, -87.98864729415674901 42.9874149280962996, -87.98868104463157636 42.98741721407682803),(-87.9885416676707024 42.98740761295811552, -87.98855229282020218 42.98736509370006331, -87.98845979151882091 42.98731343047596454, -87.98850041709034997 42.98737469482540519, -87.98841666591209787 42.98740212660388949, -87.98843104111432467 42.98741172772346175, -87.98843104111432467 42.98741172772346175, -87.9885416676707024 42.98740761295811552))")
+        country = "us"
+        date_1 = "2022-04-21"
+        date_2 = "2022-04-21"
+        packs = ["surfaces"]
+        aoi_id = 12
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        print(metadata)
+
+        # No error
+        assert error is None
+        # Date is in range
+        assert date_1 <= metadata["date"] <= date_2
+        # We get one piece of hollowed out asphalt
+        assert len(features_gdf) == 1
+        assert len(features_gdf[features_gdf.class_id == ASPHALT_ID]) == 1
+        assert features_gdf["clipped_area_sqm"].sum() == features_gdf["area_sqm"].sum()
+        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(259.2, 1)
 
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
