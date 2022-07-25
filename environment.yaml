@@ -5,6 +5,7 @@ channels:
   - main
 dependencies:
   # Environment specific dependencies
+  - python=3.9
   - numpy
   - pandas
   - shapely
@@ -18,3 +19,4 @@ dependencies:
   - isort
   - black
   - pytest
+  - ipykernel
