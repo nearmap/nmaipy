@@ -147,7 +147,6 @@ class TestFeatureAPI:
             for j in range(4):
                 aois.append({"aoi_id": f"{i}_{j}", "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j)})
         # Add an AOI with an invalid type to test an error case - multipolygon of two separate chunks
-        aois.append({"aoi_id": "error_case", "geometry": MultiPolygon([translate(sydney_aoi, 0.001, 0.001), translate(sydney_aoi, 0.003, 0.003)])})
 
         aoi_gdf = gpd.GeoDataFrame(aois)
         date_1 = "2020-01-01"
@@ -161,8 +160,7 @@ class TestFeatureAPI:
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
         # Check error
-        assert len(errors_df) == 1
-        assert errors_df.iloc[0].aoi_id == "error_case"
+        assert len(errors_df) == 0
         # We get only buildings
         assert len(features_gdf) == 69
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
@@ -186,19 +184,22 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs)
+        print(metadata_df.iloc[0].T)
+
         # Check metadata
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
 
         # We get only buildings
-        assert len(features_gdf) == 70
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 70
+        assert len(features_gdf) == 69
+        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
         # The dates are within range
         for row in features_gdf.itertuples():
             assert "2020-01-01" <= row.survey_date <= "2020-03-01"
 
-    def test_multipolygon(self, cache_directory: Path, sydney_aoi: Polygon):
+    def test_multipolygon_1(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))
+        print(f"Multipolygon 1 (use QuickWKT in QGIS to visualise): {aoi}")
         date_1 = "2020-01-01"
         date_2 = "2020-06-01"
         country = "au"
@@ -207,6 +208,7 @@ class TestFeatureAPI:
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        print(metadata)
         # No error
         assert error is None
         # Date is in range
@@ -218,6 +220,52 @@ class TestFeatureAPI:
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 6
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 6
+
+    def test_multipolygon_2(self, cache_directory: Path, sydney_aoi: Polygon):
+        aoi = MultiPolygon([translate(sydney_aoi, 0.001, 0.001), translate(sydney_aoi, 0.003, 0.003)])
+        print(f"Multipolygon 2 (use QuickWKT in QGIS to visualise): {aoi}")
+        date_1 = "2020-01-01"
+        date_2 = "2020-06-01"
+        country = "au"
+        packs = ["building"]
+        aoi_id = "123"
+        # Run
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        print(metadata)
+
+        # No error
+        assert error is None
+        # Date is in range
+        assert date_1 <= metadata["date"] <= date_2
+        # We get 3 buildings
+        assert len(features_gdf) == 11
+        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 11
+        # The AOI ID has been assigned
+        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 11
+        # All buildings intersect the AOI
+        assert len(features_gdf[features_gdf.intersects(aoi)]) == 11
+
+    def test_polygon_with_hole_1(self, cache_directory: Path):
+        # This one should have a building in the middle which gets pulled then discarded, and clear space around it.
+        aoi = loads("Polygon((-87.98409445082069169 42.9844739669082827, -87.98409445082069169 42.98497943053578041, -87.98334642812285722 42.98497943053578041, -87.98334642812285722 42.9844739669082827, -87.98409445082069169 42.9844739669082827), (-87.98398389681051412 42.98492725383756152, -87.9834560905684242 42.98492725383756152, -87.98343201832427951 42.98454440595978809, -87.98402490878204674 42.98453201391029666, -87.98398389681051412 42.98492725383756152))")
+        country = "us"
+        date_1 = "2022-04-21"
+        date_2 = "2022-04-21"
+        packs = ["building"]
+        aoi_id = 5
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        print(metadata)
+
+        # No error
+        assert error is None
+        # Date is in range
+        assert date_1 <= metadata["date"] <= date_2
+        # We get no buildings (inner gets discarded)
+        assert len(features_gdf) == 0
+        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 0
 
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)

@@ -47,11 +47,11 @@ class RetryRequest(Retry):
 class AIFeatureAPIError(Exception):
     DUMMY_STATUS_CODE = -1
     
-    def __init__(self, response, request_string):
+    def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query AOI"):
         if response is None:
             self.status_code = self.DUMMY_STATUS_CODE
-            self.text = "Query Not Attempted"
-            self.message = "Error with query AOI, API response not even attempted - e.g. exact polygon not possible."
+            self.text = text
+            self.message = message
         else:
             try:
                 self.status_code = response.status_code
@@ -80,11 +80,9 @@ class AIFeatureAPIGridError(Exception):
 class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
     status_codes = (HTTPStatus.GATEWAY_TIMEOUT,)
     codes = (AOI_EXCEEDS_MAX_SIZE,)
-
     """
-    Use do indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
+    Use to indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
     """
-
     pass
 
 
@@ -244,19 +242,13 @@ class FeatureApi:
             if len(geometry.geoms) == 1:
                 g = geometry.geoms[0]
                 coordstring = cls._polygon_to_coordstring(g)
-                if len(g.interiors) == 0:
-                    exact = True
-                else:
-                    logger.debug(f"Geometry is a multi-part polygon with interiors - approximating with convex hull.")
-                    exact = False
-
+                exact = len(g.interiors) == 0
             else:
-                logger.debug(f"Geometry is a multipolygon - approximating with convex hull.")
-                coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
-                exact = False
+                raise ValueError("Must not be called with a multipolygon - separate parts should be iterated externally.")
         else:
             coordstring = cls._polygon_to_coordstring(geometry)
-            exact = True
+            # Tests whether the polygon has inner rings/holes.
+            exact = len(geometry.interiors) == 0
 
         if len(coordstring) > cls.CHAR_LIMIT:
             logger.debug(f"Geometry exceeds character limit - approximating with convex hull.")
@@ -381,6 +373,7 @@ class FeatureApi:
 
         Args:
             geometry: AOI in EPSG4326
+            region: Country code, used for recalculating areas.
             packs: List of AI packs
             since: Earliest date to pull data for
             until: Latest date to pull data for
@@ -423,7 +416,7 @@ class FeatureApi:
 
             # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
             if not exact:
-                # Filter out any features that are not a candidate (e.g. ones that touch only the gap between two parts of a multipolygon).
+                # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
 
                 for f in data["features"]:
@@ -671,11 +664,12 @@ class FeatureApi:
         fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
-        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
 
         Args:
             geometry: AOI in EPSG4326
+            region: The country code, used as a key to AREA_CRS.
             packs: List of AI packs
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
@@ -695,11 +689,30 @@ class FeatureApi:
                 f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
 
-        features_gdf, metadata, error = None, None, None
         try:
-            payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
-            features_gdf, metadata = self.payload_gdf(payload, aoi_id)
+            if isinstance(geometry, MultiPolygon) and len(geometry) > 1:
+                # A proper multi-polygon - run it as separate requests, then recombine.
+                features_gdf, metadata, error = [], [], None
+                for sub_geometry in geometry:
+                    sub_payload = self.get_features(sub_geometry, region, packs, since, until, address_fields,
+                                                    survey_resource_id)
+                    sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
+                    features_gdf.append(sub_features_gdf)
+                    metadata.append(sub_metadata)
+                features_gdf = pd.concat(features_gdf)
+                metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
+                metadata_df = metadata_df.drop_duplicates()
+                if len(metadata_df) > 1:
+                    logging.warning("MultiPolygon Error")
+                    raise AIFeatureAPIError(response=None, request_string=None, text="MultiPolygon Match Failure", message="Mismatching dates or system versions")
+                else:
+                    metadata = metadata[0]
+            else:
+                features_gdf, metadata, error = None, None, None
+                payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
+                features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
+            # If the query was too big, split it up into a grid, and recombine as though it was one query.
             logging.debug(f"{fail_hard_regrid=}")
             if (
                 fail_hard_regrid or geometry is None
@@ -751,7 +764,6 @@ class FeatureApi:
                         "text": e.text,
                         "request": e.request_string,
                     }
-
         except AIFeatureAPIError as e:
             # Catch acceptable errors
             features_gdf = None
@@ -923,8 +935,6 @@ class FeatureApi:
             metadata = []
             errors = []
             for i, job in enumerate(jobs):
-                print(f"Doing job: {i}")
-                print(gdf.iloc[i,:])
                 aoi_data, aoi_metadata, aoi_error = job.result()
                 if aoi_data is not None:
                     data.append(aoi_data)
