@@ -16,11 +16,12 @@ class TestFeatureAPI:
     def test_get_features_gdf(self, sydney_aoi: Polygon, cache_directory: Path):
         date_1 = "2020-01-01"
         date_2 = "2020-06-01"
+        region = "au"
         packs = ["building"]
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, region, packs, aoi_id, date_1, date_2)
         # No error
         assert error is None
         # Date is in range
@@ -52,12 +53,13 @@ class TestFeatureAPI:
 
     def test_large_aoi(self, cache_directory: Path, large_adelaide_aoi: Polygon):
         survey_resource_id = "fe48a583-da45-5cd3-9fee-8321354bdf7a"  # 2011-03-03
+        country = "au"
         packs = ["building", "vegetation"]
         aoi_id = "0"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(
-            large_adelaide_aoi, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id
+            large_adelaide_aoi, region=country, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id
         )
         # No error
         assert error is None
@@ -88,8 +90,9 @@ class TestFeatureAPI:
                 ))
         """
         )
+        country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country)
         # No data
         assert features_gdf is None
         assert metadata is None
@@ -99,18 +102,19 @@ class TestFeatureAPI:
     def test_get_cache(self, cache_directory: Path, sydney_aoi: Polygon):
         date_1 = "2020-06-01"
         date_2 = "2020-12-01"
+        country = "au"
         packs = ["building"]
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
         assert error is None
 
         # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
@@ -119,18 +123,19 @@ class TestFeatureAPI:
     def test_get_compressed_cache(self, cache_directory: Path, sydney_aoi: Polygon):
         date_1 = "2020-06-01"
         date_2 = "2020-12-01"
+        country = "au"
         packs = ["building"]
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
         assert error is None
 
         # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
@@ -147,10 +152,11 @@ class TestFeatureAPI:
         aoi_gdf = gpd.GeoDataFrame(aois)
         date_1 = "2020-01-01"
         date_2 = "2020-12-01"
+        country = "au"
         packs = ["building"]
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, packs, date_1, date_2)
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs, date_1, date_2)
         # Check metadata
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
@@ -175,10 +181,11 @@ class TestFeatureAPI:
                 )
 
         aoi_gdf = gpd.GeoDataFrame(aois)
+        country = "au"
         packs = ["building"]
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, packs)
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs)
         # Check metadata
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
@@ -194,11 +201,12 @@ class TestFeatureAPI:
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))
         date_1 = "2020-01-01"
         date_2 = "2020-06-01"
+        country = "au"
         packs = ["building"]
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
         # No error
         assert error is None
         # Date is in range

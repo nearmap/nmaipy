@@ -199,6 +199,7 @@ def process_chunk(
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf,
+        region=country,
         since_bulk=since_bulk,
         until_bulk=until_bulk,
         packs=packs,

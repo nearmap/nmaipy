@@ -618,7 +618,7 @@ class TestParcels:
         classes_df = feature_api.get_feature_classes(packs)
 
         features_gdf, metadata_df, error_df = feature_api.get_features_gdf_bulk(
-            parcel_gdf, packs=packs
+            parcel_gdf, region=country, packs=packs
         )
 
         # No error

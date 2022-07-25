@@ -31,8 +31,11 @@ from nearmap_ai.constants import (
     MAX_RETRIES,
     AOI_EXCEEDS_MAX_SIZE,
     ADDRESS_FIELDS,
+    SQUARED_METERS_TO_SQUARED_FEET,
+    AREA_CRS,
+    API_CRS,
+    CONNECTED_CLASS_IDS,
 )
-from nearmap_ai.constants import AREA_CRS, API_CRS, CONNECTED_CLASS_IDS
 
 logger = log.get_logger()
 
@@ -366,6 +369,7 @@ class FeatureApi:
     def get_features(
         self,
         geometry: Union[Polygon, MultiPolygon],
+        region: str,
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -391,10 +395,6 @@ class FeatureApi:
             geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
-        # TODO: The above deals correctly with discrete classes like buildings, but not connected classes like trees. Need to trim continuous classes by intersection with true query AOI, and create multipolygon groups by id.
-        if not exact:
-            logger.debug("Currently deals incorrectly with convex hulled query AOIs and connected classes.")
-            self._handle_response_errors(None, request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
@@ -428,18 +428,18 @@ class FeatureApi:
 
                 for f in data["features"]:
                     g = shape(f["geometry"])
-                    logger.error(f)
-                    logger.error(f["geometry"], isinstance(f, str))
-                    area_clipped_sqm = 0 # TODO: Calculate sqft and sqm
-                    if f["class_id"] in CONNECTED_CLASS_IDS:
-                        g_new = g.intersection(geometry)
-                        logger.error(str(g_new))
-                        f["geometry"] = str(g_new)
-                        # f["area_sqm"] = #TODO: Legacy, straight up area for connected classes is clipped.
-                    # f["area_sqm_clipped"] =
-                    # f["area_sqft_clipped"] =
-                # TODO: Trim connected class geometries, and correct the areas.
-                # TODO: Correct the "clipped area" of discrete classes.
+                    g_clipped = g.intersection(geometry)
+                    clipped_area_sqm = gpd.GeoSeries(g, crs=API_CRS).intersection(geometry).to_crs(
+                        AREA_CRS[region]).area
+                    clipped_area_sqft = round(clipped_area_sqm / SQUARED_METERS_TO_SQUARED_FEET)
+                    clipped_area_sqm = round(clipped_area_sqm)
+                    f["clippedAreaSqm"] = clipped_area_sqm
+                    f["clippedAreaSqft"] = clipped_area_sqft
+
+                    if f["classId"] in CONNECTED_CLASS_IDS:
+                        f["geometry"] = str(g_clipped)
+                        f["areaSqm"] = clipped_area_sqm
+                        f["areaSqft"] = clipped_area_sqft
 
             # Save to cache if configured
             if self.cache_dir is not None:
@@ -661,6 +661,7 @@ class FeatureApi:
     def get_features_gdf(
         self,
         geometry: Union[Polygon, MultiPolygon],
+        region: str,
         packs: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
@@ -696,7 +697,7 @@ class FeatureApi:
 
         features_gdf, metadata, error = None, None, None
         try:
-            payload = self.get_features(geometry, packs, since, until, address_fields, survey_resource_id)
+            payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
             features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
             logging.debug(f"{fail_hard_regrid=}")
@@ -716,7 +717,7 @@ class FeatureApi:
                 logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, packs, aoi_id, since, until, survey_resource_id
+                        geometry, region, packs, aoi_id, since, until, survey_resource_id
                     )
                     if len(errors_df) == 0:
                         error = None
@@ -779,6 +780,7 @@ class FeatureApi:
     def get_features_gdf_gridded(
         self,
         geometry: Union[Polygon, MultiPolygon],
+        region: str,
         packs: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
@@ -815,6 +817,7 @@ class FeatureApi:
             # we need to pass in fail_hard_regrid=True so we dont get stuck in an endless loop
             features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
                 df_gridded,
+                region=region,
                 packs=packs,
                 since_bulk=since,
                 until_bulk=until,
@@ -849,6 +852,7 @@ class FeatureApi:
     def get_features_gdf_bulk(
         self,
         gdf: gpd.GeoDataFrame,
+        region: str,
         packs: Optional[List[str]] = None,
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
@@ -905,6 +909,7 @@ class FeatureApi:
                     executor.submit(
                         self.get_features_gdf,
                         row.geometry if hasgeom else None,
+                        region,
                         packs,
                         row[AOI_ID_COLUMN_NAME],
                         since,
@@ -917,7 +922,9 @@ class FeatureApi:
             data = []
             metadata = []
             errors = []
-            for job in jobs:
+            for i, job in enumerate(jobs):
+                print(f"Doing job: {i}")
+                print(gdf.iloc[i,:])
                 aoi_data, aoi_metadata, aoi_error = job.result()
                 if aoi_data is not None:
                     data.append(aoi_data)
