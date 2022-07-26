@@ -28,7 +28,7 @@ from nearmap_ai.constants import (
 )
 from nearmap_ai.feature_api import FeatureApi
 
-CHUNK_SIZE = 10000
+CHUNK_SIZE = 2000
 PROCESSES = 20
 THREADS = 6
 
