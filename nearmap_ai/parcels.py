@@ -13,6 +13,8 @@ from nearmap_ai.constants import (
     AOI_ID_COLUMN_NAME,
     AREA_CRS,
     BUILDING_ID,
+    VEG_MEDHIGH_ID,
+    VEG_LOW_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
     CONSTRUCTION_ID,
     IMPERIAL_COUNTRIES,
@@ -66,6 +68,13 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 0.5,
     },
 }
+
+TREE_BUFFERS_M = dict(
+    buffer_5ft=1.524,
+    buffer_10ft=3.048,
+    buffer_30ft=9.144,
+    buffer_100ft=30.48,
+)
 
 logger = log.get_logger()
 
@@ -224,6 +233,8 @@ def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
         if "components" in attribute:
             for component in attribute["components"]:
                 name = component["description"].lower().replace(" ", "_")
+                if "Low confidence" in attribute["description"]:
+                    name = f"low_conf_{name}"
                 flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                 if country in IMPERIAL_COUNTRIES:
                     flattened[f"{name}_area_sqft"] = component["areaSqft"]
@@ -246,6 +257,7 @@ def feature_attributes(
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
+    calc_buffers: bool = False,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -257,6 +269,7 @@ def feature_attributes(
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
+        calc_buffers: Whether to calculate and include buffers
 
     Returns: Flat dictionary
 
@@ -343,6 +356,36 @@ def feature_attributes(
                     parcel[f"primary_{name}_unclipped_area_sqm"] = 0.0
                 parcel[f"primary_{name}_confidence"] = 1.0
 
+        if class_id == BUILDING_ID:
+            if len(class_features_gdf) > 0 and calc_buffers:
+                # Create vegetation buffers.
+                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
+                if len(veg_medhigh_features_gdf) > 0:
+                    veg_medhigh_features_gdf = gpd.GeoDataFrame(
+                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
+                    )
+
+                for B in TREE_BUFFERS_M:
+                    gdf_buffered_buildings = gpd.GeoDataFrame(
+                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
+                    )
+
+                    # Wipe over feature geometries with their buffered version...
+                    gdf_buffered_buildings["geometry_feature"] = (
+                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
+                    )
+
+                    if len(veg_medhigh_features_gdf) > 0:
+                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
+                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        bldg_count = (
+                            gdf_intersection.groupby("feature_id_1")
+                            .aggregate({"buff_area_sqm": "sum"})
+                            .query("buff_area_sqm > 0")
+                        )
+                        bldg_count = len(bldg_count)
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
     return parcel
 
 
@@ -351,6 +394,7 @@ def parcel_rollup(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
+    calc_buffers: bool,
     primary_decision: str,
 ):
     """
@@ -361,16 +405,26 @@ def parcel_rollup(
         features_gdf: Features GeoDataFrame
         classes_df: Class name and ID lookup
         country: Country code for units.
+        calc_buffers: Calculate buffered features
         primary_decision: The basis on which the primary features are chosen
 
     Returns:
         Parcel rollup DataFrame
     """
+    if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
+        raise Exception(
+            f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+        )
     if primary_decision == "nearest":
         merge_cols = [AOI_ID_COLUMN_NAME, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME, "geometry"]
     else:
-        merge_cols = [AOI_ID_COLUMN_NAME, "geometry"]
+        if "geometry" in parcels_gdf.columns:
+            merge_cols = [AOI_ID_COLUMN_NAME, "geometry"]
+        else:
+            merge_cols = [AOI_ID_COLUMN_NAME]
+
     df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
+
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
@@ -396,6 +450,7 @@ def parcel_rollup(
             primary_decision=primary_decision,
             primary_lat=primary_lat,
             primary_lon=primary_lon,
+            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
@@ -411,6 +466,7 @@ def parcel_rollup(
             classes_df,
             country=country,
             primary_decision=primary_decision,
+            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
         rollups.append(parcel)

@@ -5,6 +5,7 @@ import random
 from pathlib import Path
 from typing import List, Optional
 import json
+import sys
 
 import geopandas as gpd
 import numpy as np
@@ -13,6 +14,7 @@ import shapely.wkt
 from tqdm import tqdm
 import fiona.errors
 import warnings
+import traceback
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
@@ -26,9 +28,9 @@ from nearmap_ai.constants import (
 )
 from nearmap_ai.feature_api import FeatureApi
 
-CHUNK_SIZE = 1000
+CHUNK_SIZE = 2000
 PROCESSES = 20
-THREADS = 4
+THREADS = 6
 
 logger = log.get_logger()
 
@@ -75,6 +77,11 @@ def parse_arguments():
         type=int,
         required=False,
         default=PROCESSES,
+    )
+    parser.add_argument(
+        "--calc-buffers",
+        help="Calculate buffered features (compute expensive).",
+        action="store_true",
     )
     parser.add_argument(
         "--include-parcel-geometry",
@@ -139,6 +146,7 @@ def process_chunk(
     config: dict,
     country: str,
     packs: Optional[List[str]] = None,
+    calc_buffers: Optional[bool] = False,
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
@@ -158,6 +166,7 @@ def process_chunk(
         key_file: Path to API key file
         config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
+        calc_buffers: Whether to calculate buffered features (compute expensive).
         include_parcel_geometry: Set to true to include parcel geometries in final output
         save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
@@ -190,6 +199,7 @@ def process_chunk(
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
         parcel_gdf,
+        region=country,
         since_bulk=since_bulk,
         until_bulk=until_bulk,
         packs=packs,
@@ -197,7 +207,7 @@ def process_chunk(
     )
     if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
         logger.info(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
         )
     if len(errors_df) > 0:
         if "message" in errors_df:
@@ -213,13 +223,19 @@ def process_chunk(
     features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
     len_filtered_features = len(features_gdf)
     logger.debug(
-        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf.aoi_id.unique())} unique {AOI_ID_COLUMN_NAME}s."
+        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
     )
 
     # Create rollup
     rollup_df = parcels.parcel_rollup(
-        parcel_gdf, features_gdf, classes_df, country=country, primary_decision=primary_decision
+        parcel_gdf,
+        features_gdf,
+        classes_df,
+        country=country,
+        calc_buffers=calc_buffers,
+        primary_decision=primary_decision,
     )
+    logger.debug(f"Finished rollup for chunk {chunk_id}")
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -276,7 +292,7 @@ def main():
     args = parse_arguments()
     # Configure logger
     log.configure_logger(args.log_level)
-    logger.info("Starting parcel rollup")
+    logger.debug("Starting parcel rollup")
     # Path setup
     parcel_paths = []
     for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
@@ -348,7 +364,8 @@ def main():
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
 
         if args.workers > 1:
-            with concurrent.futures.ProcessPoolExecutor(PROCESSES) as executor:
+            processes = int(args.workers)
+            with concurrent.futures.ProcessPoolExecutor(processes) as executor:
                 # Chunk parcels and send chunks to process pool
                 for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
@@ -368,6 +385,7 @@ def main():
                             config,
                             args.country,
                             args.packs,
+                            args.calc_buffers,
                             args.include_parcel_geometry,
                             args.save_features,
                             args.primary_decision,
@@ -377,7 +395,12 @@ def main():
                             args.until,
                         )
                     )
-                [j.result() for j in tqdm(jobs)]
+                for j in jobs:
+                    try:
+                        j.result()
+                    except Exception as e:
+                        logger.error(f"FAILURE TO COMPLETE JOB {chunk_id}, DROPPING DUE TO ERROR {e}")
+                        logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
@@ -396,6 +419,7 @@ def main():
                     config,
                     args.country,
                     args.packs,
+                    args.calc_buffers,
                     args.include_parcel_geometry,
                     args.save_features,
                     args.primary_decision,
@@ -413,13 +437,22 @@ def main():
         logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
-        pd.concat(data).to_csv(outpath, index=True)
+        if len(data) > 0:
+            data = pd.concat(data)
+        else:
+            data = pd.DataFrame(data)
+        if len(data) > 0:
+            data.to_csv(outpath, index=True)
 
         outpath_errors = final_path / f"{f.stem}_errors.csv"
         logger.info(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        pd.concat(errors).to_csv(outpath_errors, index=True)
+        if len(errors) > 0:
+            errors = pd.concat(errors)
+        else:
+            errors = pd.DataFrame(errors)
+        errors.to_csv(outpath_errors, index=True)
 
         if args.save_features:
             logger.info(f"Saving feature data as .gpkg to {outpath_features}")

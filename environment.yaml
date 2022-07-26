@@ -1,0 +1,24 @@
+name: base
+channels:
+  - conda-forge
+  - defaults
+  - main
+dependencies:
+  # Environment specific dependencies
+  - python=3.9
+  - numpy
+  - pandas
+  - shapely
+  - rtree
+  - geopandas
+  - matplotlib
+  - descartes
+  - tqdm
+  - stringcase
+  - pyarrow
+  - isort
+  - black=21.12b0
+  - pytest
+  - ipykernel
+  - requests
+  - click=8.0.4

@@ -19,6 +19,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
+import shapely.geometry
 import stringcase
 
 from nearmap_ai import log
@@ -30,69 +31,111 @@ from nearmap_ai.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     MAX_RETRIES,
     AOI_EXCEEDS_MAX_SIZE,
+    ADDRESS_FIELDS,
+    SQUARED_METERS_TO_SQUARED_FEET,
+    AREA_CRS,
+    API_CRS,
+    CONNECTED_CLASS_IDS,
 )
-from nearmap_ai.constants import AREA_CRS, API_CRS
 
 logger = log.get_logger()
 
 
 class RetryRequest(Retry):
+    """
+    Inherited retry request to limit back-off to 1 second.
+    """
+
     BACKOFF_MAX = 1
 
 
 class AIFeatureAPIError(Exception):
-    def __init__(self, response, request_string):
-        try:
-            self.status_code = response.status_code
-            self.text = response.text
-        except AttributeError:
-            self.status_code = response["status_code"]
-            self.text = response["text"]
+    """
+    Error responses for logging from AI Feature API. Also include non rest API errors (use dummy status code and
+    explicitly set messages).
+    """
+
+    DUMMY_STATUS_CODE = -1
+
+    def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query AOI"):
+        if response is None:
+            self.status_code = self.DUMMY_STATUS_CODE
+            self.text = text
+            self.message = message
+        else:
+            try:
+                self.status_code = response.status_code
+                self.text = response.text
+            except AttributeError:
+                self.status_code = response["status_code"]
+                self.text = response["text"]
+            try:
+                err_body = response.json()
+                self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
+            except json.JSONDecodeError:
+                self.message = "JSONDecodeError"
+            except AttributeError:
+                self.message = ""
         self.request_string = request_string
-        try:
-            err_body = response.json()
-            self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
-        except json.JSONDecodeError:
-            self.message = "JSONDecodeError"
-        except AttributeError:
-            self.message = ""
 
 
 class AIFeatureAPIGridError(Exception):
-    def __init__(self, status_code_error_mode):
+    """
+    Specific error to indicate that at least one of the requests comprising a gridded request has failed.
+    """
+
+    def __init__(self, status_code_error_mode, message=""):
         self.status_code = status_code_error_mode
         self.text = "Gridding and re-requesting failed on one or more grid cell queries."
         self.request_string = ""
-        self.message = ""
+        self.message = message
 
 
 class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
+    """
+    Error indicating the size is, or might, be too large. Either through explicit size too large issues, or a timeout
+    indicating that the server was unable to cope with the complexity of the geometries, which is usually fixed by
+    querying a smaller AOI.
+    """
+
     status_codes = (HTTPStatus.GATEWAY_TIMEOUT,)
     codes = (AOI_EXCEEDS_MAX_SIZE,)
-
     """
-    Use do indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
+    Use to indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
     """
-
     pass
 
 
 class FeatureApi:
+    """
+    Class to connect to the AI Feature API
+    """
+
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
     FEATURES_SURVEY_RESOURCE_URL = "https://api.nearmap.com/ai/features/v4/surveyresources"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
     PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
+    FLOAT_COLS = [
+        "fidelity",
+        "confidence",
+        "areaSqm",
+        "clippedAreaSqm",
+        "unclippedAreaSqm",
+        "areaSqft",
+        "clippedAreaSqft",
+        "unclippedAreaSqft",
+    ]
 
     def __init__(
-        self,
-        api_key: Optional[str] = None,
-        bulk_mode: Optional[bool] = True,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        workers: Optional[int] = 10,
+            self,
+            api_key: Optional[str] = None,
+            bulk_mode: Optional[bool] = True,
+            cache_dir: Optional[Path] = None,
+            overwrite_cache: Optional[bool] = False,
+            compress_cache: Optional[bool] = False,
+            workers: Optional[int] = 10,
     ):
         """
         Initialize FeatureApi class
@@ -145,22 +188,33 @@ class FeatureApi:
             self._sessions.append(session)
         return session
 
-    def get_packs(self) -> Dict[str, List[str]]:
+    def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
-        Get packs with class IDs
+        Return a result from one of the base URLS.
+        Args:
+            base_url: self.PACKS_URL,
+
+        Returns:
+
         """
-        # Create request string
-        request_string = f"{self.PACKS_URL}?apikey={self.api_key}"
+        request_string = f"{base_url}?apikey={self.api_key}"
         # Request data
-        t1 = time.monotonic()
         response = self._session.get(request_string)
-        response_time_ms = (time.monotonic() - t1) * 1e3
-        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         # Check for errors
         if not response.ok:
             # Fail hard for unexpected errors
             raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
         data = response.json()
+        return response, data
+
+    def get_packs(self) -> Dict[str, List[str]]:
+        """
+        Get packs with class IDs
+        """
+        t1 = time.monotonic()
+        response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
+        response_time_ms = (time.monotonic() - t1) * 1e3
+        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
     def get_feature_classes(self, packs: List[str] = None) -> pd.DataFrame:
@@ -170,19 +224,12 @@ class FeatureApi:
         Args:
             packs: If defined, classes will be filtered to the set of packs
         """
-        # Create request string
-        request_string = f"{self.CLASSES_URL}?apikey={self.api_key}"
 
         # Request data
         t1 = time.monotonic()
-        response = self._session.get(request_string)
+        response, data = self._get_feature_api_results_as_data(self.CLASSES_URL)
         response_time_ms = (time.monotonic() - t1) * 1e3
         logger.debug(f"{response_time_ms:.1f}ms response time for classes.json")
-        # Check for errors
-        if not response.ok:
-            # Fail hard for unexpected errors
-            raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
-        data = response.json()
         df_classes = pd.DataFrame(data["classes"]).set_index("id")
 
         # Filter classes to packs
@@ -190,7 +237,9 @@ class FeatureApi:
             pack_classes = self.get_packs()
             if diff := set(packs) - set(pack_classes.keys()):
                 raise ValueError(f"Unknown packs: {diff}")
-            all_classes = set([class_id for p in packs for class_id in pack_classes[p]])
+            all_classes = list(set([class_id for p in packs for class_id in pack_classes[p]]))
+            # Strip out any classes that we don't get a valid description for from the "packs" endpoint.
+            all_classes = [c for c in all_classes if c in df_classes.index]
             df_classes = df_classes.loc[all_classes]
 
         return df_classes
@@ -205,10 +254,37 @@ class FeatureApi:
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
 
+    @staticmethod
+    def _clip_feature_to_polygon(feature_poly: Polygon, geometry: Union[Polygon, MultiPolygon], region: str) -> dict:
+        """
+        Take polygon of a feature, and reclip it to a new background geometry. Return the clipped polygon,
+        and suitably rounded area in sqm and sqft. Args: feature_poly: Polygon of a single feature. geometry: Polygon
+        to be used as a clipping mask (e.g. Query AOI). region: country region.
+
+
+        Returns: A dataframe with same structure and rows, but corrected values.
+
+        """
+        feature_poly_clipped = feature_poly.intersection(geometry)
+        clipped_area_sqm = (
+            gpd.GeoSeries(feature_poly_clipped, crs=API_CRS)
+            .intersection(geometry)
+            .to_crs(AREA_CRS[region])
+            .area.iloc[0]
+        )
+        clipped_area_sqft = int(round(clipped_area_sqm * SQUARED_METERS_TO_SQUARED_FEET))
+        clipped_area_sqm = round(clipped_area_sqm, 1)
+
+        return {
+            "feature_poly_clipped": feature_poly_clipped,
+            "clipped_area_sqm": clipped_area_sqm,
+            "clipped_area_sqft": clipped_area_sqft,
+        }
+
     @classmethod
     def _geometry_to_coordstring(cls, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
         """
-        Turn a shapely polygon or multipolygon into a single coord sting to be used in API requests.
+        Turn a shapely polygon or multipolygon into a single coord string to be used in API requests.
         To meet the constraints on the API URL the following changes may be applied:
          - Multipolygons are simplified to single polygons by taking the convex hull
          - Polygons that have too many coordinates (resulting in strings that are too long) are
@@ -218,26 +294,41 @@ class FeatureApi:
         """
 
         if isinstance(geometry, MultiPolygon):
-            if len(geometry) == 1:
-                coordstring = cls._polygon_to_coordstring(geometry[0])
-                exact = True
+            if len(geometry.geoms) == 1:
+                g = geometry.geoms[0]
+
+                if len(g.interiors) > 0:
+                    logger.debug(f"Geometry has inner rings - approximating query with convex hull.")
+                    coordstring = cls._polygon_to_coordstring(g.convex_hull)
+                    exact = False
+                else:
+                    coordstring = cls._polygon_to_coordstring(g)
+                    exact = True
             else:
-                logger.warning(f"Geometry is a multipolygon - approximating. Length: {len(geometry)}")
+                raise ValueError(
+                    "Must not be called with a multipolygon - separate parts should be iterated externally."
+                )
+        else:
+            # Tests whether the polygon has inner rings/holes.
+            if len(geometry.interiors) > 0:
+                logger.debug(f"Geometry has inner rings - approximating query with convex hull.")
                 coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
                 exact = False
-        else:
-            coordstring = cls._polygon_to_coordstring(geometry)
-            exact = True
-
+            else:
+                coordstring = cls._polygon_to_coordstring(geometry)
+                exact = True
         if len(coordstring) > cls.CHAR_LIMIT:
+            logger.debug(f"Geometry exceeds character limit - approximating query with convex hull.")
             exact = False
             coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
-        if len(coordstring) > cls.CHAR_LIMIT:
-            exact = False
-            coordstring = cls._polygon_to_coordstring(geometry.envelope)
+            if len(coordstring) > cls.CHAR_LIMIT:
+                exact = False
+                coordstring = cls._polygon_to_coordstring(geometry.envelope)
+
         return coordstring, exact
 
-    def _make_latlon_path_for_cache(self, request_string):
+    @staticmethod
+    def _make_latlon_path_for_cache(request_string: str):
         r = request_string.split("?")[-1]
         dic = dict([token.split("=") for token in r.split("&")])
         lon, lat = np.array(dic["polygon"].split(",")).astype("float").round().astype("int").astype("str")[:2]
@@ -264,7 +355,9 @@ class FeatureApi:
         Handle errors returned from the feature API
         """
         clean_request_string = request_string.replace(self.api_key, "...")
-        if not response.ok:
+        if response is None:
+            raise AIFeatureAPIError(response, clean_request_string)
+        elif not response.ok:
             raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
@@ -292,30 +385,39 @@ class FeatureApi:
                 temp_path.unlink()
 
     def _create_request_string(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            packs: Optional[List[str]] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            address_fields: Optional[Dict[str, str]] = None,
+            survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
         """
-        coordstring, exact = self._geometry_to_coordstring(geometry)
+        urlbase = (
+            self.FEATURES_URL
+            if survey_resource_id is None
+            else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        )
         bulk_str = str(self.bulk_mode).lower()
-        request_string = f"{self.FEATURES_URL}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+        if geometry is not None:
+            coordstring, exact = self._geometry_to_coordstring(geometry)
+            request_string = f"{urlbase}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+        else:
+            exact = True  # we treat address-based as exact always
+            address_params = "&".join([f"{s}={address_fields[s]}" for s in address_fields])
+            request_string = f"{urlbase}?{address_params}&bulk={bulk_str}&apikey={self.api_key}"
 
         # Add dates if given
-        if (since is not None) or (until is not None):
+        if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
+            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
+        elif (since is not None) or (until is not None):
             if since:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-        elif (since is None) and (until is None) and (survey_resource_id is not None):
-            request_string = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
-        elif ((since is not None) or (until is not None)) and (survey_resource_id is not None):
-            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
 
         # Add packs if given
         if packs:
@@ -325,22 +427,23 @@ class FeatureApi:
         return request_string, exact
 
     def get_features(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            region: str,
+            packs: Optional[List[str]] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            address_fields: Optional[Dict[str, str]] = None,
+            survey_resource_id: Optional[str] = None,
     ):
         """
-        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
 
-        Args:
-            geometry: AOI in EPSG4326
-            packs: List of AI packs
-            since: Earliest date to pull data for
-            until: Latest date to pull data for
-            survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull. NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
+        Args: geometry: AOI in EPSG4326 region: Country code, used for recalculating areas. packs: List of AI packs
+        since: Earliest date to pull data for until: Latest date to pull data for address_fields: Fields for an
+        address based query (rather than query AOI based query). survey_resource_id: The ID of the survey resource id
+        if an exact survey is requested for the pull. NB: This is NOT the survey ID from coverage - it is the id of
+        the AI resource attached to that survey.
 
         Returns:
             API response as a Dictionary
@@ -348,7 +451,7 @@ class FeatureApi:
 
         # Create request string
         request_string, exact = self._create_request_string(
-            geometry, packs, since, until, survey_resource_id=survey_resource_id
+            geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
 
@@ -377,22 +480,40 @@ class FeatureApi:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
             data = response.json()
 
-            # If the AOI was altered for the API request, we need to filter features in the response
+            # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
             if not exact:
+                # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+
+                for i, feature in enumerate(data["features"]):
+                    feature_poly = shape(feature["geometry"])
+                    clip_dic = self._clip_feature_to_polygon(feature_poly, geometry, region)
+
+                    data["features"][i]["clippedAreaSqm"] = clip_dic["clipped_area_sqm"]
+                    data["features"][i]["clippedAreaSqft"] = clip_dic["clipped_area_sqft"]
+
+                    if feature["classId"] in CONNECTED_CLASS_IDS:
+                        # Replace geometry, with geojson style mapped clipped geometry
+                        data["features"][i]["geometry"] = shapely.geometry.mapping(clip_dic["feature_poly_clipped"])
+                        data["features"][i]["areaSqm"] = clip_dic["clipped_area_sqm"]
+                        data["features"][i]["areaSqft"] = clip_dic["clipped_area_sqft"]
 
             # Save to cache if configured
             if self.cache_dir is not None:
                 self._write_to_cache(self._request_cache_path(request_string), data)
             return data
         else:
-            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text}")
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text} {response.status_code}")
 
             if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
+                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {response.status_code=}")
                 raise AIFeatureAPIRequestSizeError(response, request_string)
             elif response.status_code == HTTPStatus.BAD_REQUEST:
                 error_code = json.loads(response.text)["code"]
                 if error_code in AIFeatureAPIRequestSizeError.codes:
+                    logger.debug(
+                        f"Raising AIFeatureAPIRequestSizeError from secondary status code {response.status_code=}"
+                    )
                     raise AIFeatureAPIRequestSizeError(response, request_string)
                 else:
                     # Check for errors
@@ -412,7 +533,7 @@ class FeatureApi:
     @staticmethod
     def add_location_marker_to_link(link: str) -> str:
         """
-        Check whether the link contains the locationmarker flag, and add it if not present..
+        Check whether the link contains the location marker flag, and add it if not present.
         """
         location_marker_string = "?locationMarker"
         if not location_marker_string not in link:
@@ -421,7 +542,7 @@ class FeatureApi:
             return link
 
     @staticmethod
-    def create_grid(df: gpd.GeoDataFrame, cell_size: int):
+    def create_grid(df: gpd.GeoDataFrame, cell_size: float):
         """
         Create a GeodataFrame of grid squares, matching the extent of an input GeoDataFrame.
         """
@@ -448,7 +569,7 @@ class FeatureApi:
         return df_grid
 
     @staticmethod
-    def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: int):
+    def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: float):
         """
         Take a geometry (implied CRS as API_CRS), and split it into a grid of given height/width cells (in degrees).
 
@@ -458,7 +579,9 @@ class FeatureApi:
         df = gpd.GeoDataFrame(geometry=[geometry], crs=API_CRS)
         df_gridded = FeatureApi.create_grid(df, cell_size)
         df_gridded = gpd.overlay(df, df_gridded, keep_geom_type=True)
-        df_gridded = df_gridded.explode()  # Break apart grid squares that are multipolygons.
+        # explicit index_parts added to get rid of warning, and this was the default behaviour so I am
+        # assuming this is the behaviour that is intended
+        df_gridded = df_gridded.explode(index_parts=True)  # Break apart grid squares that are multipolygons.
         df_gridded = df_gridded.to_crs(API_CRS)
         return df_gridded
 
@@ -469,7 +592,7 @@ class FeatureApi:
         and recombine geometries of connected classes (including reconciling areas correctly) where the feature id
         of the larger object is the same.
 
-        :param features_gdf:
+        param features_gdf: Output from FeatureAPI.payload_gdf
         :return:
         """
 
@@ -498,7 +621,7 @@ class FeatureApi:
             .filter(agg_cols_first + ["geometry", "feature_id"], axis=1)
             .dissolve(
                 by="feature_id", aggfunc="first"
-            )  # Then dissolvee any remaining features that represent a single feature_id that has been split.
+            )  # Then dissolve any remaining features that represent a single feature_id that has been split.
             .reset_index()
             .set_index("feature_id")
         )
@@ -515,9 +638,39 @@ class FeatureApi:
         return features_gdf_out
 
     @classmethod
+    def trim_features_to_aoi(
+            cls, gdf_features: gpd.GeoDataFrame, geometry: Union[Polygon, MultiPolygon], region: str
+    ) -> gpd.GeoDataFrame:
+        """
+        Trim all features in dataframe by performing intersection with the correct query AOI. Fix attributes like
+        clipped areas, and remove features that no longer intersect.
+
+        gdf_features: The dataframe of features, as returned by  FeatureAPI.payload_gdf.
+        geometry: The polygon for the masking Query AOI.
+        region: Country code.
+        :return: Filtered and clipped GeoDataFrame in same format as the input gdf_features.
+        """
+        # Remove all features that don't intersect at all.
+        gdf_features = gdf_features[gdf_features.intersects(geometry)]
+        gdf_features = gdf_features.drop_duplicates(subset=["feature_id"])
+        df_clipped_geometries = gdf_features.geometry.apply(lambda d: cls._clip_feature_to_polygon(d, geometry, region))
+        df_clipped_geometries = pd.DataFrame(df_clipped_geometries.values.tolist())
+
+        for i, f in gdf_features.iterrows():
+            gdf_features.loc[i, "clipped_area_sqm"] = df_clipped_geometries.loc[i, "clipped_area_sqm"]
+            gdf_features.loc[i, "clipped_area_sqft"] = df_clipped_geometries.loc[i, "clipped_area_sqft"]
+
+            if gdf_features.loc[i, "class_id"] in CONNECTED_CLASS_IDS:
+                # Replace geometry, with clipped geometry
+                gdf_features.loc[i, "geometry"] = df_clipped_geometries.loc[i, "feature_poly_clipped"]
+                gdf_features.loc[i, "area_sqm"] = df_clipped_geometries.loc[i, "clipped_area_sqm"]
+                gdf_features.loc[i, "area_sqft"] = df_clipped_geometries.loc[i, "clipped_area_sqft"]
+        return gdf_features
+
+    @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
-        Create a GeoDataFrame from a API response dictionary.
+        Create a GeoDataFrame from an API response dictionary.
 
         Args:
             payload: API response dictionary
@@ -559,8 +712,12 @@ class FeatureApi:
             df = pd.DataFrame([], columns=columns)
         else:
             df = pd.DataFrame(payload["features"])
-            for colname in set(columns).difference(set(df.columns)):
-                df[colname] = None
+            for col_name in set(columns).difference(set(df.columns)):
+                df[col_name] = None
+
+        for col in FeatureApi.FLOAT_COLS:
+            if col in df:
+                df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
         df.columns = [stringcase.snakecase(c) for c in df.columns]
@@ -570,58 +727,110 @@ class FeatureApi:
             df[AOI_ID_COLUMN_NAME] = aoi_id
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
-        gdf = gpd.GeoDataFrame(df.drop("geometry", axis=1), geometry=df.geometry.apply(shape))
-        gdf = gdf.set_crs(cls.SOURCE_CRS)
+        if "geometry" in df.columns:
+            gdf = gpd.GeoDataFrame(df.assign(geometry=df.geometry.apply(shape)))
+            gdf = gdf.set_crs(cls.SOURCE_CRS)
+        else:
+            gdf = df
         return gdf, metadata
 
     def get_features_gdf(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            region: str,
+            packs: Optional[List[str]] = None,
+            aoi_id: Optional[str] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            address_fields: Optional[Dict[str, str]] = None,
+            survey_resource_id: Optional[str] = None,
+            fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
-        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
 
         Args:
             geometry: AOI in EPSG4326
+            region: The country code, used as a key to AREA_CRS.
             packs: List of AI packs
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
+            address_fields: dictionary with values for the address fields, if available, or else None
             survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
-
+            fail_hard_regrid: If set to true, don't try and grid on an AIFeatureAPIRequestSizeError,
+                              This option is here because we can get stuck in an infinite loop of
+                              get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
+                              and we need to be able to stop at 2nd call to get_features_gdf if we get another
+                              AIFeatureAPIRequestSizeError
         Returns:
-            API response features GeoDataFrame, metadata dictionary, and a error dictionary
+            API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
+        if geometry is None and address_fields is None:
+            raise Exception(
+                f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
+            )
+
         try:
-            payload = self.get_features(geometry, packs, since, until, survey_resource_id)
-            features_gdf, metadata = self.payload_gdf(payload, aoi_id)
-            error = None
-        except AIFeatureAPIRequestSizeError as e:
-            # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
-            logger.debug(f"Found an oversized AOI (id {aoi_id}). Trying gridding...")
-            try:
-                if survey_resource_id is None:
-                    logging.debug(
-                        "Currently don't support auto gridding of AOIs unless request is a single survey_resource_id"
+            if isinstance(geometry, MultiPolygon) and len(geometry) > 1:
+                # A proper multi-polygon - run it as separate requests, then recombine.
+                features_gdf, metadata, error = [], [], None
+                for sub_geometry in geometry:
+                    sub_payload = self.get_features(
+                        sub_geometry, region, packs, since, until, address_fields, survey_resource_id
                     )
-                    features_gdf = None
-                    metadata = None
-                    error = {
-                        AOI_ID_COLUMN_NAME: aoi_id,
-                        "status_code": e.status_code,
-                        "message": e.message,
-                        "text": e.text,
-                        "request": e.request_string,
-                    }
+                    sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
+                    features_gdf.append(sub_features_gdf)
+                    metadata.append(sub_metadata)
+                features_gdf = pd.concat(features_gdf)
+
+                # Check for repeat appearances of the same feature in the multipolygon
+                if len(features_gdf.feature_id.unique()) < len(features_gdf):
+                    logger.warning(
+                        "Multipolygon used that shares a discrete feature, causing overlap. Ambiguous results."
+                    )
+                    features_gdf = self.trim_features_to_aoi(features_gdf, geometry, region)
+
+                # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
+                metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
+                metadata_df = metadata_df.drop_duplicates()
+                if len(metadata_df) > 1:
+                    logging.warning("MultiPolygon Error")
+                    raise AIFeatureAPIError(
+                        response=None,
+                        request_string=None,
+                        text="MultiPolygon Match Failure",
+                        message="Mismatching dates or system versions",
+                    )
                 else:
+                    metadata = metadata[0]
+            else:
+                features_gdf, metadata, error = None, None, None
+                payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
+                features_gdf, metadata = self.payload_gdf(payload, aoi_id)
+        except AIFeatureAPIRequestSizeError as e:
+            features_gdf, metadata, error = [], [], None
+
+            # If the query was too big, split it up into a grid, and recombine as though it was one query.
+            logging.debug(f"{fail_hard_regrid=}")
+            if (
+                    fail_hard_regrid or geometry is None
+            ):  # Do not get stuck in an infinite loop of re-gridding and timing out
+                logger.debug("Failing hard and NOT re-gridding....")
+                error = {
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "status_code": e.status_code,
+                    "message": e.message,
+                    "text": e.text,
+                    "request": e.request_string,
+                }
+            else:
+                # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
+                logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
+                try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, packs, aoi_id, since, until, survey_resource_id
+                        geometry, region, packs, aoi_id, since, until, survey_resource_id
                     )
                     if len(errors_df) == 0:
                         error = None
@@ -641,21 +850,20 @@ class FeatureApi:
                         "date": metadata_df["date"],
                     }
                     logger.debug(
-                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
+                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error} "
                     )
 
-            except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
-                # Catch acceptable errors
-                features_gdf = None
-                metadata = None
-                error = {
-                    AOI_ID_COLUMN_NAME: aoi_id,
-                    "status_code": e.status_code,
-                    "message": e.message,
-                    "text": e.text,
-                    "request": e.request_string,
-                }
-
+                except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
+                    # Catch acceptable errors
+                    features_gdf = None
+                    metadata = None
+                    error = {
+                        AOI_ID_COLUMN_NAME: aoi_id,
+                        "status_code": e.status_code,
+                        "message": e.message,
+                        "text": e.text,
+                        "request": e.request_string,
+                    }
         except AIFeatureAPIError as e:
             # Catch acceptable errors
             features_gdf = None
@@ -669,7 +877,7 @@ class FeatureApi:
             }
 
         except requests.exceptions.RetryError as e:
-            logger.error(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
+            logger.debug(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
             features_gdf = None
             metadata = None
             error = {
@@ -682,21 +890,23 @@ class FeatureApi:
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
-        grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            region: str,
+            packs: Optional[List[str]] = None,
+            aoi_id: Optional[str] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            survey_resource_id: Optional[str] = None,
+            grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        Get feature data for a AOI. If a cache is configured, the cache will be checked before using the API.
+        Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
 
         Args:
             geometry: AOI in EPSG4326
+            region: Country code
             packs: List of AI packs
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
@@ -705,11 +915,9 @@ class FeatureApi:
             grid_size: The AOI is gridded in the native projection (constants.API_CRS) to save compute.
 
         Returns:
-            API response features GeoDataFrame, metadata dictionary, and a error dictionary
+            API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
-        if survey_resource_id is None:
-            raise ValueError("Can't do a grid query unless survey_resource_id has been specified.")
-        logging.debug(f"Gridding AOI into {grid_size} squares.")
+        logger.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
         # TODO: At this point, we should hit coverage to check that each of the grid squares falls within the AOI. That way we can fail fast before retrieving any payloads. Currently pulls every possible payload before failing.
 
@@ -718,17 +926,31 @@ class FeatureApi:
         df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
 
         try:
+            # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
+            # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
             features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
                 df_gridded,
+                region=region,
                 packs=packs,
                 since_bulk=since,
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
                 instant_fail_batch=True,
+                fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
-            logging.debug(f"Failed whole grid for aoi_id {aoi_id} on single error")
+            logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error")
+            logger.debug(f"Exception is {e}")
             raise AIFeatureAPIGridError(e.status_code)
+        if len(features_gdf["survey_date"].unique()) > 1:
+            logger.warning(
+                f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+            )
+            raise AIFeatureAPIGridError(-1, message="Multiple dates on non survey resource ID query.")
+        elif survey_resource_id is None:
+            logger.warning(
+                f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
+            )
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
@@ -741,31 +963,42 @@ class FeatureApi:
             return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
-        self,
-        gdf: gpd.GeoDataFrame,
-        packs: Optional[List[str]] = None,
-        since_bulk: Optional[str] = None,
-        until_bulk: Optional[str] = None,
-        survey_resource_id_bulk: Optional[str] = None,
-        instant_fail_batch: Optional[bool] = False,
+            self,
+            gdf: gpd.GeoDataFrame,
+            region: str,
+            packs: Optional[List[str]] = None,
+            since_bulk: Optional[str] = None,
+            until_bulk: Optional[str] = None,
+            survey_resource_id_bulk: Optional[str] = None,
+            instant_fail_batch: Optional[bool] = False,
+            fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
 
         Args:
             gdf: GeoDataFrame with AOIs
+            region: Country code
             packs: List of AI packs
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and return
-            all good data available.
+            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
+            return all good data available.
+            fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
+                              getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
+                                                                   get_features_gdf_bulk -> get_features_gdf
 
         Returns:
-            API responses as feature GeoDataFrames, metadata DataFrame, and a error DataFrame
+            API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
         if AOI_ID_COLUMN_NAME not in gdf.columns:
-            raise KeyError(f"No 'aoi_id' column in dataframe, {gdf.columns=}")
+            raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+
+        # are address fields present?
+        has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
+        # is a geometry field present?
+        has_geom = "geometry" in gdf.columns
 
         # Run in thread pool
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
@@ -789,18 +1022,21 @@ class FeatureApi:
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,
-                        row.geometry,
+                        row.geometry if has_geom else None,
+                        region,
                         packs,
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
+                        {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
                         survey_resource_id,
+                        fail_hard_regrid,
                     )
                 )
             data = []
             metadata = []
             errors = []
-            for job in jobs:
+            for i, job in enumerate(jobs):
                 aoi_data, aoi_metadata, aoi_error = job.result()
                 if aoi_data is not None:
                     data.append(aoi_data)

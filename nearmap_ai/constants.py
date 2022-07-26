@@ -28,6 +28,10 @@ AOI_EXCEEDS_MAX_SIZE = "AOI_EXCEEDS_MAX_SIZE"
 METERS_TO_FEET = 3.28084
 SQUARED_METERS_TO_SQUARED_FEET = METERS_TO_FEET * METERS_TO_FEET
 
+# The address fields expected by the address endpoint. state should be statecode (2 digit) but these
+# are the API fields
+ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
+
 # Class IDs
 BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
@@ -73,6 +77,9 @@ ROOF_PONDING = "f41e02b0-adc0-5b46-ac95-8c59aa9fe317"
 ROOF_RUSTING = "526496bf-7344-5024-82d7-77ceb671feb4"
 TILE_SHINGLE_DISCOLOURATION = "cfa8951a-4c29-54de-ae98-e5f804c305e3"
 
+LEAF_OFF_VEG_ID = "cd47dfd1-2c24-543c-89fd-7677b2cc100b"
+DRIVEABLE_ID = "372fb6c1-a3ab-5019-ba0f-489ed12079de"
+
 ROOF_CHAR_IDS = [
     METAL_ROOF_ID,
     TILE_ROOF_ID,
@@ -85,3 +92,12 @@ ROOF_CHAR_IDS = [
     TREE_OVERHANG_ID,
 ]
 CLASSES_WITH_NO_PRIMARY_FEATURE = VEG_IDS + SURFACES_IDS + [TREE_OVERHANG_ID]
+
+CONNECTED_CLASS_IDS = (
+    SURFACES_IDS
+    + VEG_IDS
+    + [
+        DRIVEABLE_ID,
+        LEAF_OFF_VEG_ID,
+    ]
+)
