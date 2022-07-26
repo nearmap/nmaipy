@@ -51,7 +51,8 @@ class RetryRequest(Retry):
 
 class AIFeatureAPIError(Exception):
     """
-    Error responses for logging from AI Feature API. Also include non rest API errors (use dummy status code and explicitly set messages).
+    Error responses for logging from AI Feature API. Also include non rest API errors (use dummy status code and
+    explicitly set messages).
     """
 
     DUMMY_STATUS_CODE = -1
@@ -92,7 +93,9 @@ class AIFeatureAPIGridError(Exception):
 
 class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
     """
-    Error indicating the size is, or might, be too large. Either through explicit size too large issues, or a timeout indicating that the server was unable to cope with the complexity of the geometries, which is usually fixed by querying a smaller AOI.
+    Error indicating the size is, or might, be too large. Either through explicit size too large issues, or a timeout
+    indicating that the server was unable to cope with the complexity of the geometries, which is usually fixed by
+    querying a smaller AOI.
     """
 
     status_codes = (HTTPStatus.GATEWAY_TIMEOUT,)
@@ -126,13 +129,13 @@ class FeatureApi:
     ]
 
     def __init__(
-        self,
-        api_key: Optional[str] = None,
-        bulk_mode: Optional[bool] = True,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        workers: Optional[int] = 10,
+            self,
+            api_key: Optional[str] = None,
+            bulk_mode: Optional[bool] = True,
+            cache_dir: Optional[Path] = None,
+            overwrite_cache: Optional[bool] = False,
+            compress_cache: Optional[bool] = False,
+            workers: Optional[int] = 10,
     ):
         """
         Initialize FeatureApi class
@@ -185,22 +188,33 @@ class FeatureApi:
             self._sessions.append(session)
         return session
 
-    def get_packs(self) -> Dict[str, List[str]]:
+    def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
-        Get packs with class IDs
+        Return a result from one of the base URLS.
+        Args:
+            base_url: self.PACKS_URL,
+
+        Returns:
+
         """
-        # Create request string
-        request_string = f"{self.PACKS_URL}?apikey={self.api_key}"
+        request_string = f"{base_url}?apikey={self.api_key}"
         # Request data
-        t1 = time.monotonic()
         response = self._session.get(request_string)
-        response_time_ms = (time.monotonic() - t1) * 1e3
-        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         # Check for errors
         if not response.ok:
             # Fail hard for unexpected errors
             raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
         data = response.json()
+        return response, data
+
+    def get_packs(self) -> Dict[str, List[str]]:
+        """
+        Get packs with class IDs
+        """
+        t1 = time.monotonic()
+        response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
+        response_time_ms = (time.monotonic() - t1) * 1e3
+        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
     def get_feature_classes(self, packs: List[str] = None) -> pd.DataFrame:
@@ -210,19 +224,12 @@ class FeatureApi:
         Args:
             packs: If defined, classes will be filtered to the set of packs
         """
-        # Create request string
-        request_string = f"{self.CLASSES_URL}?apikey={self.api_key}"
 
         # Request data
         t1 = time.monotonic()
-        response = self._session.get(request_string)
+        response, data = self._get_feature_api_results_as_data(self.CLASSES_URL)
         response_time_ms = (time.monotonic() - t1) * 1e3
         logger.debug(f"{response_time_ms:.1f}ms response time for classes.json")
-        # Check for errors
-        if not response.ok:
-            # Fail hard for unexpected errors
-            raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
-        data = response.json()
         df_classes = pd.DataFrame(data["classes"]).set_index("id")
 
         # Filter classes to packs
@@ -250,11 +257,9 @@ class FeatureApi:
     @staticmethod
     def _clip_feature_to_polygon(feature_poly: Polygon, geometry: Union[Polygon, MultiPolygon], region: str) -> dict:
         """
-        Take polygon of a feature, and reclip it to a new background geometry. Return the clipped polygon, and suitably rounded area in sqm and sqft.
-        Args:
-            feature_poly: Polygon of a single feature.
-            geometry: Polygon to be used as a clipping mask (e.g. Query AOI).
-            region: country region.
+        Take polygon of a feature, and reclip it to a new background geometry. Return the clipped polygon,
+        and suitably rounded area in sqm and sqft. Args: feature_poly: Polygon of a single feature. geometry: Polygon
+        to be used as a clipping mask (e.g. Query AOI). region: country region.
 
 
         Returns: A dataframe with same structure and rows, but corrected values.
@@ -380,13 +385,13 @@ class FeatureApi:
                 temp_path.unlink()
 
     def _create_request_string(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            packs: Optional[List[str]] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            address_fields: Optional[Dict[str, str]] = None,
+            survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
@@ -422,25 +427,23 @@ class FeatureApi:
         return request_string, exact
 
     def get_features(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        region: str,
-        packs: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            region: str,
+            packs: Optional[List[str]] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            address_fields: Optional[Dict[str, str]] = None,
+            survey_resource_id: Optional[str] = None,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
 
-        Args:
-            geometry: AOI in EPSG4326
-            region: Country code, used for recalculating areas.
-            packs: List of AI packs
-            since: Earliest date to pull data for
-            until: Latest date to pull data for
-            survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull. NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
+        Args: geometry: AOI in EPSG4326 region: Country code, used for recalculating areas. packs: List of AI packs
+        since: Earliest date to pull data for until: Latest date to pull data for address_fields: Fields for an
+        address based query (rather than query AOI based query). survey_resource_id: The ID of the survey resource id
+        if an exact survey is requested for the pull. NB: This is NOT the survey ID from coverage - it is the id of
+        the AI resource attached to that survey.
 
         Returns:
             API response as a Dictionary
@@ -636,15 +639,15 @@ class FeatureApi:
 
     @classmethod
     def trim_features_to_aoi(
-        cls, gdf_features: gpd.GeoDataFrame, geometry: Union[Polygon, MultiPolygon], region: str
+            cls, gdf_features: gpd.GeoDataFrame, geometry: Union[Polygon, MultiPolygon], region: str
     ) -> gpd.GeoDataFrame:
         """
         Trim all features in dataframe by performing intersection with the correct query AOI. Fix attributes like
         clipped areas, and remove features that no longer intersect.
 
-        :param gdf_features: The dataframe of features, as returned by  FeatureAPI.payload_gdf.
-        :param geometry: The polygon for the masking Query AOI.
-        :param region: Country code.
+        gdf_features: The dataframe of features, as returned by  FeatureAPI.payload_gdf.
+        geometry: The polygon for the masking Query AOI.
+        region: Country code.
         :return: Filtered and clipped GeoDataFrame in same format as the input gdf_features.
         """
         # Remove all features that don't intersect at all.
@@ -732,16 +735,16 @@ class FeatureApi:
         return gdf, metadata
 
     def get_features_gdf(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        region: str,
-        packs: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
-        fail_hard_regrid: Optional[bool] = False,
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            region: str,
+            packs: Optional[List[str]] = None,
+            aoi_id: Optional[str] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            address_fields: Optional[Dict[str, str]] = None,
+            survey_resource_id: Optional[str] = None,
+            fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -789,7 +792,7 @@ class FeatureApi:
                     )
                     features_gdf = self.trim_features_to_aoi(features_gdf, geometry, region)
 
-                # Deduplicate metadata - and pick the metadata from the first part of the multipolygon rather than attempting to merge
+                # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
                 metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
                 metadata_df = metadata_df.drop_duplicates()
                 if len(metadata_df) > 1:
@@ -812,7 +815,7 @@ class FeatureApi:
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             logging.debug(f"{fail_hard_regrid=}")
             if (
-                fail_hard_regrid or geometry is None
+                    fail_hard_regrid or geometry is None
             ):  # Do not get stuck in an infinite loop of re-gridding and timing out
                 logger.debug("Failing hard and NOT re-gridding....")
                 error = {
@@ -847,7 +850,7 @@ class FeatureApi:
                         "date": metadata_df["date"],
                     }
                     logger.debug(
-                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error}"
+                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error} "
                     )
 
                 except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
@@ -887,15 +890,15 @@ class FeatureApi:
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        region: str,
-        packs: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
-        grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
+            self,
+            geometry: Union[Polygon, MultiPolygon],
+            region: str,
+            packs: Optional[List[str]] = None,
+            aoi_id: Optional[str] = None,
+            since: Optional[str] = None,
+            until: Optional[str] = None,
+            survey_resource_id: Optional[str] = None,
+            grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -924,7 +927,7 @@ class FeatureApi:
 
         try:
             # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
-            # we need to pass in fail_hard_regrid=True so we dont get stuck in an endless loop
+            # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
             features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
                 df_gridded,
                 region=region,
@@ -960,15 +963,15 @@ class FeatureApi:
             return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
-        self,
-        gdf: gpd.GeoDataFrame,
-        region: str,
-        packs: Optional[List[str]] = None,
-        since_bulk: Optional[str] = None,
-        until_bulk: Optional[str] = None,
-        survey_resource_id_bulk: Optional[str] = None,
-        instant_fail_batch: Optional[bool] = False,
-        fail_hard_regrid: Optional[bool] = False,
+            self,
+            gdf: gpd.GeoDataFrame,
+            region: str,
+            packs: Optional[List[str]] = None,
+            since_bulk: Optional[str] = None,
+            until_bulk: Optional[str] = None,
+            survey_resource_id_bulk: Optional[str] = None,
+            instant_fail_batch: Optional[bool] = False,
+            fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
