@@ -227,6 +227,30 @@ class FeatureApi:
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
 
+    @staticmethod
+    def _clip_feature_to_polygon(feature_poly: Polygon, geometry: Union[Polygon, MultiPolygon], region: str) -> dict:
+        """
+        Take polygon of a feature, and reclip it to a new background geometry. Return the clipped polygon, and suitably rounded area in sqm and sqft.
+        Args:
+            features_df:
+            geometry:
+
+
+        Returns: A dataframe with same structure and rows, but corrected values.
+
+        """
+        feature_poly_clipped = feature_poly.intersection(geometry)
+        clipped_area_sqm = gpd.GeoSeries(feature_poly_clipped, crs=API_CRS).intersection(geometry).to_crs(AREA_CRS[region]).area.iloc[0]
+        clipped_area_sqft = int(round(clipped_area_sqm * SQUARED_METERS_TO_SQUARED_FEET))
+        clipped_area_sqm = round(clipped_area_sqm, 1)
+
+        return {
+            "feature_poly_clipped": feature_poly_clipped,
+            "clipped_area_sqm": clipped_area_sqm,
+            "clipped_area_sqft": clipped_area_sqft,
+        }
+
+
     @classmethod
     def _geometry_to_coordstring(cls, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
         """
@@ -431,20 +455,18 @@ class FeatureApi:
                 # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
 
-                for f in data["features"]:
-                    g = shape(f["geometry"])
-                    g_clipped = shapely.geometry.mapping(g.intersection(geometry)) # Back to geojson, like it was before...
-                    clipped_area_sqm = gpd.GeoSeries(g, crs=API_CRS).intersection(geometry).to_crs(
-                        AREA_CRS[region]).area.iloc[0]
-                    clipped_area_sqft = int(round(clipped_area_sqm / SQUARED_METERS_TO_SQUARED_FEET))
-                    clipped_area_sqm = round(clipped_area_sqm, 1)
-                    f["clippedAreaSqm"] = clipped_area_sqm
-                    f["clippedAreaSqft"] = clipped_area_sqft
+                for i, feature in enumerate(data["features"]):
+                    feature_poly = shape(f["geometry"])
+                    clip_dic = self._clip_feature_to_polygon(feature_poly, geometry, region)
 
-                    if f["classId"] in CONNECTED_CLASS_IDS:
-                        f["geometry"] = g_clipped
-                        f["areaSqm"] = clipped_area_sqm
-                        f["areaSqft"] = clipped_area_sqft
+                    data["features"][i]["clippedAreaSqm"] = clip_dic["clipped_area_sqm"]
+                    data["features"][i]["clippedAreaSqft"] = clip_dic["clipped_area_sqft"]
+
+                    if feature["classId"] in CONNECTED_CLASS_IDS:
+                        # Replace geometry, with geojson style mapped clipped geometry
+                        data["features"][i]["geometry"] = shapely.geometry.mapping(clip_dic["feature_poly_clipped"])
+                        data["features"][i]["areaSqm"] = clip_dic["clipped_area_sqm"]
+                        data["features"][i]["areaSqft"] = clip_dic["clipped_area_sqft"]
 
             # Save to cache if configured
             if self.cache_dir is not None:
@@ -585,16 +607,34 @@ class FeatureApi:
 
         return features_gdf_out
 
-    @staticmethod
-    def trim_features_to_aoi(df_features: pd.DataFrame, query_aoi_polygon: Polygon) -> pd.DataFrame:
+
+    @classmethod
+    def trim_features_to_aoi(cls, gdf_features: gpd.GeoDataFrame, geometry: Union[Polygon, MultiPolygon], region) -> gpd.GeoDataFrame:
         """
-        Trim all features (regardless of class) by performing intersection with the correct query AOI.
-        :param df_features: The dataframe of features, as returned by
+        Trim all features in dataframe by performing intersection with the correct query AOI. Fix attributes like
+        clipped areas, and remove features that no longer intersect.
+
+        :param gdf_features: The dataframe of features, as returned by
         :param query_aoi_polygon:
         :return:
         """
-        # TODO: Implement! Note it would also need to recalculate clipped areas.
-        raise NotImplementedError
+        # Remove all features that don't intersect at all.
+        gdf_features = gdf_features[gdf_features.intersects(geometry)]
+        gdf_features = gdf_features.drop_duplicates(subset=["feature_id"])
+        df_clipped_geometries = gdf_features.geometry.apply(lambda d: cls._clip_feature_to_polygon(d, geometry, region))
+        df_clipped_geometries = pd.DataFrame(df_clipped_geometries.values.tolist())
+
+        for i, f in gdf_features.iterrows():
+            gdf_features.loc[i, "clipped_area_sqm"] = df_clipped_geometries.loc[i, "clipped_area_sqm"]
+            gdf_features.loc[i, "clipped_area_sqft"] = df_clipped_geometries.loc[i, "clipped_area_sqft"]
+
+            if gdf_features.loc[i, "class_id"] in CONNECTED_CLASS_IDS:
+                # Replace geometry, with clipped geometry
+                gdf_features.loc[i, "geometry"] = df_clipped_geometries.loc[i, "feature_poly_clipped"]
+                gdf_features.loc[i, "area_sqm"] = df_clipped_geometries.loc[i, "clipped_area_sqm"]
+                gdf_features.loc[i, "area_sqft"] = df_clipped_geometries.loc[i, "clipped_area_sqft"]
+        return gdf_features
+
 
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
@@ -712,6 +752,13 @@ class FeatureApi:
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
                 features_gdf = pd.concat(features_gdf)
+
+                # Check for repeat appearances of the same feature in the multipolygon
+                if len(features_gdf.feature_id.unique()) < len(features_gdf):
+                    logger.warning("Multipolygon used that shares a discrete feature, causing overlap. Ambiguous results.")
+                    features_gdf = self.trim_features_to_aoi(features_gdf, geometry, region)
+
+                # Deduplicate metadata - and pick the metadata froom the first part of the multipolygon rather than attempting to merge
                 metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
                 metadata_df = metadata_df.drop_duplicates()
                 if len(metadata_df) > 1:

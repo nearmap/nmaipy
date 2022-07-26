@@ -246,6 +246,40 @@ class TestFeatureAPI:
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 11
 
+    def test_multipolygon_3(self, cache_directory: Path):
+        """
+        Multipolygon with two nearby parts, and an overlapping discrete class (building)
+        """
+        aoi = loads(
+            "MultiPolygon (((-88.40618111505668253 43.06538384370446693, -88.40618111505668253 43.06557268197261834, -88.40601285961312783 43.06557268197261834, -88.40601285961312783 43.06538384370446693, -88.40618111505668253 43.06538384370446693)),((-88.40590800477149003 43.06555664855734022, -88.40590394063035262 43.06538028071267377, -88.40578689336528839 43.06537434239258033, -88.40577307528538142 43.06555189791498606, -88.40577307528538142 43.06555189791498606, -88.40590800477149003 43.06555664855734022)))")
+        print(f"Multipolygon 2 (use QuickWKT in QGIS to visualise): {aoi}")
+        date_1 = "2020-01-01"
+        date_2 = "2022-07-01"
+        country = "us"
+        packs = ["building"]
+        aoi_id = "3"
+        # Run
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        print(metadata)
+
+        # No error
+        assert error is None
+        # Date is in range
+        assert date_1 <= metadata["date"] <= date_2
+        # We get 3 buildings
+        assert len(features_gdf) == 1
+        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 1
+        # The AOI ID has been assigned
+        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 1
+        # All buildings intersect the AOI
+        assert len(features_gdf[features_gdf.intersects(aoi)]) == 1
+
+        assert features_gdf["unclipped_area_sqm"].sum() == pytest.approx(154, rel=0.02)
+        assert features_gdf["area_sqm"].sum() == pytest.approx(154, rel=0.02)
+        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(70, rel=0.02)
+
+
     def test_polygon_with_hole_1(self, cache_directory: Path):
         # This one should have a building in the middle which gets pulled then discarded, and clear space around it.
         aoi = loads("Polygon((-87.98409445082069169 42.9844739669082827, -87.98409445082069169 42.98497943053578041, -87.98334642812285722 42.98497943053578041, -87.98334642812285722 42.9844739669082827, -87.98409445082069169 42.9844739669082827), (-87.98398389681051412 42.98492725383756152, -87.9834560905684242 42.98492725383756152, -87.98343201832427951 42.98454440595978809, -87.98402490878204674 42.98453201391029666, -87.98398389681051412 42.98492725383756152))")
@@ -290,7 +324,7 @@ class TestFeatureAPI:
         assert len(features_gdf) == 1
         assert len(features_gdf[features_gdf.class_id == ASPHALT_ID]) == 1
         assert features_gdf["clipped_area_sqm"].sum() == features_gdf["area_sqm"].sum()
-        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(259.2, 1)
+        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(259.2, rel=0.02)
 
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
