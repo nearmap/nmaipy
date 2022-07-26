@@ -15,6 +15,7 @@ descartes
 tqdm
 stringcase
 pyarrow
+requests
 
 # Style
 isort

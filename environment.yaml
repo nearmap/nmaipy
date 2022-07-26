@@ -17,6 +17,8 @@ dependencies:
   - stringcase
   - pyarrow
   - isort
-  - black
+  - black=21.12b0
   - pytest
   - ipykernel
+  - requests
+  - click=8.0.4
