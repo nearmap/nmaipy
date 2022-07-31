@@ -129,13 +129,13 @@ class FeatureApi:
     ]
 
     def __init__(
-            self,
-            api_key: Optional[str] = None,
-            bulk_mode: Optional[bool] = True,
-            cache_dir: Optional[Path] = None,
-            overwrite_cache: Optional[bool] = False,
-            compress_cache: Optional[bool] = False,
-            workers: Optional[int] = 10,
+        self,
+        api_key: Optional[str] = None,
+        bulk_mode: Optional[bool] = True,
+        cache_dir: Optional[Path] = None,
+        overwrite_cache: Optional[bool] = False,
+        compress_cache: Optional[bool] = False,
+        workers: Optional[int] = 10,
     ):
         """
         Initialize FeatureApi class
@@ -255,7 +255,9 @@ class FeatureApi:
         return coordstring
 
     @staticmethod
-    def _clip_feature_to_polygon(feature_poly: Polygon, geometry: Union[Polygon, MultiPolygon], region: str) -> dict:
+    def _clip_features_to_polygon(
+        feature_poly_series: gpd.GeoSeries, geometry: Union[Polygon, MultiPolygon], region: str
+    ) -> gpd.GeoDataFrame:
         """
         Take polygon of a feature, and reclip it to a new background geometry. Return the clipped polygon,
         and suitably rounded area in sqm and sqft. Args: feature_poly: Polygon of a single feature. geometry: Polygon
@@ -265,21 +267,13 @@ class FeatureApi:
         Returns: A dataframe with same structure and rows, but corrected values.
 
         """
-        feature_poly_clipped = feature_poly.intersection(geometry)
-        clipped_area_sqm = (
-            gpd.GeoSeries(feature_poly_clipped, crs=API_CRS)
-            .intersection(geometry)
-            .to_crs(AREA_CRS[region])
-            .area.iloc[0]
-        )
-        clipped_area_sqft = int(round(clipped_area_sqm * SQUARED_METERS_TO_SQUARED_FEET))
-        clipped_area_sqm = round(clipped_area_sqm, 1)
+        assert isinstance(feature_poly_series, gpd.GeoSeries)
+        gdf_clip = gpd.GeoDataFrame(geometry=feature_poly_series.intersection(geometry), crs=feature_poly_series.crs)
 
-        return {
-            "feature_poly_clipped": feature_poly_clipped,
-            "clipped_area_sqm": clipped_area_sqm,
-            "clipped_area_sqft": clipped_area_sqft,
-        }
+        clipped_area_sqm = gdf_clip.to_crs(AREA_CRS[region]).area
+        gdf_clip["clipped_area_sqft"] = (clipped_area_sqm * SQUARED_METERS_TO_SQUARED_FEET).round()
+        gdf_clip["clipped_area_sqm"] = clipped_area_sqm.round(1)
+        return gdf_clip
 
     @classmethod
     def _geometry_to_coordstring(cls, geometry: Union[Polygon, MultiPolygon]) -> Tuple[str, bool]:
@@ -385,13 +379,13 @@ class FeatureApi:
                 temp_path.unlink()
 
     def _create_request_string(
-            self,
-            geometry: Union[Polygon, MultiPolygon],
-            packs: Optional[List[str]] = None,
-            since: Optional[str] = None,
-            until: Optional[str] = None,
-            address_fields: Optional[Dict[str, str]] = None,
-            survey_resource_id: Optional[str] = None,
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
@@ -427,14 +421,14 @@ class FeatureApi:
         return request_string, exact
 
     def get_features(
-            self,
-            geometry: Union[Polygon, MultiPolygon],
-            region: str,
-            packs: Optional[List[str]] = None,
-            since: Optional[str] = None,
-            until: Optional[str] = None,
-            address_fields: Optional[Dict[str, str]] = None,
-            survey_resource_id: Optional[str] = None,
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -484,19 +478,21 @@ class FeatureApi:
             if not exact:
                 # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
                 data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+                if len(data["features"]) > 0:
+                    gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
 
-                for i, feature in enumerate(data["features"]):
-                    feature_poly = shape(feature["geometry"])
-                    clip_dic = self._clip_feature_to_polygon(feature_poly, geometry, region)
+                    gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
-                    data["features"][i]["clippedAreaSqm"] = clip_dic["clipped_area_sqm"]
-                    data["features"][i]["clippedAreaSqft"] = clip_dic["clipped_area_sqft"]
+                    for i, feature in enumerate(data["features"]):
 
-                    if feature["classId"] in CONNECTED_CLASS_IDS:
-                        # Replace geometry, with geojson style mapped clipped geometry
-                        data["features"][i]["geometry"] = shapely.geometry.mapping(clip_dic["feature_poly_clipped"])
-                        data["features"][i]["areaSqm"] = clip_dic["clipped_area_sqm"]
-                        data["features"][i]["areaSqft"] = clip_dic["clipped_area_sqft"]
+                        data["features"][i]["clippedAreaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                        data["features"][i]["clippedAreaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
+
+                        if feature["classId"] in CONNECTED_CLASS_IDS:
+                            # Replace geometry, with geojson style mapped clipped geometry
+                            data["features"][i]["geometry"] = shapely.geometry.mapping(gdf_clip.loc[i, "geometry"])
+                            data["features"][i]["areaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                            data["features"][i]["areaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
 
             # Save to cache if configured
             if self.cache_dir is not None:
@@ -639,7 +635,7 @@ class FeatureApi:
 
     @classmethod
     def trim_features_to_aoi(
-            cls, gdf_features: gpd.GeoDataFrame, geometry: Union[Polygon, MultiPolygon], region: str
+        cls, gdf_features: gpd.GeoDataFrame, geometry: Union[Polygon, MultiPolygon], region: str
     ) -> gpd.GeoDataFrame:
         """
         Trim all features in dataframe by performing intersection with the correct query AOI. Fix attributes like
@@ -653,18 +649,17 @@ class FeatureApi:
         # Remove all features that don't intersect at all.
         gdf_features = gdf_features[gdf_features.intersects(geometry)]
         gdf_features = gdf_features.drop_duplicates(subset=["feature_id"])
-        df_clipped_geometries = gdf_features.geometry.apply(lambda d: cls._clip_feature_to_polygon(d, geometry, region))
-        df_clipped_geometries = pd.DataFrame(df_clipped_geometries.values.tolist())
+        gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
 
         for i, f in gdf_features.iterrows():
-            gdf_features.loc[i, "clipped_area_sqm"] = df_clipped_geometries.loc[i, "clipped_area_sqm"]
-            gdf_features.loc[i, "clipped_area_sqft"] = df_clipped_geometries.loc[i, "clipped_area_sqft"]
+            gdf_features.loc[i, "clipped_area_sqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+            gdf_features.loc[i, "clipped_area_sqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
 
             if gdf_features.loc[i, "class_id"] in CONNECTED_CLASS_IDS:
                 # Replace geometry, with clipped geometry
-                gdf_features.loc[i, "geometry"] = df_clipped_geometries.loc[i, "feature_poly_clipped"]
-                gdf_features.loc[i, "area_sqm"] = df_clipped_geometries.loc[i, "clipped_area_sqm"]
-                gdf_features.loc[i, "area_sqft"] = df_clipped_geometries.loc[i, "clipped_area_sqft"]
+                gdf_features.loc[i, "geometry"] = gdf_clip.loc[i, "feature_poly_clipped"]
+                gdf_features.loc[i, "area_sqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                gdf_features.loc[i, "area_sqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
         return gdf_features
 
     @classmethod
@@ -735,16 +730,16 @@ class FeatureApi:
         return gdf, metadata
 
     def get_features_gdf(
-            self,
-            geometry: Union[Polygon, MultiPolygon],
-            region: str,
-            packs: Optional[List[str]] = None,
-            aoi_id: Optional[str] = None,
-            since: Optional[str] = None,
-            until: Optional[str] = None,
-            address_fields: Optional[Dict[str, str]] = None,
-            survey_resource_id: Optional[str] = None,
-            fail_hard_regrid: Optional[bool] = False,
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        aoi_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
+        fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -815,7 +810,7 @@ class FeatureApi:
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             logging.debug(f"{fail_hard_regrid=}")
             if (
-                    fail_hard_regrid or geometry is None
+                fail_hard_regrid or geometry is None
             ):  # Do not get stuck in an infinite loop of re-gridding and timing out
                 logger.debug("Failing hard and NOT re-gridding....")
                 error = {
@@ -890,15 +885,15 @@ class FeatureApi:
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
-            self,
-            geometry: Union[Polygon, MultiPolygon],
-            region: str,
-            packs: Optional[List[str]] = None,
-            aoi_id: Optional[str] = None,
-            since: Optional[str] = None,
-            until: Optional[str] = None,
-            survey_resource_id: Optional[str] = None,
-            grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        aoi_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        survey_resource_id: Optional[str] = None,
+        grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -963,15 +958,15 @@ class FeatureApi:
             return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
-            self,
-            gdf: gpd.GeoDataFrame,
-            region: str,
-            packs: Optional[List[str]] = None,
-            since_bulk: Optional[str] = None,
-            until_bulk: Optional[str] = None,
-            survey_resource_id_bulk: Optional[str] = None,
-            instant_fail_batch: Optional[bool] = False,
-            fail_hard_regrid: Optional[bool] = False,
+        self,
+        gdf: gpd.GeoDataFrame,
+        region: str,
+        packs: Optional[List[str]] = None,
+        since_bulk: Optional[str] = None,
+        until_bulk: Optional[str] = None,
+        survey_resource_id_bulk: Optional[str] = None,
+        instant_fail_batch: Optional[bool] = False,
+        fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
