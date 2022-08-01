@@ -768,7 +768,7 @@ class FeatureApi:
             )
 
         try:
-            if isinstance(geometry, MultiPolygon) and len(geometry) > 1:
+            if isinstance(geometry, MultiPolygon) and len(geometry.geoms) > 1:
                 # A proper multi-polygon - run it as separate requests, then recombine.
                 features_gdf, metadata, error = [], [], None
                 for sub_geometry in geometry:
