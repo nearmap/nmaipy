@@ -1,11 +1,12 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 import warnings
 
 import geopandas as gpd
 import pandas as pd
 import shapely.wkb
 import shapely.wkt
+from shapely.geometry import MultiPolygon, Polygon
 import stringcase
 
 from nearmap_ai import log
@@ -254,6 +255,7 @@ def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
+    parcel_geom: Union[MultiPolygon, Polygon],
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
@@ -266,6 +268,7 @@ def feature_attributes(
         features_gdf: Features for a parcel
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
+        parcel_geom: The geometry for the parcel.
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
@@ -358,34 +361,45 @@ def feature_attributes(
 
         if class_id == BUILDING_ID:
             if len(class_features_gdf) > 0 and calc_buffers:
-                # Create vegetation buffers.
-                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
-                if len(veg_medhigh_features_gdf) > 0:
-                    veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
-                    )
-
-                for B in TREE_BUFFERS_M:
-                    gdf_buffered_buildings = gpd.GeoDataFrame(
-                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
-                    )
-
-                    # Wipe over feature geometries with their buffered version...
-                    gdf_buffered_buildings["geometry_feature"] = (
-                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
-                    )
-
+                # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
+                if parcel[f"{name}_total_clipped_area_sqm"] <= parcel[f"{name}_total_unclipped_area_sqm"]:
+                    for B in TREE_BUFFERS_M:
+                        parcel[f"building_{B}_tree_zone_sqm"] = None
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = None
+                else:
+                    # Create vegetation buffers.
+                    veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
                     if len(veg_medhigh_features_gdf) > 0:
-                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
-                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-                        bldg_count = (
-                            gdf_intersection.groupby("feature_id_1")
-                            .aggregate({"buff_area_sqm": "sum"})
-                            .query("buff_area_sqm > 0")
+                        veg_medhigh_features_gdf = gpd.GeoDataFrame(
+                            veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
                         )
-                        bldg_count = len(bldg_count)
-                        parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
+
+                    for B in TREE_BUFFERS_M:
+                        gdf_buffered_buildings = gpd.GeoDataFrame(
+                            class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
+                        )
+
+                        # Wipe over feature geometries with their buffered version...
+                        gdf_buffered_buildings["geometry_feature"] = (
+                            gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
+                        )
+
+                        if len(veg_medhigh_features_gdf) > 0:
+                            if gdf_buffered_buildings.intersects(parcel_geom).any():
+                                # Buffer exceeds Query AOI somewhere.
+                                parcel[f"building_{B}_tree_zone_sqm"] = None
+                                parcel[f"building_count_nonzero_{B}_tree_zone"] = None
+                            else:
+                                gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
+                                gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                                parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                                bldg_count = (
+                                    gdf_intersection.groupby("feature_id_1")
+                                    .aggregate({"buff_area_sqm": "sum"})
+                                    .query("buff_area_sqm > 0")
+                                )
+                                bldg_count = len(bldg_count)
+                                parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
     return parcel
 
 
@@ -443,10 +457,15 @@ def parcel_rollup(
             primary_lon = None
             primary_lat = None
 
+        parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+        assert len(parcel_geom) == 1
+        parcel_geom = parcel_geom.geometry.values[0]
+
         parcel = feature_attributes(
             group,
             classes_df,
             country=country,
+            parcel_geom=parcel_geom,
             primary_decision=primary_decision,
             primary_lat=primary_lat,
             primary_lon=primary_lon,
@@ -465,6 +484,7 @@ def parcel_rollup(
             gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
             classes_df,
             country=country,
+            parcel_geom=parcel_geom,
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )

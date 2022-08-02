@@ -642,3 +642,25 @@ class TestParcels:
         assert len(rollup_df) == len(parcel_gdf)
         final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
         assert len(final_df) == len(parcel_gdf)
+
+    def test_tree_buffers_null(self, features_gdf, parcels_gdf):
+        """
+        Test a scenario where we know a building always at least partially intersects the boundary, so buffers are never
+        valid to create.
+
+        Args:
+            features_gdf:
+            parcels_gdf:
+
+        Returns:
+
+        """
+        classes_df = pd.DataFrame(
+            {"id": BUILDING_ID, "description": "building"},
+            {"id": POOL_ID, "description": "pool"},
+            {"id": LAWN_GRASS_ID, "description": "lawn"},
+        ).set_index("id")
+        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, country="au", calc_buffers=True, primary_decision="largest_intersection")
+        # For this test, every result should be NaN for buffers, as there's always a building overlapping the parcel boundary.
+        assert df.filter(like="buffer").head().isna().all().all()
