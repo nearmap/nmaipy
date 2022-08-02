@@ -1,5 +1,4 @@
 from pathlib import Path
-import warnings
 
 import geopandas as gpd
 import pandas as pd
@@ -17,7 +16,17 @@ def test_gen_data(parcels_gdf, data_directory):
     from nearmap_ai.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi().get_features_gdf_bulk(parcels_gdf, packs=packs)
+    features_gdf, _, _ = FeatureApi().get_features_gdf_bulk(parcels_gdf, packs=packs, region="au")
+    features_gdf.to_csv(outfname, index=False)
+
+
+# @pytest.mark.skip("Comment out this line if you wish to regen the test data")
+def test_gen_data_2(parcels_2_gdf, data_directory):
+    outfname = data_directory / "test_features_2.csv"
+    from nearmap_ai.feature_api import FeatureApi
+
+    packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
+    features_gdf, _, _ = FeatureApi().get_features_gdf_bulk(parcels_2_gdf, packs=packs, region="us")
     features_gdf.to_csv(outfname, index=False)
 
 
@@ -284,7 +293,14 @@ class TestParcels:
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
-        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, country="au", calc_buffers=False, primary_decision="largest_intersection")
+        df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country="au",
+            calc_buffers=False,
+            primary_decision="largest_intersection",
+        )
 
         expected = pd.DataFrame(
             [
@@ -322,11 +338,11 @@ class TestParcels:
                     "building_total_area_sqm": 0.0,
                     "building_total_clipped_area_sqm": 0.0,
                     "building_total_unclipped_area_sqm": 0.0,
-                    "building_confidence": 1.0,
+                    "building_confidence": None,
                     "primary_building_area_sqm": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
                     "primary_building_unclipped_area_sqm": 0.0,
-                    "primary_building_confidence": 1.0,
+                    "primary_building_confidence": None,
                     "aoi_id": "0_2",
                     "mesh_date": "2021-01-23",
                 },
@@ -336,11 +352,11 @@ class TestParcels:
                     "building_total_area_sqm": 0.0,
                     "building_total_clipped_area_sqm": 0.0,
                     "building_total_unclipped_area_sqm": 0.0,
-                    "building_confidence": 1.0,
+                    "building_confidence": None,
                     "primary_building_area_sqm": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
                     "primary_building_unclipped_area_sqm": 0.0,
-                    "primary_building_confidence": 1.0,
+                    "primary_building_confidence": None,
                     "aoi_id": "0_3",
                     "mesh_date": "2021-01-23",
                 },
@@ -392,11 +408,11 @@ class TestParcels:
                     "building_total_area_sqm": 0.0,
                     "building_total_clipped_area_sqm": 0.0,
                     "building_total_unclipped_area_sqm": 0.0,
-                    "building_confidence": 1.0,
+                    "building_confidence": None,
                     "primary_building_area_sqm": 0.0,
                     "primary_building_clipped_area_sqm": 0.0,
                     "primary_building_unclipped_area_sqm": 0.0,
-                    "primary_building_confidence": 1.0,
+                    "primary_building_confidence": None,
                     "aoi_id": "1_3",
                     "mesh_date": "2021-01-23",
                 },
@@ -587,7 +603,9 @@ class TestParcels:
 
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
 
-        rollup_df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, country="us", calc_buffers=False, primary_decision="nearest")
+        rollup_df = parcels.parcel_rollup(
+            parcels_gdf, features_gdf, classes_df, country="us", calc_buffers=False, primary_decision="nearest"
+        )
         expected = pd.DataFrame(
             [
                 {
@@ -617,9 +635,7 @@ class TestParcels:
         feature_api = FeatureApi(cache_dir=cache_directory)
         classes_df = feature_api.get_feature_classes(packs)
 
-        features_gdf, metadata_df, error_df = feature_api.get_features_gdf_bulk(
-            parcel_gdf, region=country, packs=packs
-        )
+        features_gdf, metadata_df, error_df = feature_api.get_features_gdf_bulk(parcel_gdf, region=country, packs=packs)
 
         # No error
         assert len(error_df) == 0
@@ -632,12 +648,19 @@ class TestParcels:
         assert len(features_gdf.aoi_id.unique()) == len(parcel_gdf)
 
         features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, config=None)
-        assert len(features_gdf) > len(features_gdf_filtered)*0.95 # Very little should have been filtered out in these examples.
+        assert (
+            len(features_gdf) > len(features_gdf_filtered) * 0.95
+        )  # Very little should have been filtered out in these examples.
         assert len(features_gdf_filtered.aoi_id.unique()) == len(parcel_gdf)
 
         # Check rollup matches what's expected
         rollup_df = parcels.parcel_rollup(
-            parcel_gdf, features_gdf, classes_df, country=country, calc_buffers=False, primary_decision="largest_intersection"
+            parcel_gdf,
+            features_gdf,
+            classes_df,
+            country=country,
+            calc_buffers=False,
+            primary_decision="largest_intersection",
         )
         assert len(rollup_df) == len(parcel_gdf)
         final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -661,6 +684,41 @@ class TestParcels:
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
-        df = parcels.parcel_rollup(parcels_gdf, features_gdf, classes_df, country="au", calc_buffers=True, primary_decision="largest_intersection")
+        df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country="au",
+            calc_buffers=True,
+            primary_decision="largest_intersection",
+        )
         # For this test, every result should be NaN for buffers, as there's always a building overlapping the parcel boundary.
+        assert df.filter(like="buffer").head().isna().all().all()
+
+    def test_tree_buffers_real(self, features_2_gdf, parcels_2_gdf):
+        """
+        Test a scenario where we know a building always at least partially intersects the boundary, so buffers are never
+        valid to create.
+
+        Args:
+            features_2_gdf: Stored features generated from parcels_2_gdf queries.
+            parcels_2_gdf: Realistic set of 100 parcels from Australia.
+
+        Returns:
+
+        """
+        classes_df = pd.DataFrame(
+            {"id": BUILDING_ID, "description": "building"},
+            {"id": POOL_ID, "description": "pool"},
+            {"id": LAWN_GRASS_ID, "description": "lawn"},
+        ).set_index("id")
+        features_gdf = parcels.filter_features_in_parcels(features_2_gdf)
+        df = parcels.parcel_rollup(
+            parcels_2_gdf,
+            features_gdf,
+            classes_df,
+            country="us",
+            calc_buffers=True,
+            primary_decision="largest_intersection",
+        )
         assert df.filter(like="buffer").head().isna().all().all()

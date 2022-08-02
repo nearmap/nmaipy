@@ -28,6 +28,7 @@ from nearmap_ai.constants import (
     SOLAR_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     TRAMPOLINE_ID,
+    MeasurementUnits,
 )
 
 TRUE_STRING = "Y"
@@ -277,6 +278,9 @@ def feature_attributes(
     Returns: Flat dictionary
 
     """
+    mu = MeasurementUnits(country)
+    area_units = mu.area_units()
+
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
     for (class_id, name) in classes_df.description.iteritems():
@@ -349,57 +353,64 @@ def feature_attributes(
                         parcel[f"primary_{name}_" + str(key)] = val
             else:
                 # Fill values if there are no features
-                if country in IMPERIAL_COUNTRIES:
-                    parcel[f"primary_{name}_area_sqft"] = 0.0
-                    parcel[f"primary_{name}_clipped_area_sqft"] = 0.0
-                    parcel[f"primary_{name}_unclipped_area_sqft"] = 0.0
-                else:
-                    parcel[f"primary_{name}_area_sqm"] = 0.0
-                    parcel[f"primary_{name}_clipped_area_sqm"] = 0.0
-                    parcel[f"primary_{name}_unclipped_area_sqm"] = 0.0
-                parcel[f"primary_{name}_confidence"] = 1.0
+                parcel[f"primary_{name}_area_{area_units}"] = 0.0
+                parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
+                parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
+                parcel[f"primary_{name}_confidence"] = None
 
         if class_id == BUILDING_ID:
+
+            # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
             if len(class_features_gdf) > 0 and calc_buffers:
-                # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
-                if parcel[f"{name}_total_clipped_area_sqm"] <= parcel[f"{name}_total_unclipped_area_sqm"]:
-                    for B in TREE_BUFFERS_M:
-                        parcel[f"building_{B}_tree_zone_sqm"] = None
-                        parcel[f"building_count_nonzero_{B}_tree_zone"] = None
-                else:
-                    # Create vegetation buffers.
-                    veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
+                for B in TREE_BUFFERS_M:
+                    parcel[f"building_{B}_tree_zone_sqm"] = None
+                    parcel[f"building_count_nonzero_{B}_tree_zone"] = None
+
+                # TODO: This test fails, because sometimes clipped area is 1-2 square metres smaller than unclipped, even if it doesn't intersect the parcel.
+                # # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
+                # if (
+                #     parcel[f"{name}_total_clipped_area_{area_units}"]
+                #     < parcel[f"{name}_total_unclipped_area_{area_units}"]
+                # ):
+                #     break
+
+                # Create vegetation buffers.
+                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
+                if len(veg_medhigh_features_gdf) > 0:
+                    veg_medhigh_features_gdf = gpd.GeoDataFrame(
+                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
+                    )
+
+                for B in TREE_BUFFERS_M:
+                    gdf_buffered_buildings = gpd.GeoDataFrame(
+                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
+                    )
+                    # Wipe over feature geometries with their buffered version...
+                    gdf_buffered_buildings["geometry_feature"] = (
+                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
+                    )
+
+                    if gdf_buffered_buildings.aoi_id.iloc[0] == "50a41366-e7a3-5256-aacc-9b3ca338713c":
+                        pass
+                    if (
+                        gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
+                        / gdf_buffered_buildings["geometry_feature"].area.sum()
+                    ) < 1:
+                        # gdf_buffered_buildings.boundary.crosses(parcel_geom).any():
+                        # Buffer exceeds Query AOI somewhere.
+                        break
+
                     if len(veg_medhigh_features_gdf) > 0:
-                        veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                            veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
+                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
+                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        bldg_count = (
+                            gdf_intersection.groupby("feature_id_1")
+                            .aggregate({"buff_area_sqm": "sum"})
+                            .query("buff_area_sqm > 0")
                         )
-
-                    for B in TREE_BUFFERS_M:
-                        gdf_buffered_buildings = gpd.GeoDataFrame(
-                            class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
-                        )
-
-                        # Wipe over feature geometries with their buffered version...
-                        gdf_buffered_buildings["geometry_feature"] = (
-                            gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
-                        )
-
-                        if len(veg_medhigh_features_gdf) > 0:
-                            if gdf_buffered_buildings.intersects(parcel_geom).any():
-                                # Buffer exceeds Query AOI somewhere.
-                                parcel[f"building_{B}_tree_zone_sqm"] = None
-                                parcel[f"building_count_nonzero_{B}_tree_zone"] = None
-                            else:
-                                gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
-                                gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                                parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-                                bldg_count = (
-                                    gdf_intersection.groupby("feature_id_1")
-                                    .aggregate({"buff_area_sqm": "sum"})
-                                    .query("buff_area_sqm > 0")
-                                )
-                                bldg_count = len(bldg_count)
-                                parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
+                        bldg_count = len(bldg_count)
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
     return parcel
 
 
@@ -425,6 +436,9 @@ def parcel_rollup(
     Returns:
         Parcel rollup DataFrame
     """
+    mu = MeasurementUnits(country)
+    area_units = mu.area_units()
+
     if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
         raise Exception(
             f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
@@ -476,9 +490,9 @@ def parcel_rollup(
         rollups.append(parcel)
     # Loop over parcels without features in them
     if country in IMPERIAL_COUNTRIES:
-        area_name = "area_sqft"
+        area_name = f"area_{area_units}"
     else:
-        area_name = "area_sqm"
+        area_name = f"area_{area_units}"
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),

@@ -21,6 +21,19 @@ API_CRS = "epsg:4326"
 
 IMPERIAL_COUNTRIES = ["us"]
 
+
+class MeasurementUnits:
+    def __init__(self, country):
+        self.country = country
+
+    def area_units(self):
+        if self.country in IMPERIAL_COUNTRIES:
+            area_units = "sqft"
+        else:
+            area_units = "sqm"
+        return area_units
+
+
 # Error Codes
 AOI_EXCEEDS_MAX_SIZE = "AOI_EXCEEDS_MAX_SIZE"
 
