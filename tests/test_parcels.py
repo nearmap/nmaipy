@@ -2,6 +2,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
+import numpy as np
 import pytest
 from shapely.wkt import loads
 
@@ -20,13 +21,13 @@ def test_gen_data(parcels_gdf, data_directory):
     features_gdf.to_csv(outfname, index=False)
 
 
-# @pytest.mark.skip("Comment out this line if you wish to regen the test data")
+@pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data_2(parcels_2_gdf, data_directory):
     outfname = data_directory / "test_features_2.csv"
     from nearmap_ai.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi().get_features_gdf_bulk(parcels_2_gdf, packs=packs, region="us")
+    features_gdf, _, _ = FeatureApi(workers=1).get_features_gdf_bulk(parcels_2_gdf, packs=packs, region="us")
     features_gdf.to_csv(outfname, index=False)
 
 
@@ -721,4 +722,13 @@ class TestParcels:
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
-        assert df.filter(like="buffer").head().isna().all().all()
+
+        # Test that all buffers fail when they're too large for the parcels.
+        assert df.filter(like="30ft_tree_zone").isna().all().all()
+        assert df.filter(like="100ft_tree_zone").isna().all().all()
+
+        # Test values checked off a correct result with Gen 4 data (checked in at same time as this comment).
+        np.testing.assert_almost_equal(
+            df.filter(like="tree_zone").sum().values, [369.13, 15, 321.74, 2, 0, 0, 0, 0], 1e-2
+        )
+        np.testing.assert_equal(df.filter(like="building_count").sum().values, [111, 15, 2, 0, 0])

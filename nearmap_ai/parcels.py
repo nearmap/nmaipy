@@ -301,7 +301,7 @@ def feature_attributes(
         if len(class_features_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
         else:
-            parcel[f"{name}_confidence"] = 1.0
+            parcel[f"{name}_confidence"] = None
 
         # Select and produce results for the primary feature of each feature class
         if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
@@ -366,13 +366,13 @@ def feature_attributes(
                     parcel[f"building_{B}_tree_zone_sqm"] = None
                     parcel[f"building_count_nonzero_{B}_tree_zone"] = None
 
-                # TODO: This test fails, because sometimes clipped area is 1-2 square metres smaller than unclipped, even if it doesn't intersect the parcel.
-                # # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
-                # if (
-                #     parcel[f"{name}_total_clipped_area_{area_units}"]
-                #     < parcel[f"{name}_total_unclipped_area_{area_units}"]
-                # ):
-                #     break
+                # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
+                rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
+                if (
+                    parcel[f"{name}_total_clipped_area_{area_units}"]
+                    < rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]
+                ):
+                    break
 
                 # Create vegetation buffers.
                 veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
@@ -390,13 +390,10 @@ def feature_attributes(
                         gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
                     )
 
-                    if gdf_buffered_buildings.aoi_id.iloc[0] == "50a41366-e7a3-5256-aacc-9b3ca338713c":
-                        pass
                     if (
                         gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
                         / gdf_buffered_buildings["geometry_feature"].area.sum()
                     ) < 1:
-                        # gdf_buffered_buildings.boundary.crosses(parcel_geom).any():
                         # Buffer exceeds Query AOI somewhere.
                         break
 
