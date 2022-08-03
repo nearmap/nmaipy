@@ -443,10 +443,9 @@ def parcel_rollup(
     if primary_decision == "nearest":
         merge_cols = [AOI_ID_COLUMN_NAME, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME, "geometry"]
     else:
+        merge_cols = [AOI_ID_COLUMN_NAME]
         if "geometry" in parcels_gdf.columns:
-            merge_cols = [AOI_ID_COLUMN_NAME, "geometry"]
-        else:
-            merge_cols = [AOI_ID_COLUMN_NAME]
+            merge_cols += ["geometry"]
 
     df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
 

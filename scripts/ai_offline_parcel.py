@@ -80,7 +80,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--calc-buffers",
-        help="Calculate buffered features (compute expensive).",
+        help="Calculate buffered features of trees around buildings (compute expensive) within the query AOI (null otherwise).",
         action="store_true",
     )
     parser.add_argument(
