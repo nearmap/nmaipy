@@ -1,11 +1,12 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 import warnings
 
 import geopandas as gpd
 import pandas as pd
 import shapely.wkb
 import shapely.wkt
+from shapely.geometry import MultiPolygon, Polygon
 import stringcase
 
 from nearmap_ai import log
@@ -13,6 +14,8 @@ from nearmap_ai.constants import (
     AOI_ID_COLUMN_NAME,
     AREA_CRS,
     BUILDING_ID,
+    VEG_MEDHIGH_ID,
+    VEG_LOW_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
     CONSTRUCTION_ID,
     IMPERIAL_COUNTRIES,
@@ -25,6 +28,7 @@ from nearmap_ai.constants import (
     SOLAR_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     TRAMPOLINE_ID,
+    MeasurementUnits,
 )
 
 TRUE_STRING = "Y"
@@ -66,6 +70,13 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 0.5,
     },
 }
+
+TREE_BUFFERS_M = dict(
+    buffer_5ft=1.524,
+    buffer_10ft=3.048,
+    buffer_30ft=9.144,
+    buffer_100ft=30.48,
+)
 
 logger = log.get_logger()
 
@@ -224,6 +235,8 @@ def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
         if "components" in attribute:
             for component in attribute["components"]:
                 name = component["description"].lower().replace(" ", "_")
+                if "Low confidence" in attribute["description"]:
+                    name = f"low_conf_{name}"
                 flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                 if country in IMPERIAL_COUNTRIES:
                     flattened[f"{name}_area_sqft"] = component["areaSqft"]
@@ -243,9 +256,11 @@ def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
+    parcel_geom: Union[MultiPolygon, Polygon],
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
+    calc_buffers: bool = False,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -254,13 +269,18 @@ def feature_attributes(
         features_gdf: Features for a parcel
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
+        parcel_geom: The geometry for the parcel.
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
+        calc_buffers: Whether to calculate and include buffers
 
     Returns: Flat dictionary
 
     """
+    mu = MeasurementUnits(country)
+    area_units = mu.area_units()
+
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
     for (class_id, name) in classes_df.description.iteritems():
@@ -281,7 +301,7 @@ def feature_attributes(
         if len(class_features_gdf) > 0:
             parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
         else:
-            parcel[f"{name}_confidence"] = 1.0
+            parcel[f"{name}_confidence"] = None
 
         # Select and produce results for the primary feature of each feature class
         if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
@@ -333,16 +353,61 @@ def feature_attributes(
                         parcel[f"primary_{name}_" + str(key)] = val
             else:
                 # Fill values if there are no features
-                if country in IMPERIAL_COUNTRIES:
-                    parcel[f"primary_{name}_area_sqft"] = 0.0
-                    parcel[f"primary_{name}_clipped_area_sqft"] = 0.0
-                    parcel[f"primary_{name}_unclipped_area_sqft"] = 0.0
-                else:
-                    parcel[f"primary_{name}_area_sqm"] = 0.0
-                    parcel[f"primary_{name}_clipped_area_sqm"] = 0.0
-                    parcel[f"primary_{name}_unclipped_area_sqm"] = 0.0
-                parcel[f"primary_{name}_confidence"] = 1.0
+                parcel[f"primary_{name}_area_{area_units}"] = 0.0
+                parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
+                parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
+                parcel[f"primary_{name}_confidence"] = None
 
+        if class_id == BUILDING_ID:
+
+            # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
+            if len(class_features_gdf) > 0 and calc_buffers:
+                for B in TREE_BUFFERS_M:
+                    parcel[f"building_{B}_tree_zone_sqm"] = None
+                    parcel[f"building_count_nonzero_{B}_tree_zone"] = None
+
+                # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
+                rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
+                if (
+                    parcel[f"{name}_total_clipped_area_{area_units}"]
+                    < rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]
+                ):
+                    break
+
+                # Create vegetation buffers.
+                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
+                if len(veg_medhigh_features_gdf) > 0:
+                    veg_medhigh_features_gdf = gpd.GeoDataFrame(
+                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
+                    )
+
+                for B in TREE_BUFFERS_M:
+                    gdf_buffered_buildings = gpd.GeoDataFrame(
+                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
+                    )
+                    # Wipe over feature geometries with their buffered version...
+                    gdf_buffered_buildings["geometry_feature"] = (
+                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
+                    )
+
+                    if (
+                        gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
+                        / gdf_buffered_buildings["geometry_feature"].area.sum()
+                    ) < 1:
+                        # Buffer exceeds Query AOI somewhere.
+                        break
+
+                    if len(veg_medhigh_features_gdf) > 0:
+                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
+                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        bldg_count = (
+                            gdf_intersection.groupby("feature_id_1")
+                            .aggregate({"buff_area_sqm": "sum"})
+                            .query("buff_area_sqm > 0")
+                        )
+                        bldg_count = len(bldg_count)
+                        parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
     return parcel
 
 
@@ -351,6 +416,7 @@ def parcel_rollup(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
+    calc_buffers: bool,
     primary_decision: str,
 ):
     """
@@ -361,16 +427,28 @@ def parcel_rollup(
         features_gdf: Features GeoDataFrame
         classes_df: Class name and ID lookup
         country: Country code for units.
+        calc_buffers: Calculate buffered features
         primary_decision: The basis on which the primary features are chosen
 
     Returns:
         Parcel rollup DataFrame
     """
+    mu = MeasurementUnits(country)
+    area_units = mu.area_units()
+
+    if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
+        raise Exception(
+            f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+        )
     if primary_decision == "nearest":
         merge_cols = [AOI_ID_COLUMN_NAME, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME, "geometry"]
     else:
-        merge_cols = [AOI_ID_COLUMN_NAME, "geometry"]
+        merge_cols = [AOI_ID_COLUMN_NAME]
+        if "geometry" in parcels_gdf.columns:
+            merge_cols += ["geometry"]
+
     df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
+
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
@@ -389,28 +467,36 @@ def parcel_rollup(
             primary_lon = None
             primary_lat = None
 
+        parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+        assert len(parcel_geom) == 1
+        parcel_geom = parcel_geom.geometry.values[0]
+
         parcel = feature_attributes(
             group,
             classes_df,
             country=country,
+            parcel_geom=parcel_geom,
             primary_decision=primary_decision,
             primary_lat=primary_lat,
             primary_lon=primary_lon,
+            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
     # Loop over parcels without features in them
     if country in IMPERIAL_COUNTRIES:
-        area_name = "area_sqft"
+        area_name = f"area_{area_units}"
     else:
-        area_name = "area_sqm"
+        area_name = f"area_{area_units}"
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
             classes_df,
             country=country,
+            parcel_geom=parcel_geom,
             primary_decision=primary_decision,
+            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
         rollups.append(parcel)

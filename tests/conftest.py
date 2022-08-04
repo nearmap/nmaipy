@@ -73,6 +73,11 @@ def parcels_gdf(data_directory: Path) -> gpd.GeoDataFrame:
 
 
 @pytest.fixture(scope="session")
+def parcels_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    return parcels.read_from_file(data_directory / "test_parcels_2.csv")
+
+
+@pytest.fixture(scope="session")
 def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     df = pd.read_csv(data_directory / "test_features.csv")
     return gpd.GeoDataFrame(
@@ -80,6 +85,17 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
         geometry=df.geometry.apply(loads),
         crs=LAT_LONG_CRS,
     )
+
+
+@pytest.fixture(scope="session")
+def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    df = pd.read_csv(data_directory / "test_features_2.csv")
+    return gpd.GeoDataFrame(
+        df.drop("geometry", axis=1),
+        geometry=df.geometry.apply(loads),
+        crs=LAT_LONG_CRS,
+    )
+
 
 @pytest.fixture(scope="session")
 def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd.GeoDataFrame:
