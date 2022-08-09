@@ -55,6 +55,7 @@ DEFAULT_FILTERING = {
     },
     "min_fidelity": {
         BUILDING_ID: 0.4,
+        ROOF_ID: 0.4,
     },
     "min_area_in_parcel": {
         BUILDING_ID: 25,
