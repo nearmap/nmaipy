@@ -94,6 +94,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--overwrite-cache",
+        help="If set, ignore the existing cache and overwrite files as they are downloaded.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--compress-cache",
         help="If set, use gzip compression on each json payload in the cache.",
         action="store_true",
@@ -151,6 +156,7 @@ def process_chunk(
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
     bulk_mode: Optional[bool] = True,
+    overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
     since_bulk: str = None,
     until_bulk: str = None,
@@ -193,6 +199,7 @@ def process_chunk(
         api_key=api_key(key_file),
         bulk_mode=bulk_mode,
         cache_dir=cache_path,
+        overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
         workers=THREADS,
     )
@@ -390,6 +397,7 @@ def main():
                             args.save_features,
                             args.primary_decision,
                             args.bulk_mode,
+                            args.overwrite_cache,
                             args.compress_cache,
                             args.since,
                             args.until,
@@ -424,6 +432,7 @@ def main():
                     args.save_features,
                     args.primary_decision,
                     args.bulk_mode,
+                    args.overwrite_cache,
                     args.compress_cache,
                     args.since,
                     args.until,

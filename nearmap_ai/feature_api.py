@@ -448,10 +448,11 @@ class FeatureApi:
             geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
+        cache_path = self._request_cache_path(request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
-            cache_path = self._request_cache_path(request_string)
+
             if cache_path.exists():
                 logger.debug(f"Retrieving payload from cache")
                 if self.compress_cache:
@@ -496,10 +497,16 @@ class FeatureApi:
 
             # Save to cache if configured
             if self.cache_dir is not None:
-                self._write_to_cache(self._request_cache_path(request_string), data)
+                self._write_to_cache(cache_path, data)
             return data
         else:
             logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text} {response.status_code}")
+            if self.overwrite_cache:
+                # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
+                try:
+                    os.remove(cache_path)
+                except OSError:
+                    pass
 
             if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
                 logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {response.status_code=}")
