@@ -654,20 +654,21 @@ class FeatureApi:
         :return: Filtered and clipped GeoDataFrame in same format as the input gdf_features.
         """
         # Remove all features that don't intersect at all.
-        gdf_features = gdf_features[gdf_features.intersects(geometry)]
+        gdf_features = gdf_features[gdf_features.intersects(geometry)].set_index("feature_id")
         gdf_features = gdf_features.drop_duplicates(subset=["feature_id"])
         gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
 
-        for i, f in gdf_features.iterrows():
-            gdf_features.loc[i, "clipped_area_sqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-            gdf_features.loc[i, "clipped_area_sqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
+        for feature_id, f in gdf_features.iterrows():
+            gdf_features.loc[feature_id, "clipped_area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
+            gdf_features.loc[feature_id, "clipped_area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
 
-            if gdf_features.loc[i, "class_id"] in CONNECTED_CLASS_IDS:
+            class_id = gdf_features.loc[feature_id, "class_id"]
+            if class_id in CONNECTED_CLASS_IDS:
                 # Replace geometry, with clipped geometry
-                gdf_features.loc[i, "geometry"] = gdf_clip.loc[i, "feature_poly_clipped"]
-                gdf_features.loc[i, "area_sqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-                gdf_features.loc[i, "area_sqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
-        return gdf_features
+                gdf_features.loc[i, "geometry"] = gdf_clip.loc[feature_id, "feature_poly_clipped"]
+                gdf_features.loc[i, "area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
+                gdf_features.loc[i, "area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
+        return gdf_features.reset_index()
 
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
@@ -729,7 +730,9 @@ class FeatureApi:
             try:
                 df[AOI_ID_COLUMN_NAME] = aoi_id
             except Exception as e:
-                logger.error(f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows).")
+                logger.error(
+                    f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
+                )
                 raise ValueError
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
@@ -789,7 +792,7 @@ class FeatureApi:
                     sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
-                features_gdf = pd.concat(features_gdf)
+                features_gdf = pd.concat(features_gdf)  # Warning - using arbitrary int index means duplicate index.
 
                 # Check for repeat appearances of the same feature in the multipolygon
                 if len(features_gdf.feature_id.unique()) < len(features_gdf):
@@ -799,7 +802,6 @@ class FeatureApi:
                 metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
                 metadata_df = metadata_df.drop_duplicates()
                 if len(metadata_df) > 1:
-                    logging.warning("MultiPolygon Error")
                     raise AIFeatureAPIError(
                         response=None,
                         request_string=None,
@@ -954,7 +956,7 @@ class FeatureApi:
             logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
             )
-            #TODO: We should change query to guarantee same survey id is used somehow.
+            # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
@@ -1024,7 +1026,7 @@ class FeatureApi:
                 if SURVEY_RESOURCE_ID_COL_NAME in row:
                     if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
                         survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-                    
+
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,
