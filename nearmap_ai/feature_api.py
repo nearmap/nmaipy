@@ -793,9 +793,6 @@ class FeatureApi:
 
                 # Check for repeat appearances of the same feature in the multipolygon
                 if len(features_gdf.feature_id.unique()) < len(features_gdf):
-                    logger.warning(
-                        "Multipolygon used that shares a discrete feature, causing overlap. Ambiguous results."
-                    )
                     features_gdf = self.trim_features_to_aoi(features_gdf, geometry, region)
 
                 # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
