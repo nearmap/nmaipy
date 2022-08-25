@@ -264,10 +264,17 @@ def process_chunk(
     try:
         errors_df.to_parquet(outfile_errors)
     except Exception as e:
+        logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
         logger.error(errors_df.shape)
         logger.error(errors_df)
 
-    final_df.to_parquet(outfile)
+    try:
+        final_df.to_parquet(outfile)
+    except Excepton as e:
+        logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
+        logger.error(final_df.shape)
+        logger.error(final_df)
+
 
     if save_features:
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
@@ -338,7 +345,7 @@ def main():
             logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
+        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:

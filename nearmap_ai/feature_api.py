@@ -726,7 +726,11 @@ class FeatureApi:
 
         # Add AOI ID if specified
         if aoi_id is not None:
-            df[AOI_ID_COLUMN_NAME] = aoi_id
+            try:
+                df[AOI_ID_COLUMN_NAME] = aoi_id
+            except Exception as e:
+                logger.error(f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows).")
+                raise ValueError
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
         if "geometry" in df.columns:
@@ -778,7 +782,7 @@ class FeatureApi:
             if isinstance(geometry, MultiPolygon) and len(geometry.geoms) > 1:
                 # A proper multi-polygon - run it as separate requests, then recombine.
                 features_gdf, metadata, error = [], [], None
-                for sub_geometry in geometry:
+                for sub_geometry in geometry.geoms:
                     sub_payload = self.get_features(
                         sub_geometry, region, packs, since, until, address_fields, survey_resource_id
                     )
@@ -950,9 +954,10 @@ class FeatureApi:
             )
             raise AIFeatureAPIGridError(-1, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
-            logger.warning(
+            logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
             )
+            #TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
@@ -996,6 +1001,8 @@ class FeatureApi:
         """
         if AOI_ID_COLUMN_NAME not in gdf.columns:
             raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+        elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
+            raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
 
         # are address fields present?
         has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
@@ -1020,7 +1027,7 @@ class FeatureApi:
                 if SURVEY_RESOURCE_ID_COL_NAME in row:
                     if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
                         survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-
+                    
                 jobs.append(
                     executor.submit(
                         self.get_features_gdf,
