@@ -654,8 +654,11 @@ class FeatureApi:
         :return: Filtered and clipped GeoDataFrame in same format as the input gdf_features.
         """
         # Remove all features that don't intersect at all.
-        gdf_features = gdf_features[gdf_features.intersects(geometry)].set_index("feature_id")
-        gdf_features = gdf_features.drop_duplicates(subset=["feature_id"])
+        gdf_features = (
+            gdf_features[gdf_features.intersects(geometry)]
+            .drop_duplicates(subset=["feature_id"])
+            .set_index("feature_id")
+        )
         gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
 
         for feature_id, f in gdf_features.iterrows():
