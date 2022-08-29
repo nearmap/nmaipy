@@ -661,6 +661,9 @@ class FeatureApi:
         )
         gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
 
+        # TODO: Don't know why this has to be done, but I get a ValueError about len of keys and values being identical if I don't ...
+        geom_column = gdf_features.geometry
+
         for feature_id, f in gdf_features.iterrows():
             gdf_features.loc[feature_id, "clipped_area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
             gdf_features.loc[feature_id, "clipped_area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
@@ -668,10 +671,10 @@ class FeatureApi:
             class_id = gdf_features.loc[feature_id, "class_id"]
             if class_id in CONNECTED_CLASS_IDS:
                 # Replace geometry, with clipped geometry
-                #TODO: Deal correctly with multiple connected class geometries with same feature id (due to multipolygon queries)
-                gdf_features.loc[feature_id, "geometry"] = gdf_clip.loc[feature_id, "geometry"]
+                geom_column[feature_id] = gdf_clip.loc[feature_id, "geometry"]
                 gdf_features.loc[feature_id, "area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
                 gdf_features.loc[feature_id, "area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
+        gdf_features["geometry"] = geom_column
         return gdf_features.reset_index()
 
     @classmethod
