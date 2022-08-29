@@ -501,12 +501,13 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
     else:
         area_name = f"area_{area_units}"
+
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
             classes_df,
             country=country,
-            parcel_geom=parcel_geom,
+            parcel_geom=row.geometry,
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )
