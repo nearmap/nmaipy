@@ -54,7 +54,7 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 0.7,
     },
     "min_fidelity": {
-        BUILDING_ID: 0.4,
+        BUILDING_ID: 0.0,
         ROOF_ID: 0.4,
     },
     "min_area_in_parcel": {
