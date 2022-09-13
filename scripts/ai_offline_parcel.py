@@ -414,7 +414,7 @@ def main():
                     try:
                         j.result()
                     except Exception as e:
-                        logger.error(f"FAILURE TO COMPLETE JOB {chunk_id}, DROPPING DUE TO ERROR {e}")
+                        logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
                         logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
@@ -449,7 +449,7 @@ def main():
         data = []
         data_features = []
         errors = []
-
+        #TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
         logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
