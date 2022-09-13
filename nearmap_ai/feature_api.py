@@ -136,6 +136,8 @@ class FeatureApi:
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
         workers: Optional[int] = 10,
+        alpha: Optional[bool] = False,
+        beta: Optional[bool] = False,
     ):
         """
         Initialize FeatureApi class
@@ -164,6 +166,8 @@ class FeatureApi:
         self.compress_cache = compress_cache
         self.workers = workers
         self.bulk_mode = bulk_mode
+        self.alpha = alpha
+        self.beta = beta
 
     @property
     def _session(self) -> requests.Session:
@@ -412,7 +416,12 @@ class FeatureApi:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-
+                
+        if self.alpha:
+            request_string += "&alpha=true"
+        if self.beta:
+            request_string += "&beta=true"
+            
         # Add packs if given
         if packs:
             packs = ",".join(packs)
