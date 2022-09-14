@@ -136,6 +136,8 @@ class FeatureApi:
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
         workers: Optional[int] = 10,
+        alpha: Optional[bool] = False,
+        beta: Optional[bool] = False,
     ):
         """
         Initialize FeatureApi class
@@ -164,6 +166,8 @@ class FeatureApi:
         self.compress_cache = compress_cache
         self.workers = workers
         self.bulk_mode = bulk_mode
+        self.alpha = alpha
+        self.beta = beta
 
     @property
     def _session(self) -> requests.Session:
@@ -412,7 +416,12 @@ class FeatureApi:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-
+                
+        if self.alpha:
+            request_string += "&alpha=true"
+        if self.beta:
+            request_string += "&beta=true"
+            
         # Add packs if given
         if packs:
             packs = ",".join(packs)
@@ -448,10 +457,11 @@ class FeatureApi:
             geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
+        cache_path = self._request_cache_path(request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
-            cache_path = self._request_cache_path(request_string)
+
             if cache_path.exists():
                 logger.debug(f"Retrieving payload from cache")
                 if self.compress_cache:
@@ -496,10 +506,16 @@ class FeatureApi:
 
             # Save to cache if configured
             if self.cache_dir is not None:
-                self._write_to_cache(self._request_cache_path(request_string), data)
+                self._write_to_cache(cache_path, data)
             return data
         else:
             logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text} {response.status_code}")
+            if self.overwrite_cache:
+                # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
+                try:
+                    os.remove(cache_path)
+                except OSError:
+                    pass
 
             if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
                 logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {response.status_code=}")
@@ -647,20 +663,28 @@ class FeatureApi:
         :return: Filtered and clipped GeoDataFrame in same format as the input gdf_features.
         """
         # Remove all features that don't intersect at all.
-        gdf_features = gdf_features[gdf_features.intersects(geometry)]
-        gdf_features = gdf_features.drop_duplicates(subset=["feature_id"])
+        gdf_features = (
+            gdf_features[gdf_features.intersects(geometry)]
+            .drop_duplicates(subset=["feature_id"])
+            .set_index("feature_id")
+        )
         gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
 
-        for i, f in gdf_features.iterrows():
-            gdf_features.loc[i, "clipped_area_sqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-            gdf_features.loc[i, "clipped_area_sqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
+        # TODO: Don't know why this has to be done, but I get a ValueError about len of keys and values being identical if I don't ...
+        geom_column = gdf_features.geometry
 
-            if gdf_features.loc[i, "class_id"] in CONNECTED_CLASS_IDS:
+        for feature_id, f in gdf_features.iterrows():
+            gdf_features.loc[feature_id, "clipped_area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
+            gdf_features.loc[feature_id, "clipped_area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
+
+            class_id = gdf_features.loc[feature_id, "class_id"]
+            if class_id in CONNECTED_CLASS_IDS:
                 # Replace geometry, with clipped geometry
-                gdf_features.loc[i, "geometry"] = gdf_clip.loc[i, "feature_poly_clipped"]
-                gdf_features.loc[i, "area_sqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-                gdf_features.loc[i, "area_sqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
-        return gdf_features
+                geom_column[feature_id] = gdf_clip.loc[feature_id, "geometry"]
+                gdf_features.loc[feature_id, "area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
+                gdf_features.loc[feature_id, "area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
+        gdf_features["geometry"] = geom_column
+        return gdf_features.reset_index()
 
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
@@ -719,7 +743,13 @@ class FeatureApi:
 
         # Add AOI ID if specified
         if aoi_id is not None:
-            df[AOI_ID_COLUMN_NAME] = aoi_id
+            try:
+                df[AOI_ID_COLUMN_NAME] = aoi_id
+            except Exception as e:
+                logger.error(
+                    f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
+                )
+                raise ValueError
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
         if "geometry" in df.columns:
@@ -771,27 +801,23 @@ class FeatureApi:
             if isinstance(geometry, MultiPolygon) and len(geometry.geoms) > 1:
                 # A proper multi-polygon - run it as separate requests, then recombine.
                 features_gdf, metadata, error = [], [], None
-                for sub_geometry in geometry:
+                for sub_geometry in geometry.geoms:
                     sub_payload = self.get_features(
                         sub_geometry, region, packs, since, until, address_fields, survey_resource_id
                     )
                     sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
-                features_gdf = pd.concat(features_gdf)
+                features_gdf = pd.concat(features_gdf)  # Warning - using arbitrary int index means duplicate index.
 
                 # Check for repeat appearances of the same feature in the multipolygon
                 if len(features_gdf.feature_id.unique()) < len(features_gdf):
-                    logger.warning(
-                        "Multipolygon used that shares a discrete feature, causing overlap. Ambiguous results."
-                    )
                     features_gdf = self.trim_features_to_aoi(features_gdf, geometry, region)
 
                 # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
                 metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
                 metadata_df = metadata_df.drop_duplicates()
                 if len(metadata_df) > 1:
-                    logging.warning("MultiPolygon Error")
                     raise AIFeatureAPIError(
                         response=None,
                         request_string=None,
@@ -943,9 +969,10 @@ class FeatureApi:
             )
             raise AIFeatureAPIGridError(-1, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
-            logger.warning(
+            logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
             )
+            # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
@@ -989,6 +1016,8 @@ class FeatureApi:
         """
         if AOI_ID_COLUMN_NAME not in gdf.columns:
             raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+        elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
+            raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
 
         # are address fields present?
         has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)

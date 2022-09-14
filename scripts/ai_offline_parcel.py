@@ -94,6 +94,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--overwrite-cache",
+        help="If set, ignore the existing cache and overwrite files as they are downloaded.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--compress-cache",
         help="If set, use gzip compression on each json payload in the cache.",
         action="store_true",
@@ -151,6 +156,7 @@ def process_chunk(
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
     bulk_mode: Optional[bool] = True,
+    overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
     since_bulk: str = None,
     until_bulk: str = None,
@@ -193,6 +199,7 @@ def process_chunk(
         api_key=api_key(key_file),
         bulk_mode=bulk_mode,
         cache_dir=cache_path,
+        overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
         workers=THREADS,
     )
@@ -257,10 +264,17 @@ def process_chunk(
     try:
         errors_df.to_parquet(outfile_errors)
     except Exception as e:
+        logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
         logger.error(errors_df.shape)
         logger.error(errors_df)
 
-    final_df.to_parquet(outfile)
+    try:
+        final_df.to_parquet(outfile)
+    except Excepton as e:
+        logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
+        logger.error(final_df.shape)
+        logger.error(final_df)
+
 
     if save_features:
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
@@ -331,7 +345,7 @@ def main():
             logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f).to_crs(API_CRS)
+        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
@@ -390,6 +404,7 @@ def main():
                             args.save_features,
                             args.primary_decision,
                             args.bulk_mode,
+                            args.overwrite_cache,
                             args.compress_cache,
                             args.since,
                             args.until,
@@ -399,7 +414,7 @@ def main():
                     try:
                         j.result()
                     except Exception as e:
-                        logger.error(f"FAILURE TO COMPLETE JOB {chunk_id}, DROPPING DUE TO ERROR {e}")
+                        logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
                         logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
@@ -424,6 +439,7 @@ def main():
                     args.save_features,
                     args.primary_decision,
                     args.bulk_mode,
+                    args.overwrite_cache,
                     args.compress_cache,
                     args.since,
                     args.until,
@@ -433,7 +449,7 @@ def main():
         data = []
         data_features = []
         errors = []
-
+        #TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
         logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))

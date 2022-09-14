@@ -53,6 +53,10 @@ DEFAULT_FILTERING = {
         CONSTRUCTION_ID: 0.8,
         SOLAR_ID: 0.7,
     },
+    "min_fidelity": {
+        BUILDING_ID: 0.0,
+        ROOF_ID: 0.0,
+    },
     "min_area_in_parcel": {
         BUILDING_ID: 25,
         ROOF_ID: 25,
@@ -191,6 +195,10 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
     filter = config.get("min_confidence", DEFAULT_FILTERING["min_confidence"])
     gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.confidence]
 
+    # Filter low fidelity features. If fidelity not present, assume 1 (perfect shape) to avoid rejection.
+    filter = config.get("min_fidelity", DEFAULT_FILTERING["min_fidelity"])
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.fidelity.fillna(1)]
+
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
     area_mask = gdf.class_id.map(filter).fillna(0) < gdf.clipped_area_sqm
@@ -223,6 +231,8 @@ def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
                     flattened["height_m"] = round(attribute["height"], 1)
                 for k, v in attribute["numStories"].items():
                     flattened[f"num_storeys_{k}_confidence"] = v
+        if "fidelity" in attribute:
+            flattened["fidelity"] = attributes["fidelity"]
     return flattened
 
 
@@ -341,6 +351,8 @@ def feature_attributes(
                     parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
                     parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
+                if class_id == BUILDING_ID:
+                    parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
 
                 # Add roof and building attributes
                 if class_id in [ROOF_ID, BUILDING_ID]:
@@ -489,12 +501,13 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
     else:
         area_name = f"area_{area_units}"
+
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
             classes_df,
             country=country,
-            parcel_geom=parcel_geom,
+            parcel_geom=row.geometry,
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )
