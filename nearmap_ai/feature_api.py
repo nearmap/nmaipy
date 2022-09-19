@@ -202,6 +202,10 @@ class FeatureApi:
 
         """
         request_string = f"{base_url}?apikey={self.api_key}"
+        if self.alpha:
+            request_string += "&alpha=true"
+        if self.beta:
+            request_string += "&beta=true"
         # Request data
         response = self._session.get(request_string)
         # Check for errors
@@ -416,12 +420,12 @@ class FeatureApi:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-                
+
         if self.alpha:
             request_string += "&alpha=true"
         if self.beta:
             request_string += "&beta=true"
-            
+
         # Add packs if given
         if packs:
             packs = ",".join(packs)
