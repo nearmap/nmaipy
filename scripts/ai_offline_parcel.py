@@ -290,7 +290,7 @@ def process_chunk(
 
     try:
         final_df.to_parquet(outfile)
-    except Excepton as e:
+    except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
         logger.error(final_df.shape)
         logger.error(final_df)
@@ -363,7 +363,7 @@ def main():
         outpath_features = final_path / f"{f.stem}_features.gpkg"
 
         if outpath.exists() and (outpath_features.exists() or not args.save_features):
-            logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
+            logger.info(f"Output already exist, skipping {f.stem}")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
