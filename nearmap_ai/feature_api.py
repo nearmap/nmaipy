@@ -74,6 +74,8 @@ class AIFeatureAPIError(Exception):
                 self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
             except json.JSONDecodeError:
                 self.message = "JSONDecodeError"
+            except requests.exceptions.ChunkedEncodingError:
+                self.message = "ChunkedEncodingError"
             except AttributeError:
                 self.message = ""
         self.request_string = request_string
@@ -513,7 +515,16 @@ class FeatureApi:
                 self._write_to_cache(cache_path, data)
             return data
         else:
-            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text} {response.status_code}")
+            try:
+                status_code = response.status_code
+            except requests.exceptions.ChunkedEncodingError:
+                status_code = ""
+            try:
+                text = response.text
+            except requests.exceptions.ChunkedEncodingError:
+                text = ""
+
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
             if self.overwrite_cache:
                 # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
                 try:
@@ -521,15 +532,13 @@ class FeatureApi:
                 except OSError:
                     pass
 
-            if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
-                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {response.status_code=}")
+            if status_code in AIFeatureAPIRequestSizeError.status_codes:
+                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
                 raise AIFeatureAPIRequestSizeError(response, request_string)
-            elif response.status_code == HTTPStatus.BAD_REQUEST:
-                error_code = json.loads(response.text)["code"]
+            elif status_code == HTTPStatus.BAD_REQUEST:
+                error_code = json.loads(text)["code"]
                 if error_code in AIFeatureAPIRequestSizeError.codes:
-                    logger.debug(
-                        f"Raising AIFeatureAPIRequestSizeError from secondary status code {response.status_code=}"
-                    )
+                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
                     raise AIFeatureAPIRequestSizeError(response, request_string)
                 else:
                     # Check for errors
