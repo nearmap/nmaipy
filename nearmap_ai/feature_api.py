@@ -484,8 +484,14 @@ class FeatureApi:
 
         # Request data
         t1 = time.monotonic()
-        response = self._session.get(request_string)
+        try:
+            response = self._session.get(request_string)
+        except requests.exceptions.ChunkedEncodingError:
+            raise AIFeatureAPIError(
+                None, request_string=request_string, text="ChunkedEncodingError", message="Chunked encoding error"
+            )
         response_time_ms = (time.monotonic() - t1) * 1e3
+
         if response.ok:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
             data = response.json()
