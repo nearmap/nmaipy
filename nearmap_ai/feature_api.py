@@ -487,9 +487,8 @@ class FeatureApi:
         try:
             response = self._session.get(request_string)
         except requests.exceptions.ChunkedEncodingError:
-            raise AIFeatureAPIError(
-                None, request_string=request_string, text="ChunkedEncodingError", message="Chunked encoding error"
-            )
+            self._handle_response_errors(None, request_string)
+
         response_time_ms = (time.monotonic() - t1) * 1e3
 
         if response.ok:
