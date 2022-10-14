@@ -10,6 +10,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple, Union
 import uuid
+from io import StringIO
 
 import gzip
 import geopandas as gpd
@@ -36,6 +37,8 @@ from nearmap_ai.constants import (
     AREA_CRS,
     API_CRS,
     CONNECTED_CLASS_IDS,
+    ROLLUP_SURVEY_DATE_ID,
+    ROLLUP_SYSTEM_VERSION_ID,
 )
 
 logger = log.get_logger()
@@ -130,6 +133,8 @@ class FeatureApi:
         "clippedAreaSqft",
         "unclippedAreaSqft",
     ]
+    API_TYPE_FEATURES = "features"
+    API_TYPE_ROLLUPS = "rollups"
 
     def __init__(
         self,
@@ -448,6 +453,51 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
     ):
+        data = self._get_results(
+            geometry=geometry,
+            region=region,
+            packs=packs,
+            since=since,
+            until=until,
+            address_fields=address_fields,
+            survey_resource_id=survey_resource_id,
+            result_type=self.API_TYPE_FEATURES,
+        )
+        return data
+
+    def get_rollup(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
+    ):
+        data = self._get_results(
+            geometry=geometry,
+            region=region,
+            packs=packs,
+            since=since,
+            until=until,
+            address_fields=address_fields,
+            survey_resource_id=survey_resource_id,
+            result_type=self.API_TYPE_ROLLUPS,
+        )
+        return data
+
+    def _get_results(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
+        result_type: str = API_TYPE_FEATURES,
+    ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
 
@@ -462,14 +512,18 @@ class FeatureApi:
         """
 
         # Create request string
+        if result_type == self.API_TYPE_FEATURES:
+            base_url = self.FEATURES_URL
+        elif result_type == self.API_TYPE_ROLLUPS:
+            base_url = self.ROLLUPS_CSV_URL
         request_string, exact = self._create_request_string(
-            base_url=self.FEATURES_URL,
+            base_url=base_url,
             geometry=geometry,
             packs=packs,
             since=since,
             until=until,
             address_fields=address_fields,
-            survey_resource_id=survey_resource_id
+            survey_resource_id=survey_resource_id,
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
         cache_path = self._request_cache_path(request_string)
@@ -502,7 +556,10 @@ class FeatureApi:
 
         if response.ok:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
-            data = response.json()
+            if result_type == self.API_TYPE_FEATURES:
+                data = response.json()
+            elif result_type == self.API_TYPE_ROLLUPS:
+                data = response.text
 
             # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
             if not exact:
@@ -716,7 +773,7 @@ class FeatureApi:
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
-        Create a GeoDataFrame from an API response dictionary.
+        Create a GeoDataFrame from a feature API response dictionary.
 
         Args:
             payload: API response dictionary
@@ -727,7 +784,7 @@ class FeatureApi:
             Metadata dictionary
         """
 
-        # Creat metadata
+        # Create metadata
         metadata = {
             "system_version": payload["systemVersion"],
             "link": cls.add_location_marker_to_link(payload["link"]),
@@ -785,6 +842,40 @@ class FeatureApi:
         else:
             gdf = df
         return gdf, metadata
+
+    def payload_rollup_df(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
+        """
+        Create a dataframe from a rollup API response dictionary.
+
+        Args:
+            payload: API response dictionary
+            aoi_id: Optional ID for the AOI to add to the data
+
+        Returns:
+            Features GeoDataFrame
+            Metadata dictionary
+        """
+
+        # Create metadata
+        payload_io = StringIO(payload)
+        df = pd.read_csv(payload_io, header=[0, 1])  # Accounts for first header row as uuids, second as descriptions
+        metadata = {
+            "system_version": df[ROLLUP_SYSTEM_VERSION_ID].iloc[0, 0],
+            "link": "",  # TODO: Once link is returned in payloads, add in here.
+            "date": df[ROLLUP_SURVEY_DATE_ID].iloc[0, 0],
+        }
+
+        # Add AOI ID if specified
+        if aoi_id is not None:
+            try:
+                df[AOI_ID_COLUMN_NAME] = aoi_id
+            except Exception as e:
+                logger.error(
+                    f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
+                )
+                raise ValueError
+            metadata[AOI_ID_COLUMN_NAME] = aoi_id
+        return df, metadata
 
     def get_features_gdf(
         self,
@@ -1103,3 +1194,186 @@ class FeatureApi:
         metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
         errors_df = pd.DataFrame(errors)
         return features_gdf, metadata_df, errors_df
+
+    def get_rollup_df(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        aoi_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+        """
+        Get rollup data for an AOI. If a cache is configured, the cache will be checked before using the API.
+        Data is returned as a dataframe with response metadata and error information (if any occurred).
+
+        Args:
+            geometry: AOI in EPSG4326
+            region: The country code, used as a key to AREA_CRS.
+            packs: List of AI packs
+            aoi_id: ID of the AOI to add to the data
+            since: Earliest date to pull data for
+            until: Latest date to pull data for
+            address_fields: dictionary with values for the address fields, if available, or else None
+            survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
+            fail_hard_regrid: If set to true, don't try and grid on an AIFeatureAPIRequestSizeError,
+                              This option is here because we can get stuck in an infinite loop of
+                              get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
+                              and we need to be able to stop at 2nd call to get_features_gdf if we get another
+                              AIFeatureAPIRequestSizeError
+        Returns:
+            API response features GeoDataFrame, metadata dictionary, and an error dictionary
+        """
+        if geometry is None and address_fields is None:
+            raise Exception(
+                f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
+            )
+
+        try:
+            if isinstance(geometry, MultiPolygon) and len(geometry.geoms) > 1:
+                # A proper multi-polygon - run it as separate requests, then recombine.
+                rollup_df, metadata, error = [], [], None
+                for sub_geometry in geometry.geoms:
+                    sub_payload = self.get_rollup(
+                        sub_geometry, region, packs, since, until, address_fields, survey_resource_id
+                    )
+                    sub_rollup_df, sub_metadata = self.payload_rollup_df(sub_payload, aoi_id)
+                    rollup_df.append(sub_rollup_df)
+                    metadata.append(sub_metadata)
+                rollup_df = pd.concat(rollup_df)  # Warning - using arbitrary int index means duplicate index.
+
+                # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
+                metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
+                metadata_df = metadata_df.drop_duplicates()
+                if len(metadata_df) > 1:
+                    raise AIFeatureAPIError(
+                        response=None,
+                        request_string=None,
+                        text="MultiPolygon Match Failure",
+                        message="Mismatching dates or system versions",
+                    )
+                else:
+                    metadata = metadata[0]
+            else:
+                rollup_df, metadata, error = None, None, None
+                payload = self.get_rollup(geometry, region, packs, since, until, address_fields, survey_resource_id)
+                rollup_df, metadata = self.payload_rollup_df(payload, aoi_id)
+        except AIFeatureAPIError as e:
+            # Catch acceptable errors
+            rollup_df = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": e.status_code,
+                "message": e.message,
+                "text": e.text,
+                "request": e.request_string,
+            }
+
+        except requests.exceptions.RetryError as e:
+            logger.debug(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
+            rollup_df = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": -1,
+                "message": "RETRY_ERROR",
+                "text": str(e),
+                "request": "",
+            }
+        return rollup_df, metadata, error
+
+    def get_rollup_df_bulk(
+        self,
+        gdf: gpd.GeoDataFrame,
+        region: str,
+        packs: Optional[List[str]] = None,
+        since_bulk: Optional[str] = None,
+        until_bulk: Optional[str] = None,
+        survey_resource_id_bulk: Optional[str] = None,
+        instant_fail_batch: Optional[bool] = False,
+        fail_hard_regrid: Optional[bool] = False,
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
+        """
+        Get features data for many AOIs.
+
+        Args:
+            gdf: GeoDataFrame with AOIs
+            region: Country code
+            packs: List of AI packs
+            since_bulk: Earliest date to pull data for, applied across all Query AOIs.
+            until_bulk: Latest date to pull data for, applied across all Query AOIs.
+            survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
+            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
+            return all good data available.
+            fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
+                              getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
+                                                                   get_features_gdf_bulk -> get_features_gdf
+
+        Returns:
+            API responses as rollup csv GeoDataFrames, metadata DataFrame, and an error DataFrame
+        """
+        if AOI_ID_COLUMN_NAME not in gdf.columns:
+            raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+        elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
+            raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+
+        # are address fields present?
+        has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
+        # is a geometry field present?
+        has_geom = "geometry" in gdf.columns
+
+        # Run in thread pool
+        with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+            jobs = []
+            for _, row in gdf.iterrows():
+
+                # Overwrite blanket since/until dates with per request since/until if columns are present
+                since = since_bulk
+                if SINCE_COL_NAME in row:
+                    if isinstance(row[SINCE_COL_NAME], str):
+                        since = row[SINCE_COL_NAME]
+                until = until_bulk
+                if UNTIL_COL_NAME in row:
+                    if isinstance(row[UNTIL_COL_NAME], str):
+                        until = row[UNTIL_COL_NAME]
+                survey_resource_id = survey_resource_id_bulk
+                if SURVEY_RESOURCE_ID_COL_NAME in row:
+                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+
+                jobs.append(
+                    executor.submit(
+                        self.get_rollup_df,
+                        row.geometry if has_geom else None,
+                        region,
+                        packs,
+                        row[AOI_ID_COLUMN_NAME],
+                        since,
+                        until,
+                        {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                        survey_resource_id,
+                    )
+                )
+            data = []
+            metadata = []
+            errors = []
+            for i, job in enumerate(jobs):
+                aoi_data, aoi_metadata, aoi_error = job.result()
+                if aoi_data is not None:
+                    data.append(aoi_data)
+                if aoi_metadata is not None:
+                    metadata.append(aoi_metadata)
+                if aoi_error is not None:
+                    if instant_fail_batch:
+                        raise AIFeatureAPIError(aoi_error, aoi_error["request"])
+                    else:
+                        errors.append(aoi_error)
+        # Combine results
+        rollup_df = pd.concat(data) if len(data) > 0 else None
+        metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
+        errors_df = pd.DataFrame(errors)
+        return rollup_df, metadata_df, errors_df

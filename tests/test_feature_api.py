@@ -7,13 +7,48 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.wkt import loads
 
-from nearmap_ai.constants import BUILDING_ID, SOLAR_ID, VEG_MEDHIGH_ID, ASPHALT_ID, SOLAR_HW_ID, API_CRS
+from nearmap_ai.constants import (
+    BUILDING_ID,
+    SOLAR_ID,
+    VEG_MEDHIGH_ID,
+    ASPHALT_ID,
+    SOLAR_HW_ID,
+    API_CRS,
+    ROLLUP_BUILDING_COUNT_ID,
+    ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
+)
 from nearmap_ai.feature_api import FeatureApi
 import nearmap_ai.log
 import logging
 
 
 class TestFeatureAPI:
+    def test_get_rollup_df(self, sydney_aoi: Polygon, cache_directory: Path):
+        date_1 = "2020-01-01"
+        date_2 = "2020-06-01"
+        region = "au"
+        packs = ["building"]
+        aoi_id = "123"
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        rollup_df, metadata, error = feature_api.get_rollup_df(sydney_aoi, region, packs, aoi_id, date_1, date_2)
+        print(rollup_df.T)
+        print(f"WKT of Query AOI: {sydney_aoi}")
+
+        # No error
+        assert error is None
+        # Date is in range
+        assert date_1 <= metadata["date"] <= date_2
+        # We get 3 buildings
+        building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].iloc[0, 0]
+        assert (
+            building_count == 1
+        )  # Expect a single, joined building kept after filter, from two touching residential homes.
+        # The AOI ID has been assigned
+        assert len(rollup_df[rollup_df.aoi_id == aoi_id]) == 1
+        # Unclipped area should be about 500 sqm
+        assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(500, rel=0.1)
+
     def test_get_features_gdf(self, sydney_aoi: Polygon, cache_directory: Path):
         date_1 = "2020-01-01"
         date_2 = "2020-06-01"
@@ -197,6 +232,20 @@ class TestFeatureAPI:
         # We get only buildings
         assert len(features_gdf) == 69
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
+
+        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(aoi_gdf, country, packs, date_1, date_2)
+        # Check metadata
+        assert len(metadata_df) == 16
+        assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
+        # Check error
+        assert len(errors_df) == 0
+
+        # We get about the right number of buildings
+        assert len(rollup_df) == 16
+        total_building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].values.sum()
+        assert total_building_count == pytest.approx(
+            69, rel=0.1
+        )  # TODO: Check data - result is 53, but the original 69 count was not doing building filtering.
 
     def test_get_bulk_with_data_dates(self, cache_directory: Path, sydney_aoi: Polygon):
         aois = []
