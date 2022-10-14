@@ -114,6 +114,7 @@ class FeatureApi:
     """
 
     FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
+    ROLLUPS_CSV_URL = "https://api.nearmap.com/ai/features/v4/rollups.csv"
     FEATURES_SURVEY_RESOURCE_URL = "https://api.nearmap.com/ai/features/v4/surveyresources"
     CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
     PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
@@ -390,6 +391,7 @@ class FeatureApi:
 
     def _create_request_string(
         self,
+        base_url: str,
         geometry: Union[Polygon, MultiPolygon],
         packs: Optional[List[str]] = None,
         since: Optional[str] = None,
@@ -399,9 +401,10 @@ class FeatureApi:
     ) -> Tuple[str, bool]:
         """
         Create a request string with given parameters
+        base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
         """
         urlbase = (
-            self.FEATURES_URL
+            base_url
             if survey_resource_id is None
             else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         )
@@ -460,7 +463,13 @@ class FeatureApi:
 
         # Create request string
         request_string, exact = self._create_request_string(
-            geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
+            base_url=self.FEATURES_URL,
+            geometry=geometry,
+            packs=packs,
+            since=since,
+            until=until,
+            address_fields=address_fields,
+            survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
         cache_path = self._request_cache_path(request_string)
