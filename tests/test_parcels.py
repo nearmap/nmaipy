@@ -798,7 +798,24 @@ class TestParcels:
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
         print(metadata)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        config = {
+            "min_size": {
+                BUILDING_ID: 25,
+            },
+            "min_confidence": {
+                BUILDING_ID: 0.8,
+            },
+            "min_fidelity": {
+                BUILDING_ID: 0.4,
+            },
+            "min_area_in_parcel": {
+                BUILDING_ID: 25,
+            },
+            "min_ratio_in_parcel": {
+                BUILDING_ID: 0.5,
+            },
+        }
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config,)
         print(features_gdf)
         df = parcels.parcel_rollup(
             parcels_gdf,
