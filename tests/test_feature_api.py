@@ -243,9 +243,7 @@ class TestFeatureAPI:
         # We get about the right number of buildings
         assert len(rollup_df) == 16
         total_building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].values.sum()
-        assert total_building_count == pytest.approx(
-            69, rel=0.1
-        )  # TODO: Check data - result is 53, but the original 69 count was not doing building filtering.
+        assert total_building_count == pytest.approx(53, rel=0.1)
 
     def test_get_bulk_with_data_dates(self, cache_directory: Path, sydney_aoi: Polygon):
         aois = []
