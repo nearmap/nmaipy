@@ -176,6 +176,7 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
+    use_rollups_endpoint: [bool] = False,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -199,8 +200,10 @@ def process_chunk(
         until_bulk: Latest date used to pull features
         alpha: Return alpha layers
         beta: return beta layers
+        use_rollup_endpoint: Whether to use the rollups endpoint (true), or use the python logic for pulling features and rolling them up.
     """
     cache_path = Path(output_dir) / "cache"
+    rollup_cache_path = Path(output_dir) / "cache_rollups"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
     outfile_features = chunk_path / f"features_{chunk_id}.parquet"
@@ -223,46 +226,70 @@ def process_chunk(
         alpha=alpha,
         beta=beta,
     )
-    logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
-    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-        parcel_gdf,
-        region=country,
-        since_bulk=since_bulk,
-        until_bulk=until_bulk,
-        packs=packs,
-        instant_fail_batch=False,
-    )
-    if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
-        logger.info(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+    if use_rollups_endpoint:
+        logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs")
+        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
+            parcel_gdf,
+            region=country,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            packs=packs,
+            instant_fail_batch=False,
         )
-    if len(errors_df) > 0:
-        if "message" in errors_df:
-            logger.debug(errors_df.value_counts("message"))
-        else:
-            logger.debug(f"Found {len(errors_df)} errors")
-    if len(errors_df) == len(parcel_gdf):
-        errors_df.to_parquet(outfile_errors)
-        return
+        if errors_df is not None and parcel_gdf is not None and rollup_df is not None:
+            logger.info(
+                f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+            )
+        if len(errors_df) > 0:
+            if "message" in errors_df:
+                logger.debug(errors_df.value_counts("message"))
+            else:
+                logger.debug(f"Found {len(errors_df)} errors")
+        if len(errors_df) == len(parcel_gdf):
+            errors_df.to_parquet(outfile_errors)
+            return
+        logger.debug(f"Finished pulling rollup for chunk {chunk_id}")
+    else:
+        logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+            parcel_gdf,
+            region=country,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            packs=packs,
+            instant_fail_batch=False,
+        )
+        if errors_df is not None and parcel_gdf is not None and features_gdf is not None:
+            logger.info(
+                f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+            )
+        if len(errors_df) > 0:
+            if "message" in errors_df:
+                logger.debug(errors_df.value_counts("message"))
+            else:
+                logger.debug(f"Found {len(errors_df)} errors")
+        if len(errors_df) == len(parcel_gdf):
+            errors_df.to_parquet(outfile_errors)
+            return
 
-    # Filter features
-    len_all_features = len(features_gdf)
-    features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
-    len_filtered_features = len(features_gdf)
-    logger.debug(
-        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-    )
+        # Filter features
+        len_all_features = len(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
+        len_filtered_features = len(features_gdf)
+        logger.debug(
+            f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+        )
 
-    # Create rollup
-    rollup_df = parcels.parcel_rollup(
-        parcel_gdf,
-        features_gdf,
-        classes_df,
-        country=country,
-        calc_buffers=calc_buffers,
-        primary_decision=primary_decision,
-    )
-    logger.debug(f"Finished rollup for chunk {chunk_id}")
+        # Create rollup
+        rollup_df = parcels.parcel_rollup(
+            parcel_gdf,
+            features_gdf,
+            classes_df,
+            country=country,
+            calc_buffers=calc_buffers,
+            primary_decision=primary_decision,
+        )
+        logger.debug(f"Finished rollup for chunk {chunk_id}")
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -279,6 +306,8 @@ def process_chunk(
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
+    if use_rollups_endpoint:
+        final_df.columns = pd.MultiIndex.from_tuples([d if isinstance(d, tuple) else ("", d) for d in final_df.columns])
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:
@@ -295,7 +324,7 @@ def process_chunk(
         logger.error(final_df.shape)
         logger.error(final_df)
 
-    if save_features:
+    if save_features and not use_rollups_endpoint:
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
         final_features_df = gpd.GeoDataFrame(
             metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(

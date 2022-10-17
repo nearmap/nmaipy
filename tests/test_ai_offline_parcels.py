@@ -9,7 +9,7 @@ import warnings
 
 
 from nearmap_ai.feature_api import FeatureApi
-from nearmap_ai.constants import BUILDING_ID, LAWN_GRASS_ID, POOL_ID, AOI_ID_COLUMN_NAME, SURVEY_RESOURCE_ID_COL_NAME
+from nearmap_ai.constants import *
 
 # sys.path.append(Path(__file__).parent.parent.absolute() / "scripts")
 sys.path.append("/home/jovyan/nearmap-ai-user-guides/scripts")
@@ -84,3 +84,99 @@ class TestAIOfflineParcel:
         assert outpath_features.exists()
 
         assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.
+        print(data.T)
+
+    def test_process_chunk_rollup_vs_feature_calc(
+        self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
+    ):
+        """
+        Comparison of results from the rollup api, or the feature api with local logic, confirming the implementations
+        give the same result.
+        # TODO: Create a larger, more diverse set of test parcels and test full identical nature of equivalent results.
+        Args:
+            parcel_gdf_au_tests:
+            cache_directory:
+            processed_output_directory:
+
+        Returns:
+
+        """
+        tag = "tests_au"
+        tag_rollup_api = "tests_au_rollup"
+        chunk_id = 0
+
+        output_dir = Path("/home/jovyan/data/tmp") / tag
+        output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
+        packs = ["building", "vegetation"]
+        country = "au"
+        final_path = output_dir / "final"  # Permanent path for later visual inspection
+        final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
+        final_path.mkdir(parents=True, exist_ok=True)
+        final_path_rollup_api.mkdir(parents=True, exist_ok=True)
+
+        chunk_path = output_dir / "chunks"
+        chunk_path_rollup_api = output_dir_rollup_api / "chunks"
+        chunk_path.mkdir(parents=True, exist_ok=True)
+        chunk_path_rollup_api.mkdir(parents=True, exist_ok=True)
+
+        cache_path = output_dir / "cache"
+        cache_path_rollup_api = output_dir_rollup_api / "cache"
+        cache_path.mkdir(parents=True, exist_ok=True)
+        cache_path_rollup_api.mkdir(parents=True, exist_ok=True)
+
+        feature_api = FeatureApi()
+        classes_df = feature_api.get_feature_classes(packs)
+
+        for use_rollup, outdir in [(False, output_dir), (True, output_dir_rollup_api)]:
+            ai_offline_parcel.process_chunk(
+                chunk_id=chunk_id,
+                parcel_gdf=parcel_gdf_au_tests,
+                classes_df=classes_df,
+                output_dir=outdir,
+                key_file=None,
+                config=None,
+                country=country,
+                packs=packs,
+                include_parcel_geometry=True,
+                save_features=False,
+                alpha=False,
+                beta=False,
+                use_rollups_endpoint=use_rollup,
+            )
+
+        data_feature_api = []
+        for cp in chunk_path.glob(f"rollup_*.parquet"):
+            data_feature_api.append(pd.read_parquet(cp))
+        data_feature_api = pd.concat(data_feature_api)
+
+        data_rollup_api = []
+        for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
+            data_rollup_api.append(pd.read_parquet(cp))
+        data_rollup_api = pd.concat(data_rollup_api)
+
+        # print("data feature api")
+        # print(data_feature_api.T)
+        # print("data rollup api")
+        # print(data_rollup_api.T)
+
+        # Test columns which are named differently
+        assert data_feature_api.loc[0, "building_count"] == data_rollup_api.loc[0, ROLLUP_BUILDING_COUNT_ID].values[0]
+        assert (
+            data_feature_api.loc[0, "primary_building_unclipped_area_sqm"]
+            == data_rollup_api.loc[0, ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].values[0]
+        )
+        assert data_feature_api.loc[0, "date"] == data_rollup_api.loc[0, ROLLUP_SURVEY_DATE_ID].values[0]
+        assert data_feature_api.loc[0, "system_version"] == data_rollup_api.loc[0, ROLLUP_SYSTEM_VERSION_ID].values[0]
+
+        # Test columns which should be identical
+        # TODO: Not provided, but should be: ["link", "mesh_date"]
+        for ident_col in [
+            "since",
+            "until",
+            "survey_resource_id",
+            "aoi_id",
+            "query_aoi_lat",
+            "query_aoi_lon",
+            "geometry",
+        ]:
+            assert data_feature_api.loc[0, ident_col] == data_rollup_api.loc[0, ("", ident_col)]
