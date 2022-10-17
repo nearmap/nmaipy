@@ -87,7 +87,7 @@ class TestAIOfflineParcel:
         print(data.T)
 
     def test_process_chunk_rollup_vs_feature_calc(
-        self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
+        self, parcels_2_gdf: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
     ):
         """
         Comparison of results from the rollup api, or the feature api with local logic, confirming the implementations
@@ -101,14 +101,15 @@ class TestAIOfflineParcel:
         Returns:
 
         """
-        tag = "tests_au"
-        tag_rollup_api = "tests_au_rollup"
+
+        tag = "tests"
+        tag_rollup_api = "tests_rollup"
         chunk_id = 0
 
         output_dir = Path("/home/jovyan/data/tmp") / tag
         output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
         packs = ["building", "vegetation"]
-        country = "au"
+        country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
         final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
         final_path.mkdir(parents=True, exist_ok=True)
@@ -130,7 +131,7 @@ class TestAIOfflineParcel:
         for use_rollup, outdir in [(False, output_dir), (True, output_dir_rollup_api)]:
             ai_offline_parcel.process_chunk(
                 chunk_id=chunk_id,
-                parcel_gdf=parcel_gdf_au_tests,
+                parcel_gdf=parcels_2_gdf,
                 classes_df=classes_df,
                 output_dir=outdir,
                 key_file=None,
@@ -139,6 +140,8 @@ class TestAIOfflineParcel:
                 packs=packs,
                 include_parcel_geometry=True,
                 save_features=False,
+                since_bulk="2022-06-29",
+                until_bulk="2022-06-29",
                 alpha=False,
                 beta=False,
                 use_rollups_endpoint=use_rollup,
@@ -159,24 +162,119 @@ class TestAIOfflineParcel:
         # print("data rollup api")
         # print(data_rollup_api.T)
 
-        # Test columns which are named differently
-        assert data_feature_api.loc[0, "building_count"] == data_rollup_api.loc[0, ROLLUP_BUILDING_COUNT_ID].values[0]
-        assert (
-            data_feature_api.loc[0, "primary_building_unclipped_area_sqm"]
-            == data_rollup_api.loc[0, ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].values[0]
+        # Test continuous class - tree canopy
+        ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[:, "medium_and_high_vegetation_(>2m)_count"],
+            data_rollup_api.loc[:, ROLLUP_TREE_CANOPY_COUNT_ID].iloc[:, 0],
+            check_exact=False,
+            check_names=False,
+            atol=1,
         )
-        assert data_feature_api.loc[0, "date"] == data_rollup_api.loc[0, ROLLUP_SURVEY_DATE_ID].values[0]
-        assert data_feature_api.loc[0, "system_version"] == data_rollup_api.loc[0, ROLLUP_SYSTEM_VERSION_ID].values[0]
 
-        # Test columns which should be identical
-        # TODO: Not provided, but should be: ["link", "mesh_date"]
+        ## Check small error tolerance (max 1 square foot), only where there was no in/out discrepancy on counts
+        idx_equal_counts = (
+            data_feature_api.loc[:, "medium_and_high_vegetation_(>2m)_count"]
+            - data_rollup_api.loc[:, ROLLUP_TREE_CANOPY_COUNT_ID].iloc[:, 0]
+        ) == 0
+
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[idx_equal_counts, "medium_and_high_vegetation_(>2m)_total_clipped_area_sqft"],
+            data_rollup_api.loc[idx_equal_counts, ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID].iloc[:, 0].astype("float"),
+            check_exact=False,
+            check_names=False,
+            atol=1,
+        )
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[idx_equal_counts, "medium_and_high_vegetation_(>2m)_total_unclipped_area_sqft"],
+            data_rollup_api.loc[idx_equal_counts, ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID].iloc[:, 0].astype("float"),
+            check_exact=False,
+            check_names=False,
+            atol=1,
+        )
+
+        # Test discrete class - building
+        ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[:, "building_count"],
+            data_rollup_api.loc[:, ROLLUP_BUILDING_COUNT_ID].iloc[:, 0],
+            check_names=False,
+            atol=1,
+        )
+
+        ## Check small error tolerance (max 1 square foot), only where there was no in/out discrepancy on counts
+        idx_equal_counts = (
+            data_feature_api.loc[:, "building_count"] - data_rollup_api.loc[:, ROLLUP_BUILDING_COUNT_ID].iloc[:, 0]
+        ) == 0
+
+        ## Implicitly test sqm to sqft conversion...
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[idx_equal_counts, "primary_building_clipped_area_sqft"]
+            / SQUARED_METERS_TO_SQUARED_FEET,
+            data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID]
+            .fillna(0)
+            .iloc[:, 0]
+            .astype("float"),
+            check_exact=False,
+            check_names=False,
+            atol=1,
+        )
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[idx_equal_counts, "primary_building_unclipped_area_sqft"]
+            / SQUARED_METERS_TO_SQUARED_FEET,
+            data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID]
+            .fillna(0)
+            .iloc[:, 0]
+            .astype("float"),
+            check_exact=False,
+            check_names=False,
+            atol=1,
+        )
+
+        ## Test confidence aggregation is correct to within 1%
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[idx_equal_counts, "building_confidence"],
+            data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRESENT_CONFIDENCE].iloc[:, 0].astype("float"),
+            check_exact=False,
+            check_names=False,
+            rtol=0.01,
+        )
+
+        # TODO: Enable once fidelity score in rollup API.
+        # ## Test fidelity score copied correctly to within 1%
+        # pd.testing.assert_series_equal(
+        #     data_feature_api.loc[idx_equal_counts, "building_primary_fidelity"],
+        #     data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRIMARY_FIDELITY]
+        #     .iloc[:, 0]
+        #     .astype("float"),
+        #     check_exact=False,
+        #     check_names=False,
+        #     rtol=0.01,
+        # )
+
+        # Test metadata columns which should be identical
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[:, "date"],
+            data_rollup_api.loc[:, ROLLUP_SURVEY_DATE_ID].iloc[:, 0],
+            check_names=False,
+        )
+        pd.testing.assert_series_equal(
+            data_feature_api.loc[:, "system_version"],
+            data_rollup_api.loc[:, ROLLUP_SYSTEM_VERSION_ID].iloc[:, 0],
+            check_names=False,
+        )
+
+        # TODO: Not provided, but should be: ["link", "mesh_date", "fidelity"]
         for ident_col in [
-            "since",
-            "until",
-            "survey_resource_id",
             "aoi_id",
             "query_aoi_lat",
             "query_aoi_lon",
             "geometry",
+            # "link",
+            # "mesh_date",
         ]:
-            assert data_feature_api.loc[0, ident_col] == data_rollup_api.loc[0, ("", ident_col)]
+            pd.testing.assert_series_equal(
+                data_feature_api.loc[:, ident_col],
+                data_rollup_api.loc[:, ("", ident_col)],
+                check_names=False
+            )
