@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 import json
 import sys
+from enum import Enum
 
 import geopandas as gpd
 import numpy as np
@@ -27,6 +28,12 @@ from nearmap_ai.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
 )
 from nearmap_ai.feature_api import FeatureApi
+
+
+class Endpoint(Enum):
+    FEATURE = "feature"
+    ROLLUP = "rollup"
+
 
 CHUNK_SIZE = 2000
 PROCESSES = 20
@@ -141,6 +148,13 @@ def parse_arguments():
         required=False,
         type=str,
     )
+    parser.add_argument(
+        "--endpoint",
+        help="Select which endpoint gets used for rollups - 'feature' (default) or 'rollup'",
+        type=str,
+        required=False,
+        default="feature",
+    )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     return parser.parse_args()
 
@@ -176,7 +190,7 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
-    use_rollups_endpoint: [bool] = False,
+    endpoint: [str] = Endpoint.FEATURE,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -200,7 +214,7 @@ def process_chunk(
         until_bulk: Latest date used to pull features
         alpha: Return alpha layers
         beta: return beta layers
-        use_rollup_endpoint: Whether to use the rollups endpoint (true), or use the python logic for pulling features and rolling them up.
+        endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
     """
     cache_path = Path(output_dir) / "cache"
     rollup_cache_path = Path(output_dir) / "cache_rollups"
@@ -226,7 +240,7 @@ def process_chunk(
         alpha=alpha,
         beta=beta,
     )
-    if use_rollups_endpoint:
+    if endpoint == Endpoint.ROLLUP:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs")
         rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
             parcel_gdf,
@@ -249,7 +263,7 @@ def process_chunk(
             errors_df.to_parquet(outfile_errors)
             return
         logger.debug(f"Finished pulling rollup for chunk {chunk_id}")
-    else:
+    elif endpoint == Endpoint.FEATURE:
         logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
             parcel_gdf,
@@ -306,7 +320,7 @@ def process_chunk(
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
-    if use_rollups_endpoint:
+    if endpoint == Endpoint.ROLLUP:
         final_df.columns = pd.MultiIndex.from_tuples([d if isinstance(d, tuple) else ("", d) for d in final_df.columns])
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
@@ -324,7 +338,7 @@ def process_chunk(
         logger.error(final_df.shape)
         logger.error(final_df)
 
-    if save_features and not use_rollups_endpoint:
+    if save_features and (endpoint != Endpoint.ROLLUP):
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
         final_features_df = gpd.GeoDataFrame(
             metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
@@ -458,6 +472,7 @@ def main():
                             args.compress_cache,
                             args.since,
                             args.until,
+                            args.endpoint,
                         )
                     )
                 for j in jobs:
@@ -493,6 +508,7 @@ def main():
                     args.compress_cache,
                     args.since,
                     args.until,
+                    args.endpoint,
                 )
 
         # Combine chunks and save
