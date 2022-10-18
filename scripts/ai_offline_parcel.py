@@ -125,16 +125,12 @@ def parse_arguments():
     parser.add_argument(
         "--alpha",
         help="Include alpha layers",
-        required=False,
-        type=bool,
-        default=True,
+        action="store_true",
     )
     parser.add_argument(
         "--beta",
         help="Include beta layers",
-        required=False,
-        type=bool,
-        default=True,
+        action="store_true",
     )
     parser.add_argument(
         "--since",
@@ -240,8 +236,8 @@ def process_chunk(
         alpha=alpha,
         beta=beta,
     )
-    if endpoint == Endpoint.ROLLUP:
-        logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs")
+    if endpoint == Endpoint.ROLLUP.value:
+        logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
         rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
             parcel_gdf,
             region=country,
@@ -262,9 +258,9 @@ def process_chunk(
         if len(errors_df) == len(parcel_gdf):
             errors_df.to_parquet(outfile_errors)
             return
-        logger.debug(f"Finished pulling rollup for chunk {chunk_id}")
-    elif endpoint == Endpoint.FEATURE:
-        logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
+        logger.debug(f"Finished pulling rollup for chunk {chunk_id} from rollup endpoint.")
+    elif endpoint == Endpoint.FEATURE.value:
+        logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs({endpoint=})")
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
             parcel_gdf,
             region=country,
@@ -303,7 +299,9 @@ def process_chunk(
             calc_buffers=calc_buffers,
             primary_decision=primary_decision,
         )
-        logger.debug(f"Finished rollup for chunk {chunk_id}")
+        logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
+    else:
+        raise ValueError(f"Not a valid endpoint selection: {endpoint}")
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -440,7 +438,7 @@ def main():
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
-
+        logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
         if args.workers > 1:
             processes = int(args.workers)
             with concurrent.futures.ProcessPoolExecutor(processes) as executor:
@@ -472,6 +470,8 @@ def main():
                             args.compress_cache,
                             args.since,
                             args.until,
+                            args.alpha,
+                            args.beta,
                             args.endpoint,
                         )
                     )
@@ -508,6 +508,8 @@ def main():
                     args.compress_cache,
                     args.since,
                     args.until,
+                    args.alpha,
+                    args.beta,
                     args.endpoint,
                 )
 
