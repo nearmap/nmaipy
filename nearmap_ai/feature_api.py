@@ -525,6 +525,13 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
         )
+        if not exact and result_type == self.API_TYPE_ROLLUPS:
+            raise AIFeatureAPIError(
+                response=None,
+                request_string=request_string.replace(self.api_key, "..."),
+                text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+                message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+            )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
         cache_path = self._request_cache_path(request_string)
 
@@ -556,30 +563,30 @@ class FeatureApi:
 
         if response.ok:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
-            if result_type == self.API_TYPE_FEATURES:
-                data = response.json()
-            elif result_type == self.API_TYPE_ROLLUPS:
+
+            if result_type == self.API_TYPE_ROLLUPS:
                 data = response.text
+            elif result_type == self.API_TYPE_FEATURES:
+                data = response.json()
+                # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
+                if not exact:
+                    # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
+                    data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+                    if len(data["features"]) > 0:
+                        gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
 
-            # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
-            if not exact:
-                # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
-                data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
-                if len(data["features"]) > 0:
-                    gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
+                        gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
-                    gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
+                        for i, feature in enumerate(data["features"]):
 
-                    for i, feature in enumerate(data["features"]):
+                            data["features"][i]["clippedAreaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                            data["features"][i]["clippedAreaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
 
-                        data["features"][i]["clippedAreaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-                        data["features"][i]["clippedAreaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
-
-                        if feature["classId"] in CONNECTED_CLASS_IDS:
-                            # Replace geometry, with geojson style mapped clipped geometry
-                            data["features"][i]["geometry"] = shapely.geometry.mapping(gdf_clip.loc[i, "geometry"])
-                            data["features"][i]["areaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-                            data["features"][i]["areaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
+                            if feature["classId"] in CONNECTED_CLASS_IDS:
+                                # Replace geometry, with geojson style mapped clipped geometry
+                                data["features"][i]["geometry"] = shapely.geometry.mapping(gdf_clip.loc[i, "geometry"])
+                                data["features"][i]["areaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                                data["features"][i]["areaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
 
             # Save to cache if configured
             if self.cache_dir is not None:
@@ -859,10 +866,11 @@ class FeatureApi:
         # Create metadata
         payload_io = StringIO(payload)
         df = pd.read_csv(payload_io, header=[0, 1])  # Accounts for first header row as uuids, second as descriptions
+        df.columns = df.columns.map("|".join).str.strip("|")
         metadata = {
-            "system_version": df[ROLLUP_SYSTEM_VERSION_ID].iloc[0, 0],
+            "system_version": df.filter(regex=ROLLUP_SYSTEM_VERSION_ID).iloc[0, 0],
             "link": "",  # TODO: Once link is returned in payloads, add in here.
-            "date": df[ROLLUP_SURVEY_DATE_ID].iloc[0, 0],
+            "date": df.filter(regex=ROLLUP_SURVEY_DATE_ID).iloc[0, 0],
         }
 
         # Add AOI ID if specified
