@@ -160,7 +160,7 @@ class FeatureApi:
         self.cache_dir = cache_dir
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-        elif self.overwrite_cache:
+        elif overwrite_cache:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True. Makes no sense")
         self._sessions = []
         self._thread_local = threading.local()
