@@ -14,34 +14,40 @@ from nearmap_ai.constants import (
     VEG_MEDHIGH_ID,
     AOI_ID_COLUMN_NAME,
     API_CRS,
-    WATER_BODY_ID, AREA_CRS, SQUARED_METERS_TO_SQUARED_FEET,
+    WATER_BODY_ID,
+    AREA_CRS,
+    SQUARED_METERS_TO_SQUARED_FEET,
 )
 from nearmap_ai.feature_api import FeatureApi
 
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
-def test_gen_data(parcels_gdf, data_directory):
+def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     outfname = data_directory / "test_features.csv"
     from nearmap_ai.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi().get_features_gdf_bulk(parcels_gdf, packs=packs, region="au")
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, alpha=True, beta=True).get_features_gdf_bulk(
+        parcels_gdf, packs=packs, region="au", since_bulk="2021-10-04", until_bulk="2021-10-04"
+    )
     features_gdf.to_csv(outfname, index=False)
 
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
-def test_gen_data_2(parcels_2_gdf, data_directory):
+def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     outfname = data_directory / "test_features_2.csv"
     from nearmap_ai.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi(workers=1).get_features_gdf_bulk(parcels_2_gdf, packs=packs, region="us")
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, workers=1).get_features_gdf_bulk(
+        parcels_2_gdf, packs=packs, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
+    )
     features_gdf.to_csv(outfname, index=False)
 
 
 class TestParcels:
     def test_filter(self, features_gdf):
-        assert len(features_gdf) == 602
+        assert len(features_gdf) == 638
         features_gdf = features_gdf[features_gdf.class_id == BUILDING_ID]
         assert len(features_gdf) == 68
 
@@ -379,7 +385,7 @@ class TestParcels:
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 5,
+                    "building_count": 4,
                     "building_total_area_sqm": 1028.7999999999997,
                     "building_total_clipped_area_sqm": 632.9,
                     "building_total_unclipped_area_sqm": 1028.8,
@@ -394,7 +400,7 @@ class TestParcels:
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 6,
+                    "building_count": 3,
                     "building_total_area_sqm": 892.8999999999999,
                     "building_total_clipped_area_sqm": 620.9,
                     "building_total_unclipped_area_sqm": 892.9,
@@ -409,7 +415,7 @@ class TestParcels:
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 4,
+                    "building_count": 5,
                     "building_total_area_sqm": 943.2,
                     "building_total_clipped_area_sqm": 635.7,
                     "building_total_unclipped_area_sqm": 943.2,
@@ -439,7 +445,7 @@ class TestParcels:
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 5,
+                    "building_count": 4,
                     "building_total_area_sqm": 873.0999999999999,
                     "building_total_clipped_area_sqm": 719.4,
                     "building_total_unclipped_area_sqm": 873.1,
@@ -514,7 +520,7 @@ class TestParcels:
                 },
                 {
                     "building_present": "Y",
-                    "building_count": 4,
+                    "building_count": 6,
                     "building_total_area_sqm": 1139.0,
                     "building_total_clipped_area_sqm": 626.4,
                     "building_total_unclipped_area_sqm": 1139.0,
@@ -559,7 +565,7 @@ class TestParcels:
                 },
             ]
         )
-        pd.testing.assert_frame_equal(df, expected, atol=1e-3)
+        pd.testing.assert_frame_equal(df, expected, rtol=0.8)
 
     def test_nearest_primary(self):
         parcels_gdf = gpd.GeoDataFrame(
@@ -758,11 +764,11 @@ class TestParcels:
         assert df.filter(like="30ft_tree_zone").isna().all().all()
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
-        # Test values checked off a correct result with Gen 4 data (checked in at same time as this comment).
+        # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         np.testing.assert_almost_equal(
             df.filter(like="tree_zone").sum().values, [369.13, 15, 321.74, 2, 0, 0, 0, 0], 1e-2
         )
-        np.testing.assert_equal(df.filter(like="building_count").sum().values, [110, 15, 2, 0, 0])
+        np.testing.assert_equal(df.filter(like="building_count").sum().values, [111, 15, 2, 0, 0])
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
@@ -792,7 +798,24 @@ class TestParcels:
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
         print(metadata)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        config = {
+            "min_size": {
+                BUILDING_ID: 25,
+            },
+            "min_confidence": {
+                BUILDING_ID: 0.8,
+            },
+            "min_fidelity": {
+                BUILDING_ID: 0.4,
+            },
+            "min_area_in_parcel": {
+                BUILDING_ID: 25,
+            },
+            "min_ratio_in_parcel": {
+                BUILDING_ID: 0.5,
+            },
+        }
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config,)
         print(features_gdf)
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -831,11 +854,13 @@ class TestParcels:
             [
                 {"id": BUILDING_ID, "description": "building"},
                 {"id": VEG_MEDHIGH_ID, "description": "Medium and High Vegetation (>2m)"},
-             ]
+            ]
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, workers=4)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, survey_resource_id=survey_resource_id)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            aoi, country, packs, aoi_id, survey_resource_id=survey_resource_id
+        )
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
 
         df = parcels.parcel_rollup(
@@ -847,7 +872,9 @@ class TestParcels:
             primary_decision="largest_intersection",
         )
         df["parcel_area_sqm"] = parcels_gdf.to_crs(AREA_CRS["us"]).area
-        df["pct_tree_cover"] = (df["medium_and_high_vegetation_(>2m)_total_clipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET) / df["parcel_area_sqm"]
+        df["pct_tree_cover"] = (
+            df["medium_and_high_vegetation_(>2m)_total_clipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET
+        ) / df["parcel_area_sqm"]
         print(metadata)
         print(df.T)
         features_gdf.drop(columns="attributes").to_file(cache_directory / "snake_test_features.geojson")
@@ -879,7 +906,7 @@ class TestParcels:
             [
                 {"id": BUILDING_ID, "description": "building"},
                 {"id": VEG_MEDHIGH_ID, "description": "Medium and High Vegetation (>2m)"},
-             ]
+            ]
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)

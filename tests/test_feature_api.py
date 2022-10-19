@@ -61,7 +61,7 @@ class TestFeatureAPI:
         print(features_gdf.T)
 
         assert len(features_gdf.feature_id.unique()) == len(features_gdf)
-        #TODO: Make this test richer/quantitative info, not just that we end up with unique feature IDs.
+        # TODO: Make this test richer/quantitative info, not just that we end up with unique feature IDs.
 
     def test_split_geometry_into_grid(self, sydney_aoi: Polygon):
         aoi = sydney_aoi
