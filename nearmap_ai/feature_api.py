@@ -160,6 +160,8 @@ class FeatureApi:
         self.cache_dir = cache_dir
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+        elif self.overwrite_cache:
+            raise ValueError(f"No cache dir specified, but overwrite cache set to True. Makes no sense")
         self._sessions = []
         self._thread_local = threading.local()
         self.overwrite_cache = overwrite_cache
@@ -457,7 +459,7 @@ class FeatureApi:
             geometry, packs, since, until, address_fields=address_fields, survey_resource_id=survey_resource_id
         )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
-        cache_path = self._request_cache_path(request_string)
+        cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
