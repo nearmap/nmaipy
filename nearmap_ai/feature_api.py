@@ -138,6 +138,7 @@ class FeatureApi:
         workers: Optional[int] = 10,
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
+        maxretry: int=MAX_RETRIES
     ):
         """
         Initialize FeatureApi class
@@ -168,6 +169,7 @@ class FeatureApi:
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
+        self.maxretry = maxretry
 
     @property
     def _session(self) -> requests.Session:
@@ -178,7 +180,7 @@ class FeatureApi:
         if session is None:
             session = requests.Session()
             retries = RetryRequest(
-                total=MAX_RETRIES,
+                total=self.maxretry,
                 backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
@@ -808,7 +810,8 @@ class FeatureApi:
                     sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
-                features_gdf = pd.concat(features_gdf)  # Warning - using arbitrary int index means duplicate index.
+                # Warning - using arbitrary int index means duplicate index.
+                features_gdf = pd.concat(features_gdf) if len(features_gdf) < 0 else None
 
                 # Check for repeat appearances of the same feature in the multipolygon
                 if len(features_gdf.feature_id.unique()) < len(features_gdf):
@@ -831,13 +834,11 @@ class FeatureApi:
                 payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
                 features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
-            features_gdf, metadata, error = [], [], None
+            features_gdf, metadata, error = None, None, None
 
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             logging.debug(f"{fail_hard_regrid=}")
-            if (
-                fail_hard_regrid or geometry is None
-            ):  # Do not get stuck in an infinite loop of re-gridding and timing out
+            if fail_hard_regrid or geometry is None:  # Do not get stuck in an infinite loop of re-gridding and timing out
                 logger.debug("Failing hard and NOT re-gridding....")
                 error = {
                     AOI_ID_COLUMN_NAME: aoi_id,
@@ -908,6 +909,7 @@ class FeatureApi:
                 "text": str(e),
                 "request": "",
             }
+    
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
@@ -1071,8 +1073,10 @@ class FeatureApi:
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
-        # Combine results
-        features_gdf = pd.concat(data) if len(data) > 0 else None
-        metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
-        errors_df = pd.DataFrame(errors)
+        # Combine results. reset_index() here because the index of the combined dataframes
+        # is just the row number in the chunk submitted to each worker, and so we get an
+        # index in the final dataframe that is not unique, and also not very useful.
+        features_gdf = pd.concat(data).reset_index() if len(data) > 0 else None
+        metadata_df = pd.DataFrame(metadata).reset_index() if len(metadata) > 0 else None
+        errors_df = pd.DataFrame(errors).reset_index() if len(errors) > 0 else None
         return features_gdf, metadata_df, errors_df
