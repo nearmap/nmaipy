@@ -909,7 +909,7 @@ class FeatureApi:
                 "text": str(e),
                 "request": "",
             }
-    
+
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
