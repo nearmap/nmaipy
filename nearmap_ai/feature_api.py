@@ -74,6 +74,8 @@ class AIFeatureAPIError(Exception):
                 self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
             except json.JSONDecodeError:
                 self.message = "JSONDecodeError"
+            except requests.exceptions.ChunkedEncodingError:
+                self.message = "ChunkedEncodingError"
             except AttributeError:
                 self.message = ""
         self.request_string = request_string
@@ -204,6 +206,10 @@ class FeatureApi:
 
         """
         request_string = f"{base_url}?apikey={self.api_key}"
+        if self.alpha:
+            request_string += "&alpha=true"
+        if self.beta:
+            request_string += "&beta=true"
         # Request data
         response = self._session.get(request_string)
         # Check for errors
@@ -418,12 +424,12 @@ class FeatureApi:
                 request_string += f"&since={since}"
             if until:
                 request_string += f"&until={until}"
-                
+
         if self.alpha:
             request_string += "&alpha=true"
         if self.beta:
             request_string += "&beta=true"
-            
+
         # Add packs if given
         if packs:
             packs = ",".join(packs)
@@ -480,8 +486,13 @@ class FeatureApi:
 
         # Request data
         t1 = time.monotonic()
-        response = self._session.get(request_string)
+        try:
+            response = self._session.get(request_string)
+        except requests.exceptions.ChunkedEncodingError:
+            self._handle_response_errors(None, request_string)
+
         response_time_ms = (time.monotonic() - t1) * 1e3
+
         if response.ok:
             logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
             data = response.json()
@@ -511,7 +522,16 @@ class FeatureApi:
                 self._write_to_cache(cache_path, data)
             return data
         else:
-            logger.debug(f"{response_time_ms:.1f}ms failure response time {response.text} {response.status_code}")
+            try:
+                status_code = response.status_code
+            except requests.exceptions.ChunkedEncodingError:
+                status_code = ""
+            try:
+                text = response.text
+            except requests.exceptions.ChunkedEncodingError:
+                text = ""
+
+            logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
             if self.overwrite_cache:
                 # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
                 try:
@@ -519,15 +539,13 @@ class FeatureApi:
                 except OSError:
                     pass
 
-            if response.status_code in AIFeatureAPIRequestSizeError.status_codes:
-                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {response.status_code=}")
+            if status_code in AIFeatureAPIRequestSizeError.status_codes:
+                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
                 raise AIFeatureAPIRequestSizeError(response, request_string)
-            elif response.status_code == HTTPStatus.BAD_REQUEST:
-                error_code = json.loads(response.text)["code"]
+            elif status_code == HTTPStatus.BAD_REQUEST:
+                error_code = json.loads(text)["code"]
                 if error_code in AIFeatureAPIRequestSizeError.codes:
-                    logger.debug(
-                        f"Raising AIFeatureAPIRequestSizeError from secondary status code {response.status_code=}"
-                    )
+                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
                     raise AIFeatureAPIRequestSizeError(response, request_string)
                 else:
                     # Check for errors

@@ -116,6 +116,20 @@ def parse_arguments():
         default=True,
     )
     parser.add_argument(
+        "--alpha",
+        help="Include alpha layers",
+        required=False,
+        type=bool,
+        default=True,
+    )
+    parser.add_argument(
+        "--beta",
+        help="Include beta layers",
+        required=False,
+        type=bool,
+        default=True,
+    )
+    parser.add_argument(
         "--since",
         help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
         required=False,
@@ -160,6 +174,8 @@ def process_chunk(
     compress_cache: Optional[bool] = False,
     since_bulk: str = None,
     until_bulk: str = None,
+    alpha: Optional[bool] = True,
+    beta: Optional[bool] = True,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -180,7 +196,9 @@ def process_chunk(
         bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
         compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
         since_bulk: Earliest date used to pull features
-        until_bulk: LAtest date used to pull features
+        until_bulk: Latest date used to pull features
+        alpha: Return alpha layers
+        beta: return beta layers
     """
     cache_path = Path(output_dir) / "cache"
     chunk_path = Path(output_dir) / "chunks"
@@ -202,6 +220,8 @@ def process_chunk(
         overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
         workers=THREADS,
+        alpha=alpha,
+        beta=beta,
     )
     logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
     features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
@@ -270,11 +290,10 @@ def process_chunk(
 
     try:
         final_df.to_parquet(outfile)
-    except Excepton as e:
+    except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
         logger.error(final_df.shape)
         logger.error(final_df)
-
 
     if save_features:
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
@@ -324,7 +343,9 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    classes_df = FeatureApi(api_key=api_key(args.key_file)).get_feature_classes(args.packs)
+    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta).get_feature_classes(
+        args.packs
+    )
 
     # Parse config
     if args.config_file is not None:
@@ -342,7 +363,7 @@ def main():
         outpath_features = final_path / f"{f.stem}_features.gpkg"
 
         if outpath.exists() and (outpath_features.exists() or not args.save_features):
-            logger.info(f"Output already exist, skipping ({outpath}, {outpath_features})")
+            logger.info(f"Output already exist, skipping {f.stem}")
             continue
         # Read parcel data
         parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
@@ -449,7 +470,7 @@ def main():
         data = []
         data_features = []
         errors = []
-        #TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
+        # TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
         logger.info(f"Saving rollup data as .csv to {outpath}")
         for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
             data.append(pd.read_parquet(cp))
