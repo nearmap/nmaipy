@@ -279,7 +279,7 @@ def feature_attributes(
         features_gdf: Features for a parcel
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
-        parcel_geom: The geometry for the parcel.
+        parcel_geom: The geometry for the parcel, or None if no parcel geometry is known.
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
@@ -402,7 +402,7 @@ def feature_attributes(
                         gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
                     )
 
-                    if (
+                    if parcel_geom is not None and (
                         gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
                         / gdf_buffered_buildings["geometry_feature"].area.sum()
                     ) < 1:
@@ -479,9 +479,12 @@ def parcel_rollup(
             primary_lon = None
             primary_lat = None
 
-        parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
-        assert len(parcel_geom) == 1
-        parcel_geom = parcel_geom.geometry.values[0]
+        if "geometry" in parcels_gdf.columns:
+            parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+            assert len(parcel_geom) == 1
+            parcel_geom = parcel_geom.geometry.values[0]
+        else:
+            parcel_geom = None
 
         parcel = feature_attributes(
             group,
