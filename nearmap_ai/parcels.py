@@ -482,7 +482,7 @@ def parcel_rollup(
         if "geometry" in parcels_gdf.columns:
             parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
             assert len(parcel_geom) == 1
-            parcel_geom = parcel_geom.geometry.values[0]
+            parcel_geom = parcel_geom.iloc[0].geometry
         else:
             parcel_geom = None
 
