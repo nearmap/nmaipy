@@ -266,7 +266,7 @@ def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
-    parcel_geom: Union[MultiPolygon, Polygon],
+    parcel_geom: Union[MultiPolygon, Polygon, None],
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
@@ -505,12 +505,13 @@ def parcel_rollup(
     else:
         area_name = f"area_{area_units}"
 
+    hasgeom = "geometry" in parcels_gdf.columns
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
             classes_df,
             country=country,
-            parcel_geom=row.geometry,
+            parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )
