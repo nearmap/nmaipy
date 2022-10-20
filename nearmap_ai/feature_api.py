@@ -998,9 +998,8 @@ class FeatureApi:
 
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             logging.debug(f"{fail_hard_regrid=}")
-            if (
-                fail_hard_regrid or geometry is None
-            ):  # Do not get stuck in an infinite loop of re-gridding and timing out
+            # Do not get stuck in an infinite loop of re-gridding and timing out
+            if fail_hard_regrid or geometry is None:
                 logger.debug("Failing hard and NOT re-gridding....")
                 error = {
                     AOI_ID_COLUMN_NAME: aoi_id,
