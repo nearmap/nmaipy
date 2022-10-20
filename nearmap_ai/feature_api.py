@@ -1102,8 +1102,8 @@ class FeatureApi:
         # Combine results. reset_index() here because the index of the combined dataframes
         # is just the row number in the chunk submitted to each worker, and so we get an
         # index in the final dataframe that is not unique, and also not very useful.
-        features_gdf = pd.concat(data).reset_index() if len(data) > 0 else pd.DataFrame([])
-        metadata_df = pd.DataFrame(metadata).reset_index() if len(metadata) > 0 else pd.DataFrame([])
-        errors_df = pd.DataFrame(errors).reset_index() if len(errors) > 0 else pd.DataFrame([])
+        features_gdf = pd.concat(data).reset_index(drop=True) if len(data) > 0 else pd.DataFrame([])
+        metadata_df = pd.DataFrame(metadata).reset_index(drop=True) if len(metadata) > 0 else pd.DataFrame([])
+        errors_df = pd.DataFrame(errors).reset_index(drop=True) if len(errors) > 0 else pd.DataFrame([])
 
         return features_gdf, metadata_df, errors_df
