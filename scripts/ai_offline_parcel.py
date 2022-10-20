@@ -238,14 +238,13 @@ def process_chunk(
         packs=packs,
         instant_fail_batch=False,
     )
-    if len(errors_df) > 0:
-        logger.info(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-        )
-        if "message" in errors_df:
-            logger.debug(errors_df.value_counts("message"))
-        else:
-            logger.debug(f"Found {len(errors_df)} errors")
+    logger.info(
+        f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+    )
+    if "message" in errors_df:
+        logger.debug(errors_df.value_counts("message"))
+    else:
+        logger.debug(f"Found {len(errors_df)} errors")
     if len(errors_df) == len(parcel_gdf):
         errors_df.to_parquet(outfile_errors)
         return
