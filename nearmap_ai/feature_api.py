@@ -831,7 +831,7 @@ class FeatureApi:
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
                 # Warning - using arbitrary int index means duplicate index.
-                features_gdf = pd.concat(features_gdf) if len(features_gdf) < 0 else None
+                features_gdf = pd.concat(features_gdf) if len(features_gdf) > 0 else None
 
                 # Check for repeat appearances of the same feature in the multipolygon
                 if len(features_gdf.feature_id.unique()) < len(features_gdf):
