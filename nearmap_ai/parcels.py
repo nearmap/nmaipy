@@ -37,14 +37,7 @@ PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 
 # All area values are in squared metres
 DEFAULT_FILTERING = {
-    "min_size": {
-        BUILDING_ID: 16,
-        ROOF_ID: 16,
-        TRAMPOLINE_ID: 9,
-        POOL_ID: 9,
-        CONSTRUCTION_ID: 9,
-        SOLAR_ID: 9,
-    },
+    "min_size": {BUILDING_ID: 16, ROOF_ID: 16, TRAMPOLINE_ID: 9, POOL_ID: 9, CONSTRUCTION_ID: 9, SOLAR_ID: 9,},
     "min_confidence": {
         BUILDING_ID: 0.8,
         ROOF_ID: 0.8,
@@ -72,9 +65,7 @@ DEFAULT_FILTERING = {
     },
 }
 
-TREE_BUFFERS_M = dict(
-    buffer_5ft=1.524, buffer_10ft=3.048, buffer_30ft=9.144, buffer_100ft=30.48,
-)
+TREE_BUFFERS_M = dict(buffer_5ft=1.524, buffer_10ft=3.048, buffer_30ft=9.144, buffer_100ft=30.48,)
 
 logger = log.get_logger()
 
@@ -113,18 +104,14 @@ def read_from_file(
             parcels_df = pd.read_csv(path, sep="\t")
         parcels_gdf = gpd.GeoDataFrame(
             parcels_df.drop("geometry", axis=1),
-            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(
-                shapely.wkt.loads
-            ),
+            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(shapely.wkt.loads),
             crs=source_crs,
         )
     elif path.suffix == ".parquet":
         parcels_df = pd.read_parquet(path)
         parcels_gdf = gpd.GeoDataFrame(
             parcels_df.drop("geometry", axis=1),
-            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(
-                lambda g: shapely.wkb.loads(g, hex=True)
-            ),
+            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(lambda g: shapely.wkb.loads(g, hex=True)),
             crs=source_crs,
         )
     elif path.suffix in (".geojson", ".gpkg"):
@@ -146,9 +133,7 @@ def read_from_file(
         # For this we only check if the shape has a non-zero area, the value doesn't matter, so the warning can be
         # ignored.
         with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", message="Geometry is in a geographic CRS."
-            )
+            warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
             parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
 
     if len(parcels_gdf) == 0:
@@ -164,9 +149,7 @@ def read_from_file(
     return parcels_gdf
 
 
-def filter_features_in_parcels(
-    features_gdf: gpd.GeoDataFrame, config: Optional[dict] = None
-) -> gpd.GeoDataFrame:
+def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[dict] = None) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
      - Features that are considered noise (small or low confidence)
@@ -225,14 +208,10 @@ def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
     flattened = {}
     for attribute in attributes:
         if "has3dAttributes" in attribute:
-            flattened["has_3d_attributes"] = (
-                TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-            )
+            flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
                 if country in IMPERIAL_COUNTRIES:
-                    flattened["height_ft"] = round(
-                        attribute["height"] * METERS_TO_FEET, 1
-                    )
+                    flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
                 else:
                     flattened["height_m"] = round(attribute["height"], 1)
                 for k, v in attribute["numStories"].items():
@@ -253,22 +232,16 @@ def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
                 name = component["description"].lower().replace(" ", "_")
                 if "Low confidence" in attribute["description"]:
                     name = f"low_conf_{name}"
-                flattened[f"{name}_present"] = (
-                    TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                )
+                flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                 if country in IMPERIAL_COUNTRIES:
                     flattened[f"{name}_area_sqft"] = component["areaSqft"]
                 else:
                     flattened[f"{name}_area_sqm"] = component["areaSqm"]
                 flattened[f"{name}_confidence"] = component["confidence"]
                 if "dominant" in component:
-                    flattened[f"{name}_dominant"] = (
-                        TRUE_STRING if component["dominant"] else FALSE_STRING
-                    )
+                    flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
         elif "has3dAttributes" in attribute:
-            flattened["has_3d_attributes"] = (
-                TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-            )
+            flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
                 flattened["pitch_degrees"] = attribute["pitch"]
     return flattened
@@ -310,30 +283,18 @@ def feature_attributes(
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
         # Add attributes that apply to all feature classes
-        parcel[f"{name}_present"] = (
-            TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
-        )
+        parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(class_features_gdf)
         if country in IMPERIAL_COUNTRIES:
             parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
-            parcel[f"{name}_total_clipped_area_sqft"] = round(
-                class_features_gdf.clipped_area_sqft.sum(), 1
-            )
-            parcel[f"{name}_total_unclipped_area_sqft"] = round(
-                class_features_gdf.unclipped_area_sqft.sum(), 1
-            )
+            parcel[f"{name}_total_clipped_area_sqft"] = round(class_features_gdf.clipped_area_sqft.sum(), 1)
+            parcel[f"{name}_total_unclipped_area_sqft"] = round(class_features_gdf.unclipped_area_sqft.sum(), 1)
         else:
             parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum()
-            parcel[f"{name}_total_clipped_area_sqm"] = round(
-                class_features_gdf.clipped_area_sqm.sum(), 1
-            )
-            parcel[f"{name}_total_unclipped_area_sqm"] = round(
-                class_features_gdf.unclipped_area_sqm.sum(), 1
-            )
+            parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.clipped_area_sqm.sum(), 1)
+            parcel[f"{name}_total_unclipped_area_sqm"] = round(class_features_gdf.unclipped_area_sqm.sum(), 1)
         if len(class_features_gdf) > 0:
-            parcel[f"{name}_confidence"] = (
-                1 - (1 - class_features_gdf.confidence).prod()
-            )
+            parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
         else:
             parcel[f"{name}_confidence"] = None
 
@@ -343,19 +304,11 @@ def feature_attributes(
 
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
-                    primary_feature = class_features_gdf.loc[
-                        class_features_gdf.clipped_area_sqm.idxmax()
-                    ]
+                    primary_feature = class_features_gdf.loc[class_features_gdf.clipped_area_sqm.idxmax()]
                 elif primary_decision == "nearest":
                     primary_point = shapely.geometry.Point(primary_lon, primary_lat)
-                    primary_point = (
-                        gpd.GeoSeries(primary_point)
-                        .set_crs("EPSG:4326")
-                        .to_crs("EPSG:3857")[0]
-                    )
-                    class_features_gdf_top = class_features_gdf.query(
-                        "confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH"
-                    )
+                    primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
+                    class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
 
                     if len(class_features_gdf_top) > 0:
                         nearest_feature_idx = (
@@ -373,25 +326,15 @@ def feature_attributes(
                         )
                     primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
                 else:
-                    raise NotImplementedError(
-                        f"Have not implemented primary_decision type '{primary_decision}'"
-                    )
+                    raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
-                    parcel[f"primary_{name}_clipped_area_sqft"] = round(
-                        primary_feature.clipped_area_sqft, 1
-                    )
-                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(
-                        primary_feature.unclipped_area_sqft, 1
-                    )
+                    parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
                 else:
                     parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
-                    parcel[f"primary_{name}_clipped_area_sqm"] = round(
-                        primary_feature.clipped_area_sqm, 1
-                    )
-                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(
-                        primary_feature.unclipped_area_sqm, 1
-                    )
+                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
                 if class_id == BUILDING_ID:
                     parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
@@ -399,13 +342,9 @@ def feature_attributes(
                 # Add roof and building attributes
                 if class_id in [ROOF_ID, BUILDING_ID]:
                     if class_id == ROOF_ID:
-                        primary_attributes = flatten_roof_attributes(
-                            primary_feature.attributes, country=country
-                        )
+                        primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
                     else:
-                        primary_attributes = flatten_building_attributes(
-                            primary_feature.attributes, country=country
-                        )
+                        primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
 
                     for key, val in primary_attributes.items():
                         parcel[f"primary_{name}_" + str(key)] = val
@@ -428,41 +367,30 @@ def feature_attributes(
                 rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
                 if (
                     parcel[f"{name}_total_clipped_area_{area_units}"]
-                    < rounding_factor
-                    * parcel[f"{name}_total_unclipped_area_{area_units}"]
+                    < rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]
                 ):
                     break
 
                 # Create vegetation buffers.
-                veg_medhigh_features_gdf = features_gdf[
-                    features_gdf.class_id == VEG_MEDHIGH_ID
-                ]
+                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
                 if len(veg_medhigh_features_gdf) > 0:
                     veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                        veg_medhigh_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
+                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature",
                     )
 
                 for B in TREE_BUFFERS_M:
                     gdf_buffered_buildings = gpd.GeoDataFrame(
-                        class_features_gdf,
-                        geometry="geometry_feature",
-                        crs=LAT_LONG_CRS,
+                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS,
                     )
                     # Wipe over feature geometries with their buffered version...
                     gdf_buffered_buildings["geometry_feature"] = (
-                        gdf_buffered_buildings.to_crs(AREA_CRS[country])
-                        .buffer(TREE_BUFFERS_M[B])
-                        .to_crs(LAT_LONG_CRS)
+                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
                     )
 
                     if (
                         parcel_geom is not None
                         and (
-                            gdf_buffered_buildings["geometry_feature"]
-                            .intersection(parcel_geom)
-                            .area.sum()
+                            gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
                             / gdf_buffered_buildings["geometry_feature"].area.sum()
                         )
                         < 1
@@ -471,15 +399,9 @@ def feature_attributes(
                         break
 
                     if len(veg_medhigh_features_gdf) > 0:
-                        gdf_intersection = gdf_buffered_buildings.overlay(
-                            veg_medhigh_features_gdf, how="intersection"
-                        )
-                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(
-                            AREA_CRS[country]
-                        ).area
-                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection[
-                            "buff_area_sqm"
-                        ].sum()
+                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
+                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
                         bldg_count = (
                             gdf_intersection.groupby("feature_id_1")
                             .aggregate({"buff_area_sqm": "sum"})
@@ -531,9 +453,7 @@ def parcel_rollup(
         if "geometry" in parcels_gdf.columns:
             merge_cols += ["geometry"]
 
-    df = features_gdf.merge(
-        parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"]
-    )
+    df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
 
     rollups = []
     # Loop over parcels with features in them
@@ -580,19 +500,9 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
-    for row in parcels_gdf[
-        ~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])
-    ].itertuples():
+    for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
-            gpd.GeoDataFrame(
-                [],
-                columns=[
-                    "class_id",
-                    area_name,
-                    f"clipped_{area_name}",
-                    f"unclipped_{area_name}",
-                ],
-            ),
+            gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}",],),
             classes_df,
             country=country,
             parcel_geom=row.geometry if hasgeom else None,
@@ -604,7 +514,5 @@ def parcel_rollup(
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
     if len(rollup_df) != len(parcels_gdf):
-        raise RuntimeError(
-            f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}"
-        )
+        raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
     return rollup_df
