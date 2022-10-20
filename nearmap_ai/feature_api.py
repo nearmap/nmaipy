@@ -146,6 +146,7 @@ class FeatureApi:
         workers: Optional[int] = 10,
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
+        maxretry: int = MAX_RETRIES,
     ):
         """
         Initialize FeatureApi class
@@ -168,6 +169,8 @@ class FeatureApi:
         self.cache_dir = cache_dir
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+        elif overwrite_cache:
+            raise ValueError(f"No cache dir specified, but overwrite cache set to True. Makes no sense")
         self._sessions = []
         self._thread_local = threading.local()
         self.overwrite_cache = overwrite_cache
@@ -176,6 +179,7 @@ class FeatureApi:
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
+        self.maxretry = maxretry
 
     @property
     def _session(self) -> requests.Session:
@@ -186,7 +190,7 @@ class FeatureApi:
         if session is None:
             session = requests.Session()
             retries = RetryRequest(
-                total=MAX_RETRIES,
+                total=self.maxretry,
                 backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
@@ -315,9 +319,7 @@ class FeatureApi:
                     coordstring = cls._polygon_to_coordstring(g)
                     exact = True
             else:
-                raise ValueError(
-                    "Must not be called with a multipolygon - separate parts should be iterated externally."
-                )
+                raise ValueError("Must not be called with multipolygon - separate parts must be iterated externally.")
         else:
             # Tests whether the polygon has inner rings/holes.
             if len(geometry.interiors) > 0:
@@ -533,7 +535,7 @@ class FeatureApi:
                 message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
             )
         logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
-        cache_path = self._request_cache_path(request_string)
+        cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
@@ -715,7 +717,12 @@ class FeatureApi:
         ]
 
         # Columns with clipped areas that should be summed when geometries are merged.
-        agg_cols_sum = ["area_sqm", "area_sqft", "clipped_area_sqm", "clipped_area_sqft"]
+        agg_cols_sum = [
+            "area_sqm",
+            "area_sqft",
+            "clipped_area_sqm",
+            "clipped_area_sqft",
+        ]
 
         features_gdf_dissolved = (
             features_gdf.drop_duplicates(
@@ -934,7 +941,8 @@ class FeatureApi:
                     sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
-                features_gdf = pd.concat(features_gdf)  # Warning - using arbitrary int index means duplicate index.
+                # Warning - using arbitrary int index means duplicate index.
+                features_gdf = pd.concat(features_gdf) if len(features_gdf) > 0 else None
 
                 # Check for repeat appearances of the same feature in the multipolygon
                 if len(features_gdf.feature_id.unique()) < len(features_gdf):
@@ -957,13 +965,12 @@ class FeatureApi:
                 payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
                 features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
-            features_gdf, metadata, error = [], [], None
+            features_gdf, metadata, error = None, None, None
 
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             logging.debug(f"{fail_hard_regrid=}")
-            if (
-                fail_hard_regrid or geometry is None
-            ):  # Do not get stuck in an infinite loop of re-gridding and timing out
+            # Do not get stuck in an infinite loop of re-gridding and timing out
+            if fail_hard_regrid or geometry is None:
                 logger.debug("Failing hard and NOT re-gridding....")
                 error = {
                     AOI_ID_COLUMN_NAME: aoi_id,
@@ -1197,10 +1204,13 @@ class FeatureApi:
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
-        # Combine results
-        features_gdf = pd.concat(data) if len(data) > 0 else None
-        metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
-        errors_df = pd.DataFrame(errors)
+        # Combine results. reset_index() here because the index of the combined dataframes
+        # is just the row number in the chunk submitted to each worker, and so we get an
+        # index in the final dataframe that is not unique, and also not very useful.
+        features_gdf = pd.concat(data).reset_index(drop=True) if len(data) > 0 else pd.DataFrame([])
+        metadata_df = pd.DataFrame(metadata).reset_index(drop=True) if len(metadata) > 0 else pd.DataFrame([])
+        errors_df = pd.DataFrame(errors).reset_index(drop=True) if len(errors) > 0 else pd.DataFrame([])
+
         return features_gdf, metadata_df, errors_df
 
     def get_rollup_df(

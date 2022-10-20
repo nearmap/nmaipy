@@ -37,14 +37,7 @@ PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 
 # All area values are in squared metres
 DEFAULT_FILTERING = {
-    "min_size": {
-        BUILDING_ID: 16,
-        ROOF_ID: 16,
-        TRAMPOLINE_ID: 9,
-        POOL_ID: 9,
-        CONSTRUCTION_ID: 9,
-        SOLAR_ID: 9,
-    },
+    "min_size": {BUILDING_ID: 16, ROOF_ID: 16, TRAMPOLINE_ID: 9, POOL_ID: 9, CONSTRUCTION_ID: 9, SOLAR_ID: 9,},
     "min_confidence": {
         BUILDING_ID: 0.8,
         ROOF_ID: 0.8,
@@ -53,10 +46,7 @@ DEFAULT_FILTERING = {
         CONSTRUCTION_ID: 0.8,
         SOLAR_ID: 0.7,
     },
-    "min_fidelity": {
-        BUILDING_ID: 0.0,
-        ROOF_ID: 0.0,
-    },
+    "min_fidelity": {BUILDING_ID: 0.0, ROOF_ID: 0.0,},
     "min_area_in_parcel": {
         BUILDING_ID: 25,
         ROOF_ID: 25,
@@ -75,12 +65,7 @@ DEFAULT_FILTERING = {
     },
 }
 
-TREE_BUFFERS_M = dict(
-    buffer_5ft=1.524,
-    buffer_10ft=3.048,
-    buffer_30ft=9.144,
-    buffer_100ft=30.48,
-)
+TREE_BUFFERS_M = dict(buffer_5ft=1.524, buffer_10ft=3.048, buffer_30ft=9.144, buffer_100ft=30.48,)
 
 logger = log.get_logger()
 
@@ -266,7 +251,7 @@ def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
-    parcel_geom: Union[MultiPolygon, Polygon],
+    parcel_geom: Union[MultiPolygon, Polygon, None],
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
@@ -279,7 +264,7 @@ def feature_attributes(
         features_gdf: Features for a parcel
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
-        parcel_geom: The geometry for the parcel.
+        parcel_geom: The geometry for the parcel, or None if no parcel geometry is known.
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
@@ -390,12 +375,12 @@ def feature_attributes(
                 veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
                 if len(veg_medhigh_features_gdf) > 0:
                     veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature"
+                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature",
                     )
 
                 for B in TREE_BUFFERS_M:
                     gdf_buffered_buildings = gpd.GeoDataFrame(
-                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS
+                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS,
                     )
                     # Wipe over feature geometries with their buffered version...
                     gdf_buffered_buildings["geometry_feature"] = (
@@ -403,9 +388,13 @@ def feature_attributes(
                     )
 
                     if (
-                        gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
-                        / gdf_buffered_buildings["geometry_feature"].area.sum()
-                    ) < 1:
+                        parcel_geom is not None
+                        and (
+                            gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
+                            / gdf_buffered_buildings["geometry_feature"].area.sum()
+                        )
+                        < 1
+                    ):
                         # Buffer exceeds Query AOI somewhere.
                         break
 
@@ -453,7 +442,12 @@ def parcel_rollup(
             f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
     if primary_decision == "nearest":
-        merge_cols = [AOI_ID_COLUMN_NAME, LAT_PRIMARY_COL_NAME, LON_PRIMARY_COL_NAME, "geometry"]
+        merge_cols = [
+            AOI_ID_COLUMN_NAME,
+            LAT_PRIMARY_COL_NAME,
+            LON_PRIMARY_COL_NAME,
+            "geometry",
+        ]
     else:
         merge_cols = [AOI_ID_COLUMN_NAME]
         if "geometry" in parcels_gdf.columns:
@@ -479,9 +473,12 @@ def parcel_rollup(
             primary_lon = None
             primary_lat = None
 
-        parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
-        assert len(parcel_geom) == 1
-        parcel_geom = parcel_geom.geometry.values[0]
+        if "geometry" in parcels_gdf.columns:
+            parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+            assert len(parcel_geom) == 1
+            parcel_geom = parcel_geom.iloc[0].geometry
+        else:
+            parcel_geom = None
 
         parcel = feature_attributes(
             group,
@@ -502,12 +499,13 @@ def parcel_rollup(
     else:
         area_name = f"area_{area_units}"
 
+    hasgeom = "geometry" in parcels_gdf.columns
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
-            gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"]),
+            gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}",],),
             classes_df,
             country=country,
-            parcel_geom=row.geometry,
+            parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )
