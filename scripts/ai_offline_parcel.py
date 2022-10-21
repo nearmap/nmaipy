@@ -186,7 +186,7 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
-    endpoint: [str] = Endpoint.FEATURE,
+    endpoint: [str] = Endpoint.FEATURE.value,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -246,6 +246,7 @@ def process_chunk(
             packs=packs,
             instant_fail_batch=False,
         )
+        rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
         logger.info(
             f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
         )
@@ -316,8 +317,8 @@ def process_chunk(
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
-    if endpoint == Endpoint.ROLLUP:
-        final_df.columns = pd.MultiIndex.from_tuples([d if isinstance(d, tuple) else ("", d) for d in final_df.columns])
+    if endpoint == Endpoint.ROLLUP.value:
+        final_df.columns = FeatureApi._single_to_multi_index(final_df.columns)
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:

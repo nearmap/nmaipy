@@ -7,7 +7,6 @@ import pytest
 from shapely.geometry import Polygon
 import warnings
 
-
 from nearmap_ai.feature_api import FeatureApi
 from nearmap_ai.constants import *
 
@@ -128,7 +127,7 @@ class TestAIOfflineParcel:
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes(packs)
 
-        for use_rollup, outdir in [(False, output_dir), (True, output_dir_rollup_api)]:
+        for endpoint, outdir in [("feature", output_dir), ("rollup", output_dir_rollup_api)]:
             ai_offline_parcel.process_chunk(
                 chunk_id=chunk_id,
                 parcel_gdf=parcels_2_gdf,
@@ -144,7 +143,7 @@ class TestAIOfflineParcel:
                 until_bulk="2022-06-29",
                 alpha=False,
                 beta=False,
-                use_rollups_endpoint=use_rollup,
+                endpoint=endpoint,
             )
 
         data_feature_api = []
@@ -159,8 +158,8 @@ class TestAIOfflineParcel:
 
         # print("data feature api")
         # print(data_feature_api.T)
-        # print("data rollup api")
-        # print(data_rollup_api.T)
+        print("data rollup api")
+        print(data_rollup_api.T)
 
         # Test continuous class - tree canopy
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
@@ -274,7 +273,5 @@ class TestAIOfflineParcel:
             # "mesh_date",
         ]:
             pd.testing.assert_series_equal(
-                data_feature_api.loc[:, ident_col],
-                data_rollup_api.loc[:, ("", ident_col)],
-                check_names=False
+                data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ("", ident_col)], check_names=False
             )

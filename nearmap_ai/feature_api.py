@@ -857,6 +857,7 @@ class FeatureApi:
             gdf = df
         return gdf, metadata
 
+    @classmethod
     def payload_rollup_df(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
         Create a dataframe from a rollup API response dictionary.
@@ -873,7 +874,6 @@ class FeatureApi:
         # Create metadata
         payload_io = StringIO(payload)
         df = pd.read_csv(payload_io, header=[0, 1])  # Accounts for first header row as uuids, second as descriptions
-        df.columns = df.columns.map("|".join).str.strip("|")
         metadata = {
             "system_version": df.filter(regex=ROLLUP_SYSTEM_VERSION_ID).iloc[0, 0],
             "link": "",  # TODO: Once link is returned in payloads, add in here.
@@ -1303,6 +1303,29 @@ class FeatureApi:
                 "request": "",
             }
         return rollup_df, metadata, error
+
+    @classmethod
+    def _single_to_multi_index(cls, columns: pd.Index):
+        """
+        Take the columns from a rollup dataframe (which had the id and description collapsed with a pipe), and separate
+        them out again - first level as the id (empty for added columns with no GUID attached). Second level as the
+        description.
+        """
+        out_cols = columns.str.split("|")
+        out_cols = pd.MultiIndex.from_tuples([[""] + d if len(d) == 1 else d for d in out_cols])
+        out_cols.names = ["id", "description"]
+        return out_cols
+
+    @classmethod
+    def _multi_to_single_index(cls, columns: pd.MultiIndex):
+        """
+        Inverse of _single_to_multi_index: flatten the columns from multi_index to flat, by joining levels with a pipe
+        character. For use in rollup headings which have "id" and a "description" as two separate levels (from the
+        two header rows in the returned csv file).
+        This operation is important when merging with single level dataframes.
+        """
+        out_cols = columns.map("|".join).str.strip("|")
+        return out_cols
 
     def get_rollup_df_bulk(
         self,

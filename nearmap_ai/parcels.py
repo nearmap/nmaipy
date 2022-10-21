@@ -37,7 +37,14 @@ PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 
 # All area values are in squared metres
 DEFAULT_FILTERING = {
-    "min_size": {BUILDING_ID: 16, ROOF_ID: 16, TRAMPOLINE_ID: 9, POOL_ID: 9, CONSTRUCTION_ID: 9, SOLAR_ID: 9,},
+    "min_size": {
+        BUILDING_ID: 16,
+        ROOF_ID: 16,
+        TRAMPOLINE_ID: 9,
+        POOL_ID: 9,
+        CONSTRUCTION_ID: 9,
+        SOLAR_ID: 9,
+    },
     "min_confidence": {
         BUILDING_ID: 0.8,
         ROOF_ID: 0.8,
@@ -46,7 +53,10 @@ DEFAULT_FILTERING = {
         CONSTRUCTION_ID: 0.8,
         SOLAR_ID: 0.7,
     },
-    "min_fidelity": {BUILDING_ID: 0.0, ROOF_ID: 0.0,},
+    "min_fidelity": {
+        BUILDING_ID: 0.0,
+        ROOF_ID: 0.0,
+    },
     "min_area_in_parcel": {
         BUILDING_ID: 25,
         ROOF_ID: 25,
@@ -65,7 +75,12 @@ DEFAULT_FILTERING = {
     },
 }
 
-TREE_BUFFERS_M = dict(buffer_5ft=1.524, buffer_10ft=3.048, buffer_30ft=9.144, buffer_100ft=30.48,)
+TREE_BUFFERS_M = dict(
+    buffer_5ft=1.524,
+    buffer_10ft=3.048,
+    buffer_30ft=9.144,
+    buffer_100ft=30.48,
+)
 
 logger = log.get_logger()
 
@@ -375,12 +390,16 @@ def feature_attributes(
                 veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
                 if len(veg_medhigh_features_gdf) > 0:
                     veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                        veg_medhigh_features_gdf, crs=LAT_LONG_CRS, geometry="geometry_feature",
+                        veg_medhigh_features_gdf,
+                        crs=LAT_LONG_CRS,
+                        geometry="geometry_feature",
                     )
 
                 for B in TREE_BUFFERS_M:
                     gdf_buffered_buildings = gpd.GeoDataFrame(
-                        class_features_gdf, geometry="geometry_feature", crs=LAT_LONG_CRS,
+                        class_features_gdf,
+                        geometry="geometry_feature",
+                        crs=LAT_LONG_CRS,
                     )
                     # Wipe over feature geometries with their buffered version...
                     gdf_buffered_buildings["geometry_feature"] = (
@@ -502,7 +521,15 @@ def parcel_rollup(
     hasgeom = "geometry" in parcels_gdf.columns
     for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
         parcel = feature_attributes(
-            gpd.GeoDataFrame([], columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}",],),
+            gpd.GeoDataFrame(
+                [],
+                columns=[
+                    "class_id",
+                    area_name,
+                    f"clipped_{area_name}",
+                    f"unclipped_{area_name}",
+                ],
+            ),
             classes_df,
             country=country,
             parcel_geom=row.geometry if hasgeom else None,
