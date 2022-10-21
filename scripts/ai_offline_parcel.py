@@ -335,7 +335,7 @@ def process_chunk(
         logger.error(final_df.shape)
         logger.error(final_df)
 
-    if save_features and (endpoint != Endpoint.ROLLUP):
+    if save_features and (endpoint != Endpoint.ROLLUP.value):
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
         final_features_df = gpd.GeoDataFrame(
             metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
