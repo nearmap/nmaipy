@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 import json
 import sys
+from enum import Enum
 
 import geopandas as gpd
 import numpy as np
@@ -28,6 +29,12 @@ from nearmap_ai.constants import (
 )
 from nearmap_ai.feature_api import FeatureApi
 
+
+class Endpoint(Enum):
+    FEATURE = "feature"
+    ROLLUP = "rollup"
+
+
 CHUNK_SIZE = 2000
 PROCESSES = 20
 THREADS = 6
@@ -40,12 +47,8 @@ def parse_arguments():
     Get command line arguments
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--parcel-dir", help="Directory with parcel files", type=str, required=True
-    )
-    parser.add_argument(
-        "--output-dir", help="Directory to store results", type=str, required=True
-    )
+    parser.add_argument("--parcel-dir", help="Directory with parcel files", type=str, required=True)
+    parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(
         "--key-file",
         help="Path to file with API keys",
@@ -120,10 +123,14 @@ def parse_arguments():
         default=True,
     )
     parser.add_argument(
-        "--alpha", help="Include alpha layers", required=False, type=bool, default=True,
+        "--alpha",
+        help="Include alpha layers",
+        action="store_true",
     )
     parser.add_argument(
-        "--beta", help="Include beta layers", required=False, type=bool, default=True,
+        "--beta",
+        help="Include beta layers",
+        action="store_true",
     )
     parser.add_argument(
         "--since",
@@ -138,12 +145,13 @@ def parse_arguments():
         type=str,
     )
     parser.add_argument(
-        "--log-level",
-        help="Log level (DEBUG, INFO, ...)",
-        required=False,
-        default="INFO",
+        "--endpoint",
+        help="Select which endpoint gets used for rollups - 'feature' (default) or 'rollup'",
         type=str,
+        required=False,
+        default="feature",
     )
+    parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     return parser.parse_args()
 
 
@@ -178,6 +186,7 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
+    endpoint: [str] = Endpoint.FEATURE.value,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -201,8 +210,10 @@ def process_chunk(
         until_bulk: Latest date used to pull features
         alpha: Return alpha layers
         beta: return beta layers
+        endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
     """
     cache_path = Path(output_dir) / "cache"
+    rollup_cache_path = Path(output_dir) / "cache_rollups"
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
     outfile_features = chunk_path / f"features_{chunk_id}.parquet"
@@ -211,12 +222,8 @@ def process_chunk(
         return
 
     # Get additional parcel attributes from parcel geometry
-    parcel_gdf["query_aoi_lat"] = parcel_gdf.geometry.apply(
-        lambda g: g.centroid.coords[0][1]
-    )
-    parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(
-        lambda g: g.centroid.coords[0][0]
-    )
+    parcel_gdf["query_aoi_lat"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
+    parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
 
     # Get features
     feature_api = FeatureApi(
@@ -229,49 +236,74 @@ def process_chunk(
         alpha=alpha,
         beta=beta,
     )
-    logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs")
-    features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-        parcel_gdf,
-        region=country,
-        since_bulk=since_bulk,
-        until_bulk=until_bulk,
-        packs=packs,
-        instant_fail_batch=False,
-    )
-    logger.info(
-        f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-    )
-    if "message" in errors_df:
-        logger.debug(errors_df.value_counts("message"))
+    if endpoint == Endpoint.ROLLUP.value:
+        logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
+        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
+            parcel_gdf,
+            region=country,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            packs=packs,
+            instant_fail_batch=False,
+        )
+        rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
+        logger.info(
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+        )
+        if len(errors_df) > 0:
+            if "message" in errors_df:
+                logger.debug(errors_df.value_counts("message"))
+            else:
+                logger.debug(f"Found {len(errors_df)} errors")
+        if len(errors_df) == len(parcel_gdf):
+            errors_df.to_parquet(outfile_errors)
+            return
+        logger.debug(f"Finished pulling rollup for chunk {chunk_id} from rollup endpoint.")
+    elif endpoint == Endpoint.FEATURE.value:
+        logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs({endpoint=})")
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+            parcel_gdf,
+            region=country,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            packs=packs,
+            instant_fail_batch=False,
+        )
+        logger.info(
+            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+        )
+        if len(errors_df) > 0:
+            if "message" in errors_df:
+                logger.debug(errors_df.value_counts("message"))
+            else:
+                logger.debug(f"Found {len(errors_df)} errors")
+        if len(errors_df) == len(parcel_gdf):
+            errors_df.to_parquet(outfile_errors)
+            return
+
+        # Filter features
+        len_all_features = len(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
+        len_filtered_features = len(features_gdf)
+        logger.debug(
+            f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+        )
+
+        # Create rollup
+        rollup_df = parcels.parcel_rollup(
+            parcel_gdf,
+            features_gdf,
+            classes_df,
+            country=country,
+            calc_buffers=calc_buffers,
+            primary_decision=primary_decision,
+        )
+        logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
     else:
-        logger.debug(f"Found {len(errors_df)} errors")
-    if len(errors_df) == len(parcel_gdf):
-        errors_df.to_parquet(outfile_errors)
-        return
-
-    # Filter features
-    len_all_features = len(features_gdf)
-    features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
-    len_filtered_features = len(features_gdf)
-    logger.debug(
-        f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-    )
-
-    # Create rollup
-    rollup_df = parcels.parcel_rollup(
-        parcel_gdf,
-        features_gdf,
-        classes_df,
-        country=country,
-        calc_buffers=calc_buffers,
-        primary_decision=primary_decision,
-    )
-    logger.debug(f"Finished rollup for chunk {chunk_id}")
+        raise ValueError(f"Not a valid endpoint selection: {endpoint}")
 
     # Put it all together and save
-    final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(
-        parcel_gdf, on=AOI_ID_COLUMN_NAME
-    )
+    final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
@@ -279,60 +311,46 @@ def process_chunk(
     columns = (
         parcel_columns
         + meta_data_columns
-        + [
-            c
-            for c in final_df.columns
-            if c not in parcel_columns + meta_data_columns + ["geometry"]
-        ]
+        + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
     )
     if include_parcel_geometry:
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
+    if endpoint == Endpoint.ROLLUP.value:
+        final_df.columns = FeatureApi._single_to_multi_index(final_df.columns)
 
-    logger.debug(
-        f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
-    )
+    logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:
         errors_df.to_parquet(outfile_errors)
     except Exception as e:
-        logger.error(
-            f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
-        )
+        logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
         logger.error(errors_df.shape)
         logger.error(errors_df)
 
     try:
         final_df.to_parquet(outfile)
     except Exception as e:
-        logger.error(
-            f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}."
-        )
+        logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
         logger.error(final_df.shape)
         logger.error(final_df)
 
-    if save_features:
+    if save_features and (endpoint != Endpoint.ROLLUP.value):
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
         final_features_df = gpd.GeoDataFrame(
             metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
-                parcel_gdf.rename(columns=dict(geometry="aoi_geometry")),
-                on=AOI_ID_COLUMN_NAME,
+                parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
             ),
             crs=API_CRS,
         )
-        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(
-            lambda d: d.wkt
-        )
+        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
         final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
         if len(final_features_df) > 0:
             try:
                 if not include_parcel_geometry:
                     final_features_df = final_features_df.drop(columns=["aoi_geometry"])
                 final_features_df = final_features_df[
-                    ~(
-                        final_features_df.geometry.is_empty
-                        | final_features_df.geometry.isna()
-                    )
+                    ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
                 ]
                 final_features_df.to_parquet(outfile_features)
             except Exception as e:
@@ -365,9 +383,9 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    classes_df = FeatureApi(
-        api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta
-    ).get_feature_classes(args.packs)
+    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta).get_feature_classes(
+        args.packs
+    )
 
     # Parse config
     if args.config_file is not None:
@@ -388,9 +406,7 @@ def main():
             logger.info(f"Output already exist, skipping {f.stem}")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(
-            API_CRS
-        )
+        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
@@ -398,17 +414,13 @@ def main():
                 f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
             )
         else:
-            logger.info(
-                f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used."
-            )
+            logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
             if SINCE_COL_NAME in parcels_gdf:
                 logger.info(
                     f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
             elif args.since is not None:
-                logger.info(
-                    f"The since date of {args.since} will limit the earliest returned date for all Query AOIs"
-                )
+                logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
             else:
                 logger.info("No earliest date will used")
             if UNTIL_COL_NAME in parcels_gdf:
@@ -416,9 +428,7 @@ def main():
                     f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
             elif args.until is not None:
-                logger.info(
-                    f"The until date of {args.until} will limit the latest returned date for all Query AOIs"
-                )
+                logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
             else:
                 logger.info("No latest date will used")
 
@@ -426,10 +436,8 @@ def main():
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
-        logger.info(
-            f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files."
-        )
-
+        logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
+        logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
         if args.workers > 1:
             processes = int(args.workers)
             with concurrent.futures.ProcessPoolExecutor(processes) as executor:
@@ -461,15 +469,16 @@ def main():
                             args.compress_cache,
                             args.since,
                             args.until,
+                            args.alpha,
+                            args.beta,
+                            args.endpoint,
                         )
                     )
                 for j in jobs:
                     try:
                         j.result()
                     except Exception as e:
-                        logger.error(
-                            f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}"
-                        )
+                        logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
                         logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
@@ -498,6 +507,9 @@ def main():
                     args.compress_cache,
                     args.since,
                     args.until,
+                    args.alpha,
+                    args.beta,
+                    args.endpoint,
                 )
 
         # Combine chunks and save

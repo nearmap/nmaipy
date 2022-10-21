@@ -740,7 +740,7 @@ class TestParcels:
 
         Args:
             features_2_gdf: Stored features generated from parcels_2_gdf queries.
-            parcels_2_gdf: Realistic set of 100 parcels from Australia.
+            parcels_2_gdf: Realistic set of 100 parcels from New York.
 
         Returns:
 
@@ -815,7 +815,10 @@ class TestParcels:
                 BUILDING_ID: 0.5,
             },
         }
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config,)
+        features_gdf = parcels.filter_features_in_parcels(
+            features_gdf,
+            config=config,
+        )
         print(features_gdf)
         df = parcels.parcel_rollup(
             parcels_gdf,
