@@ -69,7 +69,7 @@ class TestParcels:
             },
         }
         filtered_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
-        assert len(filtered_gdf) == 44
+        assert len(filtered_gdf) == 45
         assert not (filtered_gdf.confidence < 0.8).any()
         assert not (filtered_gdf.unclipped_area_sqm < 25).any()
         assert not (filtered_gdf.fidelity < 0.4).any()
