@@ -317,7 +317,13 @@ def process_chunk(
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
+    date2str = lambda d: str(d).replace('-', '')
+    make_link = (
+        lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
+    )
     if endpoint == Endpoint.ROLLUP.value:
+        final_df["link"] = final_df.apply(make_link, axis=1)
+        final_df = final_df.drop(columns=["system_version", "date"])
         final_df.columns = FeatureApi._single_to_multi_index(final_df.columns)
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")

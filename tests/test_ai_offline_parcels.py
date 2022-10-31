@@ -160,6 +160,8 @@ class TestAIOfflineParcel:
         # print(data_feature_api.T)
         print("data rollup api")
         print(data_rollup_api.T)
+        print(data_rollup_api.loc[:, ("", "link")].values)
+
 
         # Test continuous class - tree canopy
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
