@@ -189,21 +189,21 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
 
     # Filter small features
     filter = config.get("min_size", DEFAULT_FILTERING["min_size"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.unclipped_area_sqm]
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.unclipped_area_sqm]
 
     # Filter low confidence features
     filter = config.get("min_confidence", DEFAULT_FILTERING["min_confidence"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.confidence]
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.confidence]
 
     # Filter low fidelity features. If fidelity not present, assume 1 (perfect shape) to avoid rejection.
     filter = config.get("min_fidelity", DEFAULT_FILTERING["min_fidelity"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) < gdf.fidelity.fillna(1)]
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.fidelity.fillna(1)]
 
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
-    area_mask = gdf.class_id.map(filter).fillna(0) < gdf.clipped_area_sqm
+    area_mask = gdf.class_id.map(filter).fillna(0) <= gdf.clipped_area_sqm
     filter = config.get("min_ratio_in_parcel", DEFAULT_FILTERING["min_ratio_in_parcel"])
-    ratio_mask = gdf.class_id.map(filter).fillna(0) < gdf.intersection_ratio
+    ratio_mask = gdf.class_id.map(filter).fillna(0) <= gdf.intersection_ratio
     gdf = gdf[area_mask | ratio_mask]
 
     # Only drop objects where the parent has been explicitly removed as above (otherwise we drop solar panels without a building request, etc.)

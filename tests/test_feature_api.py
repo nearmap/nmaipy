@@ -7,6 +7,7 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.wkt import loads
 
+from nearmap_ai import parcels
 from nearmap_ai.constants import (
     BUILDING_ID,
     SOLAR_ID,
@@ -276,6 +277,22 @@ class TestFeatureAPI:
         # The dates are within range
         for row in features_gdf.itertuples():
             assert "2020-01-01" <= row.survey_date <= "2020-03-01"
+
+    def test_point_data(self, cache_directory: Path):
+        # Small area around a power pole in Darwin, AU
+        aoi = loads(
+            """
+            Polygon ((130.85230645835545715 -12.39611155192925374, 130.85240838555137088 -12.39610856112810566, 130.85241538484379475 -12.3961991396618636, 130.85233576789246968 -12.39619572160455263, 130.85233576789246968 -12.39619572160455263, 130.85230645835545715 -12.39611155192925374))
+            """
+        )
+        country = "au"
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, packs="poles")
+        print(features_gdf.T)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        print(features_gdf.T)
+        # No data
+        assert len(features_gdf) == 1 # 1 pole found
 
     def test_multipolygon_1(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))

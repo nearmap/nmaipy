@@ -440,7 +440,8 @@ class FeatureApi:
 
         # Add packs if given
         if packs:
-            packs = ",".join(packs)
+            if isinstance(packs, list):
+                packs = ",".join(packs)
             request_string += f"&packs={packs}"
 
         return request_string, exact
