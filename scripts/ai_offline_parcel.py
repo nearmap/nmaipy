@@ -101,6 +101,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--cache-dir",
+        help="Location to store cache.",
+        required=False,
+    )
+    parser.add_argument(
         "--overwrite-cache",
         help="If set, ignore the existing cache and overwrite files as they are downloaded.",
         action="store_true",
@@ -182,6 +187,7 @@ def process_chunk(
     bulk_mode: Optional[bool] = True,
     overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
+    cache_dir: str = None,
     since_bulk: str = None,
     until_bulk: str = None,
     alpha: Optional[bool] = True,
@@ -206,14 +212,19 @@ def process_chunk(
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
         bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
         compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
+        cache_dir: Place to store cache (absolute path of parent - "cache" and "rollup_cache" will be created within).
         since_bulk: Earliest date used to pull features
         until_bulk: Latest date used to pull features
         alpha: Return alpha layers
         beta: return beta layers
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
     """
-    cache_path = Path(output_dir) / "cache"
-    rollup_cache_path = Path(output_dir) / "cache_rollups"
+    if cache_dir is None:
+        cache_dir = Path(output_dir)
+
+    cache_path = Path(cache_dir) / "cache"
+    rollup_cache_path = Path(cache_dir) / "cache_rollups"
+
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
     outfile_features = chunk_path / f"features_{chunk_id}.parquet"
@@ -317,7 +328,13 @@ def process_chunk(
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
+    date2str = lambda d: str(d).replace('-', '')
+    make_link = (
+        lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
+    )
     if endpoint == Endpoint.ROLLUP.value:
+        final_df["link"] = final_df.apply(make_link, axis=1)
+        final_df = final_df.drop(columns=["system_version", "date"])
         final_df.columns = FeatureApi._single_to_multi_index(final_df.columns)
 
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
@@ -467,6 +484,7 @@ def main():
                             args.bulk_mode,
                             args.overwrite_cache,
                             args.compress_cache,
+                            args.cache_dir,
                             args.since,
                             args.until,
                             args.alpha,
@@ -505,6 +523,7 @@ def main():
                     args.bulk_mode,
                     args.overwrite_cache,
                     args.compress_cache,
+                    args.cache_dir,
                     args.since,
                     args.until,
                     args.alpha,
