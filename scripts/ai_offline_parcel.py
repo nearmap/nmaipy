@@ -257,6 +257,7 @@ def process_chunk(
             packs=packs,
             instant_fail_batch=False,
         )
+        logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
         rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
         logger.info(
             f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
@@ -309,7 +310,6 @@ def process_chunk(
             calc_buffers=calc_buffers,
             primary_decision=primary_decision,
         )
-        logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
     else:
         raise ValueError(f"Not a valid endpoint selection: {endpoint}")
 
@@ -328,7 +328,7 @@ def process_chunk(
         columns.append("geometry")
         final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
-    date2str = lambda d: str(d).replace('-', '')
+    date2str = lambda d: str(d).replace("-", "")
     make_link = (
         lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
     )
@@ -336,7 +336,6 @@ def process_chunk(
         final_df["link"] = final_df.apply(make_link, axis=1)
         final_df = final_df.drop(columns=["system_version", "date"])
         final_df.columns = FeatureApi._single_to_multi_index(final_df.columns)
-
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:
         errors_df.to_parquet(outfile_errors)
@@ -346,6 +345,7 @@ def process_chunk(
         logger.error(errors_df)
 
     try:
+        final_df = final_df.convert_dtypes()
         final_df.to_parquet(outfile)
     except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")

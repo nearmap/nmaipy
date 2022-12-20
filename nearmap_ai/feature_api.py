@@ -1262,7 +1262,8 @@ class FeatureApi:
                     sub_rollup_df, sub_metadata = self.payload_rollup_df(sub_payload, aoi_id)
                     rollup_df.append(sub_rollup_df)
                     metadata.append(sub_metadata)
-                rollup_df = pd.concat(rollup_df)  # Warning - using arbitrary int index means duplicate index.
+                rollup_df = pd.concat([d.convert_dtypes() for d in rollup_df]) if len(rollup_df) > 0 else None
+                # Warning - using arbitrary int index means duplicate index.
 
                 # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
                 metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
@@ -1415,7 +1416,12 @@ class FeatureApi:
                     else:
                         errors.append(aoi_error)
         # Combine results
-        rollup_df = pd.concat(data) if len(data) > 0 else None
+        # RANT: there can be some... unpleasantness... with multipolygons, missing primary roofs and dtypes.
+        # Presence can be boolean, or converted to float if some parts of a multipolygon AOI request are NaN.
+        # This causes problems later with mixed data types, and e.g. writing chunks to parquet.
+        # Using "convert_dtypes" fixes it by auto-converting the booleans which pandas decided should be floats due
+        # to the NaNs, to an integer dtype, which then combines properly with the boolean dtype.
+        rollup_df = pd.concat([d.convert_dtypes() for d in data]) if len(data) > 0 else None
         metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
         errors_df = pd.DataFrame(errors)
         return rollup_df, metadata_df, errors_df
