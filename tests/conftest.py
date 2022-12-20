@@ -78,6 +78,11 @@ def parcels_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
 
 
 @pytest.fixture(scope="session")
+def parcels_3_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    return parcels.read_from_file(data_directory / "test_parcels_3.csv")
+
+
+@pytest.fixture(scope="session")
 def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     df = pd.read_csv(data_directory / "test_features.csv")
     return gpd.GeoDataFrame(

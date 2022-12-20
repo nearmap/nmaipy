@@ -17,6 +17,69 @@ import ai_offline_parcel
 
 class TestAIOfflineParcel:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
+    def test_process_chunk_rollup_single_multi_polygon_combo(
+        self, parcels_3_gdf: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
+    ):
+        """
+        Comparison of results from the rollup api, or the feature api with local logic, confirming the implementations
+        give the same result.
+        # TODO: Create a larger, more diverse set of test parcels and test full identical nature of equivalent results.
+        Args:
+            parcel_gdf_au_tests:
+            cache_directory:
+            processed_output_directory:
+
+        Returns:
+
+        """
+        tag = "tests"
+        tag_rollup_api = "tests_rollup"
+        chunk_id = 0
+
+        output_dir = Path("/home/jovyan/data/tmp") / tag
+        output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
+        packs = ["roof_cond"]
+        country = "au"
+        final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
+        final_path_rollup_api.mkdir(parents=True, exist_ok=True)
+
+        chunk_path_rollup_api = output_dir_rollup_api / "chunks"
+        chunk_path_rollup_api.mkdir(parents=True, exist_ok=True)
+
+        cache_path_rollup_api = output_dir_rollup_api / "cache"
+        cache_path_rollup_api.mkdir(parents=True, exist_ok=True)
+
+        feature_api = FeatureApi()
+        classes_df = feature_api.get_feature_classes(packs)
+
+        print("Processing Chunk")
+        ai_offline_parcel.process_chunk(
+            chunk_id=chunk_id,
+            parcel_gdf=parcels_3_gdf,
+            classes_df=classes_df,
+            output_dir=output_dir_rollup_api,
+            key_file=None,
+            config=None,
+            country=country,
+            packs=packs,
+            include_parcel_geometry=True,
+            save_features=False,
+            since_bulk="2022-10-29",
+            until_bulk="2022-10-29",
+            alpha=False,
+            beta=False,
+            endpoint="rollup",
+        )
+
+        data_rollup_api = []
+        for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
+            data_rollup_api.append(pd.read_parquet(cp))
+        data_rollup_api = pd.concat(data_rollup_api)
+
+        print("data rollup api")
+        print(data_rollup_api.T)
+        print(data_rollup_api.loc[:, ("", "link")].values)
+
     def test_process_chunk_au(
         self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
     ):
