@@ -1262,7 +1262,8 @@ class FeatureApi:
                     sub_rollup_df, sub_metadata = self.payload_rollup_df(sub_payload, aoi_id)
                     rollup_df.append(sub_rollup_df)
                     metadata.append(sub_metadata)
-                rollup_df = pd.concat(rollup_df)  # Warning - using arbitrary int index means duplicate index.
+                rollup_df = pd.concat([d.convert_dtypes() for d in rollup_df]) if len(rollup_df) > 0 else None
+                # Warning - using arbitrary int index means duplicate index.
 
                 # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
                 metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])

@@ -345,6 +345,7 @@ def process_chunk(
         logger.error(errors_df)
 
     try:
+        final_df = final_df.convert_dtypes()
         final_df.to_parquet(outfile)
     except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
