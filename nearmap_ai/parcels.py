@@ -180,26 +180,16 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
 
     Returns: Filtered features_gdf GeoDataFrame
     """
-    if len(features_gdf) == 0:
-        return features_gdf
     if config is None:
         config = {}
     gdf = features_gdf.copy()
 
-    if "clipped_area_sqm" in gdf.columns and 'unclipped_area_sqm' in gdf.columns:
-        suffix = "sqm"
-    elif "clipped_area_sqft" in gdf.columns and 'unclipped_area_sqft' in gdf.columns:
-        suffix = "sqft"
-    else:
-        raise Exception(f"We need consistent meters or feet to do filtering calculations, but we did not have the necessary columns... they are {gdf.columns.tolist()} in length {len(gdf)} dataframe")
-
-
     # Calculate the ratio of a feature that falls within the parcel
-    gdf["intersection_ratio"] = gdf["clipped_area_"+suffix] / gdf["unclipped_area_"+suffix]
+    gdf["intersection_ratio"] = gdf.clipped_area_sqm / gdf.unclipped_area_sqm
 
     # Filter small features
     filter = config.get("min_size", DEFAULT_FILTERING["min_size"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf["unclipped_area_"+suffix]]
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.unclipped_area_sqm]
 
     # Filter low confidence features
     filter = config.get("min_confidence", DEFAULT_FILTERING["min_confidence"])
@@ -211,7 +201,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
 
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
-    area_mask = gdf.class_id.map(filter).fillna(0) <= gdf["clipped_area_"+suffix]
+    area_mask = gdf.class_id.map(filter).fillna(0) <= gdf.clipped_area_sqm
     filter = config.get("min_ratio_in_parcel", DEFAULT_FILTERING["min_ratio_in_parcel"])
     ratio_mask = gdf.class_id.map(filter).fillna(0) <= gdf.intersection_ratio
     gdf = gdf[area_mask | ratio_mask]
