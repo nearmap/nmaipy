@@ -303,7 +303,7 @@ def feature_attributes(
 
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
-    for (class_id, name) in classes_df.description.iteritems():
+    for (class_id, name) in classes_df.description.items():
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
