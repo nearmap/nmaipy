@@ -106,6 +106,11 @@ def parse_arguments():
         required=False,
     )
     parser.add_argument(
+        "--no-cache",
+        help="Location to store cache.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--overwrite-cache",
         help="If set, ignore the existing cache and overwrite files as they are downloaded.",
         action="store_true",
@@ -187,6 +192,7 @@ def process_chunk(
     bulk_mode: Optional[bool] = True,
     overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
+    no_cache: Optional[bool] = False,
     cache_dir: str = None,
     since_bulk: str = None,
     until_bulk: str = None,
@@ -219,11 +225,14 @@ def process_chunk(
         beta: return beta layers
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
     """
-    if cache_dir is None:
+    if cache_dir is None and not no_cache:
         cache_dir = Path(output_dir)
 
-    cache_path = Path(cache_dir) / "cache"
-    rollup_cache_path = Path(cache_dir) / "cache_rollups"
+    if not no_cache:
+        cache_path = Path(cache_dir) / "cache"
+        rollup_cache_path = Path(cache_dir) / "cache_rollups"
+    else:
+        cache_path = None
 
     chunk_path = Path(output_dir) / "chunks"
     outfile = chunk_path / f"rollup_{chunk_id}.parquet"
@@ -484,6 +493,7 @@ def main():
                             args.bulk_mode,
                             args.overwrite_cache,
                             args.compress_cache,
+                            args.no_cache,
                             args.cache_dir,
                             args.since,
                             args.until,
@@ -523,6 +533,7 @@ def main():
                     args.bulk_mode,
                     args.overwrite_cache,
                     args.compress_cache,
+                    args.no_cache,
                     args.cache_dir,
                     args.since,
                     args.until,

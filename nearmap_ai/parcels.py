@@ -123,12 +123,7 @@ def read_from_file(
             crs=source_crs,
         )
     elif path.suffix == ".parquet":
-        parcels_df = pd.read_parquet(path)
-        parcels_gdf = gpd.GeoDataFrame(
-            parcels_df.drop("geometry", axis=1),
-            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(lambda g: shapely.wkb.loads(g, hex=True)),
-            crs=source_crs,
-        )
+        parcels_gdf = gpd.read_parquet(path)
     elif path.suffix in (".geojson", ".gpkg"):
         parcels_gdf = gpd.read_file(path)
     else:
