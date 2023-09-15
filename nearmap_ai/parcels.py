@@ -151,7 +151,8 @@ def read_from_file(
 
     # Check that identifier is unique
     if id_column not in parcels_gdf:
-        parcels_gdf[id_column] = range(len(parcels_gdf))
+        parcels_gdf = parcels_gdf.reset_index() # Bump the index to a column in case it's important
+        parcels_gdf[id_column] = range(len(parcels_gdf)) # Set a new unique ordered index for reference
     if parcels_gdf[id_column].duplicated().any():
         raise ValueError(f"Duplicate IDs found for {id_column=}")
 
