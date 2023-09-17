@@ -199,7 +199,7 @@ class FeatureApi:
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
             )
-            session.mount("https://", HTTPAdapter(max_retries=retries))
+            session.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
             self._thread_local.session = session
             self._sessions.append(session)
         return session

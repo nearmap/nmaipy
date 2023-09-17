@@ -36,8 +36,8 @@ class Endpoint(Enum):
 
 
 CHUNK_SIZE = 2000
-PROCESSES = 20
-THREADS = 6
+PROCESSES = 4
+THREADS = 2
 
 logger = log.get_logger()
 
@@ -97,8 +97,15 @@ def parse_arguments():
     )
     parser.add_argument(
         "--save-features",
-        help="If set, save the raw vectors as a geospatial file for loading in GIS tools. This can be quite time consuming.",
+        help="If set, save the raw vectors as a geoparquet file for loading in GIS tools. This can be quite time consuming.",
         action="store_true",
+    )
+    parser.add_argument(
+        "--rollup-format",
+        help="csv | parquet: Whether to store output as .csv or .parquet (defaults to csv)",
+        type=str,
+        required=False,
+        default="csv",
     )
     parser.add_argument(
         "--cache-dir",
@@ -425,8 +432,8 @@ def main():
     for f in parcel_paths:
         logger.info(f"Processing parcel file {f}")
         # If output exists, skip
-        outpath = final_path / f"{f.stem}.csv"
-        outpath_features = final_path / f"{f.stem}_features.gpkg"
+        outpath = final_path / f"{f.stem}.{args.rollup_format}"
+        outpath_features = final_path / f"{f.stem}_features.parquet"
 
         if outpath.exists() and (outpath_features.exists() or not args.save_features):
             logger.info(f"Output already exist, skipping {f.stem}")
@@ -547,15 +554,24 @@ def main():
         data_features = []
         errors = []
         # TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
-        logger.info(f"Saving rollup data as .csv to {outpath}")
-        for cp in chunk_path.glob(f"rollup_{f.stem}_*.parquet"):
+        logger.info(f"Saving rollup data as {args.rollup_format} file to {outpath}")
+        for i in range(num_chunks): # Now attempt every chunk - so if one is missing, we error.
+            chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
+            cp = chunk_path / chunk_filename
             data.append(pd.read_parquet(cp))
         if len(data) > 0:
             data = pd.concat(data)
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
-            data.to_csv(outpath, index=True)
+            if args.rollup_format == "parquet":
+                data.to_parquet(outpath, index=True)
+            elif args.rollup_format == "csv":
+                data.to_csv(outpath, index=True)
+            else:
+                logger.info("Invalid output format specified - reverting to csv")
+                data.to_csv(outpath, index=True)
+
 
         outpath_errors = final_path / f"{f.stem}_errors.csv"
         logger.info(f"Saving error data as .csv to {outpath_errors}")
@@ -568,7 +584,7 @@ def main():
         errors.to_csv(outpath_errors, index=True)
 
         if args.save_features:
-            logger.info(f"Saving feature data as .gpkg to {outpath_features}")
+            logger.info(f"Saving feature data as geoparquet to {outpath_features}")
             feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
             for cp in tqdm(feature_paths, total=len(feature_paths)):
                 try:
@@ -577,7 +593,7 @@ def main():
                     logger.error(f"Failed to read {cp}.")
                 data_features.append(df_feature_chunk)
             if len(data_features) > 0:
-                pd.concat(data_features).to_file(outpath_features, driver="GPKG")
+                pd.concat(data_features).to_parquet(outpath_features)
 
 
 if __name__ == "__main__":
