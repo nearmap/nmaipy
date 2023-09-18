@@ -36,8 +36,7 @@ class Endpoint(Enum):
 
 
 CHUNK_SIZE = 500
-PROCESSES = 4
-THREADS = 3
+WORKERS = 8
 
 logger = log.get_logger()
 
@@ -80,10 +79,10 @@ def parse_arguments():
     )
     parser.add_argument(
         "--workers",
-        help="Number of processes",
+        help="Number of worker threads",
         type=int,
         required=False,
-        default=PROCESSES,
+        default=WORKERS,
     )
     parser.add_argument(
         "--calc-buffers",
@@ -259,7 +258,7 @@ def process_chunk(
         cache_dir=cache_path,
         overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
-        workers=THREADS,
+        workers=WORKERS,
         alpha=alpha,
         beta=beta,
     )
@@ -384,7 +383,7 @@ def process_chunk(
                 final_features_df = final_features_df[
                     ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
                 ]
-                final_features_df.to_parquet(outfile_features)
+                final_features_df.set_crs(API_CRS).to_parquet(outfile_features)
             except Exception as e:
                 logger.error(
                     f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
@@ -470,83 +469,38 @@ def main():
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
         logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
-        if args.workers > 1:
-            processes = int(args.workers)
-            with concurrent.futures.ProcessPoolExecutor(processes) as executor:
-                # Chunk parcels and send chunks to process pool
-                for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
-                    chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                    logger.debug(
-                        (
-                            f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
-                        )
-                    )
-                    jobs.append(
-                        executor.submit(
-                            process_chunk,
-                            chunk_id,
-                            batch,
-                            classes_df,
-                            args.output_dir,
-                            args.key_file,
-                            config,
-                            args.country,
-                            args.packs,
-                            args.calc_buffers,
-                            args.include_parcel_geometry,
-                            args.save_features,
-                            args.primary_decision,
-                            args.bulk_mode,
-                            args.overwrite_cache,
-                            args.compress_cache,
-                            args.no_cache,
-                            args.cache_dir,
-                            args.since,
-                            args.until,
-                            args.alpha,
-                            args.beta,
-                            args.endpoint,
-                        )
-                    )
-                for j in jobs:
-                    try:
-                        j.result()
-                    except Exception as e:
-                        logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
-                        logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
-        else:
-            # If we only have one worker, run in main process
-            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
-                chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                logger.debug(
-                    (
-                        f"Processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
-                    )
+
+        for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
+            chunk_id = f"{f.stem}_{str(i).zfill(4)}"
+            logger.debug(
+                (
+                    f"Processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
                 )
-                process_chunk(
-                    chunk_id,
-                    batch,
-                    classes_df,
-                    args.output_dir,
-                    args.key_file,
-                    config,
-                    args.country,
-                    args.packs,
-                    args.calc_buffers,
-                    args.include_parcel_geometry,
-                    args.save_features,
-                    args.primary_decision,
-                    args.bulk_mode,
-                    args.overwrite_cache,
-                    args.compress_cache,
-                    args.no_cache,
-                    args.cache_dir,
-                    args.since,
-                    args.until,
-                    args.alpha,
-                    args.beta,
-                    args.endpoint,
-                )
+            )
+            process_chunk(
+                chunk_id,
+                batch,
+                classes_df,
+                args.output_dir,
+                args.key_file,
+                config,
+                args.country,
+                args.packs,
+                args.calc_buffers,
+                args.include_parcel_geometry,
+                args.save_features,
+                args.primary_decision,
+                args.bulk_mode,
+                args.overwrite_cache,
+                args.compress_cache,
+                args.no_cache,
+                args.cache_dir,
+                args.since,
+                args.until,
+                args.alpha,
+                args.beta,
+                args.endpoint,
+            )
 
         # Combine chunks and save
         data = []
@@ -564,7 +518,7 @@ def main():
             data = pd.DataFrame(data)
         if len(data) > 0:
             if args.rollup_format == "parquet":
-                data.to_parquet(outpath, index=True)
+                data.to_crs(API_CRS).to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
                 data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
                 data.to_csv(outpath, index=True)
