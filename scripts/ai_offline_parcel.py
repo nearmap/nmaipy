@@ -35,9 +35,9 @@ class Endpoint(Enum):
     ROLLUP = "rollup"
 
 
-CHUNK_SIZE = 2000
+CHUNK_SIZE = 500
 PROCESSES = 4
-THREADS = 2
+THREADS = 3
 
 logger = log.get_logger()
 
@@ -342,7 +342,6 @@ def process_chunk(
     )
     if include_parcel_geometry:
         columns.append("geometry")
-        final_df["geometry"] = final_df.geometry.apply(shapely.wkt.dumps)
     final_df = final_df[columns]
     date2str = lambda d: str(d).replace("-", "")
     make_link = (
@@ -361,12 +360,12 @@ def process_chunk(
         logger.error(errors_df)
 
     try:
-        final_df = final_df.convert_dtypes()
-        final_df.to_parquet(outfile)
+        gpd.GeoDataFrame(final_df).to_parquet(outfile)
     except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
         logger.error(final_df.shape)
         logger.error(final_df)
+        logger.error(e)
 
     if save_features and (endpoint != Endpoint.ROLLUP.value):
         # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
@@ -558,18 +557,20 @@ def main():
         for i in range(num_chunks): # Now attempt every chunk - so if one is missing, we error.
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
-            data.append(pd.read_parquet(cp))
+            data.append(gpd.read_parquet(cp))
         if len(data) > 0:
-            data = pd.concat(data)
+            data = gpd.GeoDataFrame(pd.concat(data))
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
+                data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
                 data.to_csv(outpath, index=True)
             else:
                 logger.info("Invalid output format specified - reverting to csv")
+                data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
                 data.to_csv(outpath, index=True)
 
 

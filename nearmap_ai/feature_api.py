@@ -135,6 +135,7 @@ class FeatureApi:
     ]
     API_TYPE_FEATURES = "features"
     API_TYPE_ROLLUPS = "rollups"
+    POOL_SIZE = 10
 
     def __init__(
         self,
@@ -199,7 +200,7 @@ class FeatureApi:
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
             )
-            session.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
+            session.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=self.POOL_SIZE, pool_connections=self.POOL_SIZE))
             self._thread_local.session = session
             self._sessions.append(session)
         return session
