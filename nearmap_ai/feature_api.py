@@ -1203,6 +1203,7 @@ class FeatureApi:
                     metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     if instant_fail_batch:
+                        executor.shutdown(wait=True, cancel_futures=True) # Needed to prevent memory leak.
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)

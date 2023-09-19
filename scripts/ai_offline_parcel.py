@@ -37,7 +37,7 @@ class Endpoint(Enum):
 
 CHUNK_SIZE = 500
 PROCESSES = 4
-THREADS = 3
+THREADS = 6
 
 logger = log.get_logger()
 
