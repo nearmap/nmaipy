@@ -135,7 +135,7 @@ class FeatureApi:
     ]
     API_TYPE_FEATURES = "features"
     API_TYPE_ROLLUPS = "rollups"
-    POOL_SIZE = 16
+    POOL_SIZE = 10
 
     def __init__(
         self,
