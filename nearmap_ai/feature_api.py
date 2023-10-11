@@ -135,6 +135,7 @@ class FeatureApi:
     ]
     API_TYPE_FEATURES = "features"
     API_TYPE_ROLLUPS = "rollups"
+    POOL_SIZE = 10
 
     def __init__(
         self,
@@ -199,7 +200,7 @@ class FeatureApi:
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
             )
-            session.mount("https://", HTTPAdapter(max_retries=retries))
+            session.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=self.POOL_SIZE, pool_connections=self.POOL_SIZE))
             self._thread_local.session = session
             self._sessions.append(session)
         return session
@@ -1202,6 +1203,7 @@ class FeatureApi:
                     metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     if instant_fail_batch:
+                        executor.shutdown(wait=True, cancel_futures=True) # Needed to prevent memory leak.
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)

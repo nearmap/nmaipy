@@ -123,12 +123,7 @@ def read_from_file(
             crs=source_crs,
         )
     elif path.suffix == ".parquet":
-        parcels_df = pd.read_parquet(path)
-        parcels_gdf = gpd.GeoDataFrame(
-            parcels_df.drop("geometry", axis=1),
-            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(lambda g: shapely.wkb.loads(g, hex=True)),
-            crs=source_crs,
-        )
+        parcels_gdf = gpd.read_parquet(path)
     elif path.suffix in (".geojson", ".gpkg"):
         parcels_gdf = gpd.read_file(path)
     else:
@@ -156,7 +151,8 @@ def read_from_file(
 
     # Check that identifier is unique
     if id_column not in parcels_gdf:
-        parcels_gdf[id_column] = parcels_gdf.index
+        parcels_gdf = parcels_gdf.reset_index() # Bump the index to a column in case it's important
+        parcels_gdf[id_column] = range(len(parcels_gdf)) # Set a new unique ordered index for reference
     if parcels_gdf[id_column].duplicated().any():
         raise ValueError(f"Duplicate IDs found for {id_column=}")
 
@@ -303,7 +299,7 @@ def feature_attributes(
 
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
-    for (class_id, name) in classes_df.description.iteritems():
+    for (class_id, name) in classes_df.description.items():
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
