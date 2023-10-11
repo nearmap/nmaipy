@@ -7,7 +7,7 @@ def get_logger() -> logging.Logger:
     """
     Get package logger
     """
-    return logging.getLogger("nearmap_ai")
+    return logging.getLogger("nmaipy")
 
 
 def configure_logger(log_level: Optional[Union[int, str]] = logging.INFO):

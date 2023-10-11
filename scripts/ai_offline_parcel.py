@@ -19,15 +19,15 @@ import traceback
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
-from nearmap_ai import log, parcels
-from nearmap_ai.constants import (
+from nmaipy import log, parcels
+from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     SINCE_COL_NAME,
     UNTIL_COL_NAME,
     API_CRS,
     SURVEY_RESOURCE_ID_COL_NAME,
 )
-from nearmap_ai.feature_api import FeatureApi
+from nmaipy.feature_api import FeatureApi
 
 
 class Endpoint(Enum):

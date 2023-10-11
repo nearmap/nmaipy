@@ -7,11 +7,9 @@ import pytest
 from shapely.geometry import Polygon
 import warnings
 
-from nearmap_ai.feature_api import FeatureApi
-from nearmap_ai.constants import *
+from nmaipy.feature_api import FeatureApi
+from nmaipy.constants import *
 
-# sys.path.append(Path(__file__).parent.parent.absolute() / "scripts")
-sys.path.append("/home/jovyan/nearmap-ai-user-guides/scripts")
 import ai_offline_parcel
 
 

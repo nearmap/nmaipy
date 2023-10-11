@@ -23,8 +23,8 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 import shapely.geometry
 import stringcase
 
-from nearmap_ai import log
-from nearmap_ai.constants import (
+from nmaipy import log
+from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     LAT_LONG_CRS,
     SINCE_COL_NAME,

@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-name = "nearmap_ai"
+name = "nmaipy"
 pysrc_dir = "."
 packages = [p for p in find_packages(pysrc_dir) if not p.startswith("tests")]
 package_dir = {"": pysrc_dir}

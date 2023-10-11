@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from shapely.wkt import loads
 
-from nearmap_ai import parcels
-from nearmap_ai.constants import (
+from nmaipy import parcels
+from nmaipy.constants import (
     BUILDING_ID,
     LAWN_GRASS_ID,
     POOL_ID,
@@ -18,13 +18,13 @@ from nearmap_ai.constants import (
     AREA_CRS,
     SQUARED_METERS_TO_SQUARED_FEET,
 )
-from nearmap_ai.feature_api import FeatureApi
+from nmaipy.feature_api import FeatureApi
 
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     outfname = data_directory / "test_features.csv"
-    from nearmap_ai.feature_api import FeatureApi
+    from nmaipy.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, alpha=True, beta=True).get_features_gdf_bulk(
@@ -36,7 +36,7 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     outfname = data_directory / "test_features_2.csv"
-    from nearmap_ai.feature_api import FeatureApi
+    from nmaipy.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, workers=1).get_features_gdf_bulk(
