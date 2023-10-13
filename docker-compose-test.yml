@@ -11,7 +11,7 @@ services:
       - JUPYTER_LAB_ENABLE=yes
     user: root
     volumes:
-      - /<repo_dir>/nearmap-ai-user-guides/data:/home/jovyan/data
+      - /<repo_dir>/nmaipy/data:/home/jovyan/data
     entrypoint: [
-        "pytest", "/home/jovyan/nearmap-ai-user-guides",
+        "pytest", "/home/jovyan/nmaipy",
     ]

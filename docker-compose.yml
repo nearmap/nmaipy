@@ -14,7 +14,7 @@ services:
       - <local path to data directory>:/home/jovyan/data
     entrypoint: [
         "start.sh",
-        "python", "/home/jovyan/nearmap-ai-user-guides/scripts/ai_offline_parcel.py",
+        "python", "/home/jovyan/nmaipy/scripts/ai_offline_parcel.py",
         "--parcel-dir", "/home/jovyan/data/<path to parcels>",
         "--output-dir", "/home/jovyan/data/<path to results>",
         "--packs", "building", "building_char", "roof_char", "roof_cond", "pool", "solar", "trampoline", "construction", "vegetation", "surfaces",

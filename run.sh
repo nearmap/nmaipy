@@ -1,5 +1,5 @@
 export PYTHONPATH=.
-python /home/jovyan/datascience/nearmap-ai-user-guides/scripts/ai_offline_parcel.py \
+python /home/jovyan/datascience/nmaipy/scripts/ai_offline_parcel.py \
     --parcel-dir "" \
     --output-dir "" \
     --country us \
