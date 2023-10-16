@@ -7,13 +7,13 @@ import pytest
 from shapely.geometry import Polygon
 import warnings
 
-from nearmap_ai.feature_api import FeatureApi
-from nearmap_ai.constants import *
+from nmaipy.feature_api import FeatureApi
+from nmaipy.constants import *
 
-# sys.path.append(Path(__file__).parent.parent.absolute() / "scripts")
-sys.path.append("/home/jovyan/nearmap-ai-user-guides/scripts")
+sys.path.append(Path(__file__).parent.parent.absolute() / "scripts")
 import ai_offline_parcel
 
+TEST_TMP_FOLDER = Path("data/tmp")
 
 class TestAIOfflineParcel:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
@@ -36,8 +36,8 @@ class TestAIOfflineParcel:
         tag_rollup_api = "tests3_rollup"
         chunk_id = 0
 
-        output_dir = Path("/home/jovyan/data/tmp") / tag
-        output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
+        output_dir = Path(TEST_TMP_FOLDER) / tag
+        output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
         packs = ["roof_cond"]
         country = "au"
         final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
@@ -71,11 +71,15 @@ class TestAIOfflineParcel:
             endpoint="rollup",
         )
 
+        data_rollup_api_errors = []
+        for cp in chunk_path_rollup_api.glob(f"errors_*.parquet"):
+            data_rollup_api_errors.append(pd.read_parquet(cp))
+        data_rollup_api_errors = pd.concat(data_rollup_api_errors)
+
         data_rollup_api = []
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
             data_rollup_api.append(pd.read_parquet(cp))
         data_rollup_api = pd.concat(data_rollup_api)
-
         print("data rollup api")
         print(data_rollup_api.T)
         print(data_rollup_api.loc[:, ("", "link")].values)
@@ -86,7 +90,7 @@ class TestAIOfflineParcel:
         tag = "tests_au"
         chunk_id = 0
 
-        output_dir = Path("/home/jovyan/data/tmp") / tag
+        output_dir = Path("TEST_TMP_FOLDER") / tag
         packs = ["building", "vegetation"]
         country = "au"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
@@ -167,8 +171,8 @@ class TestAIOfflineParcel:
         tag_rollup_api = "tests2_rollup"
         chunk_id = 0
 
-        output_dir = Path("/home/jovyan/data/tmp") / tag
-        output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
+        output_dir = Path(TEST_TMP_FOLDER) / tag
+        output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
         packs = ["building", "vegetation"]
         country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection

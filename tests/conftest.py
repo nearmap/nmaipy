@@ -6,8 +6,8 @@ import pytest
 from shapely.geometry import Polygon
 from shapely.wkt import loads
 
-from nearmap_ai import parcels
-from nearmap_ai.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
+from nmaipy import parcels
+from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
 
 
 @pytest.fixture(scope="session")

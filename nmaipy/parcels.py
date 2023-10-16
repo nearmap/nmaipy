@@ -9,8 +9,8 @@ import shapely.wkt
 from shapely.geometry import MultiPolygon, Polygon
 import stringcase
 
-from nearmap_ai import log
-from nearmap_ai.constants import (
+from nmaipy import log
+from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     AREA_CRS,
     BUILDING_ID,
@@ -170,9 +170,9 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
     Default thresholds to make theses decisions are defined, but can be overwritten at runtime.
 
     Args:
-        features_gdf: Features data (see nearmap_ai.FeatureApi.get_features_gdf_bulk)
+        features_gdf: Features data (see nmaipy.FeatureApi.get_features_gdf_bulk)
         config: Config dictionary. Can have any or all keys as the default config
-                (see nearmap_ai.parcels.DEFAULT_FILTERING).
+                (see nmaipy.parcels.DEFAULT_FILTERING).
 
     Returns: Filtered features_gdf GeoDataFrame
     """
