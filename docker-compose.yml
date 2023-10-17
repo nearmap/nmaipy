@@ -1,6 +1,6 @@
 version: '2'
 services:
-  nearmap_ai:
+  nmaipy:
     build: .
     environment:
       - API_KEY=${API_KEY}

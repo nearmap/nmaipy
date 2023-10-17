@@ -10,7 +10,6 @@ import warnings
 from nmaipy.feature_api import FeatureApi
 from nmaipy.constants import *
 
-sys.path.append(Path(__file__).parent.parent.absolute() / "scripts")
 import ai_offline_parcel
 
 TEST_TMP_FOLDER = Path("data/tmp")
