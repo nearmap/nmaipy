@@ -33,7 +33,7 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     features_gdf.to_csv(outfname, index=False)
 
 
-# @pytest.mark.skip("Comment out this line if you wish to regen the test data")
+@pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     outfname = data_directory / "test_features_2.csv"
     from nmaipy.feature_api import FeatureApi
