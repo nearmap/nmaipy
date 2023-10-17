@@ -4,3 +4,5 @@ __pycache__
 /notebooks/cache/
 /.idea/
 /.vscode/
+/data/
+.env
