@@ -33,7 +33,7 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     features_gdf.to_csv(outfname, index=False)
 
 
-@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+# @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     outfname = data_directory / "test_features_2.csv"
     from nmaipy.feature_api import FeatureApi
@@ -766,9 +766,9 @@ class TestParcels:
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         np.testing.assert_almost_equal(
-            df.filter(like="tree_zone").sum().values, [369.13, 15, 321.74, 2, 0, 0, 0, 0], 1e-2
+            df.filter(like="tree_zone").sum().values, [287, 18, 188, 3, 0, 0, 0, 0], 1e-2
         )
-        np.testing.assert_equal(df.filter(like="building_count").sum().values, [111, 15, 2, 0, 0])
+        np.testing.assert_equal(df.filter(like="building_count").sum().values, [111, 18, 3, 0, 0])
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """

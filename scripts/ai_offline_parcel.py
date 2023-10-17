@@ -350,7 +350,6 @@ def process_chunk(
     if endpoint == Endpoint.ROLLUP.value:
         final_df["link"] = final_df.apply(make_link, axis=1)
         final_df = final_df.drop(columns=["system_version", "date"])
-        final_df.columns = FeatureApi._single_to_multi_index(final_df.columns)
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:
         errors_df.to_parquet(outfile_errors)
@@ -358,8 +357,8 @@ def process_chunk(
         logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
         logger.error(errors_df.shape)
         logger.error(errors_df)
-
     try:
+        final_df = final_df.convert_dtypes()
         gpd.GeoDataFrame(final_df).to_parquet(outfile)
     except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
