@@ -158,7 +158,7 @@ class TestFeatureAPI:
         """
         )
         country = "au"
-        feature_api = FeatureApi(cache_dir=cache_directory)
+        feature_api = FeatureApi(cache_dir=cache_directory, maxretry=3)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country)
         # No data
         assert features_gdf is None

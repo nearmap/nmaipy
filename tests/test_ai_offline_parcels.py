@@ -12,6 +12,7 @@ from nmaipy.constants import *
 
 import ai_offline_parcel
 
+TEST_TMP_FOLDER = Path("data/tmp")
 
 class TestAIOfflineParcel:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
@@ -34,9 +35,9 @@ class TestAIOfflineParcel:
         tag_rollup_api = "tests3_rollup"
         chunk_id = 0
 
-        output_dir = Path("/home/jovyan/data/tmp") / tag
-        output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
-        packs = ["roof_cond"]
+        output_dir = Path(TEST_TMP_FOLDER) / tag
+        output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
+        packs = ["surface_permeability"]
         country = "au"
         final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
         final_path_rollup_api.mkdir(parents=True, exist_ok=True)
@@ -69,14 +70,18 @@ class TestAIOfflineParcel:
             endpoint="rollup",
         )
 
+        data_rollup_api_errors = []
+        for cp in chunk_path_rollup_api.glob(f"errors_*.parquet"):
+            data_rollup_api_errors.append(pd.read_parquet(cp))
+        data_rollup_api_errors = pd.concat(data_rollup_api_errors)
+
         data_rollup_api = []
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
             data_rollup_api.append(pd.read_parquet(cp))
         data_rollup_api = pd.concat(data_rollup_api)
-
         print("data rollup api")
         print(data_rollup_api.T)
-        print(data_rollup_api.loc[:, ("", "link")].values)
+        print(data_rollup_api.loc[:, "link"].values)
 
     def test_process_chunk_au(
         self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
@@ -84,7 +89,7 @@ class TestAIOfflineParcel:
         tag = "tests_au"
         chunk_id = 0
 
-        output_dir = Path("/home/jovyan/data/tmp") / tag
+        output_dir = Path(TEST_TMP_FOLDER) / tag
         packs = ["building", "vegetation"]
         country = "au"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
@@ -165,8 +170,8 @@ class TestAIOfflineParcel:
         tag_rollup_api = "tests2_rollup"
         chunk_id = 0
 
-        output_dir = Path("/home/jovyan/data/tmp") / tag
-        output_dir_rollup_api = Path("/home/jovyan/data/tmp") / tag_rollup_api
+        output_dir = Path(TEST_TMP_FOLDER) / tag
+        output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
         packs = ["building", "vegetation"]
         country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
@@ -220,14 +225,14 @@ class TestAIOfflineParcel:
         # print(data_feature_api.T)
         print("data rollup api")
         print(data_rollup_api.T)
-        print(data_rollup_api.loc[:, ("", "link")].values)
+        print(data_rollup_api.loc[:, "link"].values)
 
 
         # Test continuous class - tree canopy
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
         pd.testing.assert_series_equal(
             data_feature_api.loc[:, "medium_and_high_vegetation_(>2m)_count"],
-            data_rollup_api.loc[:, ROLLUP_TREE_CANOPY_COUNT_ID].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_COUNT_ID).iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
@@ -236,19 +241,19 @@ class TestAIOfflineParcel:
         ## Check small error tolerance (max 1 square foot), only where there was no in/out discrepancy on counts
         idx_equal_counts = (
             data_feature_api.loc[:, "medium_and_high_vegetation_(>2m)_count"]
-            - data_rollup_api.loc[:, ROLLUP_TREE_CANOPY_COUNT_ID].iloc[:, 0]
+            - data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_COUNT_ID).iloc[:, 0]
         ) == 0
 
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "medium_and_high_vegetation_(>2m)_total_clipped_area_sqft"],
-            data_rollup_api.loc[idx_equal_counts, ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID).loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
         )
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "medium_and_high_vegetation_(>2m)_total_unclipped_area_sqft"],
-            data_rollup_api.loc[idx_equal_counts, ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID).loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
@@ -258,21 +263,21 @@ class TestAIOfflineParcel:
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
         pd.testing.assert_series_equal(
             data_feature_api.loc[:, "building_count"],
-            data_rollup_api.loc[:, ROLLUP_BUILDING_COUNT_ID].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_BUILDING_COUNT_ID).iloc[:, 0],
             check_names=False,
             atol=1,
         )
 
         ## Check small error tolerance (max 1 square foot), only where there was no in/out discrepancy on counts
         idx_equal_counts = (
-            data_feature_api.loc[:, "building_count"] - data_rollup_api.loc[:, ROLLUP_BUILDING_COUNT_ID].iloc[:, 0]
+            data_feature_api.loc[:, "building_count"] - data_rollup_api.filter(like=ROLLUP_BUILDING_COUNT_ID).iloc[:, 0]
         ) == 0
 
         ## Implicitly test sqm to sqft conversion...
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "primary_building_clipped_area_sqft"]
             / SQUARED_METERS_TO_SQUARED_FEET,
-            data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID]
+            data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID).loc[idx_equal_counts]
             .fillna(0)
             .iloc[:, 0],
             check_exact=False,
@@ -282,7 +287,7 @@ class TestAIOfflineParcel:
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "primary_building_unclipped_area_sqft"]
             / SQUARED_METERS_TO_SQUARED_FEET,
-            data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID]
+            data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID).loc[idx_equal_counts]
             .fillna(0)
             .iloc[:, 0],
             check_exact=False,
@@ -293,7 +298,7 @@ class TestAIOfflineParcel:
         ## Test confidence aggregation is correct to within 1%
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "building_confidence"],
-            data_rollup_api.loc[idx_equal_counts, ROLLUP_BUILDING_PRESENT_CONFIDENCE].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_BUILDING_PRESENT_CONFIDENCE).loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
             rtol=0.01,
@@ -313,12 +318,12 @@ class TestAIOfflineParcel:
         # Test metadata columns which should be identical
         pd.testing.assert_series_equal(
             data_feature_api.loc[:, "date"],
-            data_rollup_api.loc[:, ROLLUP_SURVEY_DATE_ID].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_SURVEY_DATE_ID).iloc[:, 0],
             check_names=False,
         )
         pd.testing.assert_series_equal(
             data_feature_api.loc[:, "system_version"],
-            data_rollup_api.loc[:, ROLLUP_SYSTEM_VERSION_ID].iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_SYSTEM_VERSION_ID).iloc[:, 0],
             check_names=False,
         )
 
@@ -332,5 +337,5 @@ class TestAIOfflineParcel:
             # "mesh_date",
         ]:
             pd.testing.assert_series_equal(
-                data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ("", ident_col)], check_names=False
+                data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ident_col], check_names=False
             )
