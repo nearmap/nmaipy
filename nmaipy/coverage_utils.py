@@ -12,6 +12,9 @@ import geopandas as gpd
 
 s = requests.Session()
 
+AI_COVERAGE = "ai"
+STANDARD_COVERAGE = "standard"
+
 retries = Retry(total=20, backoff_factor=0.1, status_forcelist=[408, 429, 500, 502, 503])
 s.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
 
@@ -55,22 +58,34 @@ def poly2coordstring(poly):
     return coordstring
 
 
-def get_surveys_from_point(lat, lon, since, until, apikey, limit=100):
+
+def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=100):
+
     fields = "id,captureDate,resources"
-    url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&apikey={apikey}"
+    if coverage_type == "survey":
+        url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&apikey={apikey}"
+    elif coverage_type == "ai":
+        url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}&apikey={apikey}"
+    else:
+        raise ValueError(f"Unknown coverage type {coverage_type}")
     if since is not None:
         url += f"&since={since}"
     if until is not None:
         url += f"&until={until}"
     response = get_payload(url)
     if response is not None:
-        return survey_response_to_dataframe(response["surveys"])
+        if coverage_type == STANDARD_COVERAGE:
+            return std_coverage_response_to_dataframe(response)
+        elif coverage_type == AI_COVERAGE:
+            return ai_coverage_response_to_dataframe(response)
+        else:
+            raise ValueError(f"Unknown coverage type {coverage_type}")
     else:
         logging.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=}")
 
 
-def survey_response_to_dataframe(survey_response):
-    df_survey = pd.DataFrame(survey_response)
+def std_coverage_response_to_dataframe(survey_response):
+    df_survey = pd.DataFrame(survey_response["surveys"])
     if len(df_survey) == 0:
         return df_survey
     else:
@@ -78,9 +93,17 @@ def survey_response_to_dataframe(survey_response):
             df_survey[resource_type] = df_survey["resources"].apply(lambda d: resource_type in d)
         return df_survey
 
+def ai_coverage_response_to_dataframe(response):
+    if response["results"] is not None:
+        df_coverage = pd.DataFrame(response["results"])
+        df_coverage = df_coverage.drop(columns="classes")
+        return df_coverage
+    else:
+        return None
+
 
 def threaded_get_coverage_from_point_results(
-    df, apikey, longitude_col="longitude", latitude_col="latitude", since_col="since", until_col="until", threads=20
+    df, apikey, longitude_col="longitude", latitude_col="latitude", since_col="since", until_col="until", threads=20, coverage_type="standard"
 ):
     jobs = []
 
@@ -97,7 +120,7 @@ def threaded_get_coverage_from_point_results(
             if until_col is not None:
                 until = str(row[until_col])
             jobs.append(
-                executor.submit(get_surveys_from_point, row[latitude_col], row[longitude_col], since, until, apikey)
+                executor.submit(get_surveys_from_point, row[longitude_col], row[latitude_col], since, until, apikey, coverage_type)
             )
 
     results = []
