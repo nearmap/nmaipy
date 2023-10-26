@@ -62,9 +62,9 @@ def poly2coordstring(poly):
 def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=100):
 
     fields = "id,captureDate,resources"
-    if coverage_type == "survey":
+    if coverage_type == STANDARD_COVERAGE:
         url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&apikey={apikey}"
-    elif coverage_type == "ai":
+    elif coverage_type == AI_COVERAGE:
         url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}&apikey={apikey}"
     else:
         raise ValueError(f"Unknown coverage type {coverage_type}")
@@ -103,7 +103,7 @@ def ai_coverage_response_to_dataframe(response):
 
 
 def threaded_get_coverage_from_point_results(
-    df, apikey, longitude_col="longitude", latitude_col="latitude", since_col="since", until_col="until", threads=20, coverage_type="standard"
+    df, apikey, longitude_col="longitude", latitude_col="latitude", since_col="since", until_col="until", threads=20, coverage_type=STANDARD_COVERAGE
 ):
     jobs = []
 
