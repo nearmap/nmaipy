@@ -16,7 +16,7 @@ AI_COVERAGE = "ai"
 STANDARD_COVERAGE = "standard"
 FORBIDDEN_403 = 403
 
-retries = Retry(total=20, backoff_factor=0.1, status_forcelist=[408, 429, 500, 502, 503])
+retries = Retry(total=20, backoff_factor=0.1, status_forcelist=[408, 429, 500, 502, 503, 504])
 s.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
 
 
