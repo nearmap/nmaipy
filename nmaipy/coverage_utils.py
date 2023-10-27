@@ -63,7 +63,7 @@ def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=
 
     fields = "id,captureDate,resources"
     if coverage_type == STANDARD_COVERAGE:
-        url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&apikey={apikey}"
+        url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d&apikey={apikey}"
     elif coverage_type == AI_COVERAGE:
         url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}&apikey={apikey}"
     else:
@@ -75,13 +75,14 @@ def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=
     response = get_payload(url)
     if response is not None:
         if coverage_type == STANDARD_COVERAGE:
-            return std_coverage_response_to_dataframe(response)
+            return std_coverage_response_to_dataframe(response), response
         elif coverage_type == AI_COVERAGE:
-            return ai_coverage_response_to_dataframe(response)
+            return ai_coverage_response_to_dataframe(response), response
         else:
             raise ValueError(f"Unknown coverage type {coverage_type}")
     else:
         logging.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=}")
+        return None, None
 
 
 def std_coverage_response_to_dataframe(survey_response):
@@ -125,5 +126,6 @@ def threaded_get_coverage_from_point_results(
 
     results = []
     for job in jobs:
-        results.append(pd.DataFrame(job.result()))
+        df_job, _ = job.result()
+        results.append(pd.DataFrame(df_job))
     return results
