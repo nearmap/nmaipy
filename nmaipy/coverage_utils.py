@@ -14,6 +14,7 @@ s = requests.Session()
 
 AI_COVERAGE = "ai"
 STANDARD_COVERAGE = "standard"
+FORBIDDEN_403 = 403
 
 retries = Retry(total=20, backoff_factor=0.1, status_forcelist=[408, 429, 500, 502, 503])
 s.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
@@ -33,19 +34,19 @@ def get_payload(request_string):
         logging.info(f"Status Message: {response.reason}")
         payload = response.json()
         return payload
-    elif response.status_code == 403:
+    elif response.status_code == FORBIDDEN_403:
         logging.info(f"Status Code: {response.status_code}")
         logging.info(f"Status Message: {response.reason}")
         payload = response.content
         logging.info(str(payload))
-        return None
+        return FORBIDDEN_403
     else:
         logging.error(f"Status Code: {response.status_code}")
         logging.error(f"Status Message: {response.reason}")
         logging.error(str(response))
         payload = response.content
         logging.error(str(payload))
-        return None
+        return response.status_code
 
 
 def poly2coordstring(poly):
@@ -73,15 +74,18 @@ def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=
     if until is not None:
         url += f"&until={until}"
     response = get_payload(url)
-    if response is not None:
+    if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
         elif coverage_type == AI_COVERAGE:
             return ai_coverage_response_to_dataframe(response), response
         else:
             raise ValueError(f"Unknown coverage type {coverage_type}")
+    elif response == FORBIDDEN_403:
+        logging.info(f"Unauthorised area request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
+        return None, None
     else:
-        logging.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=}")
+        logging.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
         return None, None
 
 
