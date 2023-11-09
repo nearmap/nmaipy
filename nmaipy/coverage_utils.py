@@ -59,9 +59,7 @@ def poly2coordstring(poly):
     return coordstring
 
 
-
 def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=100):
-
     fields = "id,captureDate,resources"
     if coverage_type == STANDARD_COVERAGE:
         url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d&apikey={apikey}"
@@ -98,6 +96,7 @@ def std_coverage_response_to_dataframe(survey_response):
             df_survey[resource_type] = df_survey["resources"].apply(lambda d: resource_type in d)
         return df_survey
 
+
 def ai_coverage_response_to_dataframe(response):
     if response["results"] is not None:
         df_coverage = pd.DataFrame(response["results"])
@@ -108,7 +107,14 @@ def ai_coverage_response_to_dataframe(response):
 
 
 def threaded_get_coverage_from_point_results(
-    df, apikey, longitude_col="longitude", latitude_col="latitude", since_col="since", until_col="until", threads=20, coverage_type=STANDARD_COVERAGE
+    df,
+    apikey,
+    longitude_col="longitude",
+    latitude_col="latitude",
+    since_col="since",
+    until_col="until",
+    threads=20,
+    coverage_type=STANDARD_COVERAGE,
 ):
     jobs = []
 
@@ -125,7 +131,9 @@ def threaded_get_coverage_from_point_results(
             if until_col is not None:
                 until = str(row[until_col])
             jobs.append(
-                executor.submit(get_surveys_from_point, row[longitude_col], row[latitude_col], since, until, apikey, coverage_type)
+                executor.submit(
+                    get_surveys_from_point, row[longitude_col], row[latitude_col], since, until, apikey, coverage_type
+                )
             )
 
     results = []

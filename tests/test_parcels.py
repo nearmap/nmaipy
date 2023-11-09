@@ -665,7 +665,6 @@ class TestParcels:
         pd.testing.assert_frame_equal(rollup_df, expected, atol=1e-3)
 
     def test_filter_and_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
-
         packs = ["building", "vegetation"]
         country = "au"
         parcel_gdf = parcel_gdf_au_tests
@@ -765,9 +764,7 @@ class TestParcels:
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        np.testing.assert_almost_equal(
-            df.filter(like="tree_zone").sum().values, [287, 18, 188, 3, 0, 0, 0, 0], 1e-2
-        )
+        np.testing.assert_almost_equal(df.filter(like="tree_zone").sum().values, [287, 18, 188, 3, 0, 0, 0, 0], 1e-2)
         np.testing.assert_equal(df.filter(like="building_count").sum().values, [111, 18, 3, 0, 0])
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):

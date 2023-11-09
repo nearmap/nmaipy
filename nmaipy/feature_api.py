@@ -200,7 +200,10 @@ class FeatureApi:
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
             )
-            session.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=self.POOL_SIZE, pool_connections=self.POOL_SIZE))
+            session.mount(
+                "https://",
+                HTTPAdapter(max_retries=retries, pool_maxsize=self.POOL_SIZE, pool_connections=self.POOL_SIZE),
+            )
             self._thread_local.session = session
             self._sessions.append(session)
         return session
@@ -541,7 +544,6 @@ class FeatureApi:
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
-
             if cache_path.exists():
                 logger.debug(f"Retrieving payload from cache")
                 if self.compress_cache:
@@ -582,7 +584,6 @@ class FeatureApi:
                         gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
                         for i, feature in enumerate(data["features"]):
-
                             data["features"][i]["clippedAreaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
                             data["features"][i]["clippedAreaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
 
@@ -1163,7 +1164,6 @@ class FeatureApi:
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
             jobs = []
             for _, row in gdf.iterrows():
-
                 # Overwrite blanket since/until dates with per request since/until if columns are present
                 since = since_bulk
                 if SINCE_COL_NAME in row:
@@ -1203,7 +1203,7 @@ class FeatureApi:
                     metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     if instant_fail_batch:
-                        executor.shutdown(wait=True, cancel_futures=True) # Needed to prevent memory leak.
+                        executor.shutdown(wait=True, cancel_futures=True)  # Needed to prevent memory leak.
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
@@ -1375,7 +1375,6 @@ class FeatureApi:
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
             jobs = []
             for _, row in gdf.iterrows():
-
                 # Overwrite blanket since/until dates with per request since/until if columns are present
                 since = since_bulk
                 if SINCE_COL_NAME in row:

@@ -14,6 +14,7 @@ import ai_offline_parcel
 
 TEST_TMP_FOLDER = Path("data/tmp")
 
+
 class TestAIOfflineParcel:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
     def test_process_chunk_rollup_single_multi_polygon_combo(
@@ -227,7 +228,6 @@ class TestAIOfflineParcel:
         print(data_rollup_api.T)
         print(data_rollup_api.loc[:, "link"].values)
 
-
         # Test continuous class - tree canopy
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
         pd.testing.assert_series_equal(
@@ -277,7 +277,8 @@ class TestAIOfflineParcel:
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "primary_building_clipped_area_sqft"]
             / SQUARED_METERS_TO_SQUARED_FEET,
-            data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID).loc[idx_equal_counts]
+            data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID)
+            .loc[idx_equal_counts]
             .fillna(0)
             .iloc[:, 0],
             check_exact=False,
@@ -287,7 +288,8 @@ class TestAIOfflineParcel:
         pd.testing.assert_series_equal(
             data_feature_api.loc[idx_equal_counts, "primary_building_unclipped_area_sqft"]
             / SQUARED_METERS_TO_SQUARED_FEET,
-            data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID).loc[idx_equal_counts]
+            data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID)
+            .loc[idx_equal_counts]
             .fillna(0)
             .iloc[:, 0],
             check_exact=False,
