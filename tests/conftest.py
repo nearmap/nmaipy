@@ -64,26 +64,41 @@ def large_adelaide_aoi() -> Polygon:
 
 @pytest.fixture(scope="session")
 def data_directory() -> Path:
+    """
+    The directory containing the test data.
+    """
     return Path(__file__).parent.absolute() / "data"
 
 
 @pytest.fixture(scope="session")
 def parcels_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    """
+    16 polygons in Fairlight, Sydney, as well as a point, an empty polygon and an empty row.
+    """
     return parcels.read_from_file(data_directory / "test_parcels.csv")
 
 
 @pytest.fixture(scope="session")
 def parcels_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    """
+    100 realistic property boundaries from New Jersey.
+    """
     return parcels.read_from_file(data_directory / "test_parcels_2.csv")
 
 
 @pytest.fixture(scope="session")
 def parcels_3_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    """
+    Two multipolygons in Cobar, NSW.
+    """
     return parcels.read_from_file(data_directory / "test_parcels_3.csv")
 
 
 @pytest.fixture(scope="session")
 def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    """
+    Features pulled from a cached csv from the AI Feature API for the parcels_gdf fixture.
+    """
     df = pd.read_csv(data_directory / "test_features.csv")
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
@@ -94,6 +109,9 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
 
 @pytest.fixture(scope="session")
 def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+     """
+    Features pulled from a cached csv from the AI Feature API for the parcels_2_gdf fixture.
+    """
     df = pd.read_csv(data_directory / "test_features_2.csv")
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
@@ -104,6 +122,9 @@ def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
 
 @pytest.fixture(scope="session")
 def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd.GeoDataFrame:
+    """
+    A very large AOI in Adelaide, and a smaller AOI in Sydney to test gridding / large scale behaviour.
+    """
     # Syd
     syd_row = {
         "since": "2020-01-01",

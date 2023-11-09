@@ -40,10 +40,10 @@ DEFAULT_FILTERING = {
     "min_size": {
         BUILDING_ID: 16,
         ROOF_ID: 16,
-        TRAMPOLINE_ID: 9,
+        TRAMPOLINE_ID: 3,
         POOL_ID: 9,
-        CONSTRUCTION_ID: 9,
-        SOLAR_ID: 9,
+        CONSTRUCTION_ID: 5,
+        SOLAR_ID: 5,
     },
     "min_confidence": {
         BUILDING_ID: 0.8,
@@ -60,7 +60,7 @@ DEFAULT_FILTERING = {
     "min_area_in_parcel": {
         BUILDING_ID: 25,
         ROOF_ID: 25,
-        TRAMPOLINE_ID: 5,
+        TRAMPOLINE_ID: 3,
         POOL_ID: 9,
         CONSTRUCTION_ID: 5,
         SOLAR_ID: 5,
@@ -151,8 +151,8 @@ def read_from_file(
 
     # Check that identifier is unique
     if id_column not in parcels_gdf:
-        parcels_gdf = parcels_gdf.reset_index() # Bump the index to a column in case it's important
-        parcels_gdf[id_column] = range(len(parcels_gdf)) # Set a new unique ordered index for reference
+        parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
+        parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
     if parcels_gdf[id_column].duplicated().any():
         raise ValueError(f"Duplicate IDs found for {id_column=}")
 
@@ -182,20 +182,21 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
         config = {}
     gdf = features_gdf.copy()
 
-    if "clipped_area_sqm" in gdf.columns and 'unclipped_area_sqm' in gdf.columns:
+    if "clipped_area_sqm" in gdf.columns and "unclipped_area_sqm" in gdf.columns:
         suffix = "sqm"
-    elif "clipped_area_sqft" in gdf.columns and 'unclipped_area_sqft' in gdf.columns:
+    elif "clipped_area_sqft" in gdf.columns and "unclipped_area_sqft" in gdf.columns:
         suffix = "sqft"
     else:
-        raise Exception(f"We need consistent meters or feet to do filtering calculations, but we did not have the necessary columns... they are {gdf.columns.tolist()} in length {len(gdf)} dataframe")
-
+        raise Exception(
+            f"We need consistent meters or feet to do filtering calculations, but we did not have the necessary columns... they are {gdf.columns.tolist()} in length {len(gdf)} dataframe"
+        )
 
     # Calculate the ratio of a feature that falls within the parcel
-    gdf["intersection_ratio"] = gdf["clipped_area_"+suffix] / gdf["unclipped_area_"+suffix]
+    gdf["intersection_ratio"] = gdf["clipped_area_" + suffix] / gdf["unclipped_area_" + suffix]
 
     # Filter small features
     filter = config.get("min_size", DEFAULT_FILTERING["min_size"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf["unclipped_area_"+suffix]]
+    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf["unclipped_area_" + suffix]]
 
     # Filter low confidence features
     filter = config.get("min_confidence", DEFAULT_FILTERING["min_confidence"])
@@ -207,7 +208,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
 
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
-    area_mask = gdf.class_id.map(filter).fillna(0) <= gdf["clipped_area_"+suffix]
+    area_mask = gdf.class_id.map(filter).fillna(0) <= gdf["clipped_area_" + suffix]
     filter = config.get("min_ratio_in_parcel", DEFAULT_FILTERING["min_ratio_in_parcel"])
     ratio_mask = gdf.class_id.map(filter).fillna(0) <= gdf.intersection_ratio
     gdf = gdf[area_mask | ratio_mask]
@@ -299,7 +300,7 @@ def feature_attributes(
 
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
-    for (class_id, name) in classes_df.description.items():
+    for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
@@ -322,7 +323,6 @@ def feature_attributes(
         # Select and produce results for the primary feature of each feature class
         if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
             if len(class_features_gdf) > 0:
-
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
                     primary_feature = class_features_gdf.loc[class_features_gdf.clipped_area_sqm.idxmax()]
@@ -377,7 +377,6 @@ def feature_attributes(
                 parcel[f"primary_{name}_confidence"] = None
 
         if class_id == BUILDING_ID:
-
             # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
             if len(class_features_gdf) > 0 and calc_buffers:
                 for B in TREE_BUFFERS_M:

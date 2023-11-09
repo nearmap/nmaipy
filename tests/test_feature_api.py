@@ -292,7 +292,7 @@ class TestFeatureAPI:
         features_gdf = parcels.filter_features_in_parcels(features_gdf)
         print(features_gdf.T)
         # No data
-        assert len(features_gdf) == 1 # 1 pole found
+        assert len(features_gdf) == 1  # 1 pole found
 
     def test_multipolygon_1(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))

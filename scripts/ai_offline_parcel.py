@@ -553,7 +553,7 @@ def main():
         errors = []
         # TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
         logger.info(f"Saving rollup data as {args.rollup_format} file to {outpath}")
-        for i in range(num_chunks): # Now attempt every chunk - so if one is missing, we error.
+        for i in range(num_chunks):  # Now attempt every chunk - so if one is missing, we error.
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
             data.append(gpd.read_parquet(cp))
@@ -571,7 +571,6 @@ def main():
                 logger.info("Invalid output format specified - reverting to csv")
                 data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
                 data.to_csv(outpath, index=True)
-
 
         outpath_errors = final_path / f"{f.stem}_errors.csv"
         logger.info(f"Saving error data as .csv to {outpath_errors}")
