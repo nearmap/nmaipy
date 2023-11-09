@@ -88,6 +88,9 @@ def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=
 
 
 def std_coverage_response_to_dataframe(survey_response):
+    """
+    Convert the JSON response from the standard coverage API into a pandas dataframe.
+    """
     df_survey = pd.DataFrame(survey_response["surveys"])
     if len(df_survey) == 0:
         return df_survey
@@ -98,6 +101,9 @@ def std_coverage_response_to_dataframe(survey_response):
 
 
 def ai_coverage_response_to_dataframe(response):
+"""
+Convert the JSON response from the AI coverage API into a pandas dataframe.
+"""
     if response["results"] is not None:
         df_coverage = pd.DataFrame(response["results"])
         df_coverage = df_coverage.drop(columns="classes")
@@ -115,7 +121,10 @@ def threaded_get_coverage_from_point_results(
     until_col="until",
     threads=20,
     coverage_type=STANDARD_COVERAGE,
-):
+    ):
+    """
+    Wrapper function to get coverage from a dataframe of points, using a thread pool.
+    """
     jobs = []
 
     if since_col is None:

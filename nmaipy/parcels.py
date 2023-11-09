@@ -40,10 +40,10 @@ DEFAULT_FILTERING = {
     "min_size": {
         BUILDING_ID: 16,
         ROOF_ID: 16,
-        TRAMPOLINE_ID: 9,
+        TRAMPOLINE_ID: 3,
         POOL_ID: 9,
-        CONSTRUCTION_ID: 9,
-        SOLAR_ID: 9,
+        CONSTRUCTION_ID: 5,
+        SOLAR_ID: 5,
     },
     "min_confidence": {
         BUILDING_ID: 0.8,
@@ -60,7 +60,7 @@ DEFAULT_FILTERING = {
     "min_area_in_parcel": {
         BUILDING_ID: 25,
         ROOF_ID: 25,
-        TRAMPOLINE_ID: 5,
+        TRAMPOLINE_ID: 3,
         POOL_ID: 9,
         CONSTRUCTION_ID: 5,
         SOLAR_ID: 5,

@@ -23,6 +23,9 @@ from nmaipy.feature_api import FeatureApi
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
+    """
+    Generate the test data for the parcels tests. Uses a specific date to ensure the data is consistent.
+    """
     outfname = data_directory / "test_features.csv"
     from nmaipy.feature_api import FeatureApi
 
@@ -35,6 +38,9 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
+    """
+    Generate secondary test data set.
+    """
     outfname = data_directory / "test_features_2.csv"
     from nmaipy.feature_api import FeatureApi
 
