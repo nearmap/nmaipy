@@ -1,0 +1,30 @@
+include:
+  - template: 'Jobs/SAST-IaC.gitlab-ci.yml'
+  - template: 'Security/Secret-Detection.gitlab-ci.yml'
+
+secret_detection:
+  stage: test
+  tags:
+    - sharedservices-runner
+  before_script:
+    - apk update && apk upgrade && apk add aws-cli
+  after_script:
+    - echo "upload report"
+    - aws s3 cp gl-sast-report.json s3://${S3_SECURITY_REPORTS_BUCKET}/${CI_PROJECT_NAME}/$(date +"%Y-%m-%d_%H-%M-%S")/
+  dependencies: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: always
+
+kics-iac-sast:
+  stage: test
+  tags: 
+    - sharedservices-runner
+  before_script:
+    - apk update && apk upgrade && apk add aws-cli
+  after_script:
+    - aws s3 cp gl-sast-report.json s3://${S3_SECURITY_REPORTS_BUCKET}/${CI_PROJECT_NAME}/$(date +"%Y-%m-%d_%H-%M-%S")/
+  dependencies: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: always
