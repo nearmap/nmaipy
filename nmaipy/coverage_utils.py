@@ -150,10 +150,12 @@ def threaded_get_coverage_from_point_results(
         # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
         if df[since_col].dtype == DATETIMEDTYPE:
             print("Converting since_col to string")
-            df[since_col] = df.loc[:, since_col].dt.strftime("%Y-%m-%d")
+            temp = df[since_col].dt.strftime("%Y-%m-%d")
+            df[since_col] = temp
         if df[until_col].dtype == DATETIMEDTYPE:
             print("Converting until_col to string")
-            df[until_col] = df.loc[:, until_col].dt.strftime("%Y-%m-%d")
+            temp = df[until_col].dt.strftime("%Y-%m-%d")
+            df[until_col] = temp
 
         for i, row in df.iterrows():
             if since_col is not None:
