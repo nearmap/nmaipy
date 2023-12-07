@@ -3,11 +3,13 @@ from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 import concurrent.futures
 import logging
+from pathlib import Path
 
 
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from tqdm import tqdm
 
 
 s = requests.Session()
@@ -15,6 +17,7 @@ s = requests.Session()
 AI_COVERAGE = "ai"
 STANDARD_COVERAGE = "standard"
 FORBIDDEN_403 = 403
+DATETIMEDTYPE = "datetime64[ns]"  # Datetime type for pandas
 
 retries = Retry(total=20, backoff_factor=0.1, status_forcelist=[408, 429, 500, 502, 503, 504])
 s.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
@@ -87,6 +90,16 @@ def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=
         return None, None
 
 
+def get_survey_resource_id_from_standard_coverage(resources):
+    """
+    Get the survey resource id from the resources list. This is the id that can be used with the AI Feature API to get an exact match (rather than since/until dates).
+    """
+    if "aifeatures" in resources:
+        return resources["aifeatures"][-1]["id"]
+    else:
+        return None
+
+
 def std_coverage_response_to_dataframe(survey_response):
     """
     Convert the JSON response from the standard coverage API into a pandas dataframe.
@@ -101,9 +114,9 @@ def std_coverage_response_to_dataframe(survey_response):
 
 
 def ai_coverage_response_to_dataframe(response):
-"""
-Convert the JSON response from the AI coverage API into a pandas dataframe.
-"""
+    """
+    Convert the JSON response from the AI coverage API into a pandas dataframe.
+    """
     if response["results"] is not None:
         df_coverage = pd.DataFrame(response["results"])
         df_coverage = df_coverage.drop(columns="classes")
@@ -121,7 +134,7 @@ def threaded_get_coverage_from_point_results(
     until_col="until",
     threads=20,
     coverage_type=STANDARD_COVERAGE,
-    ):
+):
     """
     Wrapper function to get coverage from a dataframe of points, using a thread pool.
     """
@@ -134,6 +147,16 @@ def threaded_get_coverage_from_point_results(
 
     # Send each parcel to a thread worker
     with concurrent.futures.ThreadPoolExecutor(threads) as executor:
+        # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
+        if df[since_col].dtype == DATETIMEDTYPE:
+            print("Converting since_col to string")
+            temp = df[since_col].dt.strftime("%Y-%m-%d")
+            df[since_col] = temp
+        if df[until_col].dtype == DATETIMEDTYPE:
+            print("Converting until_col to string")
+            temp = df[until_col].dt.strftime("%Y-%m-%d")
+            df[until_col] = temp
+
         for i, row in df.iterrows():
             if since_col is not None:
                 since = str(row[since_col])
@@ -150,3 +173,93 @@ def threaded_get_coverage_from_point_results(
         df_job, _ = job.result()
         results.append(pd.DataFrame(df_job))
     return results
+
+
+def get_coverage_from_points(
+    df_points,
+    api_key,
+    coverage_type="standard",
+    chunk_size=10000,
+    threads=20,
+    coverage_chunk_cache_dir="coverage_chunks",
+    id_col="id",
+):
+    """
+    Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
+    and whether the survey has AI and/or 3D resources attached. This doesn't tell us what generation of AI data is available -
+    that will require a subsequent run against the AI Feature API coverage endpoint to determine versions (or just pulling the
+    data and ignoring version).
+
+    Parameters:
+    -----------
+    df_points : GeoDataFrame
+        A GeoDataFrame of points to check for coverage of imagery, 3D and AI.
+    api_key : str
+        The Nearmap API key to use for authentication.
+    coverage_type : str, optional
+        The type of coverage to retrieve. Must be one of "standard", "oblique", or "all". Default is "standard".
+    chunk_size : int, optional
+        The number of points to process in each chunk. Default is 10000.
+    threads : int, optional
+        The number of threads to use for making API calls. Default is 20.
+    coverage_chunk_cache_dir : str, optional
+        The directory to cache coverage chunks. Default is "coverage_chunks".
+    id_col : str, optional
+        The name of the column in `df_points` that contains the unique identifier for each point.
+
+    Returns:
+    --------
+    df_coverage : DataFrame
+        A DataFrame containing the coverage data for each point.
+    """
+    df_coverage = []
+    df_coverage_empty = None
+    coverage_chunk_cache_dir = Path(coverage_chunk_cache_dir)
+    coverage_chunk_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in tqdm(range(0, len(df_points), chunk_size)):
+        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
+        if not f.exists():
+            df_point_chunk = df_points.iloc[i : i + chunk_size, :]
+            logging.debug(f"Pulling chunk from API for {f}.")
+            # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
+            c = threaded_get_coverage_from_point_results(
+                df_point_chunk,
+                since_col="since",
+                until_col="until",
+                apikey=api_key,
+                threads=threads,
+                coverage_type=coverage_type,
+            )
+            c_with_idx = []
+            for j in range(len(c)):
+                row_id = df_point_chunk.iloc[j].name
+                c_tmp = c[j].copy()
+                if len(c_tmp) > 0:
+                    c_tmp[id_col] = row_id
+                    c_with_idx.append(c_tmp)
+            if len(c_with_idx) > 0:
+                c = pd.concat(c_with_idx)
+                c["survey_resource_id"] = c.resources.apply(get_survey_resource_id_from_standard_coverage)
+                c = c.drop(columns=["resources"]).rename(columns={"id": "survey_id"})
+                if (
+                    df_coverage_empty is None
+                ):  # Set an empty dataframe with the right columns for writing dummy parquet cache files
+                    df_coverage_empty = pd.DataFrame([], columns=c.columns).astype(c.dtypes)
+            else:
+                c = df_coverage_empty
+            c.to_parquet(f)
+
+        else:
+            logging.debug(f"Reading chunk from parquet for {f}.")
+            c = pd.read_parquet(f)
+
+        if len(c) > 0:
+            c = c.loc[
+                :, [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
+            ].set_index(id_col)
+            c["captureDate"] = pd.to_datetime(c["captureDate"])
+            df_coverage.append(c)
+
+    df_coverage = pd.concat(df_coverage)
+    return df_coverage
