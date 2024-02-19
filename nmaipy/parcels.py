@@ -6,7 +6,7 @@ import geopandas as gpd
 import pandas as pd
 import shapely.wkb
 import shapely.wkt
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import MultiPolygon, Polygon, Point
 import stringcase
 
 from nmaipy import log
@@ -66,8 +66,8 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 1,
     },
     "min_ratio_in_parcel": {
-        BUILDING_ID: 0.5,
-        ROOF_ID: 0.5,
+        BUILDING_ID: 0,  # Defer to more complex algorithm for building and roof - important for large buildings.
+        ROOF_ID: 0,
         TRAMPOLINE_ID: 0.5,
         POOL_ID: 0.5,
         CONSTRUCTION_ID: 0.5,
@@ -327,7 +327,7 @@ def feature_attributes(
                 if primary_decision == "largest_intersection":
                     primary_feature = class_features_gdf.loc[class_features_gdf.clipped_area_sqm.idxmax()]
                 elif primary_decision == "nearest":
-                    primary_point = shapely.geometry.Point(primary_lon, primary_lat)
+                    primary_point = Point(primary_lon, primary_lat)
                     primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
                     class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
 
