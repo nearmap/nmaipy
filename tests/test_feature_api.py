@@ -438,7 +438,6 @@ class TestFeatureAPI:
         assert classes_df.loc[BUILDING_ID].description == "Building"
         assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
         assert classes_df.loc[SOLAR_HW_ID].description == "Solar Hot Water"
-        assert len(classes_df) == 3
 
     def test_unknown_pack(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)

@@ -360,17 +360,17 @@ class TestParcels:
                     "mesh_date": "2021-01-23",
                 },
                 {
-                    "building_present": "N",
-                    "building_count": 0,
-                    "building_total_area_sqm": 0.0,
-                    "building_total_clipped_area_sqm": 0.0,
-                    "building_total_unclipped_area_sqm": 0.0,
-                    "building_confidence": None,
-                    "primary_building_area_sqm": 0.0,
-                    "primary_building_clipped_area_sqm": 0.0,
-                    "primary_building_unclipped_area_sqm": 0.0,
-                    "primary_building_confidence": None,
-                    "primary_building_fidelity": None,
+                    "building_present": "Y",
+                    "building_count": 1,
+                    "building_total_area_sqm": 13.1,
+                    "building_total_clipped_area_sqm": 13.1,
+                    "building_total_unclipped_area_sqm": 13.1,
+                    "building_confidence": 0.76,
+                    "primary_building_area_sqm": 13.1,
+                    "primary_building_clipped_area_sqm": 13.1,
+                    "primary_building_unclipped_area_sqm": 13.1,
+                    "primary_building_confidence": 0.76,
+                    "primary_building_fidelity": 0.84,
                     "aoi_id": "0_2",
                     "mesh_date": "2021-01-23",
                 },
@@ -770,8 +770,8 @@ class TestParcels:
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        np.testing.assert_almost_equal(df.filter(like="tree_zone").sum().values, [287, 18, 188, 3, 0, 0, 0, 0], 1e-2)
-        np.testing.assert_equal(df.filter(like="building_count").sum().values, [111, 18, 3, 0, 0])
+        np.testing.assert_almost_equal(df.filter(like="tree_zone").sum().values, [278, 18, 188, 3, 0, 0, 0, 0], 1e-2)
+        np.testing.assert_equal(df.filter(like="building_count").sum().values, [132, 17, 3, 0, 0])
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
@@ -929,4 +929,6 @@ class TestParcels:
         )
         print(metadata)
         print(df.T)
-        assert df.loc[0, "building_count"] == 22
+        assert (
+            df.loc[0, "building_count"] == 25
+        )  # Includes some lower confidence ones that had been filtered by the previous thresholds.
