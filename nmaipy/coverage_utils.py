@@ -101,9 +101,9 @@ def std_coverage_response_to_dataframe(survey_response):
 
 
 def ai_coverage_response_to_dataframe(response):
-"""
-Convert the JSON response from the AI coverage API into a pandas dataframe.
-"""
+    """
+    Convert the JSON response from the AI coverage API into a pandas dataframe.
+    """
     if response["results"] is not None:
         df_coverage = pd.DataFrame(response["results"])
         df_coverage = df_coverage.drop(columns="classes")
