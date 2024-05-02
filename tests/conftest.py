@@ -109,7 +109,7 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
 
 @pytest.fixture(scope="session")
 def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
-     """
+    """
     Features pulled from a cached csv from the AI Feature API for the parcels_2_gdf fixture.
     """
     df = pd.read_csv(data_directory / "test_features_2.csv")
