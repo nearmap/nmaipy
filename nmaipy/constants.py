@@ -46,7 +46,8 @@ SQUARED_METERS_TO_SQUARED_FEET = METERS_TO_FEET * METERS_TO_FEET
 ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
 
 # Class IDs
-BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"
+BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # Legacy clone of roof semantic definition
+BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # New semantic building definition
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
 
 TRAMPOLINE_ID = "753621ee-0b9f-515e-9bcf-ea40b96612ab"
