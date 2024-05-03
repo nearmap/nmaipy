@@ -469,11 +469,25 @@ def main():
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
         logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
+        logger.debug(f"Splitting parcels into {num_chunks} chunks")
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Geometry is in a geographic CRS.",
+            )
+            parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
+            )
+            chunks = np.array_split(parcels_gdf, num_chunks)
         if args.workers > 1:
             processes = int(args.workers)
             with concurrent.futures.ProcessPoolExecutor(processes) as executor:
                 # Chunk parcels and send chunks to process pool
-                for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
+                for i, batch in enumerate(chunks):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                     logger.debug(
                         (
@@ -515,7 +529,7 @@ def main():
                         logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
-            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
+            for i, batch in tqdm(enumerate(chunks), total=len(chunks)):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                 logger.debug(
                     (
