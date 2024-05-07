@@ -568,7 +568,15 @@ def main():
         for i in range(num_chunks):  # Now attempt every chunk - so if one is missing, we error.
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
-            data.append(gpd.read_parquet(cp))
+            if cp.exists():
+                data.append(gpd.read_parquet(cp))
+            else:
+                error_filename = f"errors_{f.stem}_{str(i).zfill(4)}.parquet"
+                if (chunk_path / error_filename).exists():
+                    logger.debug(f"Chunk {i} rollup file missing, but error file found.")
+                else:
+                    raise FileNotFoundError(f"Chunk {i} rollup and error files missing - try rerunning.")
+
         if len(data) > 0:
             data = gpd.GeoDataFrame(pd.concat(data))
         else:
