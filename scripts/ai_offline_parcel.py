@@ -297,9 +297,7 @@ def process_chunk(
             packs=packs,
             instant_fail_batch=False,
         )
-        logger.info(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-        )
+        logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
         if len(errors_df) > 0:
             if "message" in errors_df:
                 logger.debug(errors_df.value_counts("message"))
