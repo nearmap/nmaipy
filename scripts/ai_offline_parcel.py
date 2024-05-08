@@ -325,7 +325,9 @@ def process_chunk(
             primary_decision=primary_decision,
         )
     else:
-        raise ValueError(f"Not a valid endpoint selection: {endpoint}")
+        logger.error(f"Not a valid endpoint selection: {endpoint}")
+        # End the program if the endpoint is not valid.
+        sys.exit(1)
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -575,7 +577,9 @@ def main():
                 if (chunk_path / error_filename).exists():
                     logger.debug(f"Chunk {i} rollup file missing, but error file found.")
                 else:
-                    raise FileNotFoundError(f"Chunk {i} rollup and error files missing - try rerunning.")
+                    logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
+                    # Break out of program to ensure we don't save a partially complete final csv.
+                    sys.exit(1)
 
         if len(data) > 0:
             data = gpd.GeoDataFrame(pd.concat(data))
