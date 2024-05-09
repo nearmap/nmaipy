@@ -351,7 +351,7 @@ class FeatureApi:
         """
         Remove the API key from a request string.
         """
-        return self._clean_api_key(request_string)
+        return request_string.replace(self.api_key, "APIKEYREMOVED")
 
     def _request_cache_path(self, request_string: str) -> Path:
         """
@@ -1055,7 +1055,7 @@ class FeatureApi:
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": status_code,
                 "message": "RETRY_ERROR",
-                "text": self._clean_api_key(str(e)),
+                "text": "Retry Error",
                 "request": str(geometry),
             }
         except requests.exceptions.Timeout as e:
