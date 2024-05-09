@@ -41,7 +41,7 @@ from nmaipy.constants import (
     ROLLUP_SYSTEM_VERSION_ID,
 )
 
-TIMEOUT_SECONDS = 15  # Max time to wait for a server response.
+TIMEOUT_SECONDS = 60  # Max time to wait for a server response.
 DUMMY_STATUS_CODE = -1
 
 
@@ -347,11 +347,17 @@ class FeatureApi:
         lon, lat = np.array(dic["polygon"].split(",")).astype("float").round().astype("int").astype("str")[:2]
         return lon, lat
 
+    def _clean_api_key(self, request_string: str) -> str:
+        """
+        Remove the API key from a request string.
+        """
+        return self._clean_api_key(request_string)
+
     def _request_cache_path(self, request_string: str) -> Path:
         """
         Hash a request string to create a cache path.
         """
-        request_string = request_string.replace(self.api_key, "")
+        request_string = self._clean_api_key(request_string)
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = self._make_latlon_path_for_cache(request_string)
         ext = "json.gz" if self.compress_cache else "json"
@@ -361,13 +367,13 @@ class FeatureApi:
         """
         Create a descriptive error message without the API key.
         """
-        return f"\n{request_string.replace(self.api_key, '...')=}\n\n{response.status_code=}\n\n{response.text}\n\n"
+        return f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
     def _handle_response_errors(self, response: requests.Response, request_string: str):
         """
         Handle errors returned from the feature API
         """
-        clean_request_string = request_string.replace(self.api_key, "...")
+        clean_request_string = self._clean_api_key(request_string)
         if response is None:
             raise AIFeatureAPIError(response, clean_request_string)
         elif not response.ok:
@@ -532,11 +538,11 @@ class FeatureApi:
         if not exact and result_type == self.API_TYPE_ROLLUPS:
             raise AIFeatureAPIError(
                 response=None,
-                request_string=request_string.replace(self.api_key, "..."),
+                request_string=self._clean_api_key(request_string),
                 text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                 message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
             )
-        # logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
+        # logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
         cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
         # Check if it's already cached
@@ -560,7 +566,7 @@ class FeatureApi:
         try:
             response = self._session.get(request_string, timeout=TIMEOUT_SECONDS)
         except requests.exceptions.ChunkedEncodingError:
-            logger.info(f"ChunkedEncodingError for {request_string.replace(self.api_key, '...')}")
+            logger.info(f"ChunkedEncodingError for {self._clean_api_key(request_string)}")
             self._handle_response_errors(None, request_string)
 
         response_time_ms = (time.monotonic() - t1) * 1e3
@@ -1049,7 +1055,7 @@ class FeatureApi:
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": status_code,
                 "message": "RETRY_ERROR",
-                "text": str(e),
+                "text": self._clean_api_key(str(e)),
                 "request": str(geometry),
             }
         except requests.exceptions.Timeout as e:
