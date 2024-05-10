@@ -118,11 +118,13 @@ class FeatureApi:
     Class to connect to the AI Feature API
     """
 
-    FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
-    ROLLUPS_CSV_URL = "https://api.nearmap.com/ai/features/v4/rollups.csv"
-    FEATURES_SURVEY_RESOURCE_URL = "https://api.nearmap.com/ai/features/v4/surveyresources"
-    CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
-    PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
+    URL_ROOT = "https://api.nearmap.com"
+
+    FEATURES_URL = URL_ROOT + "/ai/features/v4/features.json"
+    ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/rollups.csv"
+    FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/surveyresources"
+    CLASSES_URL = URL_ROOT + "/ai/features/v4/classes.json"
+    PACKS_URL = URL_ROOT + "/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -577,7 +579,11 @@ class FeatureApi:
             if result_type == self.API_TYPE_ROLLUPS:
                 data = response.text
             elif result_type == self.API_TYPE_FEATURES:
-                data = response.json()
+                try:
+                    data = response.json()
+                except Exception as e:
+                    logging.warning("Error parsing JSON response from API.")
+                    raise AIFeatureAPIError(response, request_string)
                 # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
                 if not exact:
                     # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
