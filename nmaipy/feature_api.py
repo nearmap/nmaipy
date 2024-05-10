@@ -64,7 +64,7 @@ class AIFeatureAPIError(Exception):
 
     def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query AOI"):
         if response is None:
-            self.status_code = self.DUMMY_STATUS_CODE
+            self.status_code = DUMMY_STATUS_CODE
             self.text = text
             self.message = message
         else:
