@@ -10,6 +10,7 @@ from shapely.wkt import loads
 from nmaipy import parcels
 from nmaipy.constants import (
     BUILDING_ID,
+    BUILDING_NEW_ID,
     SOLAR_ID,
     VEG_MEDHIGH_ID,
     ASPHALT_ID,
@@ -436,9 +437,10 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         classes_df = feature_api.get_feature_classes(packs=["solar", "building"])
         assert classes_df.loc[BUILDING_ID].description == "Building"
+        assert classes_df.loc[BUILDING_NEW_ID].description == "Building"
         assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
         assert classes_df.loc[SOLAR_HW_ID].description == "Solar Hot Water"
-        assert len(classes_df) == 3
+        assert len(classes_df) == 4
 
     def test_unknown_pack(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)

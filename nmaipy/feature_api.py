@@ -41,6 +41,10 @@ from nmaipy.constants import (
     ROLLUP_SYSTEM_VERSION_ID,
 )
 
+TIMEOUT_SECONDS = 60  # Max time to wait for a server response.
+DUMMY_STATUS_CODE = -1
+
+
 logger = log.get_logger()
 
 
@@ -57,8 +61,6 @@ class AIFeatureAPIError(Exception):
     Error responses for logging from AI Feature API. Also include non rest API errors (use dummy status code and
     explicitly set messages).
     """
-
-    DUMMY_STATUS_CODE = -1
 
     def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query AOI"):
         if response is None:
@@ -116,11 +118,13 @@ class FeatureApi:
     Class to connect to the AI Feature API
     """
 
-    FEATURES_URL = "https://api.nearmap.com/ai/features/v4/features.json"
-    ROLLUPS_CSV_URL = "https://api.nearmap.com/ai/features/v4/rollups.csv"
-    FEATURES_SURVEY_RESOURCE_URL = "https://api.nearmap.com/ai/features/v4/surveyresources"
-    CLASSES_URL = "https://api.nearmap.com/ai/features/v4/classes.json"
-    PACKS_URL = "https://api.nearmap.com/ai/features/v4/packs.json"
+    URL_ROOT = "https://api.nearmap.com"
+
+    FEATURES_URL = URL_ROOT + "/ai/features/v4/features.json"
+    ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/rollups.csv"
+    FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/surveyresources"
+    CLASSES_URL = URL_ROOT + "/ai/features/v4/classes.json"
+    PACKS_URL = URL_ROOT + "/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -210,12 +214,7 @@ class FeatureApi:
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
-        Return a result from one of the base URLS.
-        Args:
-            base_url: self.PACKS_URL,
-
-        Returns:
-
+        Return a result from one of the base URLS (such as packs or classes)
         """
         request_string = f"{base_url}?apikey={self.api_key}"
         if self.alpha:
@@ -350,11 +349,17 @@ class FeatureApi:
         lon, lat = np.array(dic["polygon"].split(",")).astype("float").round().astype("int").astype("str")[:2]
         return lon, lat
 
+    def _clean_api_key(self, request_string: str) -> str:
+        """
+        Remove the API key from a request string.
+        """
+        return request_string.replace(self.api_key, "APIKEYREMOVED")
+
     def _request_cache_path(self, request_string: str) -> Path:
         """
         Hash a request string to create a cache path.
         """
-        request_string = request_string.replace(self.api_key, "")
+        request_string = self._clean_api_key(request_string)
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = self._make_latlon_path_for_cache(request_string)
         ext = "json.gz" if self.compress_cache else "json"
@@ -364,13 +369,13 @@ class FeatureApi:
         """
         Create a descriptive error message without the API key.
         """
-        return f"\n{request_string.replace(self.api_key, '...')=}\n\n{response.status_code=}\n\n{response.text}\n\n"
+        return f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
     def _handle_response_errors(self, response: requests.Response, request_string: str):
         """
         Handle errors returned from the feature API
         """
-        clean_request_string = request_string.replace(self.api_key, "...")
+        clean_request_string = self._clean_api_key(request_string)
         if response is None:
             raise AIFeatureAPIError(response, clean_request_string)
         elif not response.ok:
@@ -535,25 +540,25 @@ class FeatureApi:
         if not exact and result_type == self.API_TYPE_ROLLUPS:
             raise AIFeatureAPIError(
                 response=None,
-                request_string=request_string.replace(self.api_key, "..."),
+                request_string=self._clean_api_key(request_string),
                 text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                 message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
             )
-        logger.debug(f"Requesting: {request_string.replace(self.api_key, '...')}")
+        # logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
         cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
         # Check if it's already cached
         if self.cache_dir is not None and not self.overwrite_cache:
             if cache_path.exists():
-                logger.debug(f"Retrieving payload from cache")
+                # logger.debug(f"Retrieving payload from cache")
                 if self.compress_cache:
                     with gzip.open(cache_path, "rt", encoding="utf-8") as f:
                         try:
                             payload_str = f.read()
                             return json.loads(payload_str)
                         except EOFError as e:
-                            logging.error(f"Error loading compressed cache file {cache_path}.")
-                            logging.error(payload_str)
+                            logger.error(f"Error loading compressed cache file {cache_path}.")
+                            logger.error(payload_str)
                 else:
                     with open(cache_path, "r") as f:
                         return json.load(f)
@@ -561,19 +566,24 @@ class FeatureApi:
         # Request data
         t1 = time.monotonic()
         try:
-            response = self._session.get(request_string)
+            response = self._session.get(request_string, timeout=TIMEOUT_SECONDS)
         except requests.exceptions.ChunkedEncodingError:
+            logger.info(f"ChunkedEncodingError for {self._clean_api_key(request_string)}")
             self._handle_response_errors(None, request_string)
 
         response_time_ms = (time.monotonic() - t1) * 1e3
 
         if response.ok:
-            logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+            # logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
 
             if result_type == self.API_TYPE_ROLLUPS:
                 data = response.text
             elif result_type == self.API_TYPE_FEATURES:
-                data = response.json()
+                try:
+                    data = response.json()
+                except Exception as e:
+                    logging.warning("Error parsing JSON response from API.")
+                    raise AIFeatureAPIError(response, request_string)
                 # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
                 if not exact:
                     # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
@@ -607,7 +617,7 @@ class FeatureApi:
             except requests.exceptions.ChunkedEncodingError:
                 text = ""
 
-            logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
+            # logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
             if self.overwrite_cache:
                 # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
                 try:
@@ -971,7 +981,6 @@ class FeatureApi:
             features_gdf, metadata, error = None, None, None
 
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
-            logging.debug(f"{fail_hard_regrid=}")
             # Do not get stuck in an infinite loop of re-gridding and timing out
             if fail_hard_regrid or geometry is None:
                 logger.debug("Failing hard and NOT re-gridding....")
@@ -1006,9 +1015,6 @@ class FeatureApi:
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
                     }
-                    logger.debug(
-                        f"Recombined grid - Metadata: {metadata}, Unique {AOI_ID_COLUMN_NAME} with features: {features_gdf[AOI_ID_COLUMN_NAME].unique()}, Error: {error} "
-                    )
 
                 except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
                     # Catch acceptable errors
@@ -1034,15 +1040,40 @@ class FeatureApi:
             }
 
         except requests.exceptions.RetryError as e:
-            logger.debug(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
+            status_code = e.response.status_code if e.response else DUMMY_STATUS_CODE
+            logger.warning(
+                f"Retry Exception - gave up retrying on aoi_id: {aoi_id} near {geometry.representative_point()}. Status code: {status_code}"
+            )
+            if logger.level == logging.DEBUG:
+                request_string = self._create_request_string(
+                    base_url=self.FEATURES_URL,
+                    geometry=geometry,
+                    packs=packs,
+                    since=since,
+                    until=until,
+                    address_fields=address_fields,
+                    survey_resource_id=survey_resource_id,
+                )[0]
+                logger.debug(f"Probable original request string was: {request_string}")
             features_gdf = None
             metadata = None
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
-                "status_code": -1,
+                "status_code": status_code,
                 "message": "RETRY_ERROR",
+                "text": "Retry Error",
+                "request": str(geometry),
+            }
+        except requests.exceptions.Timeout as e:
+            logger.warning(f"Timeout Exception on aoi_id: {aoi_id} near {geometry.representative_point()}")
+            features_gdf = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": DUMMY_STATUS_CODE,
+                "message": "TIMEOUT_ERROR",
                 "text": str(e),
-                "request": "",
+                "request": str(geometry),
             }
         return features_gdf, metadata, error
 
@@ -1074,7 +1105,6 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
-        logger.debug(f"Gridding AOI into {grid_size} squares.")
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
         # TODO: At this point, we should hit coverage to check that each of the grid squares falls within the AOI. That way we can fail fast before retrieving any payloads. Currently pulls every possible payload before failing.
 
@@ -1096,14 +1126,13 @@ class FeatureApi:
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
-            logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error")
-            logger.debug(f"Exception is {e}")
+            logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error ({e.status_code}).")
             raise AIFeatureAPIGridError(e.status_code)
         if len(features_gdf["survey_date"].unique()) > 1:
             logger.warning(
                 f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
             )
-            raise AIFeatureAPIGridError(-1, message="Multiple dates on non survey resource ID query.")
+            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
             logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
@@ -1113,8 +1142,6 @@ class FeatureApi:
         if len(errors_df) > 0:
             raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
         else:
-            logger.debug(f"Successfully gridded results for AOI ID: {aoi_id}, survey_resource_id: {survey_resource_id}")
-
             # Reset the correct aoi_id for the gridded result
             features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
             metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
@@ -1301,7 +1328,7 @@ class FeatureApi:
             metadata = None
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
-                "status_code": -1,
+                "status_code": DUMMY_STATUS_CODE,
                 "message": "RETRY_ERROR",
                 "text": str(e),
                 "request": "",
