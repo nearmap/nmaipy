@@ -41,7 +41,7 @@ from nmaipy.constants import (
     ROLLUP_SYSTEM_VERSION_ID,
 )
 
-TIMEOUT_SECONDS = 60  # Max time to wait for a server response.
+TIMEOUT_SECONDS = 90  # Max time to wait for a server response.
 DUMMY_STATUS_CODE = -1
 
 
@@ -64,7 +64,7 @@ class AIFeatureAPIError(Exception):
 
     def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query AOI"):
         if response is None:
-            self.status_code = self.DUMMY_STATUS_CODE
+            self.status_code = DUMMY_STATUS_CODE
             self.text = text
             self.message = message
         else:
