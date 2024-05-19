@@ -145,17 +145,15 @@ def threaded_get_coverage_from_point_results(
     if until_col is None:
         until = None
 
+    df = df.copy()
+
     # Send each parcel to a thread worker
     with concurrent.futures.ThreadPoolExecutor(threads) as executor:
         # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
         if df[since_col].dtype == DATETIMEDTYPE:
-            print("Converting since_col to string")
-            temp = df[since_col].dt.strftime("%Y-%m-%d")
-            df[since_col] = temp
+            df[since_col] = df[since_col].dt.strftime("%Y-%m-%d").astype(str)
         if df[until_col].dtype == DATETIMEDTYPE:
-            print("Converting until_col to string")
-            temp = df[until_col].dt.strftime("%Y-%m-%d")
-            df[until_col] = temp
+            df[until_col] = df[until_col].dt.strftime("%Y-%m-%d").astype(str)
 
         for i, row in df.iterrows():
             if since_col is not None:
