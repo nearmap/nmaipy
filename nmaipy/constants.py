@@ -7,7 +7,7 @@ UNTIL_COL_NAME = "until"
 SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 
 
-MAX_RETRIES = 30
+MAX_RETRIES = 50
 
 # Projections
 LAT_LONG_CRS = "WGS 84"

@@ -41,7 +41,7 @@ from nmaipy.constants import (
     ROLLUP_SYSTEM_VERSION_ID,
 )
 
-TIMEOUT_SECONDS = 90  # Max time to wait for a server response.
+TIMEOUT_SECONDS = 120  # Max time to wait for a server response.
 DUMMY_STATUS_CODE = -1
 
 
@@ -199,7 +199,7 @@ class FeatureApi:
                 backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    # HTTPStatus.INTERNAL_SERVER_ERROR,
                     HTTPStatus.BAD_GATEWAY,
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
@@ -234,10 +234,7 @@ class FeatureApi:
         """
         Get packs with class IDs
         """
-        t1 = time.monotonic()
         response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
-        response_time_ms = (time.monotonic() - t1) * 1e3
-        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
     def get_feature_classes(self, packs: List[str] = None) -> pd.DataFrame:
@@ -273,7 +270,7 @@ class FeatureApi:
         Turn a shapely polygon into the format required by the API for a query polygon.
         """
         coords = poly.exterior.coords[:]
-        flat_coords = np.array(coords).flatten()
+        flat_coords = np.array(coords).ravel()
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
 
@@ -309,7 +306,7 @@ class FeatureApi:
          - Polygons that have a convex hull with too many coordinates are simplified to a box.
         If the coord string return does not represent the polygon exactly, the exact flag is set to False.
         """
-
+        convex_hull = None
         if isinstance(geometry, MultiPolygon):
             if len(geometry.geoms) == 1:
                 g = geometry.geoms[0]
@@ -327,7 +324,8 @@ class FeatureApi:
             # Tests whether the polygon has inner rings/holes.
             if len(geometry.interiors) > 0:
                 logger.debug(f"Geometry has inner rings - approximating query with convex hull.")
-                coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+                convex_hull = geometry.convex_hull
+                coordstring = cls._polygon_to_coordstring(convex_hull)
                 exact = False
             else:
                 coordstring = cls._polygon_to_coordstring(geometry)
@@ -335,7 +333,9 @@ class FeatureApi:
         if len(coordstring) > cls.CHAR_LIMIT:
             logger.debug(f"Geometry exceeds character limit - approximating query with convex hull.")
             exact = False
-            coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+            if convex_hull is None:
+                convex_hull = geometry.convex_hull
+            coordstring = cls._polygon_to_coordstring(convex_hull)
             if len(coordstring) > cls.CHAR_LIMIT:
                 exact = False
                 coordstring = cls._polygon_to_coordstring(geometry.envelope)
@@ -587,10 +587,19 @@ class FeatureApi:
                 # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
                 if not exact:
                     # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
-                    data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+                    data_features_geoms = gpd.GeoSeries([shape(f["geometry"]) for f in data["features"]], crs=API_CRS)
+                    keep_inds = data_features_geoms[data_features_geoms.intersects(geometry)].index
+                    data["features"] = [data["features"][i] for i in keep_inds]
+                    # data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
                     if len(data["features"]) > 0:
-                        gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
+                        # TODO: Fix up this bit
+                        v1 = data_features_geoms.loc[keep_inds].values
+                        v2 = pd.DataFrame(data["features"]).geometry.apply(shape)
 
+                        gdf_unclipped = gpd.GeoSeries(
+                            pd.DataFrame(data_features_geoms.loc[keep_inds].values), crs=API_CRS
+                        )
+                        gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
                         gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
                         for i, feature in enumerate(data["features"]):

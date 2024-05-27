@@ -119,7 +119,7 @@ def read_from_file(
             parcels_df = pd.read_csv(path, sep="\t")
         parcels_gdf = gpd.GeoDataFrame(
             parcels_df.drop("geometry", axis=1),
-            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(shapely.wkt.loads),
+            geometry=gpd.GeoSeries.from_wkt(parcels_df.geometry.fillna("POLYGON(EMPTY)")),
             crs=source_crs,
         )
     elif path.suffix == ".parquet":
