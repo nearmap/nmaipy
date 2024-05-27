@@ -587,19 +587,14 @@ class FeatureApi:
                 # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
                 if not exact:
                     # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
-                    data_features_geoms = gpd.GeoSeries([shape(f["geometry"]) for f in data["features"]], crs=API_CRS)
+                    data_features_geoms = gpd.GeoSeries(
+                        [shape(f["geometry"]) for f in data["features"]], crs=API_CRS, name="geometry"
+                    )
                     keep_inds = data_features_geoms[data_features_geoms.intersects(geometry)].index
                     data["features"] = [data["features"][i] for i in keep_inds]
-                    # data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
                     if len(data["features"]) > 0:
-                        # TODO: Fix up this bit
-                        v1 = data_features_geoms.loc[keep_inds].values
-                        v2 = pd.DataFrame(data["features"]).geometry.apply(shape)
-
-                        gdf_unclipped = gpd.GeoSeries(
-                            pd.DataFrame(data_features_geoms.loc[keep_inds].values), crs=API_CRS
-                        )
-                        gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
+                        gdf_unclipped = data_features_geoms.loc[keep_inds]
+                        # gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
                         gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
                         for i, feature in enumerate(data["features"]):
