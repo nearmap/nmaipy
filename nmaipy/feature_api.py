@@ -593,7 +593,9 @@ class FeatureApi:
                     keep_inds = data_features_geoms[data_features_geoms.intersects(geometry)].index
                     data["features"] = [data["features"][i] for i in keep_inds]
                     if len(data["features"]) > 0:
-                        gdf_unclipped = data_features_geoms.loc[keep_inds]
+                        gdf_unclipped = data_features_geoms[keep_inds]
+                        gdf_unclipped.index = range(len(keep_inds))
+
                         # gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
                         gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 

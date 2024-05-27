@@ -241,7 +241,7 @@ def get_coverage_from_points(
             if len(c_with_idx) > 0:
                 c = pd.concat(c_with_idx)
                 c["survey_resource_id"] = c.resources.apply(get_survey_resource_id_from_standard_coverage)
-                c = c.drop(columns=["resources"]).rename(columns={"id": "survey_id"})
+                c = c.rename(columns={"id": "survey_id"})
                 if (
                     df_coverage_empty is None
                 ):  # Set an empty dataframe with the right columns for writing dummy parquet cache files
