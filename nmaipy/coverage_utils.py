@@ -62,10 +62,12 @@ def poly2coordstring(poly):
     return coordstring
 
 
-def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, limit=100):
-    fields = "id,captureDate,resources"
+def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, include_disaster=False, limit=100):
+    fields = "id,captureDate,resources,tags"
     if coverage_type == STANDARD_COVERAGE:
         url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d&apikey={apikey}"
+        if include_disaster:
+            url += f"&include=disaster"
     elif coverage_type == AI_COVERAGE:
         url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}&apikey={apikey}"
     else:
@@ -254,7 +256,7 @@ def get_coverage_from_points(
 
         if len(c) > 0:
             c = c.loc[
-                :, [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
+                :, [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d", "tags"]
             ].set_index(id_col)
             c["captureDate"] = pd.to_datetime(c["captureDate"])
             df_coverage.append(c)
