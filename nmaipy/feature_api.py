@@ -121,8 +121,10 @@ class FeatureApi:
     URL_ROOT = "https://api.nearmap.com"
 
     FEATURES_URL = URL_ROOT + "/ai/features/v4/features.json"
+    FEATURES_DAMAGE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/features.json"
     ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/rollups.csv"
     FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/surveyresources"
+    FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/surveyresources"
     CLASSES_URL = URL_ROOT + "/ai/features/v4/classes.json"
     PACKS_URL = URL_ROOT + "/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
@@ -419,11 +421,14 @@ class FeatureApi:
         Create a request string with given parameters
         base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
         """
-        urlbase = (
-            base_url
-            if survey_resource_id is None
-            else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        )
+        # if "damage" in packs and survey_resource_id is not None:
+        #     urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        urlbase = base_url
+        if survey_resource_id is not None:
+            urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        if survey_resource_id is not None and packs is not None:
+            if "damage" in packs:
+                urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
@@ -526,6 +531,9 @@ class FeatureApi:
         # Create request string
         if result_type == self.API_TYPE_FEATURES:
             base_url = self.FEATURES_URL
+            if packs is not None:
+                if "damage" in packs:
+                    base_url = self.FEATURES_DAMAGE_URL
         elif result_type == self.API_TYPE_ROLLUPS:
             base_url = self.ROLLUPS_CSV_URL
         request_string, exact = self._create_request_string(
@@ -544,7 +552,7 @@ class FeatureApi:
                 text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                 message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
             )
-        # logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
+        logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
         cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
         # Check if it's already cached

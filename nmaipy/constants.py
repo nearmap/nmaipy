@@ -49,6 +49,8 @@ ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
 BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # Legacy clone of roof semantic definition
 BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # New semantic building definition
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
+BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
+
 
 TRAMPOLINE_ID = "753621ee-0b9f-515e-9bcf-ea40b96612ab"
 POOL_ID = "0339726f-081e-5a6e-b9a9-42d95c1b5c8a"
