@@ -62,7 +62,9 @@ def poly2coordstring(poly):
     return coordstring
 
 
-def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, include_disaster=False, limit=100):
+def get_surveys_from_point(
+    lon, lat, since, until, apikey, coverage_type, include_disaster=False, has_3d=False, limit=100
+):
     fields = "id,captureDate,resources,tags"
     if coverage_type == STANDARD_COVERAGE:
         url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d&apikey={apikey}"
@@ -70,12 +72,15 @@ def get_surveys_from_point(lon, lat, since, until, apikey, coverage_type, includ
             url += f"&include=disaster"
     elif coverage_type == AI_COVERAGE:
         url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}&apikey={apikey}"
+        if has_3d:
+            url += "&3dCoverage=true"
     else:
         raise ValueError(f"Unknown coverage type {coverage_type}")
     if since is not None:
         url += f"&since={since}"
     if until is not None:
         url += f"&until={until}"
+
     response = get_payload(url)
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
@@ -121,7 +126,7 @@ def ai_coverage_response_to_dataframe(response):
     """
     if response["results"] is not None:
         df_coverage = pd.DataFrame(response["results"])
-        df_coverage = df_coverage.drop(columns="classes")
+        # df_coverage = df_coverage.drop(columns="classes")
         return df_coverage
     else:
         return None
@@ -136,6 +141,8 @@ def threaded_get_coverage_from_point_results(
     until_col="until",
     threads=20,
     coverage_type=STANDARD_COVERAGE,
+    include_disaster=False,
+    has_3d=False,
 ):
     """
     Wrapper function to get coverage from a dataframe of points, using a thread pool.
@@ -164,7 +171,15 @@ def threaded_get_coverage_from_point_results(
                 until = str(row[until_col])
             jobs.append(
                 executor.submit(
-                    get_surveys_from_point, row[longitude_col], row[latitude_col], since, until, apikey, coverage_type
+                    get_surveys_from_point,
+                    row[longitude_col],
+                    row[latitude_col],
+                    since,
+                    until,
+                    apikey,
+                    coverage_type,
+                    include_disaster,
+                    has_3d,
                 )
             )
 
@@ -183,6 +198,8 @@ def get_coverage_from_points(
     threads=20,
     coverage_chunk_cache_dir="coverage_chunks",
     id_col="id",
+    include_disaster=False,
+    has_3d=False,
 ):
     """
     Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
@@ -230,6 +247,8 @@ def get_coverage_from_points(
                 apikey=api_key,
                 threads=threads,
                 coverage_type=coverage_type,
+                include_disaster=include_disaster,
+                has_3d=has_3d,
             )
             c_with_idx = []
             for j in range(len(c)):
@@ -240,8 +259,12 @@ def get_coverage_from_points(
                     c_with_idx.append(c_tmp)
             if len(c_with_idx) > 0:
                 c = pd.concat(c_with_idx)
-                c["survey_resource_id"] = c.resources.apply(get_survey_resource_id_from_standard_coverage)
-                c = c.rename(columns={"id": "survey_id"})
+                if coverage_type == STANDARD_COVERAGE:
+                    c["survey_resource_id"] = c.resources.apply(get_survey_resource_id_from_standard_coverage)
+                    c = c.rename(columns={"id": "survey_id"})
+                elif coverage_type == AI_COVERAGE:
+                    c = c.rename(columns={"surveyId": "survey_id"})
+                    c = c.rename(columns={"id": "survey_resource_id"})
                 if (
                     df_coverage_empty is None
                 ):  # Set an empty dataframe with the right columns for writing dummy parquet cache files
@@ -255,9 +278,23 @@ def get_coverage_from_points(
             c = pd.read_parquet(f)
 
         if len(c) > 0:
-            c = c.loc[
-                :, [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d", "tags"]
-            ].set_index(id_col)
+            if coverage_type == STANDARD_COVERAGE:
+                c = c.loc[
+                    :, [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d", "tags"]
+                ].set_index(id_col)
+            elif coverage_type == AI_COVERAGE:
+                c = c.loc[
+                    :,
+                    [
+                        id_col,
+                        "captureDate",
+                        "survey_id",
+                        "survey_resource_id",
+                        "systemVersion",
+                        "postcat",
+                        "perspective",
+                    ],
+                ].set_index(id_col)
             c["captureDate"] = pd.to_datetime(c["captureDate"])
             df_coverage.append(c)
 
