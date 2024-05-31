@@ -143,6 +143,7 @@ def threaded_get_coverage_from_point_results(
     coverage_type=STANDARD_COVERAGE,
     include_disaster=False,
     has_3d=False,
+    limit=100,
 ):
     """
     Wrapper function to get coverage from a dataframe of points, using a thread pool.
@@ -180,6 +181,7 @@ def threaded_get_coverage_from_point_results(
                     coverage_type,
                     include_disaster,
                     has_3d,
+                    limit,
                 )
             )
 
@@ -200,6 +202,7 @@ def get_coverage_from_points(
     id_col="id",
     include_disaster=False,
     has_3d=False,
+    limit=100,
 ):
     """
     Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
@@ -249,6 +252,7 @@ def get_coverage_from_points(
                 coverage_type=coverage_type,
                 include_disaster=include_disaster,
                 has_3d=has_3d,
+                limit=limit,
             )
             c_with_idx = []
             for j in range(len(c)):
