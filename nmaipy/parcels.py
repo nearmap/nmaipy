@@ -8,12 +8,14 @@ import shapely.wkb
 import shapely.wkt
 from shapely.geometry import MultiPolygon, Polygon, Point
 import stringcase
+import numpy as np
 
 from nmaipy import log
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     AREA_CRS,
     BUILDING_ID,
+    BUILDING_LIFECYCLE_ID,
     VEG_MEDHIGH_ID,
     VEG_LOW_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
@@ -119,7 +121,7 @@ def read_from_file(
             parcels_df = pd.read_csv(path, sep="\t")
         parcels_gdf = gpd.GeoDataFrame(
             parcels_df.drop("geometry", axis=1),
-            geometry=parcels_df.geometry.fillna("POLYGON(EMPTY)").apply(shapely.wkt.loads),
+            geometry=gpd.GeoSeries.from_wkt(parcels_df.geometry.fillna("POLYGON(EMPTY)")),
             crs=source_crs,
         )
     elif path.suffix == ".parquet":
@@ -269,6 +271,23 @@ def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
     return flattened
 
 
+def flatten_building_lifecycle_damage_attributes(attributes: List[dict]) -> dict:
+    """
+    Flatten building lifecycle damage attributes
+    """
+
+    flattened = {}
+    for attribute in attributes:
+        if "damage" in attribute:
+            damage_dic = attribute["damage"]["femaCategoryConfidences"]
+            x = pd.Series(damage_dic)
+            flattened["damage_class"] = x.idxmax()
+            flattened["damage_class_confidence"] = x.max()
+            for damage_class, confidence in damage_dic.items():
+                flattened[f"damage_class_{damage_class}_confidence"] = confidence
+    return flattened
+
+
 def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
@@ -369,6 +388,11 @@ def feature_attributes(
 
                     for key, val in primary_attributes.items():
                         parcel[f"primary_{name}_" + str(key)] = val
+                if class_id == BUILDING_LIFECYCLE_ID:
+                    # Provide the confidence values for each damage rating class for the primary building lifecycle feature
+                    primary_attributes = flatten_building_lifecycle_damage_attributes(primary_feature.attributes)
+                    for key, val in primary_attributes.items():
+                        parcel[f"primary_{name}_" + str(key)] = val
             else:
                 # Fill values if there are no features
                 parcel[f"primary_{name}_area_{area_units}"] = 0.0
@@ -433,6 +457,10 @@ def feature_attributes(
                         )
                         bldg_count = len(bldg_count)
                         parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
+        elif class_id == BUILDING_LIFECYCLE_ID:
+            # Add aggregated damage across whole parcel, weighted by building lifecycle area
+            # TODO: Finish this.
+            pass
     return parcel
 
 

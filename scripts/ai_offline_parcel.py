@@ -37,7 +37,7 @@ class Endpoint(Enum):
 
 CHUNK_SIZE = 500
 PROCESSES = 4
-THREADS = 6
+THREADS = 20
 
 logger = log.get_logger()
 
@@ -249,8 +249,9 @@ def process_chunk(
         return
 
     # Get additional parcel attributes from parcel geometry
-    parcel_gdf["query_aoi_lat"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
-    parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
+    rep_point = parcel_gdf.representative_point()
+    parcel_gdf["query_aoi_lat"] = rep_point.y
+    parcel_gdf["query_aoi_lon"] = rep_point.x
 
     # Get features
     feature_api = FeatureApi(
@@ -297,9 +298,7 @@ def process_chunk(
             packs=packs,
             instant_fail_batch=False,
         )
-        logger.info(
-            f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(features_gdf)} features returned on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-        )
+        logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
         if len(errors_df) > 0:
             if "message" in errors_df:
                 logger.debug(errors_df.value_counts("message"))
@@ -327,7 +326,9 @@ def process_chunk(
             primary_decision=primary_decision,
         )
     else:
-        raise ValueError(f"Not a valid endpoint selection: {endpoint}")
+        logger.error(f"Not a valid endpoint selection: {endpoint}")
+        # End the program if the endpoint is not valid.
+        sys.exit(1)
 
     # Put it all together and save
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
@@ -374,7 +375,7 @@ def process_chunk(
             ),
             crs=API_CRS,
         )
-        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
         final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
         if len(final_features_df) > 0:
             try:
@@ -469,11 +470,25 @@ def main():
         num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
         logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
+        logger.debug(f"Splitting parcels into {num_chunks} chunks")
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Geometry is in a geographic CRS.",
+            )
+            parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
+            )
+            chunks = np.array_split(parcels_gdf, num_chunks)
         if args.workers > 1:
             processes = int(args.workers)
             with concurrent.futures.ProcessPoolExecutor(processes) as executor:
                 # Chunk parcels and send chunks to process pool
-                for i, batch in enumerate(np.array_split(parcels_gdf, num_chunks)):
+                for i, batch in enumerate(chunks):
                     chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                     logger.debug(
                         (
@@ -515,7 +530,7 @@ def main():
                         logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
         else:
             # If we only have one worker, run in main process
-            for i, batch in tqdm(enumerate(np.array_split(parcels_gdf, num_chunks))):
+            for i, batch in tqdm(enumerate(chunks), total=len(chunks)):
                 chunk_id = f"{f.stem}_{str(i).zfill(4)}"
                 logger.debug(
                     (
@@ -556,7 +571,19 @@ def main():
         for i in range(num_chunks):  # Now attempt every chunk - so if one is missing, we error.
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
-            data.append(gpd.read_parquet(cp))
+            if cp.exists():
+                chunk = gpd.read_parquet(cp)
+                if len(chunk) > 0:
+                    data.append(chunk)
+            else:
+                error_filename = f"errors_{f.stem}_{str(i).zfill(4)}.parquet"
+                if (chunk_path / error_filename).exists():
+                    logger.debug(f"Chunk {i} rollup file missing, but error file found.")
+                else:
+                    logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
+                    # Break out of program to ensure we don't save a partially complete final csv.
+                    sys.exit(1)
+
         if len(data) > 0:
             data = gpd.GeoDataFrame(pd.concat(data))
         else:
@@ -565,11 +592,11 @@ def main():
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
-                data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
+                data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 logger.info("Invalid output format specified - reverting to csv")
-                data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
+                data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
 
         outpath_errors = final_path / f"{f.stem}_errors.csv"
