@@ -41,7 +41,7 @@ from nmaipy.constants import (
     ROLLUP_SYSTEM_VERSION_ID,
 )
 
-TIMEOUT_SECONDS = 60  # Max time to wait for a server response.
+TIMEOUT_SECONDS = 120  # Max time to wait for a server response.
 DUMMY_STATUS_CODE = -1
 
 
@@ -121,8 +121,10 @@ class FeatureApi:
     URL_ROOT = "https://api.nearmap.com"
 
     FEATURES_URL = URL_ROOT + "/ai/features/v4/features.json"
+    FEATURES_DAMAGE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/features.json"
     ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/rollups.csv"
     FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/surveyresources"
+    FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/surveyresources"
     CLASSES_URL = URL_ROOT + "/ai/features/v4/classes.json"
     PACKS_URL = URL_ROOT + "/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
@@ -199,7 +201,7 @@ class FeatureApi:
                 backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    # HTTPStatus.INTERNAL_SERVER_ERROR,
                     HTTPStatus.BAD_GATEWAY,
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
@@ -234,10 +236,7 @@ class FeatureApi:
         """
         Get packs with class IDs
         """
-        t1 = time.monotonic()
         response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
-        response_time_ms = (time.monotonic() - t1) * 1e3
-        logger.debug(f"{response_time_ms:.1f}ms response time for packs.json")
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
     def get_feature_classes(self, packs: List[str] = None) -> pd.DataFrame:
@@ -273,7 +272,7 @@ class FeatureApi:
         Turn a shapely polygon into the format required by the API for a query polygon.
         """
         coords = poly.exterior.coords[:]
-        flat_coords = np.array(coords).flatten()
+        flat_coords = np.array(coords).ravel()
         coordstring = ",".join(flat_coords.astype(str))
         return coordstring
 
@@ -309,7 +308,7 @@ class FeatureApi:
          - Polygons that have a convex hull with too many coordinates are simplified to a box.
         If the coord string return does not represent the polygon exactly, the exact flag is set to False.
         """
-
+        convex_hull = None
         if isinstance(geometry, MultiPolygon):
             if len(geometry.geoms) == 1:
                 g = geometry.geoms[0]
@@ -327,7 +326,8 @@ class FeatureApi:
             # Tests whether the polygon has inner rings/holes.
             if len(geometry.interiors) > 0:
                 logger.debug(f"Geometry has inner rings - approximating query with convex hull.")
-                coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+                convex_hull = geometry.convex_hull
+                coordstring = cls._polygon_to_coordstring(convex_hull)
                 exact = False
             else:
                 coordstring = cls._polygon_to_coordstring(geometry)
@@ -335,7 +335,9 @@ class FeatureApi:
         if len(coordstring) > cls.CHAR_LIMIT:
             logger.debug(f"Geometry exceeds character limit - approximating query with convex hull.")
             exact = False
-            coordstring = cls._polygon_to_coordstring(geometry.convex_hull)
+            if convex_hull is None:
+                convex_hull = geometry.convex_hull
+            coordstring = cls._polygon_to_coordstring(convex_hull)
             if len(coordstring) > cls.CHAR_LIMIT:
                 exact = False
                 coordstring = cls._polygon_to_coordstring(geometry.envelope)
@@ -419,11 +421,14 @@ class FeatureApi:
         Create a request string with given parameters
         base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
         """
-        urlbase = (
-            base_url
-            if survey_resource_id is None
-            else f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        )
+        # if "damage" in packs and survey_resource_id is not None:
+        #     urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        urlbase = base_url
+        if survey_resource_id is not None:
+            urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+        if survey_resource_id is not None and packs is not None:
+            if "damage" in packs:
+                urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
@@ -526,6 +531,9 @@ class FeatureApi:
         # Create request string
         if result_type == self.API_TYPE_FEATURES:
             base_url = self.FEATURES_URL
+            if packs is not None:
+                if "damage" in packs:
+                    base_url = self.FEATURES_DAMAGE_URL
         elif result_type == self.API_TYPE_ROLLUPS:
             base_url = self.ROLLUPS_CSV_URL
         request_string, exact = self._create_request_string(
@@ -544,7 +552,7 @@ class FeatureApi:
                 text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                 message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
             )
-        # logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
+        logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
         cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
         # Check if it's already cached
@@ -587,10 +595,16 @@ class FeatureApi:
                 # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
                 if not exact:
                     # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
-                    data["features"] = [f for f in data["features"] if shape(f["geometry"]).intersects(geometry)]
+                    data_features_geoms = gpd.GeoSeries(
+                        [shape(f["geometry"]) for f in data["features"]], crs=API_CRS, name="geometry"
+                    )
+                    keep_inds = data_features_geoms[data_features_geoms.intersects(geometry)].index
+                    data["features"] = [data["features"][i] for i in keep_inds]
                     if len(data["features"]) > 0:
-                        gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
+                        gdf_unclipped = data_features_geoms[keep_inds]
+                        gdf_unclipped.index = range(len(keep_inds))
 
+                        # gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
                         gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
                         for i, feature in enumerate(data["features"]):

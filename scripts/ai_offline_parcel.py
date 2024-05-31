@@ -37,7 +37,7 @@ class Endpoint(Enum):
 
 CHUNK_SIZE = 500
 PROCESSES = 4
-THREADS = 6
+THREADS = 20
 
 logger = log.get_logger()
 
@@ -249,8 +249,9 @@ def process_chunk(
         return
 
     # Get additional parcel attributes from parcel geometry
-    parcel_gdf["query_aoi_lat"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][1])
-    parcel_gdf["query_aoi_lon"] = parcel_gdf.geometry.apply(lambda g: g.centroid.coords[0][0])
+    rep_point = parcel_gdf.representative_point()
+    parcel_gdf["query_aoi_lat"] = rep_point.y
+    parcel_gdf["query_aoi_lon"] = rep_point.x
 
     # Get features
     feature_api = FeatureApi(
@@ -374,7 +375,7 @@ def process_chunk(
             ),
             crs=API_CRS,
         )
-        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.apply(lambda d: d.wkt)
+        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
         final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
         if len(final_features_df) > 0:
             try:
@@ -571,7 +572,9 @@ def main():
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
             if cp.exists():
-                data.append(gpd.read_parquet(cp))
+                chunk = gpd.read_parquet(cp)
+                if len(chunk) > 0:
+                    data.append(chunk)
             else:
                 error_filename = f"errors_{f.stem}_{str(i).zfill(4)}.parquet"
                 if (chunk_path / error_filename).exists():
@@ -589,11 +592,11 @@ def main():
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
-                data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
+                data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 logger.info("Invalid output format specified - reverting to csv")
-                data["geometry"] = data.geometry.apply(shapely.wkt.dumps)
+                data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
 
         outpath_errors = final_path / f"{f.stem}_errors.csv"
