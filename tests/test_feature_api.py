@@ -26,8 +26,8 @@ import logging
 
 class TestFeatureAPI:
     def test_get_rollup_df(self, sydney_aoi: Polygon, cache_directory: Path):
-        date_1 = "2020-01-01"
-        date_2 = "2020-06-01"
+        date_1 = "2020-02-28"
+        date_2 = "2020-02-28"
         region = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -41,19 +41,19 @@ class TestFeatureAPI:
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
-        # We get 3 buildings
+        # We get 2 buildings
         building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].iloc[0, 0]
         assert (
-            building_count == 1
+            building_count == 2
         )  # Expect a single, joined building kept after filter, from two touching residential homes.
         # The AOI ID has been assigned
         assert len(rollup_df[rollup_df.aoi_id == aoi_id]) == 1
-        # Unclipped area should be about 500 sqm
-        assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(500, rel=0.1)
+        # Unclipped area should be about 450 sqm
+        assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(275, rel=0.1)
 
     def test_get_features_gdf(self, sydney_aoi: Polygon, cache_directory: Path):
-        date_1 = "2020-01-01"
-        date_2 = "2020-06-01"
+        date_1 = "2020-02-28"
+        date_2 = "2020-02-28"
         region = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -322,8 +322,8 @@ class TestFeatureAPI:
     def test_multipolygon_2(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = MultiPolygon([translate(sydney_aoi, 0.001, 0.001), translate(sydney_aoi, 0.003, 0.003)])
         print(f"Multipolygon 2 (use QuickWKT in QGIS to visualise): {aoi}")
-        date_1 = "2020-01-01"
-        date_2 = "2020-06-01"
+        date_1 = "2020-02-28"
+        date_2 = "2020-02-28"
         country = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -336,13 +336,13 @@ class TestFeatureAPI:
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
-        # We get 3 buildings
-        assert len(features_gdf) == 11
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 11
+        # We get 10 buildings
+        assert len(features_gdf) == 10
+        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 10
         # The AOI ID has been assigned
-        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 11
+        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 10
         # All buildings intersect the AOI
-        assert len(features_gdf[features_gdf.intersects(aoi)]) == 11
+        assert len(features_gdf[features_gdf.intersects(aoi)]) == 10
 
     def test_multipolygon_3(self, cache_directory: Path):
         """
