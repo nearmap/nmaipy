@@ -344,7 +344,9 @@ def feature_attributes(
             if len(class_features_gdf) > 0:
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
-                    primary_feature = class_features_gdf.loc[class_features_gdf.clipped_area_sqm.idxmax()]
+                    # NB: Sort first by clipped area (priority). However, sometimes clipped areas are zero (in the case of damage detection), so secondary sort on unclipped is necessary.
+                    primary_feature = class_features_gdf.sort_values(["clipped_area_sqm", "unclipped_area_sqm"], ascending=False).iloc[0]
+
                 elif primary_decision == "nearest":
                     primary_point = Point(primary_lon, primary_lat)
                     primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
