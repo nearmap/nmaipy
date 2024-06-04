@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
 import shapely.geometry
 import stringcase
