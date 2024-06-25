@@ -143,6 +143,7 @@ def threaded_get_coverage_from_point_results(
     coverage_type=STANDARD_COVERAGE,
     include_disaster=False,
     has_3d=False,
+    limit=100,
 ):
     """
     Wrapper function to get coverage from a dataframe of points, using a thread pool.
@@ -180,6 +181,7 @@ def threaded_get_coverage_from_point_results(
                     coverage_type,
                     include_disaster,
                     has_3d,
+                    limit,
                 )
             )
 
@@ -200,6 +202,7 @@ def get_coverage_from_points(
     id_col="id",
     include_disaster=False,
     has_3d=False,
+    limit=100,
 ):
     """
     Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
@@ -249,6 +252,7 @@ def get_coverage_from_points(
                 coverage_type=coverage_type,
                 include_disaster=include_disaster,
                 has_3d=has_3d,
+                limit=limit,
             )
             c_with_idx = []
             for j in range(len(c)):
@@ -271,32 +275,37 @@ def get_coverage_from_points(
                     df_coverage_empty = pd.DataFrame([], columns=c.columns).astype(c.dtypes)
             else:
                 c = df_coverage_empty
-            c.to_parquet(f)
+            if c is not None:
+                c.to_parquet(f)
 
         else:
             logging.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
-        if len(c) > 0:
-            if coverage_type == STANDARD_COVERAGE:
-                c = c.loc[
-                    :, [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d", "tags"]
-                ].set_index(id_col)
-            elif coverage_type == AI_COVERAGE:
-                c = c.loc[
-                    :,
-                    [
-                        id_col,
-                        "captureDate",
-                        "survey_id",
-                        "survey_resource_id",
-                        "systemVersion",
-                        "postcat",
-                        "perspective",
-                    ],
-                ].set_index(id_col)
-            c["captureDate"] = pd.to_datetime(c["captureDate"])
-            df_coverage.append(c)
-
-    df_coverage = pd.concat(df_coverage)
-    return df_coverage
+        if c is not None:
+            if len(c) > 0:
+                if coverage_type == STANDARD_COVERAGE:
+                    c = c.loc[
+                        :,
+                        [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d", "tags"],
+                    ].set_index(id_col)
+                elif coverage_type == AI_COVERAGE:
+                    c = c.loc[
+                        :,
+                        [
+                            id_col,
+                            "captureDate",
+                            "survey_id",
+                            "survey_resource_id",
+                            "systemVersion",
+                            "postcat",
+                            "perspective",
+                        ],
+                    ].set_index(id_col)
+                c["captureDate"] = pd.to_datetime(c["captureDate"])
+                df_coverage.append(c)
+    if len(df_coverage) > 0:
+        df_coverage = pd.concat(df_coverage)
+        return df_coverage
+    else:
+        return None

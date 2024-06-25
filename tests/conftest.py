@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 from shapely.wkt import loads
+import ast
 
 from nmaipy import parcels
 from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
@@ -100,6 +101,7 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     Features pulled from a cached csv from the AI Feature API for the parcels_gdf fixture.
     """
     df = pd.read_csv(data_directory / "test_features.csv")
+    df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
         geometry=df.geometry.apply(loads),
@@ -113,6 +115,7 @@ def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     Features pulled from a cached csv from the AI Feature API for the parcels_2_gdf fixture.
     """
     df = pd.read_csv(data_directory / "test_features_2.csv")
+    df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
         geometry=df.geometry.apply(loads),

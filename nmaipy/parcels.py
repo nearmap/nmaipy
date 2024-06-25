@@ -4,11 +4,7 @@ import warnings
 
 import geopandas as gpd
 import pandas as pd
-import shapely.wkb
-import shapely.wkt
-from shapely.geometry import MultiPolygon, Polygon
-import stringcase
-import numpy as np
+from shapely.geometry import MultiPolygon, Polygon, Point
 
 from nmaipy import log
 from nmaipy.constants import (
@@ -17,7 +13,6 @@ from nmaipy.constants import (
     BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     VEG_MEDHIGH_ID,
-    VEG_LOW_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
     CONSTRUCTION_ID,
     IMPERIAL_COUNTRIES,
@@ -28,7 +23,6 @@ from nmaipy.constants import (
     POOL_ID,
     ROOF_ID,
     SOLAR_ID,
-    SQUARED_METERS_TO_SQUARED_FEET,
     TRAMPOLINE_ID,
     MeasurementUnits,
 )
@@ -40,36 +34,36 @@ PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 # All area values are in squared metres
 DEFAULT_FILTERING = {
     "min_size": {
-        BUILDING_ID: 16,
-        ROOF_ID: 16,
-        TRAMPOLINE_ID: 3,
-        POOL_ID: 9,
+        BUILDING_ID: 4,
+        ROOF_ID: 4,
+        TRAMPOLINE_ID: 1,
+        POOL_ID: 4,
         CONSTRUCTION_ID: 5,
-        SOLAR_ID: 5,
+        SOLAR_ID: 1,
     },
     "min_confidence": {
-        BUILDING_ID: 0.8,
-        ROOF_ID: 0.8,
-        TRAMPOLINE_ID: 0.7,
+        BUILDING_ID: 0.65,
+        ROOF_ID: 0.65,
+        TRAMPOLINE_ID: 0.6,
         POOL_ID: 0.6,
         CONSTRUCTION_ID: 0.8,
         SOLAR_ID: 0.7,
     },
     "min_fidelity": {
-        BUILDING_ID: 0.0,
-        ROOF_ID: 0.0,
+        BUILDING_ID: 0.15,
+        ROOF_ID: 0.15,
     },
     "min_area_in_parcel": {
-        BUILDING_ID: 25,
-        ROOF_ID: 25,
-        TRAMPOLINE_ID: 3,
-        POOL_ID: 9,
+        BUILDING_ID: 4,
+        ROOF_ID: 4,
+        TRAMPOLINE_ID: 1,
+        POOL_ID: 4,
         CONSTRUCTION_ID: 5,
-        SOLAR_ID: 5,
+        SOLAR_ID: 1,
     },
     "min_ratio_in_parcel": {
-        BUILDING_ID: 0.5,
-        ROOF_ID: 0.5,
+        BUILDING_ID: 0,  # Defer to more complex algorithm for building and roof - important for large buildings.
+        ROOF_ID: 0,
         TRAMPOLINE_ID: 0.5,
         POOL_ID: 0.5,
         CONSTRUCTION_ID: 0.5,
@@ -344,9 +338,11 @@ def feature_attributes(
             if len(class_features_gdf) > 0:
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
-                    primary_feature = class_features_gdf.loc[class_features_gdf.clipped_area_sqm.idxmax()]
+                    # NB: Sort first by clipped area (priority). However, sometimes clipped areas are zero (in the case of damage detection), so secondary sort on unclipped is necessary.
+                    primary_feature = class_features_gdf.sort_values(["clipped_area_sqm", "unclipped_area_sqm"], ascending=False).iloc[0]
+
                 elif primary_decision == "nearest":
-                    primary_point = shapely.geometry.Point(primary_lon, primary_lat)
+                    primary_point = Point(primary_lon, primary_lat)
                     primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
                     class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
 
