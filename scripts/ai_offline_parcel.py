@@ -11,7 +11,6 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import shapely.wkt
 from tqdm import tqdm
 import fiona.errors
 import warnings
@@ -114,7 +113,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--no-cache",
-        help="Location to store cache.",
+        help="If set, turn off cache.",
         action="store_true",
     )
     parser.add_argument(
@@ -205,7 +204,7 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
-    endpoint: [str] = Endpoint.FEATURE.value,
+    endpoint: Optional[str] = Endpoint.FEATURE.value,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -237,7 +236,6 @@ def process_chunk(
 
     if not no_cache:
         cache_path = Path(cache_dir) / "cache"
-        rollup_cache_path = Path(cache_dir) / "cache_rollups"
     else:
         cache_path = None
 
