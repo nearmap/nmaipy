@@ -20,8 +20,6 @@ from nmaipy.constants import (
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
 )
 from nmaipy.feature_api import FeatureApi
-import nmaipy.log
-import logging
 
 
 class TestFeatureAPI:

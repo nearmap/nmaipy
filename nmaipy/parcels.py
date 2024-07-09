@@ -4,11 +4,7 @@ import warnings
 
 import geopandas as gpd
 import pandas as pd
-import shapely.wkb
-import shapely.wkt
 from shapely.geometry import MultiPolygon, Polygon, Point
-import stringcase
-import numpy as np
 
 from nmaipy import log
 from nmaipy.constants import (
@@ -17,7 +13,6 @@ from nmaipy.constants import (
     BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     VEG_MEDHIGH_ID,
-    VEG_LOW_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
     CONSTRUCTION_ID,
     IMPERIAL_COUNTRIES,
@@ -28,7 +23,6 @@ from nmaipy.constants import (
     POOL_ID,
     ROOF_ID,
     SOLAR_ID,
-    SQUARED_METERS_TO_SQUARED_FEET,
     TRAMPOLINE_ID,
     MeasurementUnits,
 )
