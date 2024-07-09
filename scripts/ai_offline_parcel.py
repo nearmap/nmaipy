@@ -356,7 +356,9 @@ def process_chunk(
         logger.error(errors_df)
     try:
         final_df = final_df.convert_dtypes()
-        gpd.GeoDataFrame(final_df).to_parquet(outfile)
+        if include_parcel_geometry:
+            final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
+        final_df.to_parquet(outfile)
     except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
         logger.error(final_df.shape)
@@ -568,7 +570,11 @@ def main():
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
             if cp.exists():
-                chunk = gpd.read_parquet(cp)
+                try:
+                    chunk = gpd.read_parquet(cp)
+                except ValueError:
+                    # Probably because chunk doesn't have a geometry - no parcel boundary saved
+                    chunk = pd.read_parquet(cp)
                 if len(chunk) > 0:
                     data.append(chunk)
             else:
@@ -588,7 +594,8 @@ def main():
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
-                data["geometry"] = data.geometry.to_wkt()
+                if "geometry" in data.columns:
+                    data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 logger.info("Invalid output format specified - reverting to csv")
