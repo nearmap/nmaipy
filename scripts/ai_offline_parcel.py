@@ -165,6 +165,20 @@ def parse_arguments():
         required=False,
         default="feature",
     )
+    parser.add_argument(
+        "--url-root",
+        help="Overwrite the root URL with a custom one.",
+        type=str,
+        required=False,
+        default="api.nearmap.com/ai/features/v4/bulk",
+    )
+    parser.add_argument(
+        "--system-version-prefix",
+        help="Restrict responses to a specific system version (e.g. gen6-).",
+        type=str,
+        required=False,
+        default=None,
+    )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     return parser.parse_args()
 
@@ -203,6 +217,8 @@ def process_chunk(
     beta: Optional[bool] = True,
     prerelease: Optional[bool] = True,
     endpoint: [str] = Endpoint.FEATURE.value,
+    url_root: Optional[str] = None,
+    system_version_prefix: Optional[str] = None,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -228,6 +244,8 @@ def process_chunk(
         beta: return beta layers
         prerelease: Return data from pre-release system versions
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
+        url_root: Overwrite the root URL with a custom one.
+        system_version_prefix: Restrict responses to a specific system version.
     """
     if cache_dir is None and not no_cache:
         cache_dir = Path(output_dir)
@@ -259,6 +277,8 @@ def process_chunk(
         alpha=alpha,
         beta=beta,
         prerelease=prerelease,
+        url_root=url_root,
+        system_version_prefix=system_version_prefix,
     )
     if endpoint == Endpoint.ROLLUP.value:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
@@ -518,6 +538,8 @@ def main():
                             args.beta,
                             args.prerelease,
                             args.endpoint,
+                            args.url_root,
+                            args.system_version_prefix,
                         )
                     )
                 for j in jobs:
@@ -558,6 +580,8 @@ def main():
                     args.beta,
                     args.prerelease,
                     args.endpoint,
+                    args.url_root,
+                    args.system_version_prefix,
                 )
 
         # Combine chunks and save

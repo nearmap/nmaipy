@@ -228,8 +228,6 @@ class FeatureApi:
             request_string += "&alpha=true"
         if self.beta:
             request_string += "&beta=true"
-        if self.system_version_prefix is not None:
-            request_string += f"&systemVersionPrefix={self.system_version_prefix}"
         # Request data
         response = self._session.get(request_string)
         # Check for errors
@@ -457,6 +455,8 @@ class FeatureApi:
             request_string += "&beta=true"
         if self.prerelease:
             request_string += "&prerelease=true"
+        if self.system_version_prefix is not None:
+            request_string += f"&systemVersionPrefix={self.system_version_prefix}"
         # Add packs if given
         if packs:
             if isinstance(packs, list):
