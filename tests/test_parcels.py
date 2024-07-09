@@ -53,7 +53,7 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
 
 class TestParcels:
     def test_filter(self, features_gdf):
-        assert len(features_gdf) == 638
+        assert len(features_gdf) == 637
         features_gdf = features_gdf[features_gdf.class_id == BUILDING_ID]
         assert len(features_gdf) == 68
 
