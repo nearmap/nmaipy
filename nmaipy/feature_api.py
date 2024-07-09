@@ -153,6 +153,7 @@ class FeatureApi:
         workers: Optional[int] = 10,
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
+        prerelease: Optional[bool] = False,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -186,6 +187,7 @@ class FeatureApi:
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
+        self.prerelease = prerelease
         self.maxretry = maxretry
 
     @property
@@ -449,7 +451,8 @@ class FeatureApi:
             request_string += "&alpha=true"
         if self.beta:
             request_string += "&beta=true"
-
+        if self.prerelease:
+            request_string += "&prerelease=true"
         # Add packs if given
         if packs:
             if isinstance(packs, list):

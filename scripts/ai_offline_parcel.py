@@ -149,6 +149,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--prerelease",
+        help="Include prerelease system versions",
+        action="store_true",
+    )
+    parser.add_argument(
         "--since",
         help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
         required=False,
@@ -204,7 +209,8 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
-    endpoint: Optional[str] = Endpoint.FEATURE.value,
+    prerelease: Optional[bool] = True,
+    endpoint: [str] = Endpoint.FEATURE.value,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -229,6 +235,7 @@ def process_chunk(
         until_bulk: Latest date used to pull features
         alpha: Return alpha layers
         beta: return beta layers
+        prerelease: Return data from pre-release system versions
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
     """
     if cache_dir is None and not no_cache:
@@ -261,6 +268,7 @@ def process_chunk(
         workers=THREADS,
         alpha=alpha,
         beta=beta,
+        prerelease=prerelease,
     )
     if endpoint == Endpoint.ROLLUP.value:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
@@ -413,7 +421,7 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta).get_feature_classes(
+    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease).get_feature_classes(
         args.packs
     )
 
@@ -517,6 +525,7 @@ def main():
                             args.until,
                             args.alpha,
                             args.beta,
+                            args.prerelease,
                             args.endpoint,
                         )
                     )
@@ -557,6 +566,7 @@ def main():
                     args.until,
                     args.alpha,
                     args.beta,
+                    args.prerelease,
                     args.endpoint,
                 )
 
