@@ -146,6 +146,7 @@ class FeatureApi:
         prerelease: Optional[bool] = False,
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: Optional[str] = None,
+        system_version: Optional[str] = None,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -191,6 +192,7 @@ class FeatureApi:
         self.beta = beta
         self.prerelease = prerelease
         self.system_version_prefix = system_version_prefix
+        self.system_version = system_version
         self.maxretry = maxretry
 
     @property
@@ -457,6 +459,8 @@ class FeatureApi:
             request_string += "&prerelease=true"
         if self.system_version_prefix is not None:
             request_string += f"&systemVersionPrefix={self.system_version_prefix}"
+        if self.system_version is not None:
+            request_string += f"&systemVersion={self.system_version}"
         # Add packs if given
         if packs:
             if isinstance(packs, list):

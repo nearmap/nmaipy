@@ -174,7 +174,14 @@ def parse_arguments():
     )
     parser.add_argument(
         "--system-version-prefix",
-        help="Restrict responses to a specific system version (e.g. gen6-).",
+        help="Restrict responses to a specific system version generation (e.g. gen6-).",
+        type=str,
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--system-version",
+        help="Restrict responses to a specific system version (e.g. gen6-glowing_grove-1.0).",
         type=str,
         required=False,
         default=None,
@@ -219,6 +226,7 @@ def process_chunk(
     endpoint: [str] = Endpoint.FEATURE.value,
     url_root: Optional[str] = None,
     system_version_prefix: Optional[str] = None,
+    system_version: Optional[str] = None,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -245,7 +253,8 @@ def process_chunk(
         prerelease: Return data from pre-release system versions
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
         url_root: Overwrite the root URL with a custom one.
-        system_version_prefix: Restrict responses to a specific system version.
+        system_version_prefix: Restrict responses to a specific system version generation.
+        system_version: Restrict responses to a specific system version.
     """
     if cache_dir is None and not no_cache:
         cache_dir = Path(output_dir)
@@ -279,6 +288,7 @@ def process_chunk(
         prerelease=prerelease,
         url_root=url_root,
         system_version_prefix=system_version_prefix,
+        system_version=system_version,
     )
     if endpoint == Endpoint.ROLLUP.value:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
@@ -540,6 +550,7 @@ def main():
                             args.endpoint,
                             args.url_root,
                             args.system_version_prefix,
+                            args.system_version,
                         )
                     )
                 for j in jobs:
@@ -582,6 +593,7 @@ def main():
                     args.endpoint,
                     args.url_root,
                     args.system_version_prefix,
+                    args.system_version,
                 )
 
         # Combine chunks and save
