@@ -132,13 +132,6 @@ def parse_arguments():
         required=True,
     )
     parser.add_argument(
-        "--bulk-mode",
-        help="Use bulk mode API",
-        required=False,
-        type=bool,
-        default=True,
-    )
-    parser.add_argument(
         "--alpha",
         help="Include alpha layers",
         action="store_true",
@@ -200,7 +193,6 @@ def process_chunk(
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
-    bulk_mode: Optional[bool] = True,
     overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
     no_cache: Optional[bool] = False,
@@ -228,7 +220,6 @@ def process_chunk(
         save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
-        bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
         compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
         cache_dir: Place to store cache (absolute path of parent - "cache" and "rollup_cache" will be created within).
         since_bulk: Earliest date used to pull features
@@ -261,7 +252,6 @@ def process_chunk(
     # Get features
     feature_api = FeatureApi(
         api_key=api_key(key_file),
-        bulk_mode=bulk_mode,
         cache_dir=cache_path,
         overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
@@ -516,7 +506,6 @@ def main():
                             args.include_parcel_geometry,
                             args.save_features,
                             args.primary_decision,
-                            args.bulk_mode,
                             args.overwrite_cache,
                             args.compress_cache,
                             args.no_cache,
@@ -557,7 +546,6 @@ def main():
                     args.include_parcel_geometry,
                     args.save_features,
                     args.primary_decision,
-                    args.bulk_mode,
                     args.overwrite_cache,
                     args.compress_cache,
                     args.no_cache,

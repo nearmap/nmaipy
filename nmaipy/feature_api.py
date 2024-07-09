@@ -120,13 +120,13 @@ class FeatureApi:
 
     URL_ROOT = "https://api.nearmap.com"
 
-    FEATURES_URL = URL_ROOT + "/ai/features/v4/features.json"
-    FEATURES_DAMAGE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/features.json"
-    ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/rollups.csv"
-    FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/surveyresources"
-    FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/surveyresources"
-    CLASSES_URL = URL_ROOT + "/ai/features/v4/classes.json"
-    PACKS_URL = URL_ROOT + "/ai/features/v4/packs.json"
+    FEATURES_URL = URL_ROOT + "/ai/features/v4/bulk/features.json"
+    FEATURES_DAMAGE_URL = URL_ROOT + "/ai/features/v4/bulk/internal/pipelines/foo_fighters/features.json"
+    ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/bulk/rollups.csv"
+    FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/bulk/surveyresources"
+    FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/bulk/internal/pipelines/foo_fighters/surveyresources"
+    CLASSES_URL = URL_ROOT + "/ai/features/v4/bulk/classes.json"
+    PACKS_URL = URL_ROOT + "/ai/features/v4/bulk/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -429,14 +429,13 @@ class FeatureApi:
         if survey_resource_id is not None and packs is not None:
             if "damage" in packs or "damage_non_postcat" in packs:
                 urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
-            request_string = f"{urlbase}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+            request_string = f"{urlbase}?polygon={coordstring}&apikey={self.api_key}"
         else:
             exact = True  # we treat address-based as exact always
             address_params = "&".join([f"{s}={address_fields[s]}" for s in address_fields])
-            request_string = f"{urlbase}?{address_params}&bulk={bulk_str}&apikey={self.api_key}"
+            request_string = f"{urlbase}?{address_params}&apikey={self.api_key}"
 
         # Add dates if given
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
