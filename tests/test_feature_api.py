@@ -431,12 +431,12 @@ class TestFeatureAPI:
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
         classes_df = feature_api.get_feature_classes()
-        assert classes_df.loc[BUILDING_ID].description == "Building"
+        assert classes_df.loc[BUILDING_ID].description == "Building (Deprecated)"
 
     def test_classes_filtered(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
         classes_df = feature_api.get_feature_classes(packs=["solar", "building"])
-        assert classes_df.loc[BUILDING_ID].description == "Building"
+        assert classes_df.loc[BUILDING_ID].description == "Building (Deprecated)"
         assert classes_df.loc[BUILDING_NEW_ID].description == "Building"
         assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
         assert classes_df.loc[SOLAR_HW_ID].description == "Solar Hot Water"
