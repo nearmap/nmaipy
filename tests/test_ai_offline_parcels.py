@@ -1,16 +1,13 @@
-import sys
 from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
 import pytest
-from shapely.geometry import Polygon
-import warnings
 
 from nmaipy.feature_api import FeatureApi
 from nmaipy.constants import *
 
-import ai_offline_parcel
+from scripts import ai_offline_parcel
 
 TEST_TMP_FOLDER = Path("data/tmp")
 

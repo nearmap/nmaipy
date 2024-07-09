@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 from shapely.geometry import MultiPolygon, Polygon, shape
 import shapely.geometry
 import stringcase
@@ -421,13 +421,11 @@ class FeatureApi:
         Create a request string with given parameters
         base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
         """
-        # if "damage" in packs and survey_resource_id is not None:
-        #     urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         urlbase = base_url
         if survey_resource_id is not None:
             urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         if survey_resource_id is not None and packs is not None:
-            if "damage" in packs:
+            if "damage" in packs or "damage_non_postcat" in packs:
                 urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
@@ -532,7 +530,7 @@ class FeatureApi:
         if result_type == self.API_TYPE_FEATURES:
             base_url = self.FEATURES_URL
             if packs is not None:
-                if "damage" in packs:
+                if "damage" in packs or "damage_non_postcat" in packs:
                     base_url = self.FEATURES_DAMAGE_URL
         elif result_type == self.API_TYPE_ROLLUPS:
             base_url = self.ROLLUPS_CSV_URL
