@@ -170,7 +170,7 @@ class TestAIOfflineParcel:
 
         output_dir = Path(TEST_TMP_FOLDER) / tag
         output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
-        packs = ["building", "vegetation"]
+        packs = ["building", "roof_char", "vegetation"]
         country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
         final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
@@ -259,7 +259,7 @@ class TestAIOfflineParcel:
         # Test discrete class - building
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
         pd.testing.assert_series_equal(
-            data_feature_api.loc[:, "building_count"],
+            data_feature_api.loc[:, "roof_count"],
             data_rollup_api.filter(like=ROLLUP_BUILDING_COUNT_ID).iloc[:, 0],
             check_names=False,
             atol=1,
@@ -267,13 +267,12 @@ class TestAIOfflineParcel:
 
         ## Check small error tolerance (max 1 square foot), only where there was no in/out discrepancy on counts
         idx_equal_counts = (
-            data_feature_api.loc[:, "building_count"] - data_rollup_api.filter(like=ROLLUP_BUILDING_COUNT_ID).iloc[:, 0]
+            data_feature_api.loc[:, "roof_count"] - data_rollup_api.filter(like=ROLLUP_BUILDING_COUNT_ID).iloc[:, 0]
         ) == 0
 
         ## Implicitly test sqm to sqft conversion...
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "primary_building_clipped_area_sqft"]
-            / SQUARED_METERS_TO_SQUARED_FEET,
+            data_feature_api.loc[idx_equal_counts, "primary_roof_clipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET,
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID)
             .loc[idx_equal_counts]
             .fillna(0)
@@ -283,8 +282,7 @@ class TestAIOfflineParcel:
             atol=1,
         )
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "primary_building_unclipped_area_sqft"]
-            / SQUARED_METERS_TO_SQUARED_FEET,
+            data_feature_api.loc[idx_equal_counts, "primary_roof_unclipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET,
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID)
             .loc[idx_equal_counts]
             .fillna(0)
@@ -296,7 +294,7 @@ class TestAIOfflineParcel:
 
         ## Test confidence aggregation is correct to within 1%
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "building_confidence"],
+            data_feature_api.loc[idx_equal_counts, "building_roof_confidence"],
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRESENT_CONFIDENCE).loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
