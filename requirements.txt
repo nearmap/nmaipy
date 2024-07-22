@@ -6,6 +6,7 @@ pandas
 shapely
 rtree
 geopandas
+fiona
 
 # Plotting
 matplotlib
