@@ -132,13 +132,6 @@ def parse_arguments():
         required=True,
     )
     parser.add_argument(
-        "--bulk-mode",
-        help="Use bulk mode API",
-        required=False,
-        type=bool,
-        default=True,
-    )
-    parser.add_argument(
         "--alpha",
         help="Include alpha layers",
         action="store_true",
@@ -146,6 +139,11 @@ def parse_arguments():
     parser.add_argument(
         "--beta",
         help="Include beta layers",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--prerelease",
+        help="Include prerelease system versions",
         action="store_true",
     )
     parser.add_argument(
@@ -166,6 +164,27 @@ def parse_arguments():
         type=str,
         required=False,
         default="feature",
+    )
+    parser.add_argument(
+        "--url-root",
+        help="Overwrite the root URL with a custom one.",
+        type=str,
+        required=False,
+        default="api.nearmap.com/ai/features/v4/bulk",
+    )
+    parser.add_argument(
+        "--system-version-prefix",
+        help="Restrict responses to a specific system version generation (e.g. gen6-).",
+        type=str,
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--system-version",
+        help="Restrict responses to a specific system version (e.g. gen6-glowing_grove-1.0).",
+        type=str,
+        required=False,
+        default=None,
     )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     return parser.parse_args()
@@ -195,7 +214,6 @@ def process_chunk(
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
-    bulk_mode: Optional[bool] = True,
     overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
     no_cache: Optional[bool] = False,
@@ -204,7 +222,11 @@ def process_chunk(
     until_bulk: str = None,
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
-    endpoint: Optional[str] = Endpoint.FEATURE.value,
+    prerelease: Optional[bool] = True,
+    endpoint: [str] = Endpoint.FEATURE.value,
+    url_root: Optional[str] = None,
+    system_version_prefix: Optional[str] = None,
+    system_version: Optional[str] = None,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -222,14 +244,17 @@ def process_chunk(
         save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
-        bulk_mode: Use the bulk mode of the AI Feature API to remove rate limit, and optimise for throughput (at potential cost of latency).
         compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
         cache_dir: Place to store cache (absolute path of parent - "cache" and "rollup_cache" will be created within).
         since_bulk: Earliest date used to pull features
         until_bulk: Latest date used to pull features
         alpha: Return alpha layers
         beta: return beta layers
+        prerelease: Return data from pre-release system versions
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
+        url_root: Overwrite the root URL with a custom one.
+        system_version_prefix: Restrict responses to a specific system version generation.
+        system_version: Restrict responses to a specific system version.
     """
     if cache_dir is None and not no_cache:
         cache_dir = Path(output_dir)
@@ -254,13 +279,16 @@ def process_chunk(
     # Get features
     feature_api = FeatureApi(
         api_key=api_key(key_file),
-        bulk_mode=bulk_mode,
         cache_dir=cache_path,
         overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
         workers=THREADS,
         alpha=alpha,
         beta=beta,
+        prerelease=prerelease,
+        url_root=url_root,
+        system_version_prefix=system_version_prefix,
+        system_version=system_version,
     )
     if endpoint == Endpoint.ROLLUP.value:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
@@ -358,7 +386,9 @@ def process_chunk(
         logger.error(errors_df)
     try:
         final_df = final_df.convert_dtypes()
-        gpd.GeoDataFrame(final_df).to_parquet(outfile)
+        if include_parcel_geometry:
+            final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
+        final_df.to_parquet(outfile)
     except Exception as e:
         logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
         logger.error(final_df.shape)
@@ -413,7 +443,7 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta).get_feature_classes(
+    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease).get_feature_classes(
         args.packs
     )
 
@@ -508,7 +538,6 @@ def main():
                             args.include_parcel_geometry,
                             args.save_features,
                             args.primary_decision,
-                            args.bulk_mode,
                             args.overwrite_cache,
                             args.compress_cache,
                             args.no_cache,
@@ -517,7 +546,11 @@ def main():
                             args.until,
                             args.alpha,
                             args.beta,
+                            args.prerelease,
                             args.endpoint,
+                            args.url_root,
+                            args.system_version_prefix,
+                            args.system_version,
                         )
                     )
                 for j in jobs:
@@ -548,7 +581,6 @@ def main():
                     args.include_parcel_geometry,
                     args.save_features,
                     args.primary_decision,
-                    args.bulk_mode,
                     args.overwrite_cache,
                     args.compress_cache,
                     args.no_cache,
@@ -557,7 +589,11 @@ def main():
                     args.until,
                     args.alpha,
                     args.beta,
+                    args.prerelease,
                     args.endpoint,
+                    args.url_root,
+                    args.system_version_prefix,
+                    args.system_version,
                 )
 
         # Combine chunks and save
@@ -570,7 +606,11 @@ def main():
             chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
             if cp.exists():
-                chunk = gpd.read_parquet(cp)
+                try:
+                    chunk = gpd.read_parquet(cp)
+                except ValueError:
+                    # Probably because chunk doesn't have a geometry - no parcel boundary saved
+                    chunk = pd.read_parquet(cp)
                 if len(chunk) > 0:
                     data.append(chunk)
             else:
@@ -590,7 +630,8 @@ def main():
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
-                data["geometry"] = data.geometry.to_wkt()
+                if "geometry" in data.columns:
+                    data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 logger.info("Invalid output format specified - reverting to csv")

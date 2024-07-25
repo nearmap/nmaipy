@@ -117,16 +117,6 @@ class FeatureApi:
     """
     Class to connect to the AI Feature API
     """
-
-    URL_ROOT = "https://api.nearmap.com"
-
-    FEATURES_URL = URL_ROOT + "/ai/features/v4/features.json"
-    FEATURES_DAMAGE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/features.json"
-    ROLLUPS_CSV_URL = URL_ROOT + "/ai/features/v4/rollups.csv"
-    FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/surveyresources"
-    FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/ai/features/v4/internal/pipelines/foo_fighters/surveyresources"
-    CLASSES_URL = URL_ROOT + "/ai/features/v4/classes.json"
-    PACKS_URL = URL_ROOT + "/ai/features/v4/packs.json"
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -153,6 +143,10 @@ class FeatureApi:
         workers: Optional[int] = 10,
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
+        prerelease: Optional[bool] = False,
+        url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
+        system_version_prefix: Optional[str] = None,
+        system_version: Optional[str] = None,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -165,6 +159,16 @@ class FeatureApi:
             compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
             workers: Number of threads to spawn for concurrent execution
         """
+
+        URL_ROOT = f"https://{url_root}"
+        self.FEATURES_URL = URL_ROOT + "/features.json"
+        self.FEATURES_DAMAGE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/features.json"
+        self.ROLLUPS_CSV_URL = URL_ROOT + "/rollups.csv"
+        self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
+        self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/surveyresources"
+        self.CLASSES_URL = URL_ROOT + "/classes.json"
+        self.PACKS_URL = URL_ROOT + "/packs.json"
+
         if api_key:
             self.api_key = api_key
         else:
@@ -186,6 +190,9 @@ class FeatureApi:
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
+        self.prerelease = prerelease
+        self.system_version_prefix = system_version_prefix
+        self.system_version = system_version
         self.maxretry = maxretry
 
     @property
@@ -427,14 +434,13 @@ class FeatureApi:
         if survey_resource_id is not None and packs is not None:
             if "damage" in packs or "damage_non_postcat" in packs:
                 urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        bulk_str = str(self.bulk_mode).lower()
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
-            request_string = f"{urlbase}?polygon={coordstring}&bulk={bulk_str}&apikey={self.api_key}"
+            request_string = f"{urlbase}?polygon={coordstring}&apikey={self.api_key}"
         else:
             exact = True  # we treat address-based as exact always
             address_params = "&".join([f"{s}={address_fields[s]}" for s in address_fields])
-            request_string = f"{urlbase}?{address_params}&bulk={bulk_str}&apikey={self.api_key}"
+            request_string = f"{urlbase}?{address_params}&apikey={self.api_key}"
 
         # Add dates if given
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
@@ -449,13 +455,17 @@ class FeatureApi:
             request_string += "&alpha=true"
         if self.beta:
             request_string += "&beta=true"
-
+        if self.prerelease:
+            request_string += "&prerelease=true"
+        if self.system_version_prefix is not None:
+            request_string += f"&systemVersionPrefix={self.system_version_prefix}"
+        if self.system_version is not None:
+            request_string += f"&systemVersion={self.system_version}"
         # Add packs if given
         if packs:
             if isinstance(packs, list):
                 packs = ",".join(packs)
             request_string += f"&packs={packs}"
-
         return request_string, exact
 
     def get_features(
