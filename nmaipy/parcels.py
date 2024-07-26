@@ -54,6 +54,7 @@ DEFAULT_FILTERING = {
         ROOF_ID: 0.15,
     },
     "min_area_in_parcel": {
+        BUILDING_LIFECYCLE_ID: 4,
         BUILDING_ID: 4,
         ROOF_ID: 4,
         TRAMPOLINE_ID: 1,
@@ -62,6 +63,7 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 1,
     },
     "min_ratio_in_parcel": {
+        BUILDING_LIFECYCLE_ID: 0,
         BUILDING_ID: 0,  # Defer to more complex algorithm for building and roof - important for large buildings.
         ROOF_ID: 0,
         TRAMPOLINE_ID: 0.5,
@@ -207,7 +209,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
     area_mask = gdf.class_id.map(filter).fillna(0) <= gdf["clipped_area_" + suffix]
     filter = config.get("min_ratio_in_parcel", DEFAULT_FILTERING["min_ratio_in_parcel"])
     ratio_mask = gdf.class_id.map(filter).fillna(0) <= gdf.intersection_ratio
-    gdf = gdf[area_mask | ratio_mask]
+    gdf = gdf[area_mask & ratio_mask]
 
     # Only drop objects where the parent has been explicitly removed as above (otherwise we drop solar panels without a building request, etc.)
     if "parent_id" in gdf:
