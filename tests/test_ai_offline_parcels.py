@@ -98,6 +98,7 @@ class TestAIOfflineParcel:
         chunk_path.mkdir(parents=True, exist_ok=True)
 
         cache_path = output_dir / "cache"
+        cache_path.mkdir(parents=True, exist_ok=True)
 
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes(packs)
@@ -114,6 +115,7 @@ class TestAIOfflineParcel:
             include_parcel_geometry=True,
             save_features=True,
             no_cache=True,
+            threads=8,
         )
 
         assert chunk_path.exists()
@@ -208,8 +210,9 @@ class TestAIOfflineParcel:
                 until_bulk="2022-06-29",
                 alpha=False,
                 beta=False,
+                prerelease=False,
                 endpoint=endpoint,
-                no_cache=True,
+                threads=20,
             )
 
         data_feature_api = []
@@ -269,9 +272,11 @@ class TestAIOfflineParcel:
         )
 
         ## Check small error tolerance (max 1 square foot), only where there was no in/out discrepancy on counts
+        # TODO: This currently fails because it works differently to the rollup API building filtering logic. Align these.
         idx_equal_counts = (
             data_feature_api.loc[:, "roof_count"] - data_rollup_api.filter(like=ROLLUP_BUILDING_COUNT_ID).iloc[:, 0]
         ) == 0
+        assert idx_equal_counts.sum() == len(idx_equal_counts)
 
         ## Implicitly test sqm to sqft conversion...
         pd.testing.assert_series_equal(
@@ -297,8 +302,8 @@ class TestAIOfflineParcel:
 
         ## Test confidence aggregation is correct to within 1%
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "building_roof_confidence"],
-            data_rollup_api.filter(like=ROLLUP_BUILDING_PRESENT_CONFIDENCE).loc[idx_equal_counts].iloc[:, 0],
+            data_feature_api.loc[idx_equal_counts, "roof_confidence"],
+            data_rollup_api.filter(like="roof presence confidence").loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
             rtol=0.01,

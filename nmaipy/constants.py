@@ -6,6 +6,8 @@ SINCE_COL_NAME = "since"
 UNTIL_COL_NAME = "until"
 SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 
+DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
+
 
 MAX_RETRIES = 50
 

@@ -25,6 +25,7 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
     API_CRS,
     SURVEY_RESOURCE_ID_COL_NAME,
+    DEFAULT_URL_ROOT,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -170,7 +171,7 @@ def parse_arguments():
         help="Overwrite the root URL with a custom one.",
         type=str,
         required=False,
-        default="api.nearmap.com/ai/features/v4/bulk",
+        default=DEFAULT_URL_ROOT,
     )
     parser.add_argument(
         "--system-version-prefix",
@@ -224,9 +225,10 @@ def process_chunk(
     beta: Optional[bool] = True,
     prerelease: Optional[bool] = True,
     endpoint: [str] = Endpoint.FEATURE.value,
-    url_root: Optional[str] = None,
+    url_root: Optional[str] = DEFAULT_URL_ROOT,
     system_version_prefix: Optional[str] = None,
     system_version: Optional[str] = None,
+    threads: Optional[int] = THREADS,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -255,6 +257,7 @@ def process_chunk(
         url_root: Overwrite the root URL with a custom one.
         system_version_prefix: Restrict responses to a specific system version generation.
         system_version: Restrict responses to a specific system version.
+        threads: Number of threads to use for parallel processing.
     """
     if cache_dir is None and not no_cache:
         cache_dir = Path(output_dir)
@@ -282,7 +285,7 @@ def process_chunk(
         cache_dir=cache_path,
         overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
-        workers=THREADS,
+        workers=threads,
         alpha=alpha,
         beta=beta,
         prerelease=prerelease,
