@@ -8,7 +8,10 @@ from shapely.wkt import loads
 
 from nmaipy import parcels
 from nmaipy.constants import (
+    BUILDING_LIFECYCLE_ID,
     BUILDING_ID,
+    BUILDING_NEW_ID,
+    ROOF_ID,
     LAWN_GRASS_ID,
     POOL_ID,
     VEG_MEDHIGH_ID,
@@ -52,37 +55,42 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
 
 
 class TestParcels:
-    def test_filter(self, features_gdf):
-        assert len(features_gdf) == 637
-        features_gdf = features_gdf[features_gdf.class_id == BUILDING_ID]
-        assert len(features_gdf) == 68
-
+    def test_filter(self, features_2_gdf, parcels_2_gdf):
+        assert len(features_2_gdf) == 1409
+        f_gdf = features_2_gdf[features_2_gdf.class_id == ROOF_ID]
+        assert len(f_gdf) == 161
+        country = "us"
         config = {
             "min_size": {
-                BUILDING_ID: 25,
+                ROOF_ID: 4,
             },
             "min_confidence": {
-                BUILDING_ID: 0.8,
+                ROOF_ID: 0.65,
             },
             "min_fidelity": {
-                BUILDING_ID: 0.4,
+                ROOF_ID: 0.15,
             },
             "min_area_in_parcel": {
-                BUILDING_ID: 25,
+                ROOF_ID: 4,
             },
             "min_ratio_in_parcel": {
-                BUILDING_ID: 0.5,
+                ROOF_ID: 0,
+            },
+            "building_style_filtering": {
+                BUILDING_LIFECYCLE_ID: True,
+                BUILDING_ID: True,
+                BUILDING_NEW_ID: True,
+                ROOF_ID: True,
             },
         }
-        filtered_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
-        assert len(filtered_gdf) == 45
-        assert not (filtered_gdf.confidence < 0.8).any()
-        assert not (filtered_gdf.unclipped_area_sqm < 25).any()
-        assert not (filtered_gdf.fidelity < 0.4).any()
-        intersection_mask = (filtered_gdf.intersection_ratio < 0.5) & (filtered_gdf.clipped_area_sqm < 25)
-        assert not intersection_mask.any()
+        filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, config=config, aoi_gdf=parcels_2_gdf)
+        assert len(filtered_gdf) == 127 # Manually checked that four buildings should be removed from the 131, as they visually don't belong in the parcel.
+        assert not (filtered_gdf.confidence < 0.65).any()
+        assert not (filtered_gdf.unclipped_area_sqm < 4).any()
+        assert not (filtered_gdf.fidelity < 0.15).any()
 
     def test_flatten_building(self):
+        country = "au"
         attributes = [
             {
                 "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
@@ -99,7 +107,7 @@ class TestParcels:
             "num_storeys_2_confidence": 0.8145058300927666,
             "num_storeys_3+_confidence": 0.1278751981569811,
         }
-        assert expected == parcels.flatten_building_attributes(attributes, "au")
+        assert expected == parcels.flatten_building_attributes(attributes, country)
 
     def test_flatten_roof(self):
         attributes = [
@@ -317,12 +325,13 @@ class TestParcels:
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        country = "au"
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_gdf,
             features_gdf,
             classes_df,
-            country="au",
+            country=country,
             calc_buffers=False,
             primary_decision="largest_intersection",
         )
@@ -366,22 +375,22 @@ class TestParcels:
                     15: 2,
                 },
                 "building_total_area_sqm": {
-                    0: 801.5999999999999,
-                    1: 1638.9,
-                    2: 285.0,
-                    3: 0.0,
-                    4: 1028.7999999999997,
-                    5: 1215.4,
+                    0: 459,
+                    1: 787,
+                    2: 13.1,
+                    3: 0,
+                    4: 1029,
+                    5: 706,
                     6: 947.5,
                     7: 0.0,
-                    8: 1520.5,
-                    9: 1093.1000000000001,
-                    10: 990.4000000000001,
+                    8: 873,
+                    9: 529,
+                    10: 689,
                     11: 3717.3,
-                    12: 1640.7999999999997,
+                    12: 1589,
                     13: 1281.3,
-                    14: 1693.4,
-                    15: 1134.3,
+                    14: 1048.7,
+                    15: 306.2,
                 },
                 "building_total_clipped_area_sqm": {
                     0: 453.8,
@@ -402,22 +411,22 @@ class TestParcels:
                     15: 76.9,
                 },
                 "building_total_unclipped_area_sqm": {
-                    0: 801.6,
-                    1: 1638.9,
-                    2: 285.0,
-                    3: 0.0,
-                    4: 1028.8,
-                    5: 1215.4,
+                    0: 459,
+                    1: 787,
+                    2: 13.1,
+                    3: 0,
+                    4: 1029,
+                    5: 706,
                     6: 947.5,
                     7: 0.0,
-                    8: 1520.5,
-                    9: 1093.1,
-                    10: 990.4,
+                    8: 873,
+                    9: 529,
+                    10: 689,
                     11: 3717.3,
-                    12: 1640.8,
+                    12: 1589,
                     13: 1281.3,
-                    14: 1693.4,
-                    15: 1134.3,
+                    14: 1048.7,
+                    15: 306.2,
                 },
                 "building_confidence": {
                     0: 0.999995194375515,
@@ -670,6 +679,7 @@ class TestParcels:
             geometry="geometry",
         )
         parcels_gdf = parcels_gdf.set_crs("EPSG:4326")
+        country = "us"
         features_gdf = gpd.GeoDataFrame(
             [
                 # This should be the primary
@@ -729,10 +739,10 @@ class TestParcels:
 
         classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
 
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         rollup_df = parcels.parcel_rollup(
-            parcels_gdf, features_gdf, classes_df, country="us", calc_buffers=False, primary_decision="nearest"
+            parcels_gdf, features_gdf, classes_df, country=country, calc_buffers=False, primary_decision="nearest"
         )
         expected = pd.DataFrame(
             [
@@ -774,7 +784,9 @@ class TestParcels:
         # We get results in all AOIs
         assert len(features_gdf.aoi_id.unique()) == len(parcel_gdf)
 
-        features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, config=None)
+        features_gdf_filtered = parcels.filter_features_in_parcels(
+            features_gdf, config=None, aoi_gdf=parcel_gdf, region=country
+        )
         assert (
             len(features_gdf) > len(features_gdf_filtered) * 0.95
         )  # Very little should have been filtered out in these examples.
@@ -810,12 +822,13 @@ class TestParcels:
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        country = "au"
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_gdf,
             features_gdf,
             classes_df,
-            country="au",
+            country=country,
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
@@ -834,17 +847,19 @@ class TestParcels:
         Returns:
 
         """
+        country = "us"
         classes_df = pd.DataFrame(
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(features_2_gdf)
+        country = "us"
+        features_gdf = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_2_gdf,
             features_gdf,
             classes_df,
-            country="us",
+            country=country,
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
@@ -855,7 +870,7 @@ class TestParcels:
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         np.testing.assert_allclose(df.filter(like="tree_zone").sum().values, [278, 18, 188, 3, 0, 0, 0, 0], rtol=0.12)
-        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [148, 16, 3, 0, 0], rtol=0.05)
+        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 17, 3, 0, 0], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
@@ -887,24 +902,23 @@ class TestParcels:
         print(metadata)
         config = {
             "min_size": {
-                BUILDING_ID: 25,
+                BUILDING_ID: 4,
             },
             "min_confidence": {
-                BUILDING_ID: 0.8,
+                BUILDING_ID: 0.65,
             },
             "min_fidelity": {
-                BUILDING_ID: 0.4,
+                BUILDING_ID: 0.4, # This is not the default, but serves the purpose of the test
             },
             "min_area_in_parcel": {
-                BUILDING_ID: 25,
+                BUILDING_ID: 4,
             },
             "min_ratio_in_parcel": {
-                BUILDING_ID: 0.5,
+                BUILDING_ID: 0.0,
             },
         }
         features_gdf = parcels.filter_features_in_parcels(
-            features_gdf,
-            config=config,
+            features_gdf, config=config, region=country, aoi_gdf=parcels_gdf
         )
         print(features_gdf)
         df = parcels.parcel_rollup(
@@ -951,7 +965,7 @@ class TestParcels:
         features_gdf, metadata, error = feature_api.get_features_gdf(
             aoi, country, packs, aoi_id, survey_resource_id=survey_resource_id
         )
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -1001,7 +1015,7 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -1014,5 +1028,5 @@ class TestParcels:
         print(metadata)
         print(df.T)
         assert (
-            df.loc[0, "building_count"] == 26
+            df.loc[0, "building_count"] == 25
         )  # Includes some lower confidence ones that had been filtered by the previous thresholds.

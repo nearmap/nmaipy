@@ -7,10 +7,12 @@ import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon, Point
 
 from nmaipy import log
+import nmaipy.reference_code
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     AREA_CRS,
     BUILDING_ID,
+    BUILDING_NEW_ID,
     BUILDING_LIFECYCLE_ID,
     VEG_MEDHIGH_ID,
     CLASSES_WITH_NO_PRIMARY_FEATURE,
@@ -71,6 +73,12 @@ DEFAULT_FILTERING = {
         CONSTRUCTION_ID: 0.5,
         SOLAR_ID: 0.5,
     },
+    "building_style_filtering": {
+        BUILDING_LIFECYCLE_ID: True,
+        BUILDING_ID: True,
+        BUILDING_NEW_ID: True,
+        ROOF_ID: True,
+    }
 }
 
 TREE_BUFFERS_M = dict(
@@ -158,7 +166,7 @@ def read_from_file(
     return parcels_gdf
 
 
-def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[dict] = None) -> gpd.GeoDataFrame:
+def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str, config: Optional[dict] = None) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
      - Features that are considered noise (small or low confidence)
@@ -191,6 +199,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
 
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf["clipped_area_" + suffix] / gdf["unclipped_area_" + suffix]
+    gdf["intersection_ratio"] = gdf["intersection_ratio"].fillna(1) # If unclipped area is zero, assume the feature is fully inside the parcel
 
     # Filter small features
     filter = config.get("min_size", DEFAULT_FILTERING["min_size"])
@@ -218,6 +227,30 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, config: Optional[
         no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
         gdf = gdf.loc[~parent_removed | no_parent]
 
+    building_style_ids = DEFAULT_FILTERING["building_style_filtering"].keys()
+    out_gdf = []
+    for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique():
+        gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+        if len(gdf_aoi) == 0:
+            continue
+        gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
+        if len(gdf_aoi_buildings) == 0:
+            out_gdf.append(gdf_aoi)
+            continue
+        aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry
+        building_statuses = []
+        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry:
+            building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
+            building_statuses.append(building_status)
+        building_statuses = pd.DataFrame(building_statuses)
+        building_statuses.index = gdf_aoi_buildings.index
+        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1)
+        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"])
+        gdf_aoi = pd.concat([gdf_aoi[~gdf_aoi.class_id.isin(building_style_ids)], gdf_aoi_buildings], ignore_index=True)
+        out_gdf.append(gdf_aoi)
+
+    if len(out_gdf) > 0:
+        gdf = pd.concat(out_gdf)
     return gdf.reset_index(drop=True)
 
 

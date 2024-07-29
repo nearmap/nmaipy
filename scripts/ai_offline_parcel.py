@@ -336,7 +336,7 @@ def process_chunk(
 
         # Filter features
         len_all_features = len(features_gdf)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config, aoi_gdf=parcel_gdf, region=country)
         len_filtered_features = len(features_gdf)
         logger.debug(
             f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."

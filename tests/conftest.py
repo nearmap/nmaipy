@@ -8,7 +8,7 @@ from shapely.wkt import loads
 import ast
 
 from nmaipy import parcels
-from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
+from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME, API_CRS
 
 
 @pytest.fixture(scope="session")
@@ -139,6 +139,6 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
         "geometry": large_adelaide_aoi,
     }
 
-    parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row])
+    parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row], crs=API_CRS)
     parcel_gdf[AOI_ID_COLUMN_NAME] = range(len(parcel_gdf))
     return parcel_gdf

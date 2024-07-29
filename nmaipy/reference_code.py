@@ -1,6 +1,7 @@
 # Reference code for various algorithms dealing with data from the AI Feature API
 
 from shapely.geometry import MultiPolygon, Polygon, Point
+from typing import Union
 
 BUILDING_SMALL_MAX_AREA_SQM = 30
 BUILDING_MIN_WIDTH_M = 3
@@ -33,6 +34,7 @@ def get_widths_from_multipolygon(poly):
 def is_building_small(building_poly: Polygon) -> bool:
     """
     Check if a building polygon is small based on its area (assumes polygon in an area based coordinate system measured in metres).
+    # WARNING: This requires a polygon in an area based coordinate system measured in metres.
     """
     return building_poly.area < BUILDING_SMALL_MAX_AREA_SQM
 
@@ -43,7 +45,7 @@ def check_in_out_belongingness_of_building(building_poly: Polygon, parcel_poly: 
     Assumes building and parcel are in an area based coordinate system measured in metres.
     """
     building_parts_within = parcel_poly.intersection(building_poly)
-    building_parts_without = parcel_poly.difference(building_poly)
+    building_parts_without = building_poly.difference(parcel_poly)
 
     max_width_in = max(get_widths_from_multipolygon(building_parts_within.buffer(EROSION_M)))
     max_width_out = max(get_widths_from_multipolygon(building_parts_without.buffer(EROSION_M)))
@@ -60,4 +62,17 @@ def is_building_multiparcel(building_poly: Polygon, parcel_poly: Union[Polygon, 
     belongs_in, belongs_out = check_in_out_belongingness_of_building(building_poly, parcel_poly)
     building_is_small = is_building_small(building_poly)
     building_is_multiparcel = (belongs_in and belongs_out) and not building_is_small
-    return building_is_multiparcel
+    return (building_is_multiparcel, belongs_in, belongs_out, building_is_small)
+
+def get_building_status(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> str:
+    """
+    Get the status of a building polygon based on its relationship to the parcel polygon.
+    """
+    building_is_multiparcel, belongs_in, belongs_out, building_is_small = is_building_multiparcel(building_poly, parcel_poly)
+    is_keep = building_is_small or (building_is_multiparcel and belongs_in) or belongs_in
+
+    return {
+        "building_keep": is_keep,
+        "building_small": building_is_small,
+        "building_multiparcel": building_is_multiparcel,
+    }

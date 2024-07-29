@@ -18,8 +18,11 @@ from nmaipy.constants import (
     API_CRS,
     ROLLUP_BUILDING_COUNT_ID,
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
+    AOI_ID_COLUMN_NAME,
+    AREA_CRS,
 )
 from nmaipy.feature_api import FeatureApi
+from nmaipy import reference_code
 
 
 class TestFeatureAPI:
@@ -287,8 +290,10 @@ class TestFeatureAPI:
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, packs="poles")
+        features_gdf[AOI_ID_COLUMN_NAME] = 0
         print(features_gdf.T)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        parcel_gdf = gpd.GeoDataFrame([{AOI_ID_COLUMN_NAME: 0}], crs=API_CRS, geometry=[aoi])
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
         print(features_gdf.T)
         # No data
         assert len(features_gdf) == 1  # 1 pole found
@@ -425,6 +430,68 @@ class TestFeatureAPI:
         assert len(features_gdf[features_gdf.class_id == ASPHALT_ID]) == 1
         assert features_gdf["clipped_area_sqm"].sum() == features_gdf["area_sqm"].sum()
         assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(259.2, rel=0.02)
+
+    def test_multiparcel_building_filter_1(self, cache_directory: Path):
+        aoi = loads("Polygon ((151.27703696149524148 -33.79262202320504827, 151.27733681519475795 -33.79266133351605816, 151.27731228659985163 -33.79279055527718612, 151.27701243290030675 -33.79275124502552075, 151.27703696149524148 -33.79262202320504827))")
+        building = loads(""" POLYGON ((
+            151.27712199999999143 -33.7926259999999985,
+            151.27713900000000535 -33.79253500000000088,
+            151.2771669999999915 -33.79253899999999788,
+            151.27716899999998645 -33.79252799999999723,
+            151.27730700000000752 -33.79254600000000153,
+            151.27729800000000182 -33.79259400000000113,
+            151.27730500000001257 -33.79259400000000113,
+            151.27729400000001192 -33.79264899999999727,
+            151.27729299999998602 -33.79265300000000138,
+            151.2772860000000037 -33.7926519999999968,
+            151.27727400000000557 -33.7927180000000007,
+            151.27727999999999042 -33.7927180000000007,
+            151.2772730000000081 -33.79276000000000124,
+            151.27726599999999735 -33.79275899999999666,
+            151.27726200000000745 -33.79278099999999796,
+            151.27721500000001242 -33.79277400000000142,
+            151.2772160000000099 -33.7927660000000003,
+            151.27712600000000975 -33.79275400000000218,
+            151.27712600000000975 -33.79275899999999666,
+            151.27709699999999771 -33.79275499999999965,
+            151.27705199999999763 -33.79274900000000059,
+            151.27705299999999511 -33.79274499999999648,
+            151.27701899999999569 -33.792740000000002,
+            151.27702500000000896 -33.79271099999999706,
+            151.27708799999999201 -33.79271899999999818,
+            151.27709300000000781 -33.79269399999999735,
+            151.27706399999999576 -33.79269000000000034,
+            151.27706499999999323 -33.79268199999999922,
+            151.27703099999999381 -33.79267699999999763,
+            151.27703700000000708 -33.79264500000000027,
+            151.27710099999998761 -33.79265300000000138,
+            151.27710500000000593 -33.79263300000000214,
+            151.2772380000000112 -33.79265099999999933,
+            151.27724000000000615 -33.79264500000000027,
+            151.2771889999999928 -33.7926390000000012,
+            151.2771889999999928 -33.79263499999999709,
+            151.27712199999999143 -33.7926259999999985
+        ))
+        """
+        )
+        country = "au"
+        pass # TODO: Implement test. This should come up as a multi parcel building.
+
+        # Convert the polygons to a metric CRS
+        aoi_metric = gpd.GeoDataFrame(geometry=[aoi], crs=API_CRS).to_crs(AREA_CRS[country]).iloc[0].geometry
+        building_metric = gpd.GeoDataFrame(geometry=[building], crs=API_CRS).to_crs(AREA_CRS[country]).iloc[0].geometry
+
+        # Test the reference code for filtering
+        building_status = reference_code.get_building_status(building_metric, aoi_metric)
+        assert building_status["building_keep"]
+        assert not building_status["building_small"]
+        assert building_status["building_multiparcel"]
+
+        belongs_within, belongs_without = reference_code.check_in_out_belongingness_of_building(building_metric, aoi_metric)
+        assert belongs_within
+        assert belongs_without
+
+        
 
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)

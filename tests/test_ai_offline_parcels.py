@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 
 import geopandas as gpd
 import pandas as pd
@@ -112,6 +113,7 @@ class TestAIOfflineParcel:
             packs=packs,
             include_parcel_geometry=True,
             save_features=True,
+            no_cache=True,
         )
 
         assert chunk_path.exists()
@@ -207,6 +209,7 @@ class TestAIOfflineParcel:
                 alpha=False,
                 beta=False,
                 endpoint=endpoint,
+                no_cache=True,
             )
 
         data_feature_api = []
