@@ -36,7 +36,9 @@ PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 # All area values are in squared metres
 DEFAULT_FILTERING = {
     "min_size": {
+        BUILDING_LIFECYCLE_ID: 4,
         BUILDING_ID: 4,
+        BUILDING_NEW_ID: 4,
         ROOF_ID: 4,
         TRAMPOLINE_ID: 1,
         POOL_ID: 4,
@@ -44,7 +46,9 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 1,
     },
     "min_confidence": {
+        BUILDING_LIFECYCLE_ID: 0.65,
         BUILDING_ID: 0.65,
+        BUILDING_NEW_ID: 0.65,
         ROOF_ID: 0.65,
         TRAMPOLINE_ID: 0.6,
         POOL_ID: 0.6,
@@ -53,11 +57,13 @@ DEFAULT_FILTERING = {
     },
     "min_fidelity": {
         BUILDING_ID: 0.15,
+        BUILDING_NEW_ID: 0.15,
         ROOF_ID: 0.15,
     },
     "min_area_in_parcel": {
         BUILDING_LIFECYCLE_ID: 4,
         BUILDING_ID: 4,
+        BUILDING_NEW_ID: 4,
         ROOF_ID: 4,
         TRAMPOLINE_ID: 1,
         POOL_ID: 4,
@@ -67,6 +73,7 @@ DEFAULT_FILTERING = {
     "min_ratio_in_parcel": {
         BUILDING_LIFECYCLE_ID: 0,
         BUILDING_ID: 0,  # Defer to more complex algorithm for building and roof - important for large buildings.
+        BUILDING_NEW_ID: 0,
         ROOF_ID: 0,
         TRAMPOLINE_ID: 0.5,
         POOL_ID: 0.5,
@@ -78,7 +85,7 @@ DEFAULT_FILTERING = {
         BUILDING_ID: True,
         BUILDING_NEW_ID: True,
         ROOF_ID: True,
-    }
+    },
 }
 
 TREE_BUFFERS_M = dict(
