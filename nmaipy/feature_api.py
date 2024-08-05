@@ -857,6 +857,8 @@ class FeatureApi:
             "attributes",
             "surveyDate",
             "meshDate",
+            "surveyId",
+            "resourceId"
         ]
 
         # Create features DataFrame
@@ -1036,6 +1038,10 @@ class FeatureApi:
                         "system_version": metadata_df["system_version"],
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
+                        "survey_id": metadata_df["surveyId"],
+                        "survey_resource_id": metadata_df["resourceId"],
+                        "perspective": metadata_df["perspective"],
+                        "postcat": metadata_df["postcat"],
                     }
 
                 except (AIFeatureAPIError, AIFeatureAPIGridError) as e:

@@ -25,6 +25,7 @@ DEFAULT_FILTERING = {
         POOL_ID: 4,
         CONSTRUCTION_ID: 5,
         SOLAR_ID: 1,
+        PLAYGROUND_ID: 2,
     },
     "min_confidence": {
         BUILDING_LIFECYCLE_ID: 0.65,
@@ -67,6 +68,7 @@ DEFAULT_FILTERING = {
         BOAT_ID: 0.5,
         SILO_ID: 0.5,
         SKYLIGHT_ID: 0.5,
+        PLAYGROUND_ID: 0.5,
     },
     "building_style_filtering": {
         BUILDING_LIFECYCLE_ID: True,
