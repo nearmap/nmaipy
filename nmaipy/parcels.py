@@ -8,26 +8,7 @@ from shapely.geometry import MultiPolygon, Polygon, Point
 
 from nmaipy import log
 import nmaipy.reference_code
-from nmaipy.constants import (
-    AOI_ID_COLUMN_NAME,
-    AREA_CRS,
-    BUILDING_ID,
-    BUILDING_NEW_ID,
-    BUILDING_LIFECYCLE_ID,
-    VEG_MEDHIGH_ID,
-    CLASSES_WITH_NO_PRIMARY_FEATURE,
-    CONSTRUCTION_ID,
-    IMPERIAL_COUNTRIES,
-    LAT_LONG_CRS,
-    LAT_PRIMARY_COL_NAME,
-    LON_PRIMARY_COL_NAME,
-    METERS_TO_FEET,
-    POOL_ID,
-    ROOF_ID,
-    SOLAR_ID,
-    TRAMPOLINE_ID,
-    MeasurementUnits,
-)
+from nmaipy.constants import *
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -74,16 +55,24 @@ DEFAULT_FILTERING = {
         BUILDING_LIFECYCLE_ID: 0,
         BUILDING_ID: 0,  # Defer to more complex algorithm for building and roof - important for large buildings.
         BUILDING_NEW_ID: 0,
+        BUILDING_UNDER_CONSTRUCTION_ID: 0,
         ROOF_ID: 0,
         TRAMPOLINE_ID: 0.5,
         POOL_ID: 0.5,
         CONSTRUCTION_ID: 0.5,
         SOLAR_ID: 0.5,
+        CAR_ID: 0.5,
+        WHEELED_CONSTRUCTION_VEHICLE_ID: 0.5,
+        CONSTRUCTION_CRANE_ID: 0.5,
+        BOAT_ID: 0.5,
+        SILO_ID: 0.5,
+        SKYLIGHT_ID: 0.5,
     },
     "building_style_filtering": {
         BUILDING_LIFECYCLE_ID: True,
         BUILDING_ID: True,
         BUILDING_NEW_ID: True,
+        BUILDING_UNDER_CONSTRUCTION_ID: True,
         ROOF_ID: True,
     },
 }
