@@ -274,6 +274,12 @@ def process_chunk(
     if outfile.exists():
         return
 
+     # Get additional parcel attributes from parcel geometry
+    if isinstance(parcel_gdf, gpd.GeoDataFrame):
+        rep_point = parcel_gdf.representative_point()
+        parcel_gdf["query_aoi_lat"] = rep_point.y
+        parcel_gdf["query_aoi_lon"] = rep_point.x
+
     # Get features
     feature_api = FeatureApi(
         api_key=api_key(key_file),
@@ -373,7 +379,8 @@ def process_chunk(
         lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
     )
     if endpoint == Endpoint.ROLLUP.value:
-        final_df["link"] = final_df.apply(make_link, axis=1)
+        if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
+            final_df["link"] = final_df.apply(make_link, axis=1)
         final_df = final_df.drop(columns=["system_version", "date"])
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:
@@ -643,7 +650,7 @@ def main():
         else:
             data = pd.DataFrame(data)
         data = data.set_index(AOI_ID_COLUMN_NAME)
-        if "Index" in data.columns:
+        if "index" in data.columns:
             data = data.drop(columns=["index"])
         if len(data) > 0:
             if args.rollup_format == "parquet":

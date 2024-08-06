@@ -116,11 +116,11 @@ def read_from_file(
     """
     if path.suffix in (".csv", ".psv", ".tsv"):
         if path.suffix == ".csv":
-            parcels_df = pd.read_csv(path)
+            parcels_gdf = pd.read_csv(path)
         elif path.suffix == ".psv":
-            parcels_df = pd.read_csv(path, sep="|")
+            parcels_gdf = pd.read_csv(path, sep="|")
         elif path.suffix == ".tsv":
-            parcels_df = pd.read_csv(path, sep="\t")
+            parcels_gdf = pd.read_csv(path, sep="\t")
     elif path.suffix == ".parquet":
         parcels_gdf = gpd.read_parquet(path)
     elif path.suffix in (".geojson", ".gpkg"):
@@ -128,15 +128,17 @@ def read_from_file(
     else:
         raise NotImplemented(f"Source format not supported: {path.suffix=}")
 
-    if "geometry" not in parcels_df.columns:
-        return parcels_df
-    else:   
-        geometry = gpd.GeoSeries.from_wkt(parcels_df.geometry.fillna("POLYGON(EMPTY)"))
-        parcels_gdf["geometry"] = geometry
-        parcels_gdf = gpd.GeoDataFrame(
-            parcels_df,
-            crs=source_crs,
-        )
+    if not "geometry" in parcels_gdf:
+        logger.warning(f"Input file has no AOI geometries - some operations will not work.")
+    else:
+        if not isinstance(parcels_gdf, gpd.GeoDataFrame):
+            # If from a tabular data source, try to convert to a GeoDataFrame (requires a geometry column)
+            geometry = gpd.GeoSeries.from_wkt(parcels_gdf.geometry.fillna("POLYGON(EMPTY)"))
+            parcels_gdf = gpd.GeoDataFrame(
+                parcels_gdf, geometry=geometry,
+                crs=source_crs,
+            )
+    if "geometry" in parcels_gdf:
         # Set CRS and project if data CRS is not equal to target CRS
         if parcels_gdf.crs is None:
             parcels_gdf.set_crs(source_crs)
@@ -154,18 +156,18 @@ def read_from_file(
                 warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
                 parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
 
-        if len(parcels_gdf) == 0:
-            raise RuntimeError(f"No valid parcels in {path=}")
+    if len(parcels_gdf) == 0:
+        raise RuntimeError(f"No valid parcels in {path=}")
 
-        # Check that identifier is unique
-        if id_column not in parcels_gdf:
-            parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
-            parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
-        if parcels_gdf[id_column].duplicated().any():
-            raise ValueError(f"Duplicate IDs found for {id_column=}")
+    # Check that identifier is unique
+    if id_column not in parcels_gdf:
+        parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
+        parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
+    if parcels_gdf[id_column].duplicated().any():
+        raise ValueError(f"Duplicate IDs found for {id_column=}")
 
-        parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
-        return parcels_gdf
+    parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
+    return parcels_gdf
 
 
 def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str, config: Optional[dict] = None) -> gpd.GeoDataFrame:
@@ -422,6 +424,7 @@ def feature_attributes(
                 if class_id in [ROOF_ID, BUILDING_ID]:
                     if class_id == ROOF_ID:
                         primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
+                        primary_attributes["feature_id"] = primary_feature.feature_id
                     else:
                         primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
 
