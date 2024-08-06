@@ -444,7 +444,7 @@ class FeatureApi:
 
         # Add dates if given
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
-            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
+            logger.debug(f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates.")
         elif (since is not None) or (until is not None):
             if since:
                 request_string += f"&since={since}"

@@ -121,11 +121,6 @@ def read_from_file(
             parcels_df = pd.read_csv(path, sep="|")
         elif path.suffix == ".tsv":
             parcels_df = pd.read_csv(path, sep="\t")
-        parcels_gdf = gpd.GeoDataFrame(
-            parcels_df.drop("geometry", axis=1),
-            geometry=gpd.GeoSeries.from_wkt(parcels_df.geometry.fillna("POLYGON(EMPTY)")),
-            crs=source_crs,
-        )
     elif path.suffix == ".parquet":
         parcels_gdf = gpd.read_parquet(path)
     elif path.suffix in (".geojson", ".gpkg"):
@@ -133,35 +128,44 @@ def read_from_file(
     else:
         raise NotImplemented(f"Source format not supported: {path.suffix=}")
 
-    # Set CRS and project if data CRS is not equal to target CRS
-    if parcels_gdf.crs is None:
-        parcels_gdf.set_crs(source_crs)
-    if parcels_gdf.crs != target_crs:
-        parcels_gdf = parcels_gdf.to_crs(target_crs)
+    if "geometry" not in parcels_df.columns:
+        return parcels_df
+    else:   
+        geometry = gpd.GeoSeries.from_wkt(parcels_df.geometry.fillna("POLYGON(EMPTY)"))
+        parcels_gdf["geometry"] = geometry
+        parcels_gdf = gpd.GeoDataFrame(
+            parcels_df,
+            crs=source_crs,
+        )
+        # Set CRS and project if data CRS is not equal to target CRS
+        if parcels_gdf.crs is None:
+            parcels_gdf.set_crs(source_crs)
+        if parcels_gdf.crs != target_crs:
+            parcels_gdf = parcels_gdf.to_crs(target_crs)
 
-    # Drop any empty geometries
-    if drop_empty:
-        parcels_gdf = parcels_gdf.dropna(subset=["geometry"])
-        parcels_gdf = parcels_gdf[~parcels_gdf.is_empty]
-        parcels_gdf = parcels_gdf[parcels_gdf.is_valid]
-        # For this we only check if the shape has a non-zero area, the value doesn't matter, so the warning can be
-        # ignored.
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
-            parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+        # Drop any empty geometries
+        if drop_empty:
+            parcels_gdf = parcels_gdf.dropna(subset=["geometry"])
+            parcels_gdf = parcels_gdf[~parcels_gdf.is_empty]
+            parcels_gdf = parcels_gdf[parcels_gdf.is_valid]
+            # For this we only check if the shape has a non-zero area, the value doesn't matter, so the warning can be
+            # ignored.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
+                parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
 
-    if len(parcels_gdf) == 0:
-        raise RuntimeError(f"No valid parcels in {path=}")
+        if len(parcels_gdf) == 0:
+            raise RuntimeError(f"No valid parcels in {path=}")
 
-    # Check that identifier is unique
-    if id_column not in parcels_gdf:
-        parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
-        parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
-    if parcels_gdf[id_column].duplicated().any():
-        raise ValueError(f"Duplicate IDs found for {id_column=}")
+        # Check that identifier is unique
+        if id_column not in parcels_gdf:
+            parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
+            parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
+        if parcels_gdf[id_column].duplicated().any():
+            raise ValueError(f"Duplicate IDs found for {id_column=}")
 
-    parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
-    return parcels_gdf
+        parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
+        return parcels_gdf
 
 
 def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str, config: Optional[dict] = None) -> gpd.GeoDataFrame:
@@ -194,7 +198,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
         raise Exception(
             f"We need consistent meters or feet to do filtering calculations, but we did not have the necessary columns... they are {gdf.columns.tolist()} in length {len(gdf)} dataframe"
         )
-
+    
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf["clipped_area_" + suffix] / gdf["unclipped_area_" + suffix]
     gdf["intersection_ratio"] = gdf["intersection_ratio"].fillna(1) # If unclipped area is zero, assume the feature is fully inside the parcel
@@ -215,27 +219,30 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
     out_gdf_building_style = []
     gdf_non_building_style = gdf[~gdf.class_id.isin(building_style_ids)]
 
-    for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique(): # Loop over each AOI in the set
-        gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
-        gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
-        if len(gdf_aoi_buildings) == 0:
-            continue # Skip if there are no buildings in the AOI
-        aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry # Get in metric projection for area/geospatial calcs in metres.
-        building_statuses = []
-        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
-            building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
-            building_statuses.append(building_status)
-        building_statuses = pd.DataFrame(building_statuses)
-        building_statuses.index = gdf_aoi_buildings.index
-        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
-        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
-        out_gdf_building_style.append(gdf_aoi_buildings)
-
-    if len(out_gdf_building_style) > 0:
-        out_gdf_building_style = pd.concat(out_gdf_building_style)
-        gdf = pd.concat([gdf_non_building_style, out_gdf_building_style])
+    if not isinstance(aoi_gdf, gpd.GeoDataFrame):
+        logger.warning("AOI geometries not available, skipping building style filtering")
     else:
-        gdf = gdf_non_building_style
+        for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique(): # Loop over each AOI in the set
+            gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+            gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
+            if len(gdf_aoi_buildings) == 0:
+                continue # Skip if there are no buildings in the AOI
+            aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry # Get in metric projection for area/geospatial calcs in metres.
+            building_statuses = []
+            for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
+                building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
+                building_statuses.append(building_status)
+            building_statuses = pd.DataFrame(building_statuses)
+            building_statuses.index = gdf_aoi_buildings.index
+            gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
+            gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+            out_gdf_building_style.append(gdf_aoi_buildings)
+
+        if len(out_gdf_building_style) > 0:
+            out_gdf_building_style = pd.concat(out_gdf_building_style)
+            gdf = pd.concat([gdf_non_building_style, out_gdf_building_style])
+        else:
+            gdf = gdf_non_building_style
 
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
@@ -353,6 +360,7 @@ def feature_attributes(
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
         # Add attributes that apply to all feature classes
+        # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this.
         parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(class_features_gdf)
         if country in IMPERIAL_COUNTRIES:

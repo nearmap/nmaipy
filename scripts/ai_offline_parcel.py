@@ -25,6 +25,7 @@ from nmaipy.constants import (
     API_CRS,
     SURVEY_RESOURCE_ID_COL_NAME,
     DEFAULT_URL_ROOT,
+    ADDRESS_FIELDS,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -273,11 +274,6 @@ def process_chunk(
     if outfile.exists():
         return
 
-    # Get additional parcel attributes from parcel geometry
-    rep_point = parcel_gdf.representative_point()
-    parcel_gdf["query_aoi_lat"] = rep_point.y
-    parcel_gdf["query_aoi_lon"] = rep_point.x
-
     # Get features
     feature_api = FeatureApi(
         api_key=api_key(key_file),
@@ -398,18 +394,19 @@ def process_chunk(
         logger.error(e)
 
     if save_features and (endpoint != Endpoint.ROLLUP.value):
-        # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
+        # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry" if it exists.
         final_features_df = gpd.GeoDataFrame(
             metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
                 parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
             ),
             crs=API_CRS,
         )
-        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
+        if "aoi_geometry" in final_features_df.columns:
+            final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
         final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
         if len(final_features_df) > 0:
             try:
-                if not include_parcel_geometry:
+                if not include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
                     final_features_df = final_features_df.drop(columns=["aoi_geometry"])
                 final_features_df = final_features_df[
                     ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
@@ -468,7 +465,15 @@ def main():
             logger.info(f"Output already exist, skipping {f.stem}")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
+        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME)
+        if isinstance(parcels_gdf, gpd.GeoDataFrame):
+            parcels_gdf = parcels_gdf.to_crs(API_CRS)
+        else:
+            logger.info("No geometry found in parcel data - using address fields")
+            for field in ADDRESS_FIELDS:
+                if field not in parcels_gdf:
+                    logger.error(f"Missing field {field} in parcel data")
+                    sys.exit(1)
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
@@ -494,6 +499,10 @@ def main():
             else:
                 logger.info("No latest date will used")
 
+        if AOI_ID_COLUMN_NAME not in parcels_gdf:
+            logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
+            parcels_gdf[AOI_ID_COLUMN_NAME] = parcels_gdf.index
+
         jobs = []
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
@@ -507,11 +516,16 @@ def main():
                 "ignore",
                 message="Geometry is in a geographic CRS.",
             )
-            parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+            if isinstance(parcels_gdf, gpd.GeoDataFrame):
+                parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
                 message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message="'DataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'DataFrame.transpose' instead.",
             )
             chunks = np.array_split(parcels_gdf, num_chunks)
         if args.workers > 1:
@@ -628,6 +642,9 @@ def main():
             data = gpd.GeoDataFrame(pd.concat(data))
         else:
             data = pd.DataFrame(data)
+        data = data.set_index(AOI_ID_COLUMN_NAME)
+        if "Index" in data.columns:
+            data = data.drop(columns=["index"])
         if len(data) > 0:
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
