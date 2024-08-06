@@ -12,7 +12,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import fiona.errors
 import warnings
 import traceback
 
@@ -657,7 +656,7 @@ def main():
             for cp in tqdm(feature_paths, total=len(feature_paths)):
                 try:
                     df_feature_chunk = gpd.read_parquet(cp)
-                except fiona.errors.DriverError as e:
+                except Exception as e:
                     logger.error(f"Failed to read {cp}.")
                 data_features.append(df_feature_chunk)
             if len(data_features) > 0:
