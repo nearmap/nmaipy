@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 import geopandas as gpd
 import pandas as pd
@@ -13,12 +14,18 @@ from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME, API_CRS
 
 @pytest.fixture(scope="session")
 def cache_directory() -> Path:
-    return Path(__file__).parent.absolute() / "cache"
+    output_dir = Path(__file__).parent.absolute() / "data" / "cache"
+    yield output_dir
+    # Cleanup code: remove the directory and its contents
+    shutil.rmtree(output_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="function")
 def processed_output_directory() -> Path:
-    return Path(__file__).parent.absolute() / "data" / "processed"
+    output_dir = Path(__file__).parent.absolute() / "data" / "processed"
+    yield output_dir
+    # Cleanup code: remove the directory and its contents
+    shutil.rmtree(output_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")

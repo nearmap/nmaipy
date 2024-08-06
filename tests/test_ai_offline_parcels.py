@@ -10,8 +10,6 @@ from nmaipy.constants import *
 
 from scripts import ai_offline_parcel
 
-TEST_TMP_FOLDER = Path("data/tmp")
-
 
 class TestAIOfflineParcel:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
@@ -34,8 +32,8 @@ class TestAIOfflineParcel:
         tag_rollup_api = "tests3_rollup"
         chunk_id = 0
 
-        output_dir = Path(TEST_TMP_FOLDER) / tag
-        output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
+        output_dir = Path(processed_output_directory) / tag
+        output_dir_rollup_api = Path(processed_output_directory) / tag_rollup_api
         packs = ["surface_permeability"]
         country = "au"
         final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
@@ -88,7 +86,7 @@ class TestAIOfflineParcel:
         tag = "tests_au"
         chunk_id = 0
 
-        output_dir = Path(TEST_TMP_FOLDER) / tag
+        output_dir = Path(processed_output_directory) / tag
         packs = ["building", "vegetation"]
         country = "au"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
@@ -172,8 +170,8 @@ class TestAIOfflineParcel:
         tag_rollup_api = "tests2_rollup"
         chunk_id = 0
 
-        output_dir = Path(TEST_TMP_FOLDER) / tag
-        output_dir_rollup_api = Path(TEST_TMP_FOLDER) / tag_rollup_api
+        output_dir = Path(processed_output_directory) / tag
+        output_dir_rollup_api = Path(processed_output_directory) / tag_rollup_api
         packs = ["building", "roof_char", "vegetation"]
         country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection

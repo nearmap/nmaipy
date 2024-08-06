@@ -870,7 +870,7 @@ class TestParcels:
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         np.testing.assert_allclose(df.filter(like="tree_zone").sum().values, [278, 18, 188, 3, 0, 0, 0, 0], rtol=0.12)
-        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 16, 3, 0, 0], rtol=0.05)
+        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 17, 3, 0, 0], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """

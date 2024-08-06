@@ -274,7 +274,7 @@ def process_chunk(
     if outfile.exists():
         return
 
-     # Get additional parcel attributes from parcel geometry
+    # Get additional parcel attributes from parcel geometry
     if isinstance(parcel_gdf, gpd.GeoDataFrame):
         rep_point = parcel_gdf.representative_point()
         parcel_gdf["query_aoi_lat"] = rep_point.y
@@ -361,11 +361,35 @@ def process_chunk(
         sys.exit(1)
 
     # Put it all together and save
+    meta_data_columns = [
+        "system_version",
+        "link",
+        "date",
+        "survey_id",
+        "survey_resource_id",
+        "perspective",
+        "postcat",
+    ] # Some of these columns are not present in the Rollup API output
+    # Validate that columns like survey_id and survey_resource_id in both the input file and API responses.
+    for meta_data_column in meta_data_columns:
+        if meta_data_column in parcel_gdf.columns:
+            # Test they are identical in contents for non NaN values.
+            c1 = parcel_gdf[meta_data_column]
+            c2 = metadata_df[meta_data_column]
+            mask = ~(c1.isna() | c2.isna())
+            if not c1[mask].equals(c2[mask]):
+                logger.error(f"Chunk {chunk_id}: {meta_data_column} columns are not identical in the parcel and metadata dataframes for {meta_data_column}.")
+                df_disagreements = parcel_gdf[meta_data_column].compare(metadata_df[meta_data_column])
+                logger.error(f"Disagreeing values in parcel data: {df_disagreements.T}")
+            else:
+                # Drop the column from the metadata dataframe
+                metadata_df = metadata_df.drop(columns=[meta_data_column])
+                meta_data_columns.remove(meta_data_column)
+
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
-    meta_data_columns = ["system_version", "link", "date"]
     columns = (
         parcel_columns
         + meta_data_columns
@@ -373,6 +397,8 @@ def process_chunk(
     )
     if include_parcel_geometry:
         columns.append("geometry")
+    # Filter out columns that are not in the final_df
+    columns = [c for c in columns if c in final_df.columns]
     final_df = final_df[columns]
     date2str = lambda d: str(d).replace("-", "")
     make_link = (
