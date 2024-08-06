@@ -211,6 +211,32 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
     filter = config.get("min_fidelity", DEFAULT_FILTERING["min_fidelity"])
     gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.fidelity.fillna(1)]
 
+    building_style_ids = DEFAULT_FILTERING["building_style_filtering"].keys()
+    out_gdf_building_style = []
+    gdf_non_building_style = gdf[~gdf.class_id.isin(building_style_ids)]
+
+    for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique(): # Loop over each AOI in the set
+        gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+        gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
+        if len(gdf_aoi_buildings) == 0:
+            continue # Skip if there are no buildings in the AOI
+        aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry # Get in metric projection for area/geospatial calcs in metres.
+        building_statuses = []
+        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
+            building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
+            building_statuses.append(building_status)
+        building_statuses = pd.DataFrame(building_statuses)
+        building_statuses.index = gdf_aoi_buildings.index
+        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
+        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+        out_gdf_building_style.append(gdf_aoi_buildings)
+
+    if len(out_gdf_building_style) > 0:
+        out_gdf_building_style = pd.concat(out_gdf_building_style)
+        gdf = pd.concat([gdf_non_building_style, out_gdf_building_style])
+    else:
+        gdf = gdf_non_building_style
+
     # Filter based on area and ratio in parcel
     filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
     area_mask = gdf.class_id.map(filter).fillna(0) <= gdf["clipped_area_" + suffix]
@@ -225,30 +251,6 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
         no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
         gdf = gdf.loc[~parent_removed | no_parent]
 
-    building_style_ids = DEFAULT_FILTERING["building_style_filtering"].keys()
-    out_gdf = []
-    for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique():
-        gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
-        if len(gdf_aoi) == 0:
-            continue
-        gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
-        if len(gdf_aoi_buildings) == 0:
-            out_gdf.append(gdf_aoi)
-            continue
-        aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry
-        building_statuses = []
-        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry:
-            building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
-            building_statuses.append(building_status)
-        building_statuses = pd.DataFrame(building_statuses)
-        building_statuses.index = gdf_aoi_buildings.index
-        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1)
-        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"])
-        gdf_aoi = pd.concat([gdf_aoi[~gdf_aoi.class_id.isin(building_style_ids)], gdf_aoi_buildings], ignore_index=True)
-        out_gdf.append(gdf_aoi)
-
-    if len(out_gdf) > 0:
-        gdf = pd.concat(out_gdf)
     return gdf.reset_index(drop=True)
 
 
