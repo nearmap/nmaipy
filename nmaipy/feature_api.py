@@ -838,6 +838,10 @@ class FeatureApi:
             "system_version": payload["systemVersion"],
             "link": cls.add_location_marker_to_link(payload["link"]),
             "date": cls.link_to_date(payload["link"]),
+            "survey_id": payload["surveyId"],
+            "survey_resource_id": payload["resourceId"],
+            "perspective": payload["perspective"],
+            "postcat": payload["postcat"],
         }
 
         columns = [
@@ -857,8 +861,6 @@ class FeatureApi:
             "attributes",
             "surveyDate",
             "meshDate",
-            "surveyId",
-            "resourceId"
         ]
 
         # Create features DataFrame
@@ -1032,14 +1034,13 @@ class FeatureApi:
 
                     # Creat metadata
                     metadata_df = metadata_df.drop_duplicates().iloc[0]
-
                     metadata = {
                         "aoi_id": metadata_df["aoi_id"],
                         "system_version": metadata_df["system_version"],
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
-                        "survey_id": metadata_df["surveyId"],
-                        "survey_resource_id": metadata_df["resourceId"],
+                        "survey_id": metadata_df["survey_id"],
+                        "survey_resource_id": metadata_df["survey_resource_id"],
                         "perspective": metadata_df["perspective"],
                         "postcat": metadata_df["postcat"],
                     }
