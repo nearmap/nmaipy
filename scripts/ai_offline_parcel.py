@@ -12,7 +12,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import fiona.errors
 import warnings
 import traceback
 
@@ -25,6 +24,8 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
     API_CRS,
     SURVEY_RESOURCE_ID_COL_NAME,
+    DEFAULT_URL_ROOT,
+    ADDRESS_FIELDS,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -170,7 +171,7 @@ def parse_arguments():
         help="Overwrite the root URL with a custom one.",
         type=str,
         required=False,
-        default="api.nearmap.com/ai/features/v4/bulk",
+        default=DEFAULT_URL_ROOT,
     )
     parser.add_argument(
         "--system-version-prefix",
@@ -224,9 +225,10 @@ def process_chunk(
     beta: Optional[bool] = True,
     prerelease: Optional[bool] = True,
     endpoint: [str] = Endpoint.FEATURE.value,
-    url_root: Optional[str] = None,
+    url_root: Optional[str] = DEFAULT_URL_ROOT,
     system_version_prefix: Optional[str] = None,
     system_version: Optional[str] = None,
+    threads: Optional[int] = THREADS,
 ):
     """
     Create a parcel rollup for a chuck of parcels.
@@ -255,6 +257,7 @@ def process_chunk(
         url_root: Overwrite the root URL with a custom one.
         system_version_prefix: Restrict responses to a specific system version generation.
         system_version: Restrict responses to a specific system version.
+        threads: Number of threads to use for parallel processing.
     """
     if cache_dir is None and not no_cache:
         cache_dir = Path(output_dir)
@@ -272,9 +275,10 @@ def process_chunk(
         return
 
     # Get additional parcel attributes from parcel geometry
-    rep_point = parcel_gdf.representative_point()
-    parcel_gdf["query_aoi_lat"] = rep_point.y
-    parcel_gdf["query_aoi_lon"] = rep_point.x
+    if isinstance(parcel_gdf, gpd.GeoDataFrame):
+        rep_point = parcel_gdf.representative_point()
+        parcel_gdf["query_aoi_lat"] = rep_point.y
+        parcel_gdf["query_aoi_lon"] = rep_point.x
 
     # Get features
     feature_api = FeatureApi(
@@ -282,7 +286,7 @@ def process_chunk(
         cache_dir=cache_path,
         overwrite_cache=overwrite_cache,
         compress_cache=compress_cache,
-        workers=THREADS,
+        workers=threads,
         alpha=alpha,
         beta=beta,
         prerelease=prerelease,
@@ -336,7 +340,7 @@ def process_chunk(
 
         # Filter features
         len_all_features = len(features_gdf)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config, aoi_gdf=parcel_gdf, region=country)
         len_filtered_features = len(features_gdf)
         logger.debug(
             f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
@@ -357,11 +361,35 @@ def process_chunk(
         sys.exit(1)
 
     # Put it all together and save
+    meta_data_columns = [
+        "system_version",
+        "link",
+        "date",
+        "survey_id",
+        "survey_resource_id",
+        "perspective",
+        "postcat",
+    ] # Some of these columns are not present in the Rollup API output
+    # Validate that columns like survey_id and survey_resource_id in both the input file and API responses.
+    for meta_data_column in meta_data_columns:
+        if meta_data_column in parcel_gdf.columns:
+            # Test they are identical in contents for non NaN values.
+            c1 = parcel_gdf[meta_data_column]
+            c2 = metadata_df[meta_data_column]
+            mask = ~(c1.isna() | c2.isna())
+            if not c1[mask].equals(c2[mask]):
+                logger.error(f"Chunk {chunk_id}: {meta_data_column} columns are not identical in the parcel and metadata dataframes for {meta_data_column}.")
+                df_disagreements = parcel_gdf[meta_data_column].compare(metadata_df[meta_data_column])
+                logger.error(f"Disagreeing values in parcel data: {df_disagreements.T}")
+            else:
+                # Drop the column from the metadata dataframe
+                metadata_df = metadata_df.drop(columns=[meta_data_column])
+                meta_data_columns.remove(meta_data_column)
+
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
 
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
-    meta_data_columns = ["system_version", "link", "date"]
     columns = (
         parcel_columns
         + meta_data_columns
@@ -369,13 +397,16 @@ def process_chunk(
     )
     if include_parcel_geometry:
         columns.append("geometry")
+    # Filter out columns that are not in the final_df
+    columns = [c for c in columns if c in final_df.columns]
     final_df = final_df[columns]
     date2str = lambda d: str(d).replace("-", "")
     make_link = (
         lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
     )
     if endpoint == Endpoint.ROLLUP.value:
-        final_df["link"] = final_df.apply(make_link, axis=1)
+        if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
+            final_df["link"] = final_df.apply(make_link, axis=1)
         final_df = final_df.drop(columns=["system_version", "date"])
     logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
     try:
@@ -396,18 +427,19 @@ def process_chunk(
         logger.error(e)
 
     if save_features and (endpoint != Endpoint.ROLLUP.value):
-        # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry"
+        # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry" if it exists.
         final_features_df = gpd.GeoDataFrame(
             metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
                 parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
             ),
             crs=API_CRS,
         )
-        final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
+        if "aoi_geometry" in final_features_df.columns:
+            final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
         final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
         if len(final_features_df) > 0:
             try:
-                if not include_parcel_geometry:
+                if not include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
                     final_features_df = final_features_df.drop(columns=["aoi_geometry"])
                 final_features_df = final_features_df[
                     ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
@@ -466,7 +498,15 @@ def main():
             logger.info(f"Output already exist, skipping {f.stem}")
             continue
         # Read parcel data
-        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME).to_crs(API_CRS)
+        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME)
+        if isinstance(parcels_gdf, gpd.GeoDataFrame):
+            parcels_gdf = parcels_gdf.to_crs(API_CRS)
+        else:
+            logger.info("No geometry found in parcel data - using address fields")
+            for field in ADDRESS_FIELDS:
+                if field not in parcels_gdf:
+                    logger.error(f"Missing field {field} in parcel data")
+                    sys.exit(1)
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
@@ -492,6 +532,10 @@ def main():
             else:
                 logger.info("No latest date will used")
 
+        if AOI_ID_COLUMN_NAME not in parcels_gdf:
+            logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
+            parcels_gdf[AOI_ID_COLUMN_NAME] = parcels_gdf.index
+
         jobs = []
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
@@ -505,11 +549,16 @@ def main():
                 "ignore",
                 message="Geometry is in a geographic CRS.",
             )
-            parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+            if isinstance(parcels_gdf, gpd.GeoDataFrame):
+                parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
                 message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message="'DataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'DataFrame.transpose' instead.",
             )
             chunks = np.array_split(parcels_gdf, num_chunks)
         if args.workers > 1:
@@ -626,6 +675,9 @@ def main():
             data = gpd.GeoDataFrame(pd.concat(data))
         else:
             data = pd.DataFrame(data)
+        data = data.set_index(AOI_ID_COLUMN_NAME)
+        if "index" in data.columns:
+            data = data.drop(columns=["index"])
         if len(data) > 0:
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
@@ -654,7 +706,7 @@ def main():
             for cp in tqdm(feature_paths, total=len(feature_paths)):
                 try:
                     df_feature_chunk = gpd.read_parquet(cp)
-                except fiona.errors.DriverError as e:
+                except Exception as e:
                     logger.error(f"Failed to read {cp}.")
                 data_features.append(df_feature_chunk)
             if len(data_features) > 0:
