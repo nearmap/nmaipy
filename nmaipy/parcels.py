@@ -378,6 +378,12 @@ def feature_attributes(
         else:
             parcel[f"{name}_confidence"] = None
 
+        if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+            for col in ["building_small", "building_multiparcel"]:
+                if col in class_features_gdf.columns:
+                    s = col.split("_")[1]
+                    parcel[f"{name}_{s}_count"] = len(class_features_gdf[class_features_gdf[col]])
+
         # Select and produce results for the primary feature of each feature class
         if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
             if len(class_features_gdf) > 0:
@@ -447,7 +453,7 @@ def feature_attributes(
                 parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
                 parcel[f"primary_{name}_confidence"] = None
 
-        if class_id == ROOF_ID:
+        if class_id == BUILDING_ID:
             # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
             if len(class_features_gdf) > 0 and calc_buffers:
                 for B in TREE_BUFFERS_M:

@@ -149,6 +149,7 @@ class TestAIOfflineParcel:
         assert outpath_features.exists()
 
         assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.
+        # TODO: Add asserts for presence of roof and building classes, and check for calculated columns.
         print(data.T)
 
     def test_process_chunk_rollup_vs_feature_calc(

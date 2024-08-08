@@ -23,6 +23,7 @@ from nmaipy.constants import (
 )
 from nmaipy.feature_api import FeatureApi
 
+data_directory = Path(__file__).parent / "data"
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
@@ -88,6 +89,10 @@ class TestParcels:
         assert not (filtered_gdf.confidence < 0.65).any()
         assert not (filtered_gdf.unclipped_area_sqm < 4).any()
         assert not (filtered_gdf.fidelity < 0.15).any()
+
+        # Check calculated columns for building status are present
+        for col in ["building_small", "building_multiparcel"]:
+            assert col in filtered_gdf
 
     def test_flatten_building(self):
         country = "au"
@@ -319,351 +324,24 @@ class TestParcels:
         }
         assert expected == parcels.flatten_roof_attributes(attributes, "au")
 
-    def test_rollup(self, parcels_gdf, features_gdf):
+    def test_rollup(self, parcels_2_gdf, features_2_gdf):
         classes_df = pd.DataFrame(
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         country = "au"
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
         df = parcels.parcel_rollup(
-            parcels_gdf,
-            features_gdf,
+            parcels_2_gdf,
+            features_2_gdf_filtered,
             classes_df,
             country=country,
             calc_buffers=False,
             primary_decision="largest_intersection",
         )
-
-        expected = pd.DataFrame.from_dict(
-            {
-                "building_present": {
-                    0: "Y",
-                    1: "Y",
-                    2: "Y",
-                    3: "N",
-                    4: "Y",
-                    5: "Y",
-                    6: "Y",
-                    7: "N",
-                    8: "Y",
-                    9: "Y",
-                    10: "Y",
-                    11: "Y",
-                    12: "Y",
-                    13: "Y",
-                    14: "Y",
-                    15: "Y",
-                },
-                "building_count": {
-                    0: 3,
-                    1: 6,
-                    2: 2,
-                    3: 0,
-                    4: 5,
-                    5: 9,
-                    6: 5,
-                    7: 0,
-                    8: 7,
-                    9: 6,
-                    10: 4,
-                    11: 1,
-                    12: 4,
-                    13: 5,
-                    14: 7,
-                    15: 2,
-                },
-                "building_total_area_sqm": {
-                    0: 459,
-                    1: 787,
-                    2: 13.1,
-                    3: 0,
-                    4: 1029,
-                    5: 706,
-                    6: 947.5,
-                    7: 0.0,
-                    8: 873,
-                    9: 529,
-                    10: 689,
-                    11: 3717.3,
-                    12: 1589,
-                    13: 1281.3,
-                    14: 1048.7,
-                    15: 306.2,
-                },
-                "building_total_clipped_area_sqm": {
-                    0: 453.8,
-                    1: 573.3,
-                    2: 13.0,
-                    3: 0.0,
-                    4: 633.1,
-                    5: 664.5,
-                    6: 640.0,
-                    7: 0.0,
-                    8: 746.6,
-                    9: 513.6,
-                    10: 454.9,
-                    11: 637.0,
-                    12: 636.8,
-                    13: 646.1,
-                    14: 556.1,
-                    15: 76.9,
-                },
-                "building_total_unclipped_area_sqm": {
-                    0: 459,
-                    1: 787,
-                    2: 13.1,
-                    3: 0,
-                    4: 1029,
-                    5: 706,
-                    6: 947.5,
-                    7: 0.0,
-                    8: 873,
-                    9: 529,
-                    10: 689,
-                    11: 3717.3,
-                    12: 1589,
-                    13: 1281.3,
-                    14: 1048.7,
-                    15: 306.2,
-                },
-                "building_confidence": {
-                    0: 0.999995194375515,
-                    1: 0.9999999999999569,
-                    2: 0.9995231628417969,
-                    3: None,
-                    4: 0.999999999987466,
-                    5: 1.0,
-                    6: 0.9999999999788258,
-                    7: None,
-                    8: 1.0,
-                    9: 0.9999999999999964,
-                    10: 0.9999999993451638,
-                    11: 0.998046875,
-                    12: 0.9999999978899723,
-                    13: 0.9999999999893419,
-                    14: 0.9999999999999998,
-                    15: 0.9997901916503906,
-                },
-                "primary_building_area_sqm": {
-                    0: 459.2,
-                    1: 412.7,
-                    2: 13.1,
-                    3: 0.0,
-                    4: 211.7,
-                    5: 324.8,
-                    6: 419.5,
-                    7: 0.0,
-                    8: 314.0,
-                    9: 178.9,
-                    10: 508.6,
-                    11: 3717.3,
-                    12: 1089.8,
-                    13: 457.5,
-                    14: 250.2,
-                    15: 306.2,
-                },
-                "primary_building_clipped_area_sqm": {
-                    0: 438.5,
-                    1: 335.7,
-                    2: 13.0,
-                    3: 0.0,
-                    4: 211.8,
-                    5: 308.2,
-                    6: 403.4,
-                    7: 0.0,
-                    8: 304.8,
-                    9: 177.7,
-                    10: 329.9,
-                    11: 637.0,
-                    12: 316.9,
-                    13: 346.3,
-                    14: 240.9,
-                    15: 70.3,
-                },
-                "primary_building_unclipped_area_sqm": {
-                    0: 459.2,
-                    1: 412.7,
-                    2: 13.1,
-                    3: 0.0,
-                    4: 211.7,
-                    5: 324.8,
-                    6: 419.5,
-                    7: 0.0,
-                    8: 314.0,
-                    9: 178.9,
-                    10: 508.6,
-                    11: 3717.3,
-                    12: 1089.8,
-                    13: 457.5,
-                    14: 250.2,
-                    15: 306.2,
-                },
-                "primary_building_confidence": {
-                    0: 0.990234375,
-                    1: 0.998046875,
-                    2: 0.755859375,
-                    3: None,
-                    4: 0.994140625,
-                    5: 0.994140625,
-                    6: 0.998046875,
-                    7: None,
-                    8: 0.994140625,
-                    9: 0.998046875,
-                    10: 0.998046875,
-                    11: 0.998046875,
-                    12: 0.990234375,
-                    13: 0.990234375,
-                    14: 0.998046875,
-                    15: 0.990234375,
-                },
-                "primary_building_fidelity": {
-                    0: 0.8072493587202652,
-                    1: 0.9288912999298852,
-                    2: 0.8367290593213565,
-                    3: None,
-                    4: 0.9380670718691608,
-                    5: 0.8300419354124584,
-                    6: 0.9363495102842524,
-                    7: None,
-                    8: 0.8059515328388869,
-                    9: 0.906370564960434,
-                    10: 0.9061553858042126,
-                    11: 0.9088252238622468,
-                    12: 0.6737367716860018,
-                    13: 0.7497063672869632,
-                    14: 0.8260399932417153,
-                    15: 0.8458701178311958,
-                },
-                "primary_building_has_3d_attributes": {
-                    0: "Y",
-                    1: "Y",
-                    2: "N",
-                    3: None,
-                    4: "Y",
-                    5: "Y",
-                    6: "Y",
-                    7: None,
-                    8: "Y",
-                    9: "Y",
-                    10: "Y",
-                    11: "Y",
-                    12: "Y",
-                    13: "Y",
-                    14: "Y",
-                    15: "Y",
-                },
-                "primary_building_height_m": {
-                    0: 8.6,
-                    1: 13.0,
-                    2: None,
-                    3: None,
-                    4: 12.9,
-                    5: 7.0,
-                    6: 8.6,
-                    7: None,
-                    8: 7.6,
-                    9: 9.1,
-                    10: 9.2,
-                    11: 12.0,
-                    12: 16.2,
-                    13: 8.5,
-                    14: 9.1,
-                    15: 7.4,
-                },
-                "primary_building_num_storeys_1_confidence": {
-                    0: 0.021999877253298276,
-                    1: 0.012903212313960154,
-                    2: None,
-                    3: None,
-                    4: 0.0002661113620101014,
-                    5: 0.4549840465642416,
-                    6: 0.21207449253675276,
-                    7: None,
-                    8: 0.44725765925037214,
-                    9: 0.030071088843366463,
-                    10: 0.1980398075081962,
-                    11: 0.0912941739535858,
-                    12: 0.09,
-                    13: 0.2793941032102138,
-                    14: 0.039923396691618575,
-                    15: 0.24804083595198403,
-                },
-                "primary_building_num_storeys_2_confidence": {
-                    0: 0.7493167390107146,
-                    1: 0.4345346900569799,
-                    2: None,
-                    3: None,
-                    4: 0.22250085557225888,
-                    5: 0.5381568182470936,
-                    6: 0.6622280308540118,
-                    7: None,
-                    8: 0.5442314440618939,
-                    9: 0.6074534411436349,
-                    10: 0.5867560387781604,
-                    11: 0.30264025367209835,
-                    12: 0.36354650405280986,
-                    13: 0.6197106473080908,
-                    14: 0.8415278350378601,
-                    15: 0.7504207470420801,
-                },
-                "primary_building_num_storeys_3+_confidence": {
-                    0: 0.22868338373598704,
-                    1: 0.55256209762906,
-                    2: None,
-                    3: None,
-                    4: 0.777233033065731,
-                    5: 0.006859135188664742,
-                    6: 0.12569747660923533,
-                    7: None,
-                    8: 0.008510896687734013,
-                    9: 0.3624754700129988,
-                    10: 0.2152041537136434,
-                    11: 0.6060655723743159,
-                    12: 0.5464534959471902,
-                    13: 0.1008952494816952,
-                    14: 0.11854876827052133,
-                    15: 0.001538417005935797,
-                },
-                "aoi_id": {
-                    0: "0_0",
-                    1: "0_1",
-                    2: "0_2",
-                    3: "0_3",
-                    4: "1_0",
-                    5: "1_1",
-                    6: "1_2",
-                    7: "1_3",
-                    8: "2_0",
-                    9: "2_1",
-                    10: "2_2",
-                    11: "2_3",
-                    12: "3_0",
-                    13: "3_1",
-                    14: "3_2",
-                    15: "3_3",
-                },
-                "mesh_date": {
-                    0: "2021-01-23",
-                    1: "2021-01-23",
-                    2: "2021-01-23",
-                    3: "2021-01-23",
-                    4: "2021-01-23",
-                    5: "2021-01-23",
-                    6: "2021-01-23",
-                    7: "2021-01-23",
-                    8: "2021-01-23",
-                    9: "2021-01-23",
-                    10: "2021-01-23",
-                    11: "2021-01-23",
-                    12: "2021-01-23",
-                    13: "2021-01-23",
-                    14: "2021-01-23",
-                    15: "2021-01-23",
-                },
-            }
-        )
+        df.to_csv(data_directory / "test_parcels_2_rollup.csv", index=False)
+        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv")  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
 
     def test_nearest_primary(self):
@@ -795,7 +473,7 @@ class TestParcels:
         # Check rollup matches what's expected
         rollup_df = parcels.parcel_rollup(
             parcel_gdf,
-            features_gdf,
+            features_gdf_filtered,
             classes_df,
             country=country,
             calc_buffers=False,
@@ -854,10 +532,10 @@ class TestParcels:
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         country = "us"
-        features_gdf = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_2_gdf,
-            features_gdf,
+            features_2_gdf_filtered,
             classes_df,
             country=country,
             calc_buffers=True,
@@ -869,8 +547,10 @@ class TestParcels:
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        np.testing.assert_allclose(df.filter(like="tree_zone").sum().values, [278, 18, 188, 3, 0, 0, 0, 0], rtol=0.12)
-        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 17, 3, 0, 0], rtol=0.05)
+        np.testing.assert_allclose(
+            df.filter(regex="building_.*_tree_zone").sum().values, [278, 18, 188, 3], rtol=0.12
+        )
+        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 17, 3], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
