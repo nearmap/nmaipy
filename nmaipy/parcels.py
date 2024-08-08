@@ -362,7 +362,7 @@ def feature_attributes(
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
         # Add attributes that apply to all feature classes
-        # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this.
+        # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
         parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(class_features_gdf)
         if country in IMPERIAL_COUNTRIES:
@@ -417,16 +417,21 @@ def feature_attributes(
                     parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
                     parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
-                if class_id == BUILDING_ID:
+                if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
                     parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
 
                 # Add roof and building attributes
-                if class_id in [ROOF_ID, BUILDING_ID]:
+                if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+                    for col in ["building_small", "building_multiparcel"]:
+                        s = col.split("_")[1]
+                        parcel[f"primary_{name}_{s}"] = primary_feature[col]
                     if class_id == ROOF_ID:
                         primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
                         primary_attributes["feature_id"] = primary_feature.feature_id
-                    else:
+                    elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
                         primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
+                    else:
+                        primary_attributes = {}
 
                     for key, val in primary_attributes.items():
                         parcel[f"primary_{name}_" + str(key)] = val
@@ -442,12 +447,12 @@ def feature_attributes(
                 parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
                 parcel[f"primary_{name}_confidence"] = None
 
-        if class_id == BUILDING_ID:
+        if class_id == ROOF_ID:
             # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
             if len(class_features_gdf) > 0 and calc_buffers:
                 for B in TREE_BUFFERS_M:
-                    parcel[f"building_{B}_tree_zone_sqm"] = None
-                    parcel[f"building_count_nonzero_{B}_tree_zone"] = None
+                    parcel[f"roof_{B}_tree_zone_sqm"] = None
+                    parcel[f"roof_count_nonzero_{B}_tree_zone"] = None
 
                 # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
                 rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
