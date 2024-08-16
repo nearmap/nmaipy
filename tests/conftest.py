@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 import geopandas as gpd
 import pandas as pd
@@ -8,17 +9,23 @@ from shapely.wkt import loads
 import ast
 
 from nmaipy import parcels
-from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME
+from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME, API_CRS
 
 
 @pytest.fixture(scope="session")
 def cache_directory() -> Path:
-    return Path(__file__).parent.absolute() / "cache"
+    output_dir = Path(__file__).parent.absolute() / "data" / "cache"
+    yield output_dir
+    # Cleanup code: remove the directory and its contents
+    shutil.rmtree(output_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="function")
 def processed_output_directory() -> Path:
-    return Path(__file__).parent.absolute() / "data" / "processed"
+    output_dir = Path(__file__).parent.absolute() / "data" / "processed"
+    yield output_dir
+    # Cleanup code: remove the directory and its contents
+    shutil.rmtree(output_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -139,6 +146,6 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
         "geometry": large_adelaide_aoi,
     }
 
-    parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row])
+    parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row], crs=API_CRS)
     parcel_gdf[AOI_ID_COLUMN_NAME] = range(len(parcel_gdf))
     return parcel_gdf

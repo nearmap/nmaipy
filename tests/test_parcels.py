@@ -8,7 +8,10 @@ from shapely.wkt import loads
 
 from nmaipy import parcels
 from nmaipy.constants import (
+    BUILDING_LIFECYCLE_ID,
     BUILDING_ID,
+    BUILDING_NEW_ID,
+    ROOF_ID,
     LAWN_GRASS_ID,
     POOL_ID,
     VEG_MEDHIGH_ID,
@@ -20,6 +23,7 @@ from nmaipy.constants import (
 )
 from nmaipy.feature_api import FeatureApi
 
+data_directory = Path(__file__).parent / "data"
 
 @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
@@ -52,37 +56,46 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
 
 
 class TestParcels:
-    def test_filter(self, features_gdf):
-        assert len(features_gdf) == 637
-        features_gdf = features_gdf[features_gdf.class_id == BUILDING_ID]
-        assert len(features_gdf) == 68
-
+    def test_filter(self, features_2_gdf, parcels_2_gdf):
+        assert len(features_2_gdf) == 1409
+        f_gdf = features_2_gdf[features_2_gdf.class_id == ROOF_ID]
+        assert len(f_gdf) == 161
+        country = "us"
         config = {
             "min_size": {
-                BUILDING_ID: 25,
+                ROOF_ID: 4,
             },
             "min_confidence": {
-                BUILDING_ID: 0.8,
+                ROOF_ID: 0.65,
             },
             "min_fidelity": {
-                BUILDING_ID: 0.4,
+                ROOF_ID: 0.15,
             },
             "min_area_in_parcel": {
-                BUILDING_ID: 25,
+                ROOF_ID: 4,
             },
             "min_ratio_in_parcel": {
-                BUILDING_ID: 0.5,
+                ROOF_ID: 0,
+            },
+            "building_style_filtering": {
+                BUILDING_LIFECYCLE_ID: True,
+                BUILDING_ID: True,
+                BUILDING_NEW_ID: True,
+                ROOF_ID: True,
             },
         }
-        filtered_gdf = parcels.filter_features_in_parcels(features_gdf, config=config)
-        assert len(filtered_gdf) == 45
-        assert not (filtered_gdf.confidence < 0.8).any()
-        assert not (filtered_gdf.unclipped_area_sqm < 25).any()
-        assert not (filtered_gdf.fidelity < 0.4).any()
-        intersection_mask = (filtered_gdf.intersection_ratio < 0.5) & (filtered_gdf.clipped_area_sqm < 25)
-        assert not intersection_mask.any()
+        filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, config=config, aoi_gdf=parcels_2_gdf)
+        assert len(filtered_gdf) == 127 # Manually checked that four buildings should be removed from the 131, as they visually don't belong in the parcel.
+        assert not (filtered_gdf.confidence < 0.65).any()
+        assert not (filtered_gdf.unclipped_area_sqm < 4).any()
+        assert not (filtered_gdf.fidelity < 0.15).any()
+
+        # Check calculated columns for building status are present
+        for col in ["building_small", "building_multiparcel"]:
+            assert col in filtered_gdf
 
     def test_flatten_building(self):
+        country = "au"
         attributes = [
             {
                 "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
@@ -99,7 +112,7 @@ class TestParcels:
             "num_storeys_2_confidence": 0.8145058300927666,
             "num_storeys_3+_confidence": 0.1278751981569811,
         }
-        assert expected == parcels.flatten_building_attributes(attributes, "au")
+        assert expected == parcels.flatten_building_attributes(attributes, country)
 
     def test_flatten_roof(self):
         attributes = [
@@ -311,350 +324,24 @@ class TestParcels:
         }
         assert expected == parcels.flatten_roof_attributes(attributes, "au")
 
-    def test_rollup(self, parcels_gdf, features_gdf):
+    def test_rollup(self, parcels_2_gdf, features_2_gdf):
         classes_df = pd.DataFrame(
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        country = "au"
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
         df = parcels.parcel_rollup(
-            parcels_gdf,
-            features_gdf,
+            parcels_2_gdf,
+            features_2_gdf_filtered,
             classes_df,
-            country="au",
+            country=country,
             calc_buffers=False,
             primary_decision="largest_intersection",
         )
-
-        expected = pd.DataFrame.from_dict(
-            {
-                "building_present": {
-                    0: "Y",
-                    1: "Y",
-                    2: "Y",
-                    3: "N",
-                    4: "Y",
-                    5: "Y",
-                    6: "Y",
-                    7: "N",
-                    8: "Y",
-                    9: "Y",
-                    10: "Y",
-                    11: "Y",
-                    12: "Y",
-                    13: "Y",
-                    14: "Y",
-                    15: "Y",
-                },
-                "building_count": {
-                    0: 3,
-                    1: 6,
-                    2: 2,
-                    3: 0,
-                    4: 5,
-                    5: 9,
-                    6: 5,
-                    7: 0,
-                    8: 7,
-                    9: 6,
-                    10: 4,
-                    11: 1,
-                    12: 4,
-                    13: 5,
-                    14: 7,
-                    15: 2,
-                },
-                "building_total_area_sqm": {
-                    0: 801.5999999999999,
-                    1: 1638.9,
-                    2: 285.0,
-                    3: 0.0,
-                    4: 1028.7999999999997,
-                    5: 1215.4,
-                    6: 947.5,
-                    7: 0.0,
-                    8: 1520.5,
-                    9: 1093.1000000000001,
-                    10: 990.4000000000001,
-                    11: 3717.3,
-                    12: 1640.7999999999997,
-                    13: 1281.3,
-                    14: 1693.4,
-                    15: 1134.3,
-                },
-                "building_total_clipped_area_sqm": {
-                    0: 453.8,
-                    1: 573.3,
-                    2: 13.0,
-                    3: 0.0,
-                    4: 633.1,
-                    5: 664.5,
-                    6: 640.0,
-                    7: 0.0,
-                    8: 746.6,
-                    9: 513.6,
-                    10: 454.9,
-                    11: 637.0,
-                    12: 636.8,
-                    13: 646.1,
-                    14: 556.1,
-                    15: 76.9,
-                },
-                "building_total_unclipped_area_sqm": {
-                    0: 801.6,
-                    1: 1638.9,
-                    2: 285.0,
-                    3: 0.0,
-                    4: 1028.8,
-                    5: 1215.4,
-                    6: 947.5,
-                    7: 0.0,
-                    8: 1520.5,
-                    9: 1093.1,
-                    10: 990.4,
-                    11: 3717.3,
-                    12: 1640.8,
-                    13: 1281.3,
-                    14: 1693.4,
-                    15: 1134.3,
-                },
-                "building_confidence": {
-                    0: 0.999995194375515,
-                    1: 0.9999999999999569,
-                    2: 0.9995231628417969,
-                    3: None,
-                    4: 0.999999999987466,
-                    5: 1.0,
-                    6: 0.9999999999788258,
-                    7: None,
-                    8: 1.0,
-                    9: 0.9999999999999964,
-                    10: 0.9999999993451638,
-                    11: 0.998046875,
-                    12: 0.9999999978899723,
-                    13: 0.9999999999893419,
-                    14: 0.9999999999999998,
-                    15: 0.9997901916503906,
-                },
-                "primary_building_area_sqm": {
-                    0: 459.2,
-                    1: 412.7,
-                    2: 13.1,
-                    3: 0.0,
-                    4: 211.7,
-                    5: 324.8,
-                    6: 419.5,
-                    7: 0.0,
-                    8: 314.0,
-                    9: 178.9,
-                    10: 508.6,
-                    11: 3717.3,
-                    12: 1089.8,
-                    13: 457.5,
-                    14: 250.2,
-                    15: 306.2,
-                },
-                "primary_building_clipped_area_sqm": {
-                    0: 438.5,
-                    1: 335.7,
-                    2: 13.0,
-                    3: 0.0,
-                    4: 211.8,
-                    5: 308.2,
-                    6: 403.4,
-                    7: 0.0,
-                    8: 304.8,
-                    9: 177.7,
-                    10: 329.9,
-                    11: 637.0,
-                    12: 316.9,
-                    13: 346.3,
-                    14: 240.9,
-                    15: 70.3,
-                },
-                "primary_building_unclipped_area_sqm": {
-                    0: 459.2,
-                    1: 412.7,
-                    2: 13.1,
-                    3: 0.0,
-                    4: 211.7,
-                    5: 324.8,
-                    6: 419.5,
-                    7: 0.0,
-                    8: 314.0,
-                    9: 178.9,
-                    10: 508.6,
-                    11: 3717.3,
-                    12: 1089.8,
-                    13: 457.5,
-                    14: 250.2,
-                    15: 306.2,
-                },
-                "primary_building_confidence": {
-                    0: 0.990234375,
-                    1: 0.998046875,
-                    2: 0.755859375,
-                    3: None,
-                    4: 0.994140625,
-                    5: 0.994140625,
-                    6: 0.998046875,
-                    7: None,
-                    8: 0.994140625,
-                    9: 0.998046875,
-                    10: 0.998046875,
-                    11: 0.998046875,
-                    12: 0.990234375,
-                    13: 0.990234375,
-                    14: 0.998046875,
-                    15: 0.990234375,
-                },
-                "primary_building_fidelity": {
-                    0: 0.8072493587202652,
-                    1: 0.9288912999298852,
-                    2: 0.8367290593213565,
-                    3: None,
-                    4: 0.9380670718691608,
-                    5: 0.8300419354124584,
-                    6: 0.9363495102842524,
-                    7: None,
-                    8: 0.8059515328388869,
-                    9: 0.906370564960434,
-                    10: 0.9061553858042126,
-                    11: 0.9088252238622468,
-                    12: 0.6737367716860018,
-                    13: 0.7497063672869632,
-                    14: 0.8260399932417153,
-                    15: 0.8458701178311958,
-                },
-                "primary_building_has_3d_attributes": {
-                    0: "Y",
-                    1: "Y",
-                    2: "N",
-                    3: None,
-                    4: "Y",
-                    5: "Y",
-                    6: "Y",
-                    7: None,
-                    8: "Y",
-                    9: "Y",
-                    10: "Y",
-                    11: "Y",
-                    12: "Y",
-                    13: "Y",
-                    14: "Y",
-                    15: "Y",
-                },
-                "primary_building_height_m": {
-                    0: 8.6,
-                    1: 13.0,
-                    2: None,
-                    3: None,
-                    4: 12.9,
-                    5: 7.0,
-                    6: 8.6,
-                    7: None,
-                    8: 7.6,
-                    9: 9.1,
-                    10: 9.2,
-                    11: 12.0,
-                    12: 16.2,
-                    13: 8.5,
-                    14: 9.1,
-                    15: 7.4,
-                },
-                "primary_building_num_storeys_1_confidence": {
-                    0: 0.021999877253298276,
-                    1: 0.012903212313960154,
-                    2: None,
-                    3: None,
-                    4: 0.0002661113620101014,
-                    5: 0.4549840465642416,
-                    6: 0.21207449253675276,
-                    7: None,
-                    8: 0.44725765925037214,
-                    9: 0.030071088843366463,
-                    10: 0.1980398075081962,
-                    11: 0.0912941739535858,
-                    12: 0.09,
-                    13: 0.2793941032102138,
-                    14: 0.039923396691618575,
-                    15: 0.24804083595198403,
-                },
-                "primary_building_num_storeys_2_confidence": {
-                    0: 0.7493167390107146,
-                    1: 0.4345346900569799,
-                    2: None,
-                    3: None,
-                    4: 0.22250085557225888,
-                    5: 0.5381568182470936,
-                    6: 0.6622280308540118,
-                    7: None,
-                    8: 0.5442314440618939,
-                    9: 0.6074534411436349,
-                    10: 0.5867560387781604,
-                    11: 0.30264025367209835,
-                    12: 0.36354650405280986,
-                    13: 0.6197106473080908,
-                    14: 0.8415278350378601,
-                    15: 0.7504207470420801,
-                },
-                "primary_building_num_storeys_3+_confidence": {
-                    0: 0.22868338373598704,
-                    1: 0.55256209762906,
-                    2: None,
-                    3: None,
-                    4: 0.777233033065731,
-                    5: 0.006859135188664742,
-                    6: 0.12569747660923533,
-                    7: None,
-                    8: 0.008510896687734013,
-                    9: 0.3624754700129988,
-                    10: 0.2152041537136434,
-                    11: 0.6060655723743159,
-                    12: 0.5464534959471902,
-                    13: 0.1008952494816952,
-                    14: 0.11854876827052133,
-                    15: 0.001538417005935797,
-                },
-                "aoi_id": {
-                    0: "0_0",
-                    1: "0_1",
-                    2: "0_2",
-                    3: "0_3",
-                    4: "1_0",
-                    5: "1_1",
-                    6: "1_2",
-                    7: "1_3",
-                    8: "2_0",
-                    9: "2_1",
-                    10: "2_2",
-                    11: "2_3",
-                    12: "3_0",
-                    13: "3_1",
-                    14: "3_2",
-                    15: "3_3",
-                },
-                "mesh_date": {
-                    0: "2021-01-23",
-                    1: "2021-01-23",
-                    2: "2021-01-23",
-                    3: "2021-01-23",
-                    4: "2021-01-23",
-                    5: "2021-01-23",
-                    6: "2021-01-23",
-                    7: "2021-01-23",
-                    8: "2021-01-23",
-                    9: "2021-01-23",
-                    10: "2021-01-23",
-                    11: "2021-01-23",
-                    12: "2021-01-23",
-                    13: "2021-01-23",
-                    14: "2021-01-23",
-                    15: "2021-01-23",
-                },
-            }
-        )
+        df.to_csv(data_directory / "test_parcels_2_rollup.csv", index=False)
+        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv")  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
 
     def test_nearest_primary(self):
@@ -670,6 +357,7 @@ class TestParcels:
             geometry="geometry",
         )
         parcels_gdf = parcels_gdf.set_crs("EPSG:4326")
+        country = "us"
         features_gdf = gpd.GeoDataFrame(
             [
                 # This should be the primary
@@ -729,10 +417,10 @@ class TestParcels:
 
         classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
 
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         rollup_df = parcels.parcel_rollup(
-            parcels_gdf, features_gdf, classes_df, country="us", calc_buffers=False, primary_decision="nearest"
+            parcels_gdf, features_gdf, classes_df, country=country, calc_buffers=False, primary_decision="nearest"
         )
         expected = pd.DataFrame(
             [
@@ -774,7 +462,9 @@ class TestParcels:
         # We get results in all AOIs
         assert len(features_gdf.aoi_id.unique()) == len(parcel_gdf)
 
-        features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, config=None)
+        features_gdf_filtered = parcels.filter_features_in_parcels(
+            features_gdf, config=None, aoi_gdf=parcel_gdf, region=country
+        )
         assert (
             len(features_gdf) > len(features_gdf_filtered) * 0.95
         )  # Very little should have been filtered out in these examples.
@@ -783,7 +473,7 @@ class TestParcels:
         # Check rollup matches what's expected
         rollup_df = parcels.parcel_rollup(
             parcel_gdf,
-            features_gdf,
+            features_gdf_filtered,
             classes_df,
             country=country,
             calc_buffers=False,
@@ -810,12 +500,13 @@ class TestParcels:
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        country = "au"
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_gdf,
             features_gdf,
             classes_df,
-            country="au",
+            country=country,
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
@@ -834,17 +525,19 @@ class TestParcels:
         Returns:
 
         """
+        country = "us"
         classes_df = pd.DataFrame(
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
-        features_gdf = parcels.filter_features_in_parcels(features_2_gdf)
+        country = "us"
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_2_gdf,
-            features_gdf,
+            features_2_gdf_filtered,
             classes_df,
-            country="us",
+            country=country,
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
@@ -854,8 +547,10 @@ class TestParcels:
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        np.testing.assert_allclose(df.filter(like="tree_zone").sum().values, [278, 18, 188, 3, 0, 0, 0, 0], rtol=0.12)
-        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [148, 16, 3, 0, 0], rtol=0.05)
+        np.testing.assert_allclose(
+            df.filter(regex="building_.*_tree_zone").sum().values, [278, 18, 188, 3], rtol=0.12
+        )
+        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 17, 3], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
@@ -887,24 +582,23 @@ class TestParcels:
         print(metadata)
         config = {
             "min_size": {
-                BUILDING_ID: 25,
+                BUILDING_ID: 4,
             },
             "min_confidence": {
-                BUILDING_ID: 0.8,
+                BUILDING_ID: 0.65,
             },
             "min_fidelity": {
-                BUILDING_ID: 0.4,
+                BUILDING_ID: 0.4, # This is not the default, but serves the purpose of the test
             },
             "min_area_in_parcel": {
-                BUILDING_ID: 25,
+                BUILDING_ID: 4,
             },
             "min_ratio_in_parcel": {
-                BUILDING_ID: 0.5,
+                BUILDING_ID: 0.0,
             },
         }
         features_gdf = parcels.filter_features_in_parcels(
-            features_gdf,
-            config=config,
+            features_gdf, config=config, region=country, aoi_gdf=parcels_gdf
         )
         print(features_gdf)
         df = parcels.parcel_rollup(
@@ -951,7 +645,7 @@ class TestParcels:
         features_gdf, metadata, error = feature_api.get_features_gdf(
             aoi, country, packs, aoi_id, survey_resource_id=survey_resource_id
         )
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -1001,7 +695,7 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -1014,5 +708,5 @@ class TestParcels:
         print(metadata)
         print(df.T)
         assert (
-            df.loc[0, "building_count"] == 26
+            df.loc[0, "building_count"] == 25
         )  # Includes some lower confidence ones that had been filtered by the previous thresholds.

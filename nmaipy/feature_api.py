@@ -444,7 +444,7 @@ class FeatureApi:
 
         # Add dates if given
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
-            raise ValueError("Invalid combination of since, until and survey_resource_id requested")
+            logger.debug(f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates.")
         elif (since is not None) or (until is not None):
             if since:
                 request_string += f"&since={since}"
@@ -838,6 +838,10 @@ class FeatureApi:
             "system_version": payload["systemVersion"],
             "link": cls.add_location_marker_to_link(payload["link"]),
             "date": cls.link_to_date(payload["link"]),
+            "survey_id": payload["surveyId"],
+            "survey_resource_id": payload["resourceId"],
+            "perspective": payload["perspective"],
+            "postcat": payload["postcat"],
         }
 
         columns = [
@@ -1030,12 +1034,15 @@ class FeatureApi:
 
                     # Creat metadata
                     metadata_df = metadata_df.drop_duplicates().iloc[0]
-
                     metadata = {
                         "aoi_id": metadata_df["aoi_id"],
                         "system_version": metadata_df["system_version"],
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
+                        "survey_id": metadata_df["survey_id"],
+                        "survey_resource_id": metadata_df["survey_resource_id"],
+                        "perspective": metadata_df["perspective"],
+                        "postcat": metadata_df["postcat"],
                     }
 
                 except (AIFeatureAPIError, AIFeatureAPIGridError) as e:

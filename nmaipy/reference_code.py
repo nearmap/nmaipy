@@ -1,6 +1,17 @@
 # Reference code for various algorithms dealing with data from the AI Feature API
 
 from shapely.geometry import MultiPolygon, Polygon, Point
+from typing import Union
+
+import warnings
+from contextlib import contextmanager
+
+@contextmanager
+def ignore_shapely_warnings():
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="shapely")
+        yield
+
 
 BUILDING_SMALL_MAX_AREA_SQM = 30
 BUILDING_MIN_WIDTH_M = 3
@@ -27,12 +38,13 @@ def get_widths_from_multipolygon(poly):
     if isinstance(poly, MultiPolygon):
         return [get_width(x.minimum_rotated_rectangle) for x in poly.geoms]
     else:
-        return [get_width(poly.minimum_rotated_rectangle)]
+            return [get_width(poly.minimum_rotated_rectangle)]
 
 
 def is_building_small(building_poly: Polygon) -> bool:
     """
     Check if a building polygon is small based on its area (assumes polygon in an area based coordinate system measured in metres).
+    # WARNING: This requires a polygon in an area based coordinate system measured in metres.
     """
     return building_poly.area < BUILDING_SMALL_MAX_AREA_SQM
 
@@ -42,12 +54,11 @@ def check_in_out_belongingness_of_building(building_poly: Polygon, parcel_poly: 
     Check if a building polygon meaningfully falls within the parcel polygon, and separately whether it belongs exterior to the parcel.
     Assumes building and parcel are in an area based coordinate system measured in metres.
     """
-    building_parts_within = parcel_poly.intersection(building_poly)
-    building_parts_without = parcel_poly.difference(building_poly)
-
-    max_width_in = max(get_widths_from_multipolygon(building_parts_within.buffer(EROSION_M)))
-    max_width_out = max(get_widths_from_multipolygon(building_parts_without.buffer(EROSION_M)))
-
+    with ignore_shapely_warnings():
+        building_parts_within = parcel_poly.intersection(building_poly)
+        building_parts_without = building_poly.difference(parcel_poly)
+        max_width_in = max(get_widths_from_multipolygon(building_parts_within.buffer(EROSION_M)))
+        max_width_out = max(get_widths_from_multipolygon(building_parts_without.buffer(EROSION_M)))
     belongs_in = max_width_in >= BUILDING_MIN_WIDTH_M
     belongs_out = max_width_out >= BUILDING_MIN_WIDTH_M
     return (belongs_in, belongs_out)
@@ -60,4 +71,17 @@ def is_building_multiparcel(building_poly: Polygon, parcel_poly: Union[Polygon, 
     belongs_in, belongs_out = check_in_out_belongingness_of_building(building_poly, parcel_poly)
     building_is_small = is_building_small(building_poly)
     building_is_multiparcel = (belongs_in and belongs_out) and not building_is_small
-    return building_is_multiparcel
+    return (building_is_multiparcel, belongs_in, belongs_out, building_is_small)
+
+def get_building_status(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> str:
+    """
+    Get the status of a building polygon based on its relationship to the parcel polygon.
+    """
+    building_is_multiparcel, belongs_in, belongs_out, building_is_small = is_building_multiparcel(building_poly, parcel_poly)
+    is_keep = building_is_small or belongs_in
+
+    return {
+        "building_keep": is_keep,
+        "building_small": building_is_small,
+        "building_multiparcel": building_is_multiparcel,
+    }
