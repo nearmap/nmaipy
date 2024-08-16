@@ -72,6 +72,14 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument(
+        "--classes",
+        help="List of Feature Class IDs (UUIDs)",
+        type=str,
+        nargs="+",
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
         "--primary-decision",
         help="Primary feature decision method: largest_intersection|nearest",
         type=str,
@@ -211,6 +219,7 @@ def process_chunk(
     config: dict,
     country: str,
     packs: Optional[List[str]] = None,
+    classes: Optional[List[str]] = None,
     calc_buffers: Optional[bool] = False,
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
@@ -241,6 +250,7 @@ def process_chunk(
         key_file: Path to API key file
         config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
+        classes: List of feature class IDs (UUIDs) to include in the output.
         calc_buffers: Whether to calculate buffered features (compute expensive).
         include_parcel_geometry: Set to true to include parcel geometries in final output
         save_features: Whether to save the vectors for all features as a geospatial file.
@@ -302,6 +312,7 @@ def process_chunk(
             since_bulk=since_bulk,
             until_bulk=until_bulk,
             packs=packs,
+            classes=classes,
             instant_fail_batch=False,
         )
         logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
@@ -326,6 +337,7 @@ def process_chunk(
             since_bulk=since_bulk,
             until_bulk=until_bulk,
             packs=packs,
+            classes=classes,
             instant_fail_batch=False,
         )
         logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
@@ -475,9 +487,17 @@ def main():
     final_path.mkdir(parents=True, exist_ok=True)
 
     # Get classes
-    classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease).get_feature_classes(
-        args.packs
-    )
+    if args.packs is not None:
+        classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease).get_feature_classes(
+            args.packs
+        )
+    elif args.classes is not None:
+        classes_df = FeatureApi(
+            api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease
+        ).get_feature_classes(args.packs)
+
+        # Remove classes in classes_df that are not in args.classes
+        classes_df = classes_df[classes_df.index.isin(args.classes)]
 
     # Parse config
     if args.config_file is not None:
@@ -583,6 +603,7 @@ def main():
                             config,
                             args.country,
                             args.packs,
+                            args.classes,
                             args.calc_buffers,
                             args.include_parcel_geometry,
                             args.save_features,
@@ -626,6 +647,7 @@ def main():
                     config,
                     args.country,
                     args.packs,
+                    args.classes,
                     args.calc_buffers,
                     args.include_parcel_geometry,
                     args.save_features,

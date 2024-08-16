@@ -525,13 +525,16 @@ def feature_attributes(
                         gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
                     )
 
+                    # Calculate areas, supressign warnings about geographic crs (it's relative not absolute that matters)
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore",
+                            message="Geometry is in a geographic CRS.",
+                        )
+                        area_ratio = gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum() / gdf_buffered_buildings["geometry_feature"].area.sum()
                     if (
                         parcel_geom is not None
-                        and (
-                            gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
-                            / gdf_buffered_buildings["geometry_feature"].area.sum()
-                        )
-                        < 1
+                        and (area_ratio < 1)
                     ):
                         # Buffer exceeds Query AOI somewhere.
                         break

@@ -225,7 +225,7 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-            aoi_gdf, country, packs, date_1, date_2
+            aoi_gdf, country, packs, None, date_1, date_2
         )
         # Check metadata
         assert len(metadata_df) == 16
@@ -308,7 +308,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
         # No error
         assert error is None
@@ -332,7 +332,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -362,7 +362,7 @@ class TestFeatureAPI:
         aoi_id = "3"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -393,7 +393,7 @@ class TestFeatureAPI:
         aoi_id = 11
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -418,7 +418,7 @@ class TestFeatureAPI:
         aoi_id = 12
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
