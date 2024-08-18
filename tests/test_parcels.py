@@ -578,7 +578,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id=aoi_id, since=date_1, until=date_2)
         print(metadata)
         config = {
             "min_size": {
@@ -643,7 +643,7 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, workers=4)
         features_gdf, metadata, error = feature_api.get_features_gdf(
-            aoi, country, packs, aoi_id, survey_resource_id=survey_resource_id
+            aoi, country, packs, None, aoi_id, survey_resource_id=survey_resource_id
         )
         features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
@@ -694,7 +694,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(
