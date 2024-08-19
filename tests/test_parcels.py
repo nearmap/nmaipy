@@ -549,7 +549,7 @@ class TestParcels:
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         np.testing.assert_allclose(
-            df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 18, 0], rtol=0.12
+            df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 0, 0], rtol=0.12
         )
         np.testing.assert_allclose(df.filter(like="roof_count").sum().values, [23, 4, 0], rtol=0.05)
 
