@@ -78,7 +78,7 @@ def get_building_status(building_poly: Polygon, parcel_poly: Union[Polygon, Mult
     Get the status of a building polygon based on its relationship to the parcel polygon.
     """
     building_is_multiparcel, belongs_in, belongs_out, building_is_small = is_building_multiparcel(building_poly, parcel_poly)
-    is_keep = building_is_small or belongs_in
+    is_keep = building_is_small or belongs_in or not belongs_out
 
     return {
         "building_keep": is_keep,
