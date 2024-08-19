@@ -270,6 +270,7 @@ class FeatureApi:
             # Strip out any classes that we don't get a valid description for from the "packs" endpoint.
             all_classes = [c for c in all_classes if c in df_classes.index]
             df_classes = df_classes.loc[all_classes]
+            df_classes = df_classes.query("type == 'Feature'") # Filter out non-feature classes
 
         return df_classes
 

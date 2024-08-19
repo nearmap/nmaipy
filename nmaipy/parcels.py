@@ -422,7 +422,7 @@ def feature_attributes(
                     parcel[f"{name}_{s}_count"] = len(class_features_gdf[class_features_gdf[col]])
 
         # Select and produce results for the primary feature of each feature class
-        if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
+        if class_id in CLASSES_WITH_PRIMARY_FEATURE:
             if len(class_features_gdf) > 0:
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
