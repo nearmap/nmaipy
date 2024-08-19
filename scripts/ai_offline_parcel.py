@@ -385,21 +385,11 @@ def process_chunk(
     # Validate that columns like survey_id and survey_resource_id in both the input file and API responses.
     for meta_data_column in meta_data_columns:
         if meta_data_column in parcel_gdf.columns:
-            # Test they are identical in contents for non NaN values.
-            c1 = parcel_gdf[meta_data_column]
-            c2 = metadata_df[meta_data_column]
-            mask = ~(c1.isna() | c2.isna())
-            if not c1[mask].equals(c2[mask]):
-                logger.error(f"Chunk {chunk_id}: {meta_data_column} columns are not identical in the parcel and metadata dataframes for {meta_data_column}.")
-                df_disagreements = parcel_gdf[meta_data_column].compare(metadata_df[meta_data_column])
-                logger.error(f"Disagreeing values in parcel data: {df_disagreements.T}")
-            else:
-                # Drop the column from the metadata dataframe
-                metadata_df = metadata_df.drop(columns=[meta_data_column])
-                meta_data_columns.remove(meta_data_column)
+            # Test they are identical in contents for non NaN values. If there is, rename the column with a prefix.
+            metadata_df = metadata_df.rename(columns={meta_data_column: f"nmaipy_{meta_data_column}"})
+            meta_data_columns.remove(meta_data_column)
 
     final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
-
     # Order the columns: parcel properties, meta data, data, parcel geometry.
     parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
     columns = (
@@ -491,13 +481,13 @@ def main():
         classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease).get_feature_classes(
             args.packs
         )
-    elif args.classes is not None:
+    else:
         classes_df = FeatureApi(
             api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease
         ).get_feature_classes(args.packs)
-
-        # Remove classes in classes_df that are not in args.classes
-        classes_df = classes_df[classes_df.index.isin(args.classes)]
+        if args.classes is not None:
+            # Remove classes in classes_df that are not in args.classes
+            classes_df = classes_df[classes_df.index.isin(args.classes)]
 
     # Parse config
     if args.config_file is not None:
@@ -629,6 +619,9 @@ def main():
                     except Exception as e:
                         logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
                         logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
+                        # Shut down the rest of the jobs
+                        executor.shutdown(wait=False)
+                        sys.exit(1)
         else:
             # If we only have one worker, run in main process
             for i, batch in tqdm(enumerate(chunks), total=len(chunks)):
