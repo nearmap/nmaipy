@@ -495,7 +495,8 @@ def feature_attributes(
             if len(class_features_gdf) > 0 and calc_buffers:
                 for B in TREE_BUFFERS_M:
                     parcel[f"roof_{B}_tree_zone_sqm"] = None
-                    parcel[f"roof_count_nonzero_{B}_tree_zone"] = None
+                    parcel[f"roof_{B}_woodyveg_zone_sqm"] = None
+                    parcel[f"roof_count_{B}_roof_zone"] = None
 
                 # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
                 rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
@@ -553,7 +554,7 @@ def feature_attributes(
                     ):
                         # Buffer exceeds Query AOI somewhere.
                         break
-                    
+
                     # Calculate area covered by each buffer zone
                     gdf_intersection = gdf_buffered_buildings.overlay(roof_features_gdf, how="intersection")
                     gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
@@ -565,13 +566,11 @@ def feature_attributes(
                     if len(veg_medhigh_features_gdf) > 0:
                         gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
                         gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        parcel[f"roof_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
                     if len(veg_woody_features_gdf) > 0:
                         gdf_intersection = gdf_buffered_buildings.overlay(veg_woody_features_gdf, how="intersection")
                         gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"building_{B}_woodyveg_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-
-                    
+                        parcel[f"roof_{B}_woodyveg_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
 
         elif class_id == BUILDING_LIFECYCLE_ID:
             # Add aggregated damage across whole parcel, weighted by building lifecycle area
