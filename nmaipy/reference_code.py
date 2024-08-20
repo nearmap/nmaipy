@@ -49,7 +49,7 @@ def is_building_small(building_poly: Polygon) -> bool:
     return building_poly.area < BUILDING_SMALL_MAX_AREA_SQM
 
 
-def check_in_out_belongingness_of_building(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> bool:
+def check_in_out_belongingness_of_building(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> tuple[bool, bool, bool]:
     """
     Check if a building polygon meaningfully falls within the parcel polygon, and separately whether it belongs exterior to the parcel.
     Assumes building and parcel are in an area based coordinate system measured in metres.
@@ -61,24 +61,30 @@ def check_in_out_belongingness_of_building(building_poly: Polygon, parcel_poly: 
         max_width_out = max(get_widths_from_multipolygon(building_parts_without.buffer(EROSION_M)))
     belongs_in = max_width_in >= BUILDING_MIN_WIDTH_M
     belongs_out = max_width_out >= BUILDING_MIN_WIDTH_M
-    return (belongs_in, belongs_out)
+    in_bigger_than_out = building_parts_within.area > building_parts_without.area
+    return belongs_in, belongs_out, in_bigger_than_out
 
 
-def is_building_multiparcel(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> bool:
+def is_building_multiparcel(
+    building_poly: Polygon,
+    parcel_poly: Union[Polygon, MultiPolygon],
+) -> tuple[bool, bool, bool, bool, bool]:
     """
     Check if a building polygon meaningfully falls bothi within the parcel polygon, and without it.
     """
-    belongs_in, belongs_out = check_in_out_belongingness_of_building(building_poly, parcel_poly)
+    belongs_in, belongs_out, in_bigger_than_out = check_in_out_belongingness_of_building(building_poly, parcel_poly)
     building_is_small = is_building_small(building_poly)
     building_is_multiparcel = (belongs_in and belongs_out) and not building_is_small
-    return (building_is_multiparcel, belongs_in, belongs_out, building_is_small)
+    return building_is_multiparcel, belongs_in, belongs_out, in_bigger_than_out, building_is_small
 
-def get_building_status(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> str:
+
+def get_building_status(building_poly: Polygon, parcel_poly: Union[Polygon, MultiPolygon]) -> dict:
     """
     Get the status of a building polygon based on its relationship to the parcel polygon.
     """
-    building_is_multiparcel, belongs_in, belongs_out, building_is_small = is_building_multiparcel(building_poly, parcel_poly)
-    is_keep = building_is_small or belongs_in or not belongs_out
+    flags = is_building_multiparcel(building_poly, parcel_poly)
+    building_is_multiparcel, belongs_in, belongs_out, in_bigger_than_out, building_is_small = flags
+    is_keep = building_is_small or belongs_in or (not belongs_out and in_bigger_than_out)
 
     return {
         "building_keep": is_keep,
