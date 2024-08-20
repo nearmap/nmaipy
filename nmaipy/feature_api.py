@@ -144,6 +144,7 @@ class FeatureApi:
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
         prerelease: Optional[bool] = False,
+        only3d: Optional[bool] = False,
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: Optional[str] = None,
         system_version: Optional[str] = None,
@@ -191,6 +192,7 @@ class FeatureApi:
         self.alpha = alpha
         self.beta = beta
         self.prerelease = prerelease
+        self.only3d = only3d
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.maxretry = maxretry
@@ -459,6 +461,8 @@ class FeatureApi:
             request_string += "&beta=true"
         if self.prerelease:
             request_string += "&prerelease=true"
+        if self.only3d:
+            request_string += "&3dCoverage=true"
         if self.system_version_prefix is not None:
             request_string += f"&systemVersionPrefix={self.system_version_prefix}"
         if self.system_version is not None:

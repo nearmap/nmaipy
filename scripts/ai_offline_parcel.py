@@ -156,6 +156,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--only3d",
+        help="Restrict date based queries to 3D data only",
+        action="store_true",
+    )
+    parser.add_argument(
         "--since",
         help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
         required=False,
@@ -233,6 +238,7 @@ def process_chunk(
     alpha: Optional[bool] = True,
     beta: Optional[bool] = True,
     prerelease: Optional[bool] = True,
+    only3d: Optional[bool] = False,
     endpoint: [str] = Endpoint.FEATURE.value,
     url_root: Optional[str] = DEFAULT_URL_ROOT,
     system_version_prefix: Optional[str] = None,
@@ -263,6 +269,7 @@ def process_chunk(
         alpha: Return alpha layers
         beta: return beta layers
         prerelease: Return data from pre-release system versions
+        only3d: Restrict date based queries to 3D data only
         endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
         url_root: Overwrite the root URL with a custom one.
         system_version_prefix: Restrict responses to a specific system version generation.
@@ -300,6 +307,7 @@ def process_chunk(
         alpha=alpha,
         beta=beta,
         prerelease=prerelease,
+        only3d=only3d,
         url_root=url_root,
         system_version_prefix=system_version_prefix,
         system_version=system_version,
@@ -478,12 +486,16 @@ def main():
 
     # Get classes
     if args.packs is not None:
-        classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease).get_feature_classes(
+        classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease, only3d=args.only3d).get_feature_classes(
             args.packs
         )
     else:
         classes_df = FeatureApi(
-            api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease
+            api_key=api_key(args.key_file),
+            alpha=args.alpha,
+            beta=args.beta,
+            prerelease=args.prerelease,
+            only3d=args.only3d,
         ).get_feature_classes(args.packs)
         if args.classes is not None:
             # Remove classes in classes_df that are not in args.classes
@@ -607,6 +619,7 @@ def main():
                             args.alpha,
                             args.beta,
                             args.prerelease,
+                            args.only3d,
                             args.endpoint,
                             args.url_root,
                             args.system_version_prefix,
@@ -654,6 +667,7 @@ def main():
                     args.alpha,
                     args.beta,
                     args.prerelease,
+                    args.only3d,
                     args.endpoint,
                     args.url_root,
                     args.system_version_prefix,
