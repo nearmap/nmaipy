@@ -270,6 +270,7 @@ class FeatureApi:
             # Strip out any classes that we don't get a valid description for from the "packs" endpoint.
             all_classes = [c for c in all_classes if c in df_classes.index]
             df_classes = df_classes.loc[all_classes]
+            df_classes = df_classes.query("type == 'Feature'") # Filter out non-feature classes
 
         return df_classes
 
@@ -419,6 +420,7 @@ class FeatureApi:
         base_url: str,
         geometry: Union[Polygon, MultiPolygon],
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
@@ -466,6 +468,10 @@ class FeatureApi:
             if isinstance(packs, list):
                 packs = ",".join(packs)
             request_string += f"&packs={packs}"
+        if classes:
+            if isinstance(classes, list):
+                classes = ",".join(classes)
+            request_string += f"&classes={classes}"
         return request_string, exact
 
     def get_features(
@@ -473,6 +479,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
@@ -482,6 +489,7 @@ class FeatureApi:
             geometry=geometry,
             region=region,
             packs=packs,
+            classes=classes,
             since=since,
             until=until,
             address_fields=address_fields,
@@ -495,6 +503,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
@@ -504,6 +513,7 @@ class FeatureApi:
             geometry=geometry,
             region=region,
             packs=packs,
+            classes=classes,
             since=since,
             until=until,
             address_fields=address_fields,
@@ -517,6 +527,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
@@ -548,6 +559,7 @@ class FeatureApi:
             base_url=base_url,
             geometry=geometry,
             packs=packs,
+            classes=classes,
             since=since,
             until=until,
             address_fields=address_fields,
@@ -936,6 +948,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -951,6 +964,7 @@ class FeatureApi:
             geometry: AOI in EPSG4326
             region: The country code, used as a key to AREA_CRS.
             packs: List of AI packs
+            classes: List of classes
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
@@ -975,7 +989,7 @@ class FeatureApi:
                 features_gdf, metadata, error = [], [], None
                 for sub_geometry in geometry.geoms:
                     sub_payload = self.get_features(
-                        sub_geometry, region, packs, since, until, address_fields, survey_resource_id
+                        sub_geometry, region, packs, classes, since, until, address_fields, survey_resource_id
                     )
                     sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
                     features_gdf.append(sub_features_gdf)
@@ -1001,7 +1015,7 @@ class FeatureApi:
                     metadata = metadata[0]
             else:
                 features_gdf, metadata, error = None, None, None
-                payload = self.get_features(geometry, region, packs, since, until, address_fields, survey_resource_id)
+                payload = self.get_features(geometry, region, packs, classes, since, until, address_fields, survey_resource_id)
                 features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
@@ -1022,7 +1036,7 @@ class FeatureApi:
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, region, packs, aoi_id, since, until, survey_resource_id
+                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id
                     )
                     if len(errors_df) == 0:
                         error = None
@@ -1078,6 +1092,7 @@ class FeatureApi:
                     base_url=self.FEATURES_URL,
                     geometry=geometry,
                     packs=packs,
+                    classes=classes,
                     since=since,
                     until=until,
                     address_fields=address_fields,
@@ -1111,6 +1126,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -1125,6 +1141,7 @@ class FeatureApi:
             geometry: AOI in EPSG4326
             region: Country code
             packs: List of AI packs
+            classes: List of classes
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
@@ -1148,6 +1165,7 @@ class FeatureApi:
                 df_gridded,
                 region=region,
                 packs=packs,
+                classes=classes,
                 since_bulk=since,
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
@@ -1181,6 +1199,7 @@ class FeatureApi:
         gdf: gpd.GeoDataFrame,
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
@@ -1194,6 +1213,7 @@ class FeatureApi:
             gdf: GeoDataFrame with AOIs
             region: Country code
             packs: List of AI packs
+            classes: List of classes
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
@@ -1240,6 +1260,7 @@ class FeatureApi:
                         row.geometry if has_geom else None,
                         region,
                         packs,
+                        classes,
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
@@ -1277,6 +1298,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -1290,7 +1312,8 @@ class FeatureApi:
         Args:
             geometry: AOI in EPSG4326
             region: The country code, used as a key to AREA_CRS.
-            packs: List of AI packs
+            packs: List of AI 
+            classes: List of classes
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
             until: Latest date to pull data for
@@ -1315,7 +1338,7 @@ class FeatureApi:
                 rollup_df, metadata, error = [], [], None
                 for sub_geometry in geometry.geoms:
                     sub_payload = self.get_rollup(
-                        sub_geometry, region, packs, since, until, address_fields, survey_resource_id
+                        sub_geometry, region, packs, classes, since, until, address_fields, survey_resource_id
                     )
                     sub_rollup_df, sub_metadata = self.payload_rollup_df(sub_payload, aoi_id)
                     rollup_df.append(sub_rollup_df)
@@ -1337,7 +1360,7 @@ class FeatureApi:
                     metadata = metadata[0]
             else:
                 rollup_df, metadata, error = None, None, None
-                payload = self.get_rollup(geometry, region, packs, since, until, address_fields, survey_resource_id)
+                payload = self.get_rollup(geometry, region, packs, classes, since, until, address_fields, survey_resource_id)
                 rollup_df, metadata = self.payload_rollup_df(payload, aoi_id)
         except AIFeatureAPIError as e:
             # Catch acceptable errors
@@ -1392,6 +1415,7 @@ class FeatureApi:
         gdf: gpd.GeoDataFrame,
         region: str,
         packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
@@ -1405,6 +1429,7 @@ class FeatureApi:
             gdf: GeoDataFrame with AOIs
             region: Country code
             packs: List of AI packs
+            classes: List of classes
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
@@ -1451,6 +1476,7 @@ class FeatureApi:
                         row.geometry if has_geom else None,
                         region,
                         packs,
+                        classes,
                         row[AOI_ID_COLUMN_NAME],
                         since,
                         until,
