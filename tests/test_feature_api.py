@@ -110,7 +110,7 @@ class TestFeatureAPI:
 
         for cell_size in [d / 5, width, height, d, 2 * d]:
             df_gridded = FeatureApi.split_geometry_into_grid(aoi, cell_size)
-            geom_recombined = df_gridded.geometry.unary_union
+            geom_recombined = df_gridded.geometry.union_all()
             assert geom_recombined.difference(aoi).area == pytest.approx(0)
             assert aoi.difference(geom_recombined).area == pytest.approx(0)
 
