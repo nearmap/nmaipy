@@ -526,11 +526,12 @@ class TestParcels:
 
         """
         country = "us"
-        classes_df = pd.DataFrame(
+        classes_df = pd.DataFrame([
+            {"id": ROOF_ID, "description": "roof"},
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
-        ).set_index("id")
+        ]).set_index("id")
         country = "us"
         features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
         df = parcels.parcel_rollup(
@@ -548,9 +549,9 @@ class TestParcels:
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         np.testing.assert_allclose(
-            df.filter(regex="building_.*_tree_zone").sum().values, [278, 18, 188, 3], rtol=0.12
+            df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 0, 0], rtol=0.12
         )
-        np.testing.assert_allclose(df.filter(like="building_count").sum().values, [127, 17, 3], rtol=0.05)
+        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [23, 4, 0, 0], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
@@ -578,7 +579,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id=aoi_id, since=date_1, until=date_2)
         print(metadata)
         config = {
             "min_size": {
@@ -643,7 +644,7 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, workers=4)
         features_gdf, metadata, error = feature_api.get_features_gdf(
-            aoi, country, packs, aoi_id, survey_resource_id=survey_resource_id
+            aoi, country, packs, None, aoi_id, survey_resource_id=survey_resource_id
         )
         features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
@@ -694,7 +695,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(

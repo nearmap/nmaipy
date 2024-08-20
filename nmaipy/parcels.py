@@ -422,7 +422,7 @@ def feature_attributes(
                     parcel[f"{name}_{s}_count"] = len(class_features_gdf[class_features_gdf[col]])
 
         # Select and produce results for the primary feature of each feature class
-        if class_id not in CLASSES_WITH_NO_PRIMARY_FEATURE:
+        if class_id in CLASSES_WITH_PRIMARY_FEATURE:
             if len(class_features_gdf) > 0:
                 # Add primary feature attributes for discrete features if there are any
                 if primary_decision == "largest_intersection":
@@ -490,12 +490,13 @@ def feature_attributes(
                 parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
                 parcel[f"primary_{name}_confidence"] = None
 
-        if class_id == BUILDING_ID:
+        if class_id == ROOF_ID:
             # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
             if len(class_features_gdf) > 0 and calc_buffers:
                 for B in TREE_BUFFERS_M:
                     parcel[f"roof_{B}_tree_zone_sqm"] = None
-                    parcel[f"roof_count_nonzero_{B}_tree_zone"] = None
+                    parcel[f"roof_{B}_woodyveg_zone_sqm"] = None
+                    parcel[f"roof_count_{B}_roof_zone"] = None
 
                 # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
                 rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
@@ -513,6 +514,21 @@ def feature_attributes(
                         crs=LAT_LONG_CRS,
                         geometry="geometry_feature",
                     )
+                veg_woody_features_gdf = features_gdf[features_gdf.class_id == VEG_WOODY_1107_ID]
+                if len(veg_woody_features_gdf) > 0:
+                    veg_woody_features_gdf = gpd.GeoDataFrame(
+                        veg_woody_features_gdf,
+                        crs=LAT_LONG_CRS,
+                        geometry="geometry_feature",
+                    )
+
+                roof_features_gdf = features_gdf[features_gdf.class_id == ROOF_ID]
+                if len(roof_features_gdf) > 0:
+                    roof_features_gdf = gpd.GeoDataFrame(
+                        roof_features_gdf,
+                        crs=LAT_LONG_CRS,
+                        geometry="geometry_feature",
+                    )
 
                 for B in TREE_BUFFERS_M:
                     gdf_buffered_buildings = gpd.GeoDataFrame(
@@ -525,28 +541,37 @@ def feature_attributes(
                         gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
                     )
 
+                    # Calculate areas, supressing warnings about geographic crs (it's relative not absolute that matters)
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore",
+                            message="Geometry is in a geographic CRS.",
+                        )
+                        area_ratio = gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum() / gdf_buffered_buildings["geometry_feature"].area.sum()
                     if (
                         parcel_geom is not None
-                        and (
-                            gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum()
-                            / gdf_buffered_buildings["geometry_feature"].area.sum()
-                        )
-                        < 1
+                        and (area_ratio < 1)
                     ):
                         # Buffer exceeds Query AOI somewhere.
                         break
 
+                    # Calculate area covered by each buffer zone
+                    gdf_intersection = gdf_buffered_buildings.overlay(roof_features_gdf, how="intersection")
+                    gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                    parcel[f"roof_{B}_roof_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+
+                    # Count number of roofs intersecting each zone
+                    parcel[f"roof_count_{B}_roof_zone"] = len(gdf_intersection.index.unique())
+
                     if len(veg_medhigh_features_gdf) > 0:
                         gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
                         gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"building_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-                        bldg_count = (
-                            gdf_intersection.groupby("feature_id_1")
-                            .aggregate({"buff_area_sqm": "sum"})
-                            .query("buff_area_sqm > 0")
-                        )
-                        bldg_count = len(bldg_count)
-                        parcel[f"building_count_nonzero_{B}_tree_zone"] = bldg_count
+                        parcel[f"roof_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                    if len(veg_woody_features_gdf) > 0:
+                        gdf_intersection = gdf_buffered_buildings.overlay(veg_woody_features_gdf, how="intersection")
+                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
+                        parcel[f"roof_{B}_woodyveg_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+
         elif class_id == BUILDING_LIFECYCLE_ID:
             # Add aggregated damage across whole parcel, weighted by building lifecycle area
             # TODO: Finish this.

@@ -34,7 +34,7 @@ class TestFeatureAPI:
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        rollup_df, metadata, error = feature_api.get_rollup_df(sydney_aoi, region, packs, aoi_id, date_1, date_2)
+        rollup_df, metadata, error = feature_api.get_rollup_df(sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2)
         print(rollup_df.T)
         print(f"WKT of Query AOI: {sydney_aoi}")
 
@@ -60,7 +60,7 @@ class TestFeatureAPI:
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, region, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2)
         # No error
         assert error is None
         # Date is in range
@@ -93,7 +93,7 @@ class TestFeatureAPI:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
 
         print(metadata)
         print(features_gdf.T)
@@ -176,14 +176,14 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
         assert error is None
 
         # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
@@ -197,14 +197,14 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
         assert error is None
 
         # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
@@ -225,7 +225,7 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-            aoi_gdf, country, packs, date_1, date_2
+            aoi_gdf, country, packs, None, since_bulk=date_1, until_bulk=date_2
         )
         # Check metadata
         assert len(metadata_df) == 16
@@ -236,7 +236,7 @@ class TestFeatureAPI:
         assert len(features_gdf) == 69
         assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
 
-        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(aoi_gdf, country, packs, date_1, date_2)
+        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2)
         # Check metadata
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
@@ -308,7 +308,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
         # No error
         assert error is None
@@ -332,7 +332,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -362,7 +362,7 @@ class TestFeatureAPI:
         aoi_id = "3"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -393,7 +393,7 @@ class TestFeatureAPI:
         aoi_id = 11
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -418,7 +418,7 @@ class TestFeatureAPI:
         aoi_id = 12
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
