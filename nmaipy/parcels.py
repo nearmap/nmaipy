@@ -59,8 +59,8 @@ DEFAULT_FILTERING = {
         CLASS_1176_JERKINHEAD: 0.71,
         CLASS_1178_QUONSET: 0.52,
         CLASS_1180_BOWSTRING_TRUSS: 0.58,
-        # Roof Materials
         CLASS_1191_FLAT: 0.50,
+        # Roof Materials
         CLASS_1007_TILE: 0.55,
         CLASS_1008_ASPHALT_SHINGLE: 0.59,
         CLASS_1009_METAL_PANEL: 0.56,
