@@ -144,6 +144,7 @@ class FeatureApi:
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
         prerelease: Optional[bool] = False,
+        only3d: Optional[bool] = False,
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: Optional[str] = None,
         system_version: Optional[str] = None,
@@ -158,6 +159,14 @@ class FeatureApi:
             overwrite_cache: Set to overwrite values stored in the cache
             compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
             workers: Number of threads to spawn for concurrent execution
+            alpha: Include alpha features
+            beta: Include beta features
+            prerelease: Include prerelease features
+            only3d: Only return features with 3D coverage
+            url_root: The root URL for the API. Default is the bulk API.
+            system_version_prefix: Prefix for the system version (e.g. "gen6-" to restrict to gen 6 results)
+            system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
+            maxretry: Number of retries to attempt on a failed request
         """
 
         URL_ROOT = f"https://{url_root}"
@@ -191,6 +200,7 @@ class FeatureApi:
         self.alpha = alpha
         self.beta = beta
         self.prerelease = prerelease
+        self.only3d = only3d
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.maxretry = maxretry
@@ -459,6 +469,8 @@ class FeatureApi:
             request_string += "&beta=true"
         if self.prerelease:
             request_string += "&prerelease=true"
+        if self.only3d:
+            request_string += "&3dCoverage=true"
         if self.system_version_prefix is not None:
             request_string += f"&systemVersionPrefix={self.system_version_prefix}"
         if self.system_version is not None:

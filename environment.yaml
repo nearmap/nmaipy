@@ -1,11 +1,11 @@
-name: base
+name: nmaipy
 channels:
   - conda-forge
   - defaults
   - main
 dependencies:
   # Environment specific dependencies
-  - python=3.9
+  - python=3.11
   - numpy
   - pandas
   - shapely
@@ -17,8 +17,8 @@ dependencies:
   - stringcase
   - pyarrow
   - isort
-  - black=21.12b0
+  - black
   - pytest
   - ipykernel
   - requests
-  - click=8.0.4
+  - click
