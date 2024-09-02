@@ -159,6 +159,14 @@ class FeatureApi:
             overwrite_cache: Set to overwrite values stored in the cache
             compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
             workers: Number of threads to spawn for concurrent execution
+            alpha: Include alpha features
+            beta: Include beta features
+            prerelease: Include prerelease features
+            only3d: Only return features with 3D coverage
+            url_root: The root URL for the API. Default is the bulk API.
+            system_version_prefix: Prefix for the system version (e.g. "gen6-" to restrict to gen 6 results)
+            system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
+            maxretry: Number of retries to attempt on a failed request
         """
 
         URL_ROOT = f"https://{url_root}"
