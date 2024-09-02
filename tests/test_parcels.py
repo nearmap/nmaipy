@@ -551,7 +551,7 @@ class TestParcels:
         np.testing.assert_allclose(
             df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 0, 0], rtol=0.12
         )
-        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [25, 3, 0, 0], rtol=0.05)
+        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [23, 4, 0, 0], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """

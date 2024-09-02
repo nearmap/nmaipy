@@ -110,7 +110,7 @@ class TestFeatureAPI:
 
         for cell_size in [d / 5, width, height, d, 2 * d]:
             df_gridded = FeatureApi.split_geometry_into_grid(aoi, cell_size)
-            geom_recombined = df_gridded.geometry.union_all()
+            geom_recombined = df_gridded.geometry.unary_union
             assert geom_recombined.difference(aoi).area == pytest.approx(0)
             assert aoi.difference(geom_recombined).area == pytest.approx(0)
 
@@ -487,11 +487,11 @@ class TestFeatureAPI:
         assert not building_status["building_small"]
         assert building_status["building_multiparcel"]
 
-        belongs_within, belongs_without = reference_code.check_in_out_belongingness_of_building(building_metric, aoi_metric)
+        belongs_within, belongs_without, in_bigger_than_out = reference_code.check_in_out_belongingness_of_building(
+            building_metric, aoi_metric
+        )
         assert belongs_within
         assert belongs_without
-
-        
 
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
