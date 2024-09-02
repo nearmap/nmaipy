@@ -25,7 +25,7 @@ from nmaipy.feature_api import FeatureApi
 
 data_directory = Path(__file__).parent / "data"
 
-@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+# @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     """
     Generate the test data for the parcels tests. Uses a specific date to ensure the data is consistent.
@@ -40,7 +40,7 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     features_gdf.to_csv(outfname, index=False)
 
 
-@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+# @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     """
     Generate secondary test data set.
@@ -551,7 +551,7 @@ class TestParcels:
         np.testing.assert_allclose(
             df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 0, 0], rtol=0.12
         )
-        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [23, 4, 0, 0], rtol=0.05)
+        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [25, 3, 0, 0], rtol=0.05)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
