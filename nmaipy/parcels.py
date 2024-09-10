@@ -31,15 +31,15 @@ DEFAULT_FILTERING = {
         BUILDING_LIFECYCLE_ID: 0.65,
         BUILDING_ID: 0.65,
         BUILDING_NEW_ID: 0.65,
-        ROOF_ID: 0.65,
+        ROOF_ID: 0.58,
         TRAMPOLINE_ID: 0.6,
-        POOL_ID: 0.6,
+        POOL_ID: 0.55,
         CONSTRUCTION_ID: 0.8,
-        SOLAR_ID: 0.7,
+        SOLAR_ID: 0.61,
         # Roof Conditions
-        CLASS_1050_TARP: 0.55,  # "tarp",
+        CLASS_1050_TARP: 0.52,  # "tarp",
         CLASS_1052_RUST: 0.50,  # "rust",
-        CLASS_1079_MISSING_SHINGLES: 0.53,  # "missing_shingles",
+        CLASS_1079_MISSING_SHINGLES: 0.50,  # "missing_shingles",
         CLASS_1139_DEBRIS: 0.50,  # "debris",
         CLASS_1140_EXPOSED_DECK: 0.51,  # "exposed_deck",
         CLASS_1051_PONDING: 0.50,  # "ponding",
@@ -49,11 +49,11 @@ DEFAULT_FILTERING = {
         CLASS_1149_PATCHING: 0.50,  # "patching",
         CLASS_1186_STRUCTURAL_DAMAGE: 0.50,  # "structural_damage",
         # Roof Shapes
-        CLASS_1013_HIP: 0.55,
+        CLASS_1013_HIP: 0.50,
         CLASS_1014_GABLE: 0.50,
         CLASS_1015_DUTCH_GABLE: 0.57,
         CLASS_1019_GAMBREL: 0.70,
-        CLASS_1020_CONICAL: 0.58,  # turret / conical. This is normall small part on the roof. It's hard to be larger than 0.58
+        CLASS_1020_CONICAL: 0.50,  # turret / conical. This is normall small part on the roof. It's hard to be larger than 0.58
         CLASS_1173_PARAPET: 0.50,  # check the definition of ontology. If ths parpet is the edges of the roof, then it's hard to be larger than 0.5
         CLASS_1174_MANSARD: 0.64,
         CLASS_1176_JERKINHEAD: 0.71,
@@ -62,8 +62,8 @@ DEFAULT_FILTERING = {
         # Roof Materials
         CLASS_1191_FLAT: 0.50,
         CLASS_1007_TILE: 0.55,
-        CLASS_1008_ASPHALT_SHINGLE: 0.59,
-        CLASS_1009_METAL_PANEL: 0.56,
+        CLASS_1008_ASPHALT_SHINGLE: 0.50,
+        CLASS_1009_METAL_PANEL: 0.50,
         CLASS_1100_BALLASTED: 0.64,
         CLASS_1101_MOD_BIT: 0.50,
         CLASS_1103_TPO: 0.53,
