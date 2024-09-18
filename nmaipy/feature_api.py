@@ -1131,6 +1131,10 @@ class FeatureApi:
                 "text": str(e),
                 "request": str(geometry),
             }
+
+        # Round the confidence column to two decimal places (nearest percent)
+        if features_gdf is not None and "confidence" in features_gdf.columns:
+            features_gdf["confidence"] = features_gdf["confidence"].round(2)
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
