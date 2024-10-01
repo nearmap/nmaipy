@@ -80,7 +80,7 @@ DEFAULT_FILTERING = {
         ROOF_ID: 0.15,
     },
     "min_area_in_parcel": {
-        BUILDING_LIFECYCLE_ID: 4,
+        BUILDING_LIFECYCLE_ID: 0, # Point classes have no clipped area, so we can't filter them out based on area.
         BUILDING_ID: 4,
         BUILDING_NEW_ID: 4,
         ROOF_ID: 4,
@@ -690,4 +690,10 @@ def parcel_rollup(
     rollup_df = pd.DataFrame(rollups)
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
+    
+    # Round any columns ending in _confidence to two decimal places (nearest percent)
+    for col in rollup_df.columns:
+        if col.endswith("_confidence"):
+            rollup_df[col] = rollup_df[col].round(2)
+            logger.debug("Rounded column %s to 2 decimal places", col)
     return rollup_df
