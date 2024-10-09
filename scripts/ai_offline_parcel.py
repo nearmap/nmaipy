@@ -87,6 +87,13 @@ def parse_arguments():
         default="largest_intersection",
     )
     parser.add_argument(
+        "--aoi-grid-min-pct",
+        help="The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful result (not 404) to return. Default is strict full coverage (100) required.",
+        type=int,
+        required=False,
+        default=100,
+    )
+    parser.add_argument(
         "--workers",
         help="Number of processes",
         type=int,
@@ -229,6 +236,7 @@ def process_chunk(
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
+    aoi_grid_min_pct: int = 100,
     overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
     no_cache: Optional[bool] = False,
@@ -262,6 +270,7 @@ def process_chunk(
         save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
+        aoi_grid_min_pct: The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful result (not 404) to return. Default is strict full coverage (100) required.,
         compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
         cache_dir: Place to store cache (absolute path of parent - "cache" and "rollup_cache" will be created within).
         since_bulk: Earliest date used to pull features
@@ -311,6 +320,7 @@ def process_chunk(
         url_root=url_root,
         system_version_prefix=system_version_prefix,
         system_version=system_version,
+        aoi_grid_min_pct=aoi_grid_min_pct,
     )
     if endpoint == Endpoint.ROLLUP.value:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
@@ -321,7 +331,7 @@ def process_chunk(
             until_bulk=until_bulk,
             packs=packs,
             classes=classes,
-            instant_fail_batch=False,
+            max_allowed_error_pct=100,
         )
         logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
         rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
@@ -346,7 +356,7 @@ def process_chunk(
             until_bulk=until_bulk,
             packs=packs,
             classes=classes,
-            instant_fail_batch=False,
+            max_allowed_error_pct=100,
         )
         logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
         if len(errors_df) > 0:
@@ -610,6 +620,7 @@ def main():
                             args.include_parcel_geometry,
                             args.save_features,
                             args.primary_decision,
+                            args.aoi_grid_min_pct,
                             args.overwrite_cache,
                             args.compress_cache,
                             args.no_cache,
@@ -658,6 +669,7 @@ def main():
                     args.include_parcel_geometry,
                     args.save_features,
                     args.primary_decision,
+                    args.aoi_grid_min_pct,
                     args.overwrite_cache,
                     args.compress_cache,
                     args.no_cache,
