@@ -1303,7 +1303,7 @@ class FeatureApi:
                 if aoi_error is not None:
                     if len(errors) > max_allowed_error_count:
                         executor.shutdown(wait=True, cancel_futures=True)  # Needed to prevent memory leak.
-                        logger.error(f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs. Current error: {aoi_error}. Total errors thus far: {len(errors)}")
+                        logger.debug(f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs. Current error: {aoi_error}. Total errors thus far: {len(errors)}")
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
