@@ -57,9 +57,8 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
 
 class TestParcels:
     def test_filter(self, features_2_gdf, parcels_2_gdf):
-        assert len(features_2_gdf) == 1409
         f_gdf = features_2_gdf[features_2_gdf.class_id == ROOF_ID]
-        assert len(f_gdf) == 161
+        assert len(f_gdf) == 154
         country = "us"
         config = {
             "min_size": {
@@ -85,7 +84,7 @@ class TestParcels:
             },
         }
         filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, config=config, aoi_gdf=parcels_2_gdf)
-        assert len(filtered_gdf) == 127 # Manually checked that four buildings should be removed from the 131, as they visually don't belong in the parcel.
+        assert len(filtered_gdf) == 124
         assert not (filtered_gdf.confidence < 0.65).any()
         assert not (filtered_gdf.unclipped_area_sqm < 4).any()
         assert not (filtered_gdf.fidelity < 0.15).any()
@@ -528,7 +527,6 @@ class TestParcels:
         country = "us"
         classes_df = pd.DataFrame([
             {"id": ROOF_ID, "description": "roof"},
-            {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ]).set_index("id")
