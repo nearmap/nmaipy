@@ -101,6 +101,13 @@ def parse_arguments():
         default=PROCESSES,
     )
     parser.add_argument(
+        "--chunk-size",
+        help="Number of AOIs to process in a single temporarily stored chunk file. Smaller files increase parallelism.",
+        type=int,
+        required=False,
+        default=CHUNK_SIZE,
+    )
+    parser.add_argument(
         "--calc-buffers",
         help="Calculate buffered features of trees around buildings (compute expensive) within the query AOI (null otherwise).",
         action="store_true",
@@ -571,7 +578,7 @@ def main():
         jobs = []
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
-        num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
+        num_chunks = max(len(parcels_gdf) // args.chunk_size, 1)
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
         logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
         logger.debug(f"Splitting parcels into {num_chunks} chunks")
