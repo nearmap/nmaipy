@@ -723,10 +723,11 @@ def main():
             data = gpd.GeoDataFrame(pd.concat(data))
         else:
             data = pd.DataFrame(data)
-        data = data.set_index(AOI_ID_COLUMN_NAME)
-        if "index" in data.columns:
-            data = data.drop(columns=["index"])
+
         if len(data) > 0:
+            data = data.set_index(AOI_ID_COLUMN_NAME)
+            if "index" in data.columns:
+                data = data.drop(columns=["index"])
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":
