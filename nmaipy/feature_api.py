@@ -149,6 +149,7 @@ class FeatureApi:
         system_version_prefix: Optional[str] = None,
         system_version: Optional[str] = None,
         aoi_grid_min_pct: Optional[int] = 100,
+        aoi_grid_inexact: Optional[bool] = False,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -168,6 +169,7 @@ class FeatureApi:
             system_version_prefix: Prefix for the system version (e.g. "gen6-" to restrict to gen 6 results)
             system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
             aoi_grid_min_pct: Minimum percentage of sub-gridded squares the AOI must get valid responses from.
+            aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             maxretry: Number of retries to attempt on a failed request
         """
 
@@ -206,6 +208,7 @@ class FeatureApi:
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.aoi_grid_min_pct = aoi_grid_min_pct
+        self.aoi_grid_inexact = aoi_grid_inexact
         self.maxretry = maxretry
 
     @property
@@ -1051,7 +1054,7 @@ class FeatureApi:
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id
+                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id, aoi_grid_inexact=self.aoi_grid_inexact,
                     )
                     error = None # Reset error if we got here without an exception
 
@@ -1147,6 +1150,7 @@ class FeatureApi:
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
+        aoi_grid_inexact: Optional[bool] = False,
         grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
@@ -1195,10 +1199,15 @@ class FeatureApi:
             # Got no data back from any grid square in the AOI.
             raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
         elif len(features_gdf["survey_date"].unique()) > 1:
-            logger.warning(
-                f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
-            )
-            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
+            if aoi_grid_inexact:
+                logger.info(
+                    f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
+                )
+            else:
+                logger.warning(
+                    f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+                )
+                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
             logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
