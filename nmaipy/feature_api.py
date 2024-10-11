@@ -178,7 +178,6 @@ class FeatureApi:
         self.FEATURES_DAMAGE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/features.json"
         self.ROLLUPS_CSV_URL = URL_ROOT + "/rollups.csv"
         self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
-        self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/surveyresources"
         self.CLASSES_URL = URL_ROOT + "/classes.json"
         self.PACKS_URL = URL_ROOT + "/packs.json"
 
@@ -449,9 +448,6 @@ class FeatureApi:
         urlbase = base_url
         if survey_resource_id is not None:
             urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        if survey_resource_id is not None and packs is not None:
-            if "damage" in packs or "damage_non_postcat" in packs:
-                urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
             request_string = f"{urlbase}?polygon={coordstring}&apikey={self.api_key}"
