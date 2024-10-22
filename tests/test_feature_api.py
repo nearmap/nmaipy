@@ -10,6 +10,7 @@ from shapely.wkt import loads
 from nmaipy import parcels
 from nmaipy.constants import (
     BUILDING_ID,
+    ROOF_ID,
     BUILDING_NEW_ID,
     SOLAR_ID,
     VEG_MEDHIGH_ID,
@@ -61,13 +62,14 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf = features_gdf.query("class_id == @ROOF_ID") # Filter out building classes, just keep roof.
         # No error
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 3
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 3
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 3
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 3
 
@@ -133,12 +135,12 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # We get 3 buildings
-        assert len(features_gdf.query("class_id == @BUILDING_ID")) == 6  # Guessed
+        assert len(features_gdf.query("class_id == @ROOF_ID")) == 6  # Guessed
         assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
 
         # Assert that buildings aren't overhanging the edge of the parcel. If this fails, the clipped/unclipped hasn't been managed correctly during the grid merge.
-        assert features_gdf.query("class_id == @BUILDING_ID").clipped_area_sqm.sum() == pytest.approx(
-            features_gdf.query("class_id == @BUILDING_ID").unclipped_area_sqm.sum(), 0.1
+        assert features_gdf.query("class_id == @ROOF_ID").clipped_area_sqm.sum() == pytest.approx(
+            features_gdf.query("class_id == @ROOF_ID").unclipped_area_sqm.sum(), 0.1
         )
 
         assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
@@ -187,6 +189,7 @@ class TestFeatureAPI:
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         assert len(features_gdf) == 3
 
     def test_get_compressed_cache(self, cache_directory: Path, sydney_aoi: Polygon):
@@ -208,6 +211,7 @@ class TestFeatureAPI:
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         assert len(features_gdf) == 3
 
     def test_get_bulk(self, cache_directory: Path, sydney_aoi: Polygon):
@@ -227,14 +231,16 @@ class TestFeatureAPI:
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
             aoi_gdf, country, packs, None, since_bulk=date_1, until_bulk=date_2
         )
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
+
         # Check metadata
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
         # Check error
         assert len(errors_df) == 0
-        # We get only buildings
+        # We get only roofs
         assert len(features_gdf) == 69
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 69
 
         rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2)
         # Check metadata
@@ -267,6 +273,7 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs)
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata_df.iloc[0].T)
 
         # Check metadata
@@ -275,7 +282,7 @@ class TestFeatureAPI:
 
         # We get only buildings
         assert len(features_gdf) == 69
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 69
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 69
         # The dates are within range
         for row in features_gdf.itertuples():
             assert "2020-01-01" <= row.survey_date <= "2020-03-01"
@@ -309,6 +316,7 @@ class TestFeatureAPI:
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
         # No error
         assert error is None
@@ -316,7 +324,7 @@ class TestFeatureAPI:
         assert date_1 <= metadata["date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 6
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 6
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 6
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 6
         # All buildings intersect the AOI
@@ -333,6 +341,8 @@ class TestFeatureAPI:
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
+
         print(metadata)
 
         # No error
@@ -341,7 +351,7 @@ class TestFeatureAPI:
         assert date_1 <= metadata["date"] <= date_2
         # We get 10 buildings
         assert len(features_gdf) == 10
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 10
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 10
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 10
         # All buildings intersect the AOI
@@ -363,6 +373,7 @@ class TestFeatureAPI:
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
         # No error
@@ -371,7 +382,7 @@ class TestFeatureAPI:
         assert date_1 <= metadata["date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 1
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 1
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
         # The AOI ID has been assigned
         assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 1
         # All buildings intersect the AOI
@@ -394,6 +405,7 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
         # No error
@@ -402,7 +414,7 @@ class TestFeatureAPI:
         assert date_1 <= metadata["date"] <= date_2
         # We get no buildings (inner gets discarded)
         assert len(features_gdf) == 0
-        assert len(features_gdf[features_gdf.class_id == BUILDING_ID]) == 0
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 0
 
     def test_polygon_with_hole_2(self, cache_directory: Path):
         """
@@ -426,10 +438,11 @@ class TestFeatureAPI:
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
         # We get one piece of hollowed out asphalt
-        assert len(features_gdf) == 1
+        assert len(features_gdf) == 3
         assert len(features_gdf[features_gdf.class_id == ASPHALT_ID]) == 1
-        assert features_gdf["clipped_area_sqm"].sum() == features_gdf["area_sqm"].sum()
-        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(259.2, rel=0.02)
+        features_gdf_asphalt = features_gdf.query("class_id == @ASPHALT_ID")
+        assert features_gdf_asphalt["clipped_area_sqm"].sum() == features_gdf_asphalt["area_sqm"].sum()
+        assert features_gdf_asphalt["clipped_area_sqm"].sum() == pytest.approx(259.2, rel=0.02)
 
     def test_multiparcel_building_filter_1(self, cache_directory: Path):
         aoi = loads("Polygon ((151.27703696149524148 -33.79262202320504827, 151.27733681519475795 -33.79266133351605816, 151.27731228659985163 -33.79279055527718612, 151.27701243290030675 -33.79275124502552075, 151.27703696149524148 -33.79262202320504827))")
@@ -503,10 +516,11 @@ class TestFeatureAPI:
         classes_df = feature_api.get_feature_classes(packs=["solar", "building"])
         assert classes_df.loc[BUILDING_ID].description == "Building (Deprecated)"
         assert classes_df.loc[BUILDING_NEW_ID].description == "Building"
+        assert classes_df.loc[ROOF_ID].description == "Roof"
         assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
         assert classes_df.loc[SOLAR_HW_ID].description == "Solar Hot Water"
-        assert len(classes_df) == 4
-
+        assert len(classes_df) == 5
+        
     def test_unknown_pack(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
         with pytest.raises(ValueError) as excinfo:

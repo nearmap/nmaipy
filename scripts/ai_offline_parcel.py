@@ -87,11 +87,30 @@ def parse_arguments():
         default="largest_intersection",
     )
     parser.add_argument(
+        "--aoi-grid-min-pct",
+        help="The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful result (not 404) to return. Default is strict full coverage (100) required.",
+        type=int,
+        required=False,
+        default=100,
+    )
+    parser.add_argument(
+        "--aoi-grid-inexact",
+        help="Permit inexact merging of large AOIs that get gridded, end up getting grid squares from multiple dates, then merging. Deduplication will work poorly for things like buildings.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--workers",
         help="Number of processes",
         type=int,
         required=False,
         default=PROCESSES,
+    )
+    parser.add_argument(
+        "--chunk-size",
+        help="Number of AOIs to process in a single temporarily stored chunk file. Smaller files increase parallelism.",
+        type=int,
+        required=False,
+        default=CHUNK_SIZE,
     )
     parser.add_argument(
         "--calc-buffers",
@@ -229,6 +248,8 @@ def process_chunk(
     include_parcel_geometry: Optional[bool] = False,
     save_features: Optional[bool] = True,
     primary_decision: str = "largest_intersection",
+    aoi_grid_min_pct: int = 100,
+    aoi_grid_inexact: Optional[bool] = False,
     overwrite_cache: Optional[bool] = False,
     compress_cache: Optional[bool] = False,
     no_cache: Optional[bool] = False,
@@ -262,6 +283,8 @@ def process_chunk(
         save_features: Whether to save the vectors for all features as a geospatial file.
         country: The country code for area calcs (au, us, ca, nz)
         primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
+        aoi_grid_min_pct: The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful result (not 404) to return. Default is strict full coverage (100) required.,
+        aoi_grid_inexact: Permit inexact merging of large AOIs that get gridded, end up getting grid squares from multiple dates, then merging. Deduplication will work poorly for things like buildings.
         compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
         cache_dir: Place to store cache (absolute path of parent - "cache" and "rollup_cache" will be created within).
         since_bulk: Earliest date used to pull features
@@ -311,6 +334,8 @@ def process_chunk(
         url_root=url_root,
         system_version_prefix=system_version_prefix,
         system_version=system_version,
+        aoi_grid_min_pct=aoi_grid_min_pct,
+        aoi_grid_inexact=aoi_grid_inexact,
     )
     if endpoint == Endpoint.ROLLUP.value:
         logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
@@ -321,7 +346,7 @@ def process_chunk(
             until_bulk=until_bulk,
             packs=packs,
             classes=classes,
-            instant_fail_batch=False,
+            max_allowed_error_pct=100,
         )
         logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
         rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
@@ -346,7 +371,7 @@ def process_chunk(
             until_bulk=until_bulk,
             packs=packs,
             classes=classes,
-            instant_fail_batch=False,
+            max_allowed_error_pct=100,
         )
         logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
         if len(errors_df) > 0:
@@ -561,7 +586,7 @@ def main():
         jobs = []
 
         # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
-        num_chunks = max(len(parcels_gdf) // CHUNK_SIZE, 1)
+        num_chunks = max(len(parcels_gdf) // args.chunk_size, 1)
         logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
         logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
         logger.debug(f"Splitting parcels into {num_chunks} chunks")
@@ -610,6 +635,8 @@ def main():
                             args.include_parcel_geometry,
                             args.save_features,
                             args.primary_decision,
+                            args.aoi_grid_min_pct,
+                            args.aoi_grid_inexact,
                             args.overwrite_cache,
                             args.compress_cache,
                             args.no_cache,
@@ -658,6 +685,8 @@ def main():
                     args.include_parcel_geometry,
                     args.save_features,
                     args.primary_decision,
+                    args.aoi_grid_min_pct,
+                    args.aoi_grid_inexact,
                     args.overwrite_cache,
                     args.compress_cache,
                     args.no_cache,
@@ -704,10 +733,11 @@ def main():
             data = gpd.GeoDataFrame(pd.concat(data))
         else:
             data = pd.DataFrame(data)
-        data = data.set_index(AOI_ID_COLUMN_NAME)
-        if "index" in data.columns:
-            data = data.drop(columns=["index"])
+
         if len(data) > 0:
+            data = data.set_index(AOI_ID_COLUMN_NAME)
+            if "index" in data.columns:
+                data = data.drop(columns=["index"])
             if args.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif args.rollup_format == "csv":

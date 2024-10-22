@@ -148,6 +148,8 @@ class FeatureApi:
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: Optional[str] = None,
         system_version: Optional[str] = None,
+        aoi_grid_min_pct: Optional[int] = 100,
+        aoi_grid_inexact: Optional[bool] = False,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -166,6 +168,8 @@ class FeatureApi:
             url_root: The root URL for the API. Default is the bulk API.
             system_version_prefix: Prefix for the system version (e.g. "gen6-" to restrict to gen 6 results)
             system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
+            aoi_grid_min_pct: Minimum percentage of sub-gridded squares the AOI must get valid responses from.
+            aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             maxretry: Number of retries to attempt on a failed request
         """
 
@@ -174,7 +178,6 @@ class FeatureApi:
         self.FEATURES_DAMAGE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/features.json"
         self.ROLLUPS_CSV_URL = URL_ROOT + "/rollups.csv"
         self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
-        self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/surveyresources"
         self.CLASSES_URL = URL_ROOT + "/classes.json"
         self.PACKS_URL = URL_ROOT + "/packs.json"
 
@@ -203,6 +206,8 @@ class FeatureApi:
         self.only3d = only3d
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
+        self.aoi_grid_min_pct = aoi_grid_min_pct
+        self.aoi_grid_inexact = aoi_grid_inexact
         self.maxretry = maxretry
 
     @property
@@ -443,9 +448,6 @@ class FeatureApi:
         urlbase = base_url
         if survey_resource_id is not None:
             urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        if survey_resource_id is not None and packs is not None:
-            if "damage" in packs or "damage_non_postcat" in packs:
-                urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
             request_string = f"{urlbase}?polygon={coordstring}&apikey={self.api_key}"
@@ -1048,12 +1050,9 @@ class FeatureApi:
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id
+                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id, aoi_grid_inexact=self.aoi_grid_inexact,
                     )
-                    if len(errors_df) == 0:
-                        error = None
-                    else:
-                        raise Exception("This shouldn't happen")
+                    error = None # Reset error if we got here without an exception
 
                     # Recombine gridded features
                     features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
@@ -1147,6 +1146,7 @@ class FeatureApi:
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
+        aoi_grid_inexact: Optional[bool] = False,
         grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
@@ -1185,17 +1185,25 @@ class FeatureApi:
                 since_bulk=since,
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
-                instant_fail_batch=True,
+                max_allowed_error_pct=100-self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
             logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error ({e.status_code}).")
             raise AIFeatureAPIGridError(e.status_code)
-        if len(features_gdf["survey_date"].unique()) > 1:
-            logger.warning(
-                f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
-            )
-            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
+        if len(features_gdf) == 0:
+            # Got no data back from any grid square in the AOI.
+            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
+        elif len(features_gdf["survey_date"].unique()) > 1:
+            if aoi_grid_inexact:
+                logger.info(
+                    f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
+                )
+            else:
+                logger.warning(
+                    f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+                )
+                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
             logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
@@ -1203,12 +1211,14 @@ class FeatureApi:
             # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
-            raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
-        else:
-            # Reset the correct aoi_id for the gridded result
-            features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
-            metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
-            return features_gdf, metadata_df, errors_df
+            logger.debug(f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}.")
+
+            # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+
+        # Reset the correct aoi_id for the gridded result
+        features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
+        metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
+        return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
         self,
@@ -1219,7 +1229,7 @@ class FeatureApi:
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
-        instant_fail_batch: Optional[bool] = False,
+        max_allowed_error_pct: Optional[int] = 100,
         fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
@@ -1233,8 +1243,7 @@ class FeatureApi:
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
-            return all good data available.
+            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create a dataframe of errors and return all good data available.
             fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
                               getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
                                                                    get_features_gdf_bulk -> get_features_gdf
@@ -1242,6 +1251,8 @@ class FeatureApi:
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
+        max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
+
         if AOI_ID_COLUMN_NAME not in gdf.columns:
             raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
         elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
@@ -1295,8 +1306,9 @@ class FeatureApi:
                 if aoi_metadata is not None:
                     metadata.append(aoi_metadata)
                 if aoi_error is not None:
-                    if instant_fail_batch:
+                    if len(errors) > max_allowed_error_count:
                         executor.shutdown(wait=True, cancel_futures=True)  # Needed to prevent memory leak.
+                        logger.debug(f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs. Current error: {aoi_error}. Total errors thus far: {len(errors)}")
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
@@ -1306,7 +1318,6 @@ class FeatureApi:
         features_gdf = pd.concat(data).reset_index(drop=True) if len(data) > 0 else pd.DataFrame([])
         metadata_df = pd.DataFrame(metadata).reset_index(drop=True) if len(metadata) > 0 else pd.DataFrame([])
         errors_df = pd.DataFrame(errors).reset_index(drop=True) if len(errors) > 0 else pd.DataFrame([])
-
         return features_gdf, metadata_df, errors_df
 
     def get_rollup_df(
@@ -1435,8 +1446,7 @@ class FeatureApi:
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
-        instant_fail_batch: Optional[bool] = False,
-        fail_hard_regrid: Optional[bool] = False,
+        max_allowed_error_pct: Optional[int] = 100,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -1449,7 +1459,7 @@ class FeatureApi:
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
+            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create a dataframe of errors and
             return all good data available.
             fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
                               getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
@@ -1458,6 +1468,8 @@ class FeatureApi:
         Returns:
             API responses as rollup csv GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
+        max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
+
         if AOI_ID_COLUMN_NAME not in gdf.columns:
             raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
         elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
@@ -1510,7 +1522,7 @@ class FeatureApi:
                 if aoi_metadata is not None:
                     metadata.append(aoi_metadata)
                 if aoi_error is not None:
-                    if instant_fail_batch:
+                    if len(errors) > max_allowed_error_count:
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
