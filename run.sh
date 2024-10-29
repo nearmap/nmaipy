@@ -1,10 +1,12 @@
+#!/bin/bash
 export PYTHONPATH=.
-python /home/jovyan/datascience/nmaipy/scripts/ai_offline_parcel.py \
-    --parcel-dir "" \
-    --output-dir "" \
+ulimit -n 32000 # Increase ability to leave open files, for running many workers (e.g. 32+).
+python /home/jovyan/Development/datascience/nmaipy/scripts/ai_offline_parcel.py \
+    --parcel-dir "data/parcels" \
+    --output-dir "data/outputs" \
     --country us \
-    --include-parcel-geometry \
+    --workers 4 \
+    --system-version-prefix "gen6-" \
     --packs building vegetation \
-    --workers 2 \
-    --compress-cache \
-    --log-level INFO
+    --include-parcel-geometry \
+    --save-features
