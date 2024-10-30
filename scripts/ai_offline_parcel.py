@@ -50,13 +50,6 @@ def parse_arguments():
     parser.add_argument("--parcel-dir", help="Directory with parcel files", type=str, required=True)
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(
-        "--key-file",
-        help="Path to file with API keys",
-        type=str,
-        required=False,
-        default=None,
-    )
-    parser.add_argument(
         "--config-file",
         help="Path to json file with config dictionary (min confidences, areas and ratios)",
         type=str,
@@ -223,23 +216,17 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def api_key(key_file: Optional[str] = None) -> str:
+def api_key() -> str:
     """
     Get an API key. If a key file is specified a random key from the file will be returned.
     """
-    if key_file is None:
-        return os.environ["API_KEY"]
-    with open(key_file, "r") as f:
-        keys = [line.rstrip() for line in f]
-    return keys[random.randint(0, len(keys) - 1)]
-
+    return os.environ["API_KEY"]
 
 def process_chunk(
     chunk_id: str,
     parcel_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     output_dir: str,
-    key_file: str,
     config: dict,
     country: str,
     packs: Optional[List[str]] = None,
@@ -274,7 +261,6 @@ def process_chunk(
         parcel_gdf: Parcel set
         classes_df: Classes in output
         output_dir: Directory to save data to
-        key_file: Path to API key file
         config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
         classes: List of feature class IDs (UUIDs) to include in the output.
@@ -324,7 +310,7 @@ def process_chunk(
 
         # Get features
         feature_api = FeatureApi(
-            api_key=api_key(key_file),
+            api_key=api_key(),
             cache_dir=cache_path,
             overwrite_cache=overwrite_cache,
             compress_cache=compress_cache,
@@ -516,12 +502,12 @@ def main():
 
     # Get classes
     if args.packs is not None:
-        classes_df = FeatureApi(api_key=api_key(args.key_file), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease, only3d=args.only3d).get_feature_classes(
+        classes_df = FeatureApi(api_key=api_key(), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease, only3d=args.only3d).get_feature_classes(
             args.packs
         )
     else:
         classes_df = FeatureApi(
-            api_key=api_key(args.key_file),
+            api_key=api_key(),
             alpha=args.alpha,
             beta=args.beta,
             prerelease=args.prerelease,
@@ -631,7 +617,6 @@ def main():
                             batch,
                             classes_df,
                             args.output_dir,
-                            args.key_file,
                             config,
                             args.country,
                             args.packs,
