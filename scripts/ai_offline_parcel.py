@@ -50,13 +50,6 @@ def parse_arguments():
     parser.add_argument("--parcel-dir", help="Directory with parcel files", type=str, required=True)
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(
-        "--config-file",
-        help="Path to json file with config dictionary (min confidences, areas and ratios)",
-        type=str,
-        required=False,
-        default=None,
-    )
-    parser.add_argument(
         "--packs",
         help="List of AI packs",
         type=str,
@@ -227,7 +220,6 @@ def process_chunk(
     parcel_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     output_dir: str,
-    config: dict,
     country: str,
     packs: Optional[List[str]] = None,
     classes: Optional[List[str]] = None,
@@ -247,7 +239,7 @@ def process_chunk(
     beta: Optional[bool] = True,
     prerelease: Optional[bool] = True,
     only3d: Optional[bool] = False,
-    endpoint: [str] = Endpoint.FEATURE.value,
+    endpoint: str = Endpoint.FEATURE.value,
     url_root: Optional[str] = DEFAULT_URL_ROOT,
     system_version_prefix: Optional[str] = None,
     system_version: Optional[str] = None,
@@ -261,7 +253,6 @@ def process_chunk(
         parcel_gdf: Parcel set
         classes_df: Classes in output
         output_dir: Directory to save data to
-        config: Dictionary of minimum areas and confidences.
         packs: AI packs to include. Defaults to all packs
         classes: List of feature class IDs (UUIDs) to include in the output.
         calc_buffers: Whether to calculate buffered features (compute expensive).
@@ -373,7 +364,7 @@ def process_chunk(
 
             # Filter features
             len_all_features = len(features_gdf)
-            features_gdf = parcels.filter_features_in_parcels(features_gdf, config=config, aoi_gdf=parcel_gdf, region=country)
+            features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
             len_filtered_features = len(features_gdf)
             logger.debug(
                 f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
@@ -517,14 +508,6 @@ def main():
             # Remove classes in classes_df that are not in args.classes
             classes_df = classes_df[classes_df.index.isin(args.classes)]
 
-    # Parse config
-    if args.config_file is not None:
-        # TODO: Add validation of the config file in future to strictly enforce valid feature class ids.
-        with open(args.config_file, "r") as fp:
-            config = json.load(fp)
-    else:
-        config = None
-
     # Loop over parcel files
     for f in parcel_paths:
         logger.info(f"Processing parcel file {f}")
@@ -617,7 +600,6 @@ def main():
                             batch,
                             classes_df,
                             args.output_dir,
-                            config,
                             args.country,
                             args.packs,
                             args.classes,
