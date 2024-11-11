@@ -57,36 +57,12 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
 
 class TestParcels:
     def test_filter(self, features_2_gdf, parcels_2_gdf):
-        assert len(features_2_gdf) == 1409
         f_gdf = features_2_gdf[features_2_gdf.class_id == ROOF_ID]
-        assert len(f_gdf) == 161
+        assert len(f_gdf) == 154
         country = "us"
-        config = {
-            "min_size": {
-                ROOF_ID: 4,
-            },
-            "min_confidence": {
-                ROOF_ID: 0.65,
-            },
-            "min_fidelity": {
-                ROOF_ID: 0.15,
-            },
-            "min_area_in_parcel": {
-                ROOF_ID: 4,
-            },
-            "min_ratio_in_parcel": {
-                ROOF_ID: 0,
-            },
-            "building_style_filtering": {
-                BUILDING_LIFECYCLE_ID: True,
-                BUILDING_ID: True,
-                BUILDING_NEW_ID: True,
-                ROOF_ID: True,
-            },
-        }
-        filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, config=config, aoi_gdf=parcels_2_gdf)
-        assert len(filtered_gdf) == 127 # Manually checked that four buildings should be removed from the 131, as they visually don't belong in the parcel.
-        assert not (filtered_gdf.confidence < 0.65).any()
+        filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, aoi_gdf=parcels_2_gdf)
+        assert len(filtered_gdf) == 130
+        assert not (filtered_gdf.confidence < 0.58).any()
         assert not (filtered_gdf.unclipped_area_sqm < 4).any()
         assert not (filtered_gdf.fidelity < 0.15).any()
 
@@ -463,7 +439,7 @@ class TestParcels:
         assert len(features_gdf.aoi_id.unique()) == len(parcel_gdf)
 
         features_gdf_filtered = parcels.filter_features_in_parcels(
-            features_gdf, config=None, aoi_gdf=parcel_gdf, region=country
+            features_gdf, aoi_gdf=parcel_gdf, region=country
         )
         assert (
             len(features_gdf) > len(features_gdf_filtered) * 0.95
@@ -528,7 +504,6 @@ class TestParcels:
         country = "us"
         classes_df = pd.DataFrame([
             {"id": ROOF_ID, "description": "roof"},
-            {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ]).set_index("id")
@@ -565,9 +540,9 @@ class TestParcels:
             "Polygon ((-74.06416616471615555 40.65346976328397233, -74.06416616471615555 40.6752980952800911, -74.02222033693037417 40.6752980952800911, -74.02222033693037417 40.65346976328397233, -74.06416616471615555 40.65346976328397233))"
         )
         country = "us"
-        date_1 = "2022-02-27"
-        date_2 = "2022-02-27"
-        packs = ["building", "surfaces"]
+        date_1 = "2021-10-10"
+        date_2 = "2021-10-28"
+        classes = [ROOF_ID, WATER_BODY_ID]
         aoi_id = 42
 
         parcels_gdf = gpd.GeoDataFrame(
@@ -575,33 +550,17 @@ class TestParcels:
         )
 
         classes_df = pd.DataFrame(
-            {"id": BUILDING_ID, "description": "building"}, {"id": WATER_BODY_ID, "description": "water_body"}
+            {"id": ROOF_ID, "description": "roof"}, {"id": WATER_BODY_ID, "description": "water_body"}
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2)
         print(metadata)
-        config = {
-            "min_size": {
-                BUILDING_ID: 4,
-            },
-            "min_confidence": {
-                BUILDING_ID: 0.65,
-            },
-            "min_fidelity": {
-                BUILDING_ID: 0.4, # This is not the default, but serves the purpose of the test
-            },
-            "min_area_in_parcel": {
-                BUILDING_ID: 4,
-            },
-            "min_ratio_in_parcel": {
-                BUILDING_ID: 0.0,
-            },
-        }
         features_gdf = parcels.filter_features_in_parcels(
-            features_gdf, config=config, region=country, aoi_gdf=parcels_gdf
+            features_gdf, region=country, aoi_gdf=parcels_gdf
         )
-        print(features_gdf)
+        print(features_gdf.T)
+        print(features_gdf.description.value_counts())
         df = parcels.parcel_rollup(
             parcels_gdf,
             features_gdf,
@@ -610,8 +569,7 @@ class TestParcels:
             calc_buffers=False,
             primary_decision="largest_intersection",
         )
-        print(df.T)
-        assert df.loc[0, "building_count"] < 1
+        assert df.loc[0, "roof_count"] < 1
 
     def test_rollup_snake_geometry(self, cache_directory: Path):
         """

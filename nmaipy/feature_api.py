@@ -11,6 +11,8 @@ import time
 from typing import Dict, List, Optional, Tuple, Union
 import uuid
 from io import StringIO
+import contextlib
+from functools import wraps
 
 import gzip
 import geopandas as gpd
@@ -113,6 +115,34 @@ class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
     pass
 
 
+# Add these helper functions at the top of ai_offline_parcel.py
+def close_sessions(sessions):
+    """Helper function to properly close request sessions"""
+    for session in sessions:
+        try:
+            session.close()
+        except:
+            pass
+
+
+def cleanup_executor(executor):
+    """Helper function to cleanup executor and its sessions"""
+    try:
+        # Get any sessions stored on the executor's threads
+        sessions = []
+        for thread in executor._threads:
+            if hasattr(thread, "_local") and hasattr(thread._local, "session"):
+                sessions.append(thread._local.session)
+
+        # Close all sessions
+        close_sessions(sessions)
+
+        # Shutdown the executor
+        executor.shutdown(wait=True)
+    except:
+        pass
+
+
 class FeatureApi:
     """
     Class to connect to the AI Feature API
@@ -148,6 +178,8 @@ class FeatureApi:
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: Optional[str] = None,
         system_version: Optional[str] = None,
+        aoi_grid_min_pct: Optional[int] = 100,
+        aoi_grid_inexact: Optional[bool] = False,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -166,6 +198,8 @@ class FeatureApi:
             url_root: The root URL for the API. Default is the bulk API.
             system_version_prefix: Prefix for the system version (e.g. "gen6-" to restrict to gen 6 results)
             system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
+            aoi_grid_min_pct: Minimum percentage of sub-gridded squares the AOI must get valid responses from.
+            aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             maxretry: Number of retries to attempt on a failed request
         """
 
@@ -174,7 +208,6 @@ class FeatureApi:
         self.FEATURES_DAMAGE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/features.json"
         self.ROLLUPS_CSV_URL = URL_ROOT + "/rollups.csv"
         self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
-        self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/surveyresources"
         self.CLASSES_URL = URL_ROOT + "/classes.json"
         self.PACKS_URL = URL_ROOT + "/packs.json"
 
@@ -193,6 +226,8 @@ class FeatureApi:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
         self._sessions = []
         self._thread_local = threading.local()
+        self._lock = threading.Lock()  # Add lock for thread-safe session management
+
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
         self.workers = workers
@@ -203,13 +238,27 @@ class FeatureApi:
         self.only3d = only3d
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
+        self.aoi_grid_min_pct = aoi_grid_min_pct
+        self.aoi_grid_inexact = aoi_grid_inexact
         self.maxretry = maxretry
 
-    @property
-    def _session(self) -> requests.Session:
-        """
-        Return a request session with retrying configured.
-        """
+    def __del__(self):
+        """Cleanup when instance is destroyed"""
+        self.cleanup()
+
+    def cleanup(self):
+        """Clean up all sessions"""
+        with self._lock:
+            for session in self._sessions:
+                try:
+                    session.close()
+                except:
+                    pass
+            self._sessions.clear()
+
+    @contextlib.contextmanager
+    def _session_scope(self):
+        """Thread-safe context manager for session lifecycle"""
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
@@ -218,7 +267,6 @@ class FeatureApi:
                 backoff_factor=0.05,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
-                    # HTTPStatus.INTERNAL_SERVER_ERROR,
                     HTTPStatus.BAD_GATEWAY,
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 ],
@@ -228,26 +276,27 @@ class FeatureApi:
                 HTTPAdapter(max_retries=retries, pool_maxsize=self.POOL_SIZE, pool_connections=self.POOL_SIZE),
             )
             self._thread_local.session = session
-            self._sessions.append(session)
-        return session
+            with self._lock:
+                self._sessions.append(session)
+        try:
+            yield session
+        finally:
+            pass # Don't close here - keep session alive for thread reuse
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
         Return a result from one of the base URLS (such as packs or classes)
         """
-        request_string = f"{base_url}?apikey={self.api_key}"
-        if self.alpha:
-            request_string += "&alpha=true"
-        if self.beta:
-            request_string += "&beta=true"
-        # Request data
-        response = self._session.get(request_string)
-        # Check for errors
-        if not response.ok:
-            # Fail hard for unexpected errors
-            raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
-        data = response.json()
-        return response, data
+        with self._session_scope() as session:
+            request_string = f"{base_url}?apikey={self.api_key}"
+            if self.alpha:
+                request_string += "&alpha=true"
+            if self.beta:
+                request_string += "&beta=true"
+            response = session.get(request_string)
+            if not response.ok:
+                raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
+            return response, response.json()
 
     def get_packs(self) -> Dict[str, List[str]]:
         """
@@ -443,9 +492,6 @@ class FeatureApi:
         urlbase = base_url
         if survey_resource_id is not None:
             urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        if survey_resource_id is not None and packs is not None:
-            if "damage" in packs or "damage_non_postcat" in packs:
-                urlbase = f"{self.FEATURES_DAMAGE_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
         if geometry is not None:
             coordstring, exact = self._geometry_to_coordstring(geometry)
             request_string = f"{urlbase}?polygon={coordstring}&apikey={self.api_key}"
@@ -558,133 +604,133 @@ class FeatureApi:
         Returns:
             API response as a Dictionary
         """
-
-        # Create request string
-        if result_type == self.API_TYPE_FEATURES:
-            base_url = self.FEATURES_URL
-            if packs is not None:
-                if "damage" in packs or "damage_non_postcat" in packs:
-                    base_url = self.FEATURES_DAMAGE_URL
-        elif result_type == self.API_TYPE_ROLLUPS:
-            base_url = self.ROLLUPS_CSV_URL
-        request_string, exact = self._create_request_string(
-            base_url=base_url,
-            geometry=geometry,
-            packs=packs,
-            classes=classes,
-            since=since,
-            until=until,
-            address_fields=address_fields,
-            survey_resource_id=survey_resource_id,
-        )
-        if not exact and result_type == self.API_TYPE_ROLLUPS:
-            raise AIFeatureAPIError(
-                response=None,
-                request_string=self._clean_api_key(request_string),
-                text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
-                message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+        with self._session_scope() as session:
+            # Create request string
+            if result_type == self.API_TYPE_FEATURES:
+                base_url = self.FEATURES_URL
+                if packs is not None:
+                    if "damage" in packs or "damage_non_postcat" in packs:
+                        base_url = self.FEATURES_DAMAGE_URL
+            elif result_type == self.API_TYPE_ROLLUPS:
+                base_url = self.ROLLUPS_CSV_URL
+            request_string, exact = self._create_request_string(
+                base_url=base_url,
+                geometry=geometry,
+                packs=packs,
+                classes=classes,
+                since=since,
+                until=until,
+                address_fields=address_fields,
+                survey_resource_id=survey_resource_id,
             )
-        logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
-        cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
+            if not exact and result_type == self.API_TYPE_ROLLUPS:
+                raise AIFeatureAPIError(
+                    response=None,
+                    request_string=self._clean_api_key(request_string),
+                    text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+                    message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+                )
+            logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
+            cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
-        # Check if it's already cached
-        if self.cache_dir is not None and not self.overwrite_cache:
-            if cache_path.exists():
-                # logger.debug(f"Retrieving payload from cache")
-                if self.compress_cache:
-                    with gzip.open(cache_path, "rt", encoding="utf-8") as f:
-                        try:
-                            payload_str = f.read()
-                            return json.loads(payload_str)
-                        except EOFError as e:
-                            logger.error(f"Error loading compressed cache file {cache_path}.")
-                            logger.error(payload_str)
-                else:
-                    with open(cache_path, "r") as f:
-                        return json.load(f)
+            # Check if it's already cached
+            if self.cache_dir is not None and not self.overwrite_cache:
+                if cache_path.exists():
+                    # logger.debug(f"Retrieving payload from cache")
+                    if self.compress_cache:
+                        with gzip.open(cache_path, "rt", encoding="utf-8") as f:
+                            try:
+                                payload_str = f.read()
+                                return json.loads(payload_str)
+                            except EOFError as e:
+                                logger.error(f"Error loading compressed cache file {cache_path}.")
+                                logger.error(payload_str)
+                    else:
+                        with open(cache_path, "r") as f:
+                            return json.load(f)
 
-        # Request data
-        t1 = time.monotonic()
-        try:
-            response = self._session.get(request_string, timeout=TIMEOUT_SECONDS)
-        except requests.exceptions.ChunkedEncodingError:
-            logger.info(f"ChunkedEncodingError for {self._clean_api_key(request_string)}")
-            self._handle_response_errors(None, request_string)
-
-        response_time_ms = (time.monotonic() - t1) * 1e3
-
-        if response.ok:
-            # logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
-
-            if result_type == self.API_TYPE_ROLLUPS:
-                data = response.text
-            elif result_type == self.API_TYPE_FEATURES:
-                try:
-                    data = response.json()
-                except Exception as e:
-                    logging.warning("Error parsing JSON response from API.")
-                    raise AIFeatureAPIError(response, request_string)
-                # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
-                if not exact:
-                    # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
-                    data_features_geoms = gpd.GeoSeries(
-                        [shape(f["geometry"]) for f in data["features"]], crs=API_CRS, name="geometry"
-                    )
-                    keep_inds = data_features_geoms[data_features_geoms.intersects(geometry)].index
-                    data["features"] = [data["features"][i] for i in keep_inds]
-                    if len(data["features"]) > 0:
-                        gdf_unclipped = data_features_geoms[keep_inds]
-                        gdf_unclipped.index = range(len(keep_inds))
-
-                        # gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
-                        gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
-
-                        for i, feature in enumerate(data["features"]):
-                            data["features"][i]["clippedAreaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-                            data["features"][i]["clippedAreaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
-
-                            if feature["classId"] in CONNECTED_CLASS_IDS:
-                                # Replace geometry, with geojson style mapped clipped geometry
-                                data["features"][i]["geometry"] = shapely.geometry.mapping(gdf_clip.loc[i, "geometry"])
-                                data["features"][i]["areaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
-                                data["features"][i]["areaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
-
-            # Save to cache if configured
-            if self.cache_dir is not None:
-                self._write_to_cache(cache_path, data)
-            return data
-        else:
+            # Request data
+            t1 = time.monotonic()
             try:
-                status_code = response.status_code
+                response = session.get(request_string, timeout=TIMEOUT_SECONDS)
             except requests.exceptions.ChunkedEncodingError:
-                status_code = ""
-            try:
-                text = response.text
-            except requests.exceptions.ChunkedEncodingError:
-                text = ""
+                logger.info(f"ChunkedEncodingError for {self._clean_api_key(request_string)}")
+                self._handle_response_errors(None, request_string)
 
-            # logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
-            if self.overwrite_cache:
-                # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
+            response_time_ms = (time.monotonic() - t1) * 1e3
+
+            if response.ok:
+                # logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
+
+                if result_type == self.API_TYPE_ROLLUPS:
+                    data = response.text
+                elif result_type == self.API_TYPE_FEATURES:
+                    try:
+                        data = response.json()
+                    except Exception as e:
+                        logging.warning("Error parsing JSON response from API.")
+                        raise AIFeatureAPIError(response, request_string)
+                    # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
+                    if not exact:
+                        # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
+                        data_features_geoms = gpd.GeoSeries(
+                            [shape(f["geometry"]) for f in data["features"]], crs=API_CRS, name="geometry"
+                        )
+                        keep_inds = data_features_geoms[data_features_geoms.intersects(geometry)].index
+                        data["features"] = [data["features"][i] for i in keep_inds]
+                        if len(data["features"]) > 0:
+                            gdf_unclipped = data_features_geoms[keep_inds]
+                            gdf_unclipped.index = range(len(keep_inds))
+
+                            # gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
+                            gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
+
+                            for i, feature in enumerate(data["features"]):
+                                data["features"][i]["clippedAreaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                                data["features"][i]["clippedAreaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
+
+                                if feature["classId"] in CONNECTED_CLASS_IDS:
+                                    # Replace geometry, with geojson style mapped clipped geometry
+                                    data["features"][i]["geometry"] = shapely.geometry.mapping(gdf_clip.loc[i, "geometry"])
+                                    data["features"][i]["areaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
+                                    data["features"][i]["areaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
+
+                # Save to cache if configured
+                if self.cache_dir is not None:
+                    self._write_to_cache(cache_path, data)
+                return data
+            else:
                 try:
-                    os.remove(cache_path)
-                except OSError:
-                    pass
+                    status_code = response.status_code
+                except requests.exceptions.ChunkedEncodingError:
+                    status_code = ""
+                try:
+                    text = response.text
+                except requests.exceptions.ChunkedEncodingError:
+                    text = ""
 
-            if status_code in AIFeatureAPIRequestSizeError.status_codes:
-                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
-                raise AIFeatureAPIRequestSizeError(response, request_string)
-            elif status_code == HTTPStatus.BAD_REQUEST:
-                error_code = json.loads(text)["code"]
-                if error_code in AIFeatureAPIRequestSizeError.codes:
-                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
+                # logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
+                if self.overwrite_cache:
+                    # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
+                    try:
+                        os.remove(cache_path)
+                    except OSError:
+                        pass
+
+                if status_code in AIFeatureAPIRequestSizeError.status_codes:
+                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
                     raise AIFeatureAPIRequestSizeError(response, request_string)
+                elif status_code == HTTPStatus.BAD_REQUEST:
+                    error_code = json.loads(text)["code"]
+                    if error_code in AIFeatureAPIRequestSizeError.codes:
+                        logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
+                        raise AIFeatureAPIRequestSizeError(response, request_string)
+                    else:
+                        # Check for errors
+                        self._handle_response_errors(response, request_string)
                 else:
                     # Check for errors
                     self._handle_response_errors(response, request_string)
-            else:
-                # Check for errors
-                self._handle_response_errors(response, request_string)
 
     @staticmethod
     def link_to_date(link: str) -> str:
@@ -1048,12 +1094,9 @@ class FeatureApi:
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id
+                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id, aoi_grid_inexact=self.aoi_grid_inexact,
                     )
-                    if len(errors_df) == 0:
-                        error = None
-                    else:
-                        raise Exception("This shouldn't happen")
+                    error = None # Reset error if we got here without an exception
 
                     # Recombine gridded features
                     features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
@@ -1147,6 +1190,7 @@ class FeatureApi:
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
+        aoi_grid_inexact: Optional[bool] = False,
         grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
@@ -1185,17 +1229,25 @@ class FeatureApi:
                 since_bulk=since,
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
-                instant_fail_batch=True,
+                max_allowed_error_pct=100-self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
             logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error ({e.status_code}).")
             raise AIFeatureAPIGridError(e.status_code)
-        if len(features_gdf["survey_date"].unique()) > 1:
-            logger.warning(
-                f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
-            )
-            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
+        if len(features_gdf) == 0:
+            # Got no data back from any grid square in the AOI.
+            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
+        elif len(features_gdf["survey_date"].unique()) > 1:
+            if aoi_grid_inexact:
+                logger.info(
+                    f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
+                )
+            else:
+                logger.warning(
+                    f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+                )
+                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
         elif survey_resource_id is None:
             logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
@@ -1203,12 +1255,14 @@ class FeatureApi:
             # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
-            raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
-        else:
-            # Reset the correct aoi_id for the gridded result
-            features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
-            metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
-            return features_gdf, metadata_df, errors_df
+            logger.debug(f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}.")
+
+            # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+
+        # Reset the correct aoi_id for the gridded result
+        features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
+        metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
+        return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
         self,
@@ -1219,7 +1273,7 @@ class FeatureApi:
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
-        instant_fail_batch: Optional[bool] = False,
+        max_allowed_error_pct: Optional[int] = 100,
         fail_hard_regrid: Optional[bool] = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
@@ -1233,8 +1287,7 @@ class FeatureApi:
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
-            return all good data available.
+            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create a dataframe of errors and return all good data available.
             fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
                               getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
                                                                    get_features_gdf_bulk -> get_features_gdf
@@ -1242,71 +1295,79 @@ class FeatureApi:
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
-        if AOI_ID_COLUMN_NAME not in gdf.columns:
-            raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
-        elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
-            raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
-
-        # are address fields present?
-        has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
-        # is a geometry field present?
-        has_geom = "geometry" in gdf.columns
-
-        # Run in thread pool
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
-            jobs = []
-            for _, row in gdf.iterrows():
-                # Overwrite blanket since/until dates with per request since/until if columns are present
-                since = since_bulk
-                if SINCE_COL_NAME in row:
-                    if isinstance(row[SINCE_COL_NAME], str):
-                        since = row[SINCE_COL_NAME]
-                until = until_bulk
-                if UNTIL_COL_NAME in row:
-                    if isinstance(row[UNTIL_COL_NAME], str):
-                        until = row[UNTIL_COL_NAME]
-                survey_resource_id = survey_resource_id_bulk
-                if SURVEY_RESOURCE_ID_COL_NAME in row:
-                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+            try:
+                max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
 
-                jobs.append(
-                    executor.submit(
-                        self.get_features_gdf,
-                        row.geometry if has_geom else None,
-                        region,
-                        packs,
-                        classes,
-                        row[AOI_ID_COLUMN_NAME],
-                        since,
-                        until,
-                        {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
-                        survey_resource_id,
-                        fail_hard_regrid,
-                    )
-                )
-            data = []
-            metadata = []
-            errors = []
-            for i, job in enumerate(jobs):
-                aoi_data, aoi_metadata, aoi_error = job.result()
-                if aoi_data is not None:
-                    data.append(aoi_data)
-                if aoi_metadata is not None:
-                    metadata.append(aoi_metadata)
-                if aoi_error is not None:
-                    if instant_fail_batch:
-                        executor.shutdown(wait=True, cancel_futures=True)  # Needed to prevent memory leak.
-                        raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                    else:
-                        errors.append(aoi_error)
+                if AOI_ID_COLUMN_NAME not in gdf.columns:
+                    raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+                elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
+                    raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
+
+                # are address fields present?
+                has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
+                # is a geometry field present?
+                has_geom = "geometry" in gdf.columns
+
+                # Run in thread pool
+                with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+                    jobs = []
+                    for _, row in gdf.iterrows():
+                        # Overwrite blanket since/until dates with per request since/until if columns are present
+                        since = since_bulk
+                        if SINCE_COL_NAME in row:
+                            if isinstance(row[SINCE_COL_NAME], str):
+                                since = row[SINCE_COL_NAME]
+                        until = until_bulk
+                        if UNTIL_COL_NAME in row:
+                            if isinstance(row[UNTIL_COL_NAME], str):
+                                until = row[UNTIL_COL_NAME]
+                        survey_resource_id = survey_resource_id_bulk
+                        if SURVEY_RESOURCE_ID_COL_NAME in row:
+                            if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                                survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+
+                        jobs.append(
+                            executor.submit(
+                                self.get_features_gdf,
+                                row.geometry if has_geom else None,
+                                region,
+                                packs,
+                                classes,
+                                row[AOI_ID_COLUMN_NAME],
+                                since,
+                                until,
+                                {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                                survey_resource_id,
+                                fail_hard_regrid,
+                            )
+                        )
+                    data = []
+                    metadata = []
+                    errors = []
+                    for job in jobs:
+                        aoi_data, aoi_metadata, aoi_error = job.result()
+                        if aoi_data is not None:
+                            data.append(aoi_data)
+                        if aoi_metadata is not None:
+                            metadata.append(aoi_metadata)
+                        if aoi_error is not None:
+                            if len(errors) > max_allowed_error_count:
+                                cleanup_executor(executor)
+                                logger.debug(f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs.")
+                                raise AIFeatureAPIError(aoi_error, aoi_error["request"])
+                            else:
+                                errors.append(aoi_error)
+            finally:
+                executor.shutdown(wait=True)  # Ensure executor shuts down
+                self.cleanup()  # Clean up sessions after bulk operation
+
         # Combine results. reset_index() here because the index of the combined dataframes
         # is just the row number in the chunk submitted to each worker, and so we get an
         # index in the final dataframe that is not unique, and also not very useful.
         features_gdf = pd.concat(data).reset_index(drop=True) if len(data) > 0 else pd.DataFrame([])
         metadata_df = pd.DataFrame(metadata).reset_index(drop=True) if len(metadata) > 0 else pd.DataFrame([])
         errors_df = pd.DataFrame(errors).reset_index(drop=True) if len(errors) > 0 else pd.DataFrame([])
-
         return features_gdf, metadata_df, errors_df
 
     def get_rollup_df(
@@ -1435,8 +1496,7 @@ class FeatureApi:
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
-        instant_fail_batch: Optional[bool] = False,
-        fail_hard_regrid: Optional[bool] = False,
+        max_allowed_error_pct: Optional[int] = 100,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -1449,7 +1509,7 @@ class FeatureApi:
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            instant_fail_batch:  If true, raise an AIFeatureAPIError, otherwise create a dataframe of errors and
+            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create a dataframe of errors and
             return all good data available.
             fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
                               getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
@@ -1458,6 +1518,8 @@ class FeatureApi:
         Returns:
             API responses as rollup csv GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
+        max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
+
         if AOI_ID_COLUMN_NAME not in gdf.columns:
             raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
         elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
@@ -1470,50 +1532,54 @@ class FeatureApi:
 
         # Run in thread pool
         with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
-            jobs = []
-            for _, row in gdf.iterrows():
-                # Overwrite blanket since/until dates with per request since/until if columns are present
-                since = since_bulk
-                if SINCE_COL_NAME in row:
-                    if isinstance(row[SINCE_COL_NAME], str):
-                        since = row[SINCE_COL_NAME]
-                until = until_bulk
-                if UNTIL_COL_NAME in row:
-                    if isinstance(row[UNTIL_COL_NAME], str):
-                        until = row[UNTIL_COL_NAME]
-                survey_resource_id = survey_resource_id_bulk
-                if SURVEY_RESOURCE_ID_COL_NAME in row:
-                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+            try:
+                jobs = []
+                for _, row in gdf.iterrows():
+                    # Overwrite blanket since/until dates with per request since/until if columns are present
+                    since = since_bulk
+                    if SINCE_COL_NAME in row:
+                        if isinstance(row[SINCE_COL_NAME], str):
+                            since = row[SINCE_COL_NAME]
+                    until = until_bulk
+                    if UNTIL_COL_NAME in row:
+                        if isinstance(row[UNTIL_COL_NAME], str):
+                            until = row[UNTIL_COL_NAME]
+                    survey_resource_id = survey_resource_id_bulk
+                    if SURVEY_RESOURCE_ID_COL_NAME in row:
+                        if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                            survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
 
-                jobs.append(
-                    executor.submit(
-                        self.get_rollup_df,
-                        row.geometry if has_geom else None,
-                        region,
-                        packs,
-                        classes,
-                        row[AOI_ID_COLUMN_NAME],
-                        since,
-                        until,
-                        {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
-                        survey_resource_id,
+                    jobs.append(
+                        executor.submit(
+                            self.get_rollup_df,
+                            row.geometry if has_geom else None,
+                            region,
+                            packs,
+                            classes,
+                            row[AOI_ID_COLUMN_NAME],
+                            since,
+                            until,
+                            {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                            survey_resource_id,
+                        )
                     )
-                )
-            data = []
-            metadata = []
-            errors = []
-            for i, job in enumerate(jobs):
-                aoi_data, aoi_metadata, aoi_error = job.result()
-                if aoi_data is not None:
-                    data.append(aoi_data)
-                if aoi_metadata is not None:
-                    metadata.append(aoi_metadata)
-                if aoi_error is not None:
-                    if instant_fail_batch:
-                        raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                    else:
-                        errors.append(aoi_error)
+                data = []
+                metadata = []
+                errors = []
+                for job in jobs:
+                    aoi_data, aoi_metadata, aoi_error = job.result()
+                    if aoi_data is not None:
+                        data.append(aoi_data)
+                    if aoi_metadata is not None:
+                        metadata.append(aoi_metadata)
+                    if aoi_error is not None:
+                        if len(errors) > max_allowed_error_count:
+                            raise AIFeatureAPIError(aoi_error, aoi_error["request"])
+                        else:
+                            errors.append(aoi_error)
+            finally:
+                executor.shutdown(wait=True)  # Ensure cleanup
+                self.cleanup()  # Clean up sessions
         # Combine results
         # RANT: there can be some... unpleasantness... with multipolygons, missing primary roofs and dtypes.
         # Presence can be boolean, or converted to float if some parts of a multipolygon AOI request are NaN.

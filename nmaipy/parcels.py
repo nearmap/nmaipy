@@ -207,7 +207,7 @@ def read_from_file(
     return parcels_gdf
 
 
-def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str, config: Optional[dict] = None) -> gpd.GeoDataFrame:
+def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
      - Features that are considered noise (small or low confidence)
@@ -218,15 +218,11 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
 
     Args:
         features_gdf: Features data (see nmaipy.FeatureApi.get_features_gdf_bulk)
-        config: Config dictionary. Can have any or all keys as the default config
-                (see nmaipy.parcels.DEFAULT_FILTERING).
 
     Returns: Filtered features_gdf GeoDataFrame
     """
     if len(features_gdf) == 0:
         return features_gdf
-    if config is None:
-        config = {}
     gdf = features_gdf.copy()
 
     if "clipped_area_sqm" in gdf.columns and "unclipped_area_sqm" in gdf.columns:
@@ -237,22 +233,19 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
         raise Exception(
             f"We need consistent meters or feet to do filtering calculations, but we did not have the necessary columns... they are {gdf.columns.tolist()} in length {len(gdf)} dataframe"
         )
-    
+
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf["clipped_area_" + suffix] / gdf["unclipped_area_" + suffix]
     gdf["intersection_ratio"] = gdf["intersection_ratio"].fillna(1) # If unclipped area is zero, assume the feature is fully inside the parcel
 
     # Filter small features
-    filter = config.get("min_size", DEFAULT_FILTERING["min_size"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf["unclipped_area_" + suffix]]
+    gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_size"]).fillna(0) <= gdf["unclipped_area_" + suffix]]
 
     # Filter low confidence features
-    filter = config.get("min_confidence", DEFAULT_FILTERING["min_confidence"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.confidence]
+    gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_confidence"]).fillna(0) <= gdf.confidence]
 
     # Filter low fidelity features. If fidelity not present, assume 1 (perfect shape) to avoid rejection.
-    filter = config.get("min_fidelity", DEFAULT_FILTERING["min_fidelity"])
-    gdf = gdf[gdf.class_id.map(filter).fillna(0) <= gdf.fidelity.fillna(1)]
+    gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_fidelity"]).fillna(0) <= gdf.fidelity.fillna(1)]
 
     building_style_ids = DEFAULT_FILTERING["building_style_filtering"].keys()
     out_gdf_building_style = []
@@ -284,10 +277,8 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
             gdf = gdf_non_building_style
 
     # Filter based on area and ratio in parcel
-    filter = config.get("min_area_in_parcel", DEFAULT_FILTERING["min_area_in_parcel"])
-    area_mask = gdf.class_id.map(filter).fillna(0) <= gdf["clipped_area_" + suffix]
-    filter = config.get("min_ratio_in_parcel", DEFAULT_FILTERING["min_ratio_in_parcel"])
-    ratio_mask = gdf.class_id.map(filter).fillna(0) <= gdf.intersection_ratio
+    area_mask = gdf.class_id.map(DEFAULT_FILTERING["min_area_in_parcel"]).fillna(0) <= gdf["clipped_area_" + suffix]
+    ratio_mask = gdf.class_id.map(DEFAULT_FILTERING["min_ratio_in_parcel"]).fillna(0) <= gdf.intersection_ratio
     gdf = gdf[area_mask & ratio_mask]
 
     # Only drop objects where the parent has been explicitly removed as above (otherwise we drop solar panels without a building request, etc.)
@@ -690,7 +681,7 @@ def parcel_rollup(
     rollup_df = pd.DataFrame(rollups)
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
-    
+
     # Round any columns ending in _confidence to two decimal places (nearest percent)
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
