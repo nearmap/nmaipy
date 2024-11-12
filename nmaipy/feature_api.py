@@ -170,7 +170,7 @@ class FeatureApi:
         cache_dir: Optional[Path] = None,
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
-        workers: Optional[int] = 10,
+        threads: Optional[int] = 10,
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
         prerelease: Optional[bool] = False,
@@ -190,7 +190,7 @@ class FeatureApi:
             cache_dir: Directory to use as a payload cache
             overwrite_cache: Set to overwrite values stored in the cache
             compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
-            workers: Number of threads to spawn for concurrent execution
+            threads: Number of threads to spawn for concurrent execution
             alpha: Include alpha features
             beta: Include beta features
             prerelease: Include prerelease features
@@ -230,7 +230,7 @@ class FeatureApi:
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
-        self.workers = workers
+        self.threads = threads
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
@@ -1295,7 +1295,7 @@ class FeatureApi:
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
-        with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
             try:
                 max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
 
@@ -1310,7 +1310,7 @@ class FeatureApi:
                 has_geom = "geometry" in gdf.columns
 
                 # Run in thread pool
-                with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+                with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
                     jobs = []
                     for _, row in gdf.iterrows():
                         # Overwrite blanket since/until dates with per request since/until if columns are present
@@ -1531,7 +1531,7 @@ class FeatureApi:
         has_geom = "geometry" in gdf.columns
 
         # Run in thread pool
-        with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
             try:
                 jobs = []
                 for _, row in gdf.iterrows():

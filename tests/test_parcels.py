@@ -49,7 +49,7 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     from nmaipy.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, workers=1).get_features_gdf_bulk(
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1).get_features_gdf_bulk(
         parcels_2_gdf, packs=packs, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
     )
     features_gdf.to_csv(outfname, index=False)
@@ -600,7 +600,7 @@ class TestParcels:
             ]
         ).set_index("id")
 
-        feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, workers=4)
+        feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, threads=4)
         features_gdf, metadata, error = feature_api.get_features_gdf(
             aoi, country, packs, None, aoi_id, survey_resource_id=survey_resource_id
         )

@@ -49,20 +49,23 @@ class TestAIOfflineParcel:
         classes_df = feature_api.get_feature_classes(packs)
 
         print("Processing Chunk")
-        ai_offline_parcel.process_chunk(
-            chunk_id=chunk_id,
-            parcel_gdf=parcels_3_gdf,
-            classes_df=classes_df,
+        exporter = ai_offline_parcel.AOIExporter(
             output_dir=output_dir_rollup_api,
             country=country,
             packs=packs,
             include_parcel_geometry=True,
             save_features=False,
-            since_bulk="2022-10-29",
-            until_bulk="2022-10-29",
+            since="2022-10-29",
+            until="2022-10-29",
             alpha=False,
             beta=False,
             endpoint="rollup",
+        )
+        exporter.process_chunk(
+            chunk_id=chunk_id,
+            parcel_gdf=parcels_3_gdf,
+            classes_df=classes_df,
+
         )
 
         data_rollup_api_errors = []
@@ -99,17 +102,19 @@ class TestAIOfflineParcel:
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes(packs)
 
-        ai_offline_parcel.process_chunk(
-            chunk_id=chunk_id,
-            parcel_gdf=parcel_gdf_au_tests,
-            classes_df=classes_df,
+        exporter = ai_offline_parcel.AOIExporter(
             output_dir=output_dir,
             country=country,
             packs=packs,
             include_parcel_geometry=True,
             save_features=True,
             no_cache=True,
-            threads=8,
+            processes=8,
+        )
+        exporter.process_chunk(
+            chunk_id=chunk_id,
+            parcel_gdf=parcel_gdf_au_tests,
+            classes_df=classes_df,
         )
 
         assert chunk_path.exists()
@@ -148,6 +153,7 @@ class TestAIOfflineParcel:
         # TODO: Add asserts for presence of roof and building classes, and check for calculated columns.
         print(data.T)
 
+    @pytest.mark.skip(reason="Rollup API not yet updated to be compatible with output.")
     def test_process_chunk_rollup_vs_feature_calc(
         self, parcels_2_gdf: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
     ):
@@ -190,22 +196,25 @@ class TestAIOfflineParcel:
         classes_df = feature_api.get_feature_classes(packs)
 
         for endpoint, outdir in [("feature", output_dir), ("rollup", output_dir_rollup_api)]:
-            ai_offline_parcel.process_chunk(
-                chunk_id=chunk_id,
-                parcel_gdf=parcels_2_gdf,
-                classes_df=classes_df,
+            exporter = ai_offline_parcel.AOIExporter(
                 output_dir=outdir,
                 country=country,
                 packs=packs,
                 include_parcel_geometry=True,
                 save_features=False,
-                since_bulk="2022-06-29",
-                until_bulk="2022-06-29",
+                since="2022-06-29",
+                until="2022-06-29",
                 alpha=False,
                 beta=False,
                 prerelease=False,
                 endpoint=endpoint,
+                processes=8,
                 threads=20,
+            )
+            exporter.process_chunk(
+                chunk_id=chunk_id,
+                parcel_gdf=parcels_2_gdf,
+                classes_df=classes_df,
             )
 
         data_feature_api = []

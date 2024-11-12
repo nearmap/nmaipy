@@ -1,7 +1,6 @@
 import argparse
 import concurrent.futures
 import os
-import random
 from pathlib import Path
 from typing import List, Optional
 import json
@@ -85,11 +84,18 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
-        "--workers",
+        "--processes",
         help="Number of processes",
         type=int,
         required=False,
         default=PROCESSES,
+    )
+    parser.add_argument(
+        "--threads",
+        help="Number of threads",
+        type=int,
+        required=False,
+        default=THREADS,
     )
     parser.add_argument(
         "--chunk-size",
@@ -209,502 +215,466 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def api_key() -> str:
-    """
-    Get an API key. If a key file is specified a random key from the file will be returned.
-    """
-    return os.environ["API_KEY"]
+class AOIExporter:
+    def __init__(
+        self,
+        parcel_dir='default_parcel_dir',
+        output_dir='default_output_dir',
+        packs=None,
+        classes=None,
+        primary_decision='largest_intersection',
+        aoi_grid_min_pct=100,
+        aoi_grid_inexact=False,
+        processes=PROCESSES,
+        threads=THREADS,
+        chunk_size=CHUNK_SIZE,
+        calc_buffers=False,
+        include_parcel_geometry=False,
+        save_features=False,
+        rollup_format='csv',
+        cache_dir=None,
+        no_cache=False,
+        overwrite_cache=False,
+        compress_cache=False,
+        country='us',
+        alpha=False,
+        beta=False,
+        prerelease=False,
+        only3d=False,
+        since=None,
+        until=None,
+        endpoint='feature',
+        url_root=DEFAULT_URL_ROOT,
+        system_version_prefix=None,
+        system_version=None,
+        log_level='INFO',
+    ):
+        # Assign parameters to instance variables
+        self.parcel_dir = parcel_dir
+        self.output_dir = output_dir
+        self.packs = packs
+        self.classes = classes
+        self.primary_decision = primary_decision
+        self.aoi_grid_min_pct = aoi_grid_min_pct
+        self.aoi_grid_inexact = aoi_grid_inexact
+        self.processes = processes
+        self.threads = threads
+        self.chunk_size = chunk_size
+        self.calc_buffers = calc_buffers
+        self.include_parcel_geometry = include_parcel_geometry
+        self.save_features = save_features
+        self.rollup_format = rollup_format
+        self.cache_dir = cache_dir
+        self.no_cache = no_cache
+        self.overwrite_cache = overwrite_cache
+        self.compress_cache = compress_cache
+        self.country = country
+        self.alpha = alpha
+        self.beta = beta
+        self.prerelease = prerelease
+        self.only3d = only3d
+        self.since = since
+        self.until = until
+        self.endpoint = endpoint
+        self.url_root = url_root
+        self.system_version_prefix = system_version_prefix
+        self.system_version = system_version
+        self.log_level = log_level
 
-def process_chunk(
-    chunk_id: str,
-    parcel_gdf: gpd.GeoDataFrame,
-    classes_df: pd.DataFrame,
-    output_dir: str,
-    country: str,
-    packs: Optional[List[str]] = None,
-    classes: Optional[List[str]] = None,
-    calc_buffers: Optional[bool] = False,
-    include_parcel_geometry: Optional[bool] = False,
-    save_features: Optional[bool] = True,
-    primary_decision: str = "largest_intersection",
-    aoi_grid_min_pct: int = 100,
-    aoi_grid_inexact: Optional[bool] = False,
-    overwrite_cache: Optional[bool] = False,
-    compress_cache: Optional[bool] = False,
-    no_cache: Optional[bool] = False,
-    cache_dir: str = None,
-    since_bulk: str = None,
-    until_bulk: str = None,
-    alpha: Optional[bool] = True,
-    beta: Optional[bool] = True,
-    prerelease: Optional[bool] = True,
-    only3d: Optional[bool] = False,
-    endpoint: str = Endpoint.FEATURE.value,
-    url_root: Optional[str] = DEFAULT_URL_ROOT,
-    system_version_prefix: Optional[str] = None,
-    system_version: Optional[str] = None,
-    threads: Optional[int] = THREADS,
-):
-    """
-    Create a parcel rollup for a chuck of parcels.
+        # Configure logger
+        log.configure_logger(self.log_level)
+        self.logger = log.get_logger()
 
-    Args:
-        chunk_id: Used to save data for the chunk
-        parcel_gdf: Parcel set
-        classes_df: Classes in output
-        output_dir: Directory to save data to
-        packs: AI packs to include. Defaults to all packs
-        classes: List of feature class IDs (UUIDs) to include in the output.
-        calc_buffers: Whether to calculate buffered features (compute expensive).
-        include_parcel_geometry: Set to true to include parcel geometries in final output
-        save_features: Whether to save the vectors for all features as a geospatial file.
-        country: The country code for area calcs (au, us, ca, nz)
-        primary_decision: The basis on which the primary feature is chosen (largest_intersection|nearest)
-        aoi_grid_min_pct: The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful result (not 404) to return. Default is strict full coverage (100) required.,
-        aoi_grid_inexact: Permit inexact merging of large AOIs that get gridded, end up getting grid squares from multiple dates, then merging. Deduplication will work poorly for things like buildings.
-        compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
-        cache_dir: Place to store cache (absolute path of parent - "cache" and "rollup_cache" will be created within).
-        since_bulk: Earliest date used to pull features
-        until_bulk: Latest date used to pull features
-        alpha: Return alpha layers
-        beta: return beta layers
-        prerelease: Return data from pre-release system versions
-        only3d: Restrict date based queries to 3D data only
-        endpoint: Which endpoint to use - feature|rollup. Uses either local geospatial ops, or relies on API logic.
-        url_root: Overwrite the root URL with a custom one.
-        system_version_prefix: Restrict responses to a specific system version generation.
-        system_version: Restrict responses to a specific system version.
-        threads: Number of threads to use for parallel processing.
-    """
-    feature_api = None
-    try:
-        if cache_dir is None and not no_cache:
-            cache_dir = Path(output_dir)
+    def api_key(self) -> str:
+        return os.environ["API_KEY"]
 
-        if not no_cache:
-            cache_path = Path(cache_dir) / "cache"
-        else:
-            cache_path = None
+    def process_chunk(self, chunk_id: str, parcel_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
+        """
+        Create a parcel rollup for a chunk of parcels.
+        """
+        feature_api = None
+        try:
+            if self.cache_dir is None and not self.no_cache:
+                cache_dir = Path(self.output_dir)
+            else:
+                cache_dir = Path(self.cache_dir) if self.cache_dir else Path(self.output_dir)
 
-        chunk_path = Path(output_dir) / "chunks"
-        outfile = chunk_path / f"rollup_{chunk_id}.parquet"
-        outfile_features = chunk_path / f"features_{chunk_id}.parquet"
-        outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
-        if outfile.exists():
-            return
+            if not self.no_cache:
+                cache_path = cache_dir / "cache"
+            else:
+                cache_path = None
 
-        # Get additional parcel attributes from parcel geometry
-        if isinstance(parcel_gdf, gpd.GeoDataFrame):
-            rep_point = parcel_gdf.representative_point()
-            parcel_gdf["query_aoi_lat"] = rep_point.y
-            parcel_gdf["query_aoi_lon"] = rep_point.x
-
-        # Get features
-        feature_api = FeatureApi(
-            api_key=api_key(),
-            cache_dir=cache_path,
-            overwrite_cache=overwrite_cache,
-            compress_cache=compress_cache,
-            workers=threads,
-            alpha=alpha,
-            beta=beta,
-            prerelease=prerelease,
-            only3d=only3d,
-            url_root=url_root,
-            system_version_prefix=system_version_prefix,
-            system_version=system_version,
-            aoi_grid_min_pct=aoi_grid_min_pct,
-            aoi_grid_inexact=aoi_grid_inexact,
-        )
-        if endpoint == Endpoint.ROLLUP.value:
-            logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({endpoint=})")
-            rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
-                parcel_gdf,
-                region=country,
-                since_bulk=since_bulk,
-                until_bulk=until_bulk,
-                packs=packs,
-                classes=classes,
-                max_allowed_error_pct=100,
-            )
-            logger.debug(f"Finished rollup for chunk {chunk_id} from feature endpoint.")
-            rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
-            logger.info(
-                f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-            )
-            if len(errors_df) > 0:
-                if "message" in errors_df:
-                    logger.debug(errors_df.value_counts("message"))
-                else:
-                    logger.debug(f"Found {len(errors_df)} errors")
-            if len(errors_df) == len(parcel_gdf):
-                errors_df.to_parquet(outfile_errors)
-                return
-            logger.debug(f"Finished pulling rollup for chunk {chunk_id} from rollup endpoint.")
-        elif endpoint == Endpoint.FEATURE.value:
-            logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs({endpoint=})")
-            features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-                parcel_gdf,
-                region=country,
-                since_bulk=since_bulk,
-                until_bulk=until_bulk,
-                packs=packs,
-                classes=classes,
-                max_allowed_error_pct=100,
-            )
-            logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
-            if len(errors_df) > 0:
-                if "message" in errors_df:
-                    logger.debug(errors_df.value_counts("message"))
-                else:
-                    logger.debug(f"Found {len(errors_df)} errors")
-            if len(errors_df) == len(parcel_gdf):
-                errors_df.to_parquet(outfile_errors)
+            chunk_path = Path(self.output_dir) / "chunks"
+            outfile = chunk_path / f"rollup_{chunk_id}.parquet"
+            outfile_features = chunk_path / f"features_{chunk_id}.parquet"
+            outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
+            if outfile.exists():
                 return
 
-            # Filter features
-            len_all_features = len(features_gdf)
-            features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
-            len_filtered_features = len(features_gdf)
-            logger.debug(
-                f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-            )
+            # Get additional parcel attributes from parcel geometry
+            if isinstance(parcel_gdf, gpd.GeoDataFrame):
+                rep_point = parcel_gdf.representative_point()
+                parcel_gdf["query_aoi_lat"] = rep_point.y
+                parcel_gdf["query_aoi_lon"] = rep_point.x
 
-            # Create rollup
-            rollup_df = parcels.parcel_rollup(
-                parcel_gdf,
-                features_gdf,
-                classes_df,
-                country=country,
-                calc_buffers=calc_buffers,
-                primary_decision=primary_decision,
+            # Get features
+            feature_api = FeatureApi(
+                api_key=self.api_key(),
+                cache_dir=cache_path,
+                overwrite_cache=self.overwrite_cache,
+                compress_cache=self.compress_cache,
+                threads=self.threads,
+                alpha=self.alpha,
+                beta=self.beta,
+                prerelease=self.prerelease,
+                only3d=self.only3d,
+                url_root=self.url_root,
+                system_version_prefix=self.system_version_prefix,
+                system_version=self.system_version,
+                aoi_grid_min_pct=self.aoi_grid_min_pct,
+                aoi_grid_inexact=self.aoi_grid_inexact,
             )
+            if self.endpoint == Endpoint.ROLLUP.value:
+                self.logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(parcel_gdf)} AOIs ({self.endpoint=})")
+                rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
+                    parcel_gdf,
+                    region=self.country,
+                    since_bulk=self.since,
+                    until_bulk=self.until,
+                    packs=self.packs,
+                    classes=self.classes,
+                    max_allowed_error_pct=100,
+                )
+                rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
+                self.logger.info(
+                    f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+                )
+                if len(errors_df) > 0:
+                    if "message" in errors_df:
+                        self.logger.debug(errors_df.value_counts("message"))
+                    else:
+                        self.logger.debug(f"Found {len(errors_df)} errors")
+                if len(errors_df) == len(parcel_gdf):
+                    errors_df.to_parquet(outfile_errors)
+                    return
+            elif self.endpoint == Endpoint.FEATURE.value:
+                self.logger.debug(f"Chunk {chunk_id}: Getting features for {len(parcel_gdf)} AOIs ({self.endpoint=})")
+                features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+                    parcel_gdf,
+                    region=self.country,
+                    since_bulk=self.since,
+                    until_bulk=self.until,
+                    packs=self.packs,
+                    classes=self.classes,
+                    max_allowed_error_pct=100,
+                )
+                self.logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(parcel_gdf)} AOI requests.")
+                if len(errors_df) > 0:
+                    if "message" in errors_df:
+                        self.logger.debug(errors_df.value_counts("message"))
+                    else:
+                        self.logger.debug(f"Found {len(errors_df)} errors")
+                if len(errors_df) == len(parcel_gdf):
+                    errors_df.to_parquet(outfile_errors)
+                    return
+
+                # Filter features
+                len_all_features = len(features_gdf)
+                features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=self.country)
+                len_filtered_features = len(features_gdf)
+                self.logger.debug(
+                    f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+                )
+
+                # Create rollup
+                rollup_df = parcels.parcel_rollup(
+                    parcel_gdf,
+                    features_gdf,
+                    classes_df,
+                    country=self.country,
+                    calc_buffers=self.calc_buffers,
+                    primary_decision=self.primary_decision,
+                )
+            else:
+                self.logger.error(f"Not a valid endpoint selection: {self.endpoint}")
+                sys.exit(1)
+
+            # Put it all together and save
+            meta_data_columns = [
+                "system_version",
+                "link",
+                "date",
+                "survey_id",
+                "survey_resource_id",
+                "perspective",
+                "postcat",
+            ]
+            # Validate columns
+            for meta_data_column in meta_data_columns:
+                if meta_data_column in parcel_gdf.columns:
+                    metadata_df = metadata_df.rename(columns={meta_data_column: f"nmaipy_{meta_data_column}"})
+                    meta_data_columns.remove(meta_data_column)
+
+            final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
+            parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
+            columns = (
+                parcel_columns
+                + meta_data_columns
+                + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
+            )
+            if self.include_parcel_geometry:
+                columns.append("geometry")
+            columns = [c for c in columns if c in final_df.columns]
+            final_df = final_df[columns]
+            date2str = lambda d: str(d).replace("-", "")
+            make_link = (
+                lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
+            )
+            if self.endpoint == Endpoint.ROLLUP.value:
+                if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
+                    final_df["link"] = final_df.apply(make_link, axis=1)
+                final_df = final_df.drop(columns=["system_version", "date"])
+            self.logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
+            try:
+                errors_df.to_parquet(outfile_errors)
+            except Exception as e:
+                self.logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
+                self.logger.error(errors_df.shape)
+                self.logger.error(errors_df)
+            try:
+                final_df = final_df.convert_dtypes()
+                if self.include_parcel_geometry:
+                    final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
+                final_df.to_parquet(outfile)
+            except Exception as e:
+                self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
+                self.logger.error(final_df.shape)
+                self.logger.error(final_df)
+                self.logger.error(e)
+            if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
+                final_features_df = gpd.GeoDataFrame(
+                    metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
+                        parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
+                    ),
+                    crs=API_CRS,
+                )
+                if "aoi_geometry" in final_features_df.columns:
+                    final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
+                final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
+                if len(final_features_df) > 0:
+                    try:
+                        if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
+                            final_features_df = final_features_df.drop(columns=["aoi_geometry"])
+                        final_features_df = final_features_df[
+                            ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
+                        ]
+                        final_features_df.to_parquet(outfile_features)
+                    except Exception as e:
+                        self.logger.error(
+                            f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+                        )
+                        self.logger.error(e)
+            self.logger.debug(f"Finished saving chunk {chunk_id}")
+        finally:
+            if feature_api:
+                feature_api._sessions = []
+
+    def run(self):
+        self.logger.debug("Starting parcel rollup")
+        parcel_paths = []
+        for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
+            parcel_paths.extend(Path(self.parcel_dir).glob(file_type))
+        parcel_paths.sort()
+        self.logger.info(f"Running the following parcel files:")
+        for parcel_path in parcel_paths:
+            self.logger.info(f"\t{str(parcel_path)}")
+        cache_path = Path(self.output_dir) / "cache"
+        chunk_path = Path(self.output_dir) / "chunks"
+        final_path = Path(self.output_dir) / "final"
+        cache_path.mkdir(parents=True, exist_ok=True)
+        chunk_path.mkdir(parents=True, exist_ok=True)
+        final_path.mkdir(parents=True, exist_ok=True)
+        # Get classes
+        if self.packs is not None:
+            classes_df = FeatureApi(
+                api_key=self.api_key(), 
+                alpha=self.alpha, beta=self.beta, prerelease=self.prerelease, only3d=self.only3d
+            ).get_feature_classes(self.packs)
         else:
-            logger.error(f"Not a valid endpoint selection: {endpoint}")
-            # End the program if the endpoint is not valid.
-            sys.exit(1)
-
-        # Put it all together and save
-        meta_data_columns = [
-            "system_version",
-            "link",
-            "date",
-            "survey_id",
-            "survey_resource_id",
-            "perspective",
-            "postcat",
-        ] # Some of these columns are not present in the Rollup API output
-        # Validate that columns like survey_id and survey_resource_id in both the input file and API responses.
-        for meta_data_column in meta_data_columns:
-            if meta_data_column in parcel_gdf.columns:
-                # Test they are identical in contents for non NaN values. If there is, rename the column with a prefix.
-                metadata_df = metadata_df.rename(columns={meta_data_column: f"nmaipy_{meta_data_column}"})
-                meta_data_columns.remove(meta_data_column)
-
-        final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
-        # Order the columns: parcel properties, meta data, data, parcel geometry.
-        parcel_columns = [c for c in parcel_gdf.columns if c != "geometry"]
-        columns = (
-            parcel_columns
-            + meta_data_columns
-            + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
-        )
-        if include_parcel_geometry:
-            columns.append("geometry")
-        # Filter out columns that are not in the final_df
-        columns = [c for c in columns if c in final_df.columns]
-        final_df = final_df[columns]
-        date2str = lambda d: str(d).replace("-", "")
-        make_link = (
-            lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
-        )
-        if endpoint == Endpoint.ROLLUP.value:
-            if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
-                final_df["link"] = final_df.apply(make_link, axis=1)
-            final_df = final_df.drop(columns=["system_version", "date"])
-        logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
-        try:
-            errors_df.to_parquet(outfile_errors)
-        except Exception as e:
-            logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
-            logger.error(errors_df.shape)
-            logger.error(errors_df)
-        try:
-            final_df = final_df.convert_dtypes()
-            if include_parcel_geometry:
-                final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
-            final_df.to_parquet(outfile)
-        except Exception as e:
-            logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
-            logger.error(final_df.shape)
-            logger.error(final_df)
-            logger.error(e)
-
-        if save_features and (endpoint != Endpoint.ROLLUP.value):
-            # Save chunk's features as parquet, shift the parcel geometry to "aoi_geometry" if it exists.
-            final_features_df = gpd.GeoDataFrame(
-                metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
-                    parcel_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
-                ),
-                crs=API_CRS,
-            )
-            if "aoi_geometry" in final_features_df.columns:
-                final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
-            final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
-            if len(final_features_df) > 0:
+            classes_df = FeatureApi(
+                api_key=self.api_key(),
+                alpha=self.alpha,
+                beta=self.beta,
+                prerelease=self.prerelease,
+                only3d=self.only3d,
+            ).get_feature_classes(self.packs)
+            if self.classes is not None:
+                classes_df = classes_df[classes_df.index.isin(self.classes)]
+        # Loop over parcel files
+        for f in parcel_paths:
+            self.logger.info(f"Processing parcel file {f}")
+            outpath = final_path / f"{f.stem}.{self.rollup_format}"
+            outpath_features = final_path / f"{f.stem}_features.parquet"
+            if outpath.exists() and (outpath_features.exists() or not self.save_features):
+                self.logger.info(f"Output already exists, skipping {f.stem}")
+                continue
+            parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME)
+            if isinstance(parcels_gdf, gpd.GeoDataFrame):
+                parcels_gdf = parcels_gdf.to_crs(API_CRS)
+            else:
+                self.logger.info("No geometry found in parcel data - using address fields")
+                for field in ADDRESS_FIELDS:
+                    if field not in parcels_gdf:
+                        self.logger.error(f"Missing field {field} in parcel data")
+                        sys.exit(1)
+            if AOI_ID_COLUMN_NAME not in parcels_gdf:
+                self.logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
+                parcels_gdf[AOI_ID_COLUMN_NAME] = parcels_gdf.index
+            jobs = []
+            num_chunks = max(len(parcels_gdf) // self.chunk_size, 1)
+            self.logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
+            self.logger.info(f"Using endpoint '{self.endpoint}' for rollups.")
+            self.logger.debug(f"Splitting parcels into {num_chunks} chunks")
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="Geometry is in a geographic CRS.",
+                )
+                if isinstance(parcels_gdf, gpd.GeoDataFrame):
+                    parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
+                )
+                warnings.filterwarnings(
+                    "ignore",
+                    message="'DataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'DataFrame.transpose' instead.",
+                )
+                chunks = np.array_split(parcels_gdf, num_chunks)
+            processes = int(self.processes)
+            with concurrent.futures.ProcessPoolExecutor(processes) as executor:
                 try:
-                    if not include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
-                        final_features_df = final_features_df.drop(columns=["aoi_geometry"])
-                    final_features_df = final_features_df[
-                        ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
-                    ]
-                    final_features_df.to_parquet(outfile_features)
-                except Exception as e:
-                    logger.error(
-                        f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
-                    )
-                    logger.error(e)
-        logger.debug(f"Finished saving chunk {chunk_id}")
-    finally:
-        if feature_api:
-            feature_api._sessions = []
+                    for i, batch in enumerate(chunks):
+                        chunk_id = f"{f.stem}_{str(i).zfill(4)}"
+                        self.logger.debug(
+                            f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
+                        )
+                        jobs.append(
+                            executor.submit(
+                                self.process_chunk,
+                                chunk_id,
+                                batch,
+                                classes_df,
+                            )
+                        )
+                    for j in jobs:
+                        try:
+                            j.result()
+                        except Exception as e:
+                            self.logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
+                            self.logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
+                            executor.shutdown(wait=False)
+                            sys.exit(1)
+                finally:
+                    executor.shutdown(wait=True)
+            data = []
+            data_features = []
+            errors = []
+            self.logger.info(f"Saving rollup data as {self.rollup_format} file to {outpath}")
+            for i in range(num_chunks):
+                chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
+                cp = chunk_path / chunk_filename
+                if cp.exists():
+                    try:
+                        chunk = gpd.read_parquet(cp)
+                    except ValueError:
+                        chunk = pd.read_parquet(cp)
+                    if len(chunk) > 0:
+                        data.append(chunk)
+                else:
+                    error_filename = f"errors_{f.stem}_{str(i).zfill(4)}.parquet"
+                    if (chunk_path / error_filename).exists():
+                        self.logger.debug(f"Chunk {i} rollup file missing, but error file found.")
+                    else:
+                        self.logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
+                        sys.exit(1)
+            if len(data) > 0:
+                data = gpd.GeoDataFrame(pd.concat(data))
+            else:
+                data = pd.DataFrame(data)
+            if len(data) > 0:
+                data = data.set_index(AOI_ID_COLUMN_NAME)
+                if "index" in data.columns:
+                    data = data.drop(columns=["index"])
+                if self.rollup_format == "parquet":
+                    data.to_parquet(outpath, index=True)
+                elif self.rollup_format == "csv":
+                    if "geometry" in data.columns:
+                        data["geometry"] = data.geometry.to_wkt()
+                    data.to_csv(outpath, index=True)
+                else:
+                    self.logger.info("Invalid output format specified - reverting to csv")
+                    if "geometry" in data.columns:
+                        data["geometry"] = data.geometry.to_wkt()
+                    data.to_csv(outpath, index=True)
+            outpath_errors = final_path / f"{f.stem}_errors.csv"
+            self.logger.info(f"Saving error data as .csv to {outpath_errors}")
+            for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
+                errors.append(pd.read_parquet(cp))
+            if len(errors) > 0:
+                errors = pd.concat(errors)
+            else:
+                errors = pd.DataFrame(errors)
+            errors.to_csv(outpath_errors, index=True)
+            if self.save_features:
+                self.logger.info(f"Saving feature data as geoparquet to {outpath_features}")
+                feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
+                for cp in tqdm(feature_paths, total=len(feature_paths)):
+                    try:
+                        df_feature_chunk = gpd.read_parquet(cp)
+                    except Exception as e:
+                        self.logger.error(f"Failed to read {cp}.")
+                    data_features.append(df_feature_chunk)
+                if len(data_features) > 0:
+                    pd.concat(data_features).to_parquet(outpath_features)
 
 
 def main():
     args = parse_arguments()
-    # Configure logger
-    log.configure_logger(args.log_level)
-    logger.debug("Starting parcel rollup")
-    # Path setup
-    parcel_paths = []
-    for file_type in ["*.parquet", "*.csv", "*.psv", "*.tsv", "*.gpkg", "*.geojson"]:
-        parcel_paths.extend(Path(args.parcel_dir).glob(file_type))
-    parcel_paths.sort()
-    logger.info(f"Running the following parcel files:")
-    for parcel_path in parcel_paths:
-        logger.info(f"\t{str(parcel_path)}")
-
-    cache_path = Path(args.output_dir) / "cache"
-    chunk_path = Path(args.output_dir) / "chunks"
-    final_path = Path(args.output_dir) / "final"
-    cache_path.mkdir(parents=True, exist_ok=True)
-    chunk_path.mkdir(parents=True, exist_ok=True)
-    final_path.mkdir(parents=True, exist_ok=True)
-
-    # Get classes
-    if args.packs is not None:
-        classes_df = FeatureApi(api_key=api_key(), alpha=args.alpha, beta=args.beta, prerelease=args.prerelease, only3d=args.only3d).get_feature_classes(
-            args.packs
-        )
-    else:
-        classes_df = FeatureApi(
-            api_key=api_key(),
-            alpha=args.alpha,
-            beta=args.beta,
-            prerelease=args.prerelease,
-            only3d=args.only3d,
-        ).get_feature_classes(args.packs)
-        if args.classes is not None:
-            # Remove classes in classes_df that are not in args.classes
-            classes_df = classes_df[classes_df.index.isin(args.classes)]
-
-    # Loop over parcel files
-    for f in parcel_paths:
-        logger.info(f"Processing parcel file {f}")
-        # If output exists, skip
-        outpath = final_path / f"{f.stem}.{args.rollup_format}"
-        outpath_features = final_path / f"{f.stem}_features.parquet"
-
-        if outpath.exists() and (outpath_features.exists() or not args.save_features):
-            logger.info(f"Output already exist, skipping {f.stem}")
-            continue
-        # Read parcel data
-        parcels_gdf = parcels.read_from_file(f, id_column=AOI_ID_COLUMN_NAME)
-        if isinstance(parcels_gdf, gpd.GeoDataFrame):
-            parcels_gdf = parcels_gdf.to_crs(API_CRS)
-        else:
-            logger.info("No geometry found in parcel data - using address fields")
-            for field in ADDRESS_FIELDS:
-                if field not in parcels_gdf:
-                    logger.error(f"Missing field {field} in parcel data")
-                    sys.exit(1)
-
-        # Print out info around what is being inferred from column names:
-        if SURVEY_RESOURCE_ID_COL_NAME in parcels_gdf:
-            logger.info(
-                f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
-            )
-        else:
-            logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
-            if SINCE_COL_NAME in parcels_gdf:
-                logger.info(
-                    f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
-                )
-            elif args.since is not None:
-                logger.info(f"The since date of {args.since} will limit the earliest returned date for all Query AOIs")
-            else:
-                logger.info("No earliest date will used")
-            if UNTIL_COL_NAME in parcels_gdf:
-                logger.info(
-                    f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
-                )
-            elif args.until is not None:
-                logger.info(f"The until date of {args.until} will limit the latest returned date for all Query AOIs")
-            else:
-                logger.info("No latest date will used")
-
-        if AOI_ID_COLUMN_NAME not in parcels_gdf:
-            logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
-            parcels_gdf[AOI_ID_COLUMN_NAME] = parcels_gdf.index
-
-        jobs = []
-
-        # Figure out how many chunks to divide the query AOI set into. Set 1 chunk as min.
-        num_chunks = max(len(parcels_gdf) // args.chunk_size, 1)
-        logger.info(f"Exporting {len(parcels_gdf)} parcels as {num_chunks} chunk files.")
-        logger.info(f"Using endpoint '{args.endpoint}' for rollups.")
-        logger.debug(f"Splitting parcels into {num_chunks} chunks")
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="Geometry is in a geographic CRS.",
-            )
-            if isinstance(parcels_gdf, gpd.GeoDataFrame):
-                parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message="'DataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'DataFrame.transpose' instead.",
-            )
-            chunks = np.array_split(parcels_gdf, num_chunks)
-        processes = int(args.workers)
-        with concurrent.futures.ProcessPoolExecutor(processes) as executor:
-            try:
-                # Chunk parcels and send chunks to process pool
-                for i, batch in enumerate(chunks):
-                    chunk_id = f"{f.stem}_{str(i).zfill(4)}"
-                    logger.debug(
-                        (
-                            f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
-                        )
-                    )
-                    jobs.append(
-                        executor.submit(
-                            process_chunk,
-                            chunk_id,
-                            batch,
-                            classes_df,
-                            args.output_dir,
-                            args.country,
-                            args.packs,
-                            args.classes,
-                            args.calc_buffers,
-                            args.include_parcel_geometry,
-                            args.save_features,
-                            args.primary_decision,
-                            args.aoi_grid_min_pct,
-                            args.aoi_grid_inexact,
-                            args.overwrite_cache,
-                            args.compress_cache,
-                            args.no_cache,
-                            args.cache_dir,
-                            args.since,
-                            args.until,
-                            args.alpha,
-                            args.beta,
-                            args.prerelease,
-                            args.only3d,
-                            args.endpoint,
-                            args.url_root,
-                            args.system_version_prefix,
-                            args.system_version,
-                        )
-                    )
-                for j in jobs:
-                    try:
-                        j.result()
-                    except Exception as e:
-                        logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
-                        logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
-                        # Shut down the rest of the jobs
-                        executor.shutdown(wait=False)
-                        sys.exit(1)
-            finally:
-                # Ensure executor is shutdown properly
-                executor.shutdown(wait=True)
-        # Combine chunks and save
-        data = []
-        data_features = []
-        errors = []
-        # TODO: Add explicit check whether all chunks are found (some may have errored out). Currently fails silently and creates incomplete final files without further warning. List which chunks are missing.
-        logger.info(f"Saving rollup data as {args.rollup_format} file to {outpath}")
-        for i in range(num_chunks):  # Now attempt every chunk - so if one is missing, we error.
-            chunk_filename = f"rollup_{f.stem}_{str(i).zfill(4)}.parquet"
-            cp = chunk_path / chunk_filename
-            if cp.exists():
-                try:
-                    chunk = gpd.read_parquet(cp)
-                except ValueError:
-                    # Probably because chunk doesn't have a geometry - no parcel boundary saved
-                    chunk = pd.read_parquet(cp)
-                if len(chunk) > 0:
-                    data.append(chunk)
-            else:
-                error_filename = f"errors_{f.stem}_{str(i).zfill(4)}.parquet"
-                if (chunk_path / error_filename).exists():
-                    logger.debug(f"Chunk {i} rollup file missing, but error file found.")
-                else:
-                    logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
-                    # Break out of program to ensure we don't save a partially complete final csv.
-                    sys.exit(1)
-
-        if len(data) > 0:
-            data = gpd.GeoDataFrame(pd.concat(data))
-        else:
-            data = pd.DataFrame(data)
-
-        if len(data) > 0:
-            data = data.set_index(AOI_ID_COLUMN_NAME)
-            if "index" in data.columns:
-                data = data.drop(columns=["index"])
-            if args.rollup_format == "parquet":
-                data.to_parquet(outpath, index=True)
-            elif args.rollup_format == "csv":
-                if "geometry" in data.columns:
-                    data["geometry"] = data.geometry.to_wkt()
-                data.to_csv(outpath, index=True)
-            else:
-                logger.info("Invalid output format specified - reverting to csv")
-                data["geometry"] = data.geometry.to_wkt()
-                data.to_csv(outpath, index=True)
-
-        outpath_errors = final_path / f"{f.stem}_errors.csv"
-        logger.info(f"Saving error data as .csv to {outpath_errors}")
-        for cp in chunk_path.glob(f"errors_{f.stem}_*.parquet"):
-            errors.append(pd.read_parquet(cp))
-        if len(errors) > 0:
-            errors = pd.concat(errors)
-        else:
-            errors = pd.DataFrame(errors)
-        errors.to_csv(outpath_errors, index=True)
-
-        if args.save_features:
-            logger.info(f"Saving feature data as geoparquet to {outpath_features}")
-            feature_paths = [p for p in chunk_path.glob(f"features_{f.stem}_*.parquet")]
-            for cp in tqdm(feature_paths, total=len(feature_paths)):
-                try:
-                    df_feature_chunk = gpd.read_parquet(cp)
-                except Exception as e:
-                    logger.error(f"Failed to read {cp}.")
-                data_features.append(df_feature_chunk)
-            if len(data_features) > 0:
-                pd.concat(data_features).to_parquet(outpath_features)
-
+    exporter = AOIExporter(
+        parcel_dir=args.parcel_dir,
+        output_dir=args.output_dir,
+        packs=args.packs,
+        classes=args.classes,
+        primary_decision=args.primary_decision,
+        aoi_grid_min_pct=args.aoi_grid_min_pct,
+        aoi_grid_inexact=args.aoi_grid_inexact,
+        processes=args.processes,
+        threads=args.threads,
+        chunk_size=args.chunk_size,
+        calc_buffers=args.calc_buffers,
+        include_parcel_geometry=args.include_parcel_geometry,
+        save_features=args.save_features,
+        rollup_format=args.rollup_format,
+        cache_dir=args.cache_dir,
+        no_cache=args.no_cache,
+        overwrite_cache=args.overwrite_cache,
+        compress_cache=args.compress_cache,
+        country=args.country,
+        alpha=args.alpha,
+        beta=args.beta,
+        prerelease=args.prerelease,
+        only3d=args.only3d,
+        since=args.since,
+        until=args.until,
+        endpoint=args.endpoint,
+        url_root=args.url_root,
+        system_version_prefix=args.system_version_prefix,
+        system_version=args.system_version,
+        log_level=args.log_level,
+    )
+    exporter.run()
 
 if __name__ == "__main__":
     main()
