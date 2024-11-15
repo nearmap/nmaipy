@@ -151,19 +151,20 @@ def read_from_file(
 
     Returns: GeoDataFrame
     """
-    if path.suffix in (".csv", ".psv", ".tsv"):
-        if path.suffix == ".csv":
+    suffix = path.split(".")[-1]
+    if suffix in ("csv", "psv", "tsv"):
+        if suffix == "csv":
             parcels_gdf = pd.read_csv(path)
-        elif path.suffix == ".psv":
+        elif suffix == "psv":
             parcels_gdf = pd.read_csv(path, sep="|")
-        elif path.suffix == ".tsv":
+        elif suffix == "tsv":
             parcels_gdf = pd.read_csv(path, sep="\t")
-    elif path.suffix == ".parquet":
+    elif suffix == "parquet":
         parcels_gdf = gpd.read_parquet(path)
-    elif path.suffix in (".geojson", ".gpkg"):
+    elif suffix in ("geojson", "gpkg"):
         parcels_gdf = gpd.read_file(path)
     else:
-        raise NotImplemented(f"Source format not supported: {path.suffix=}")
+        raise NotImplementedError(f"Source format not supported: {suffix=}")
 
     if not "geometry" in parcels_gdf:
         logger.warning(f"Input file has no AOI geometries - some operations will not work.")

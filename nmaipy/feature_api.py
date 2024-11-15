@@ -504,6 +504,10 @@ class FeatureApi:
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
             logger.debug(f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates.")
         elif (since is not None) or (until is not None):
+            if since and not isinstance(since, str):
+                raise ValueError("Since must be a string")
+            if until and not isinstance(until, str):
+                raise ValueError("Until must be a string")
             if since:
                 request_string += f"&since={since}"
             if until:
