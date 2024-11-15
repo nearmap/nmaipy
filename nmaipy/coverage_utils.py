@@ -432,7 +432,7 @@ def get_coverage_from_survey_ids(
             )
             c_with_idx = []
             for j in range(len(c)):
-                row_id = df_point_chunk.iloc[j].name
+                row_id = df_point_chunk[id_col].iloc[j]
                 c_tmp = c[j].copy()
                 if len(c_tmp) > 0:
                     c_tmp[id_col] = row_id
