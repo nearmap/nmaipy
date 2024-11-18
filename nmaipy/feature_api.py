@@ -874,6 +874,7 @@ class FeatureApi:
         gdf_features = (
             gdf_features[gdf_features.intersects(geometry)]
             .drop_duplicates(subset=["feature_id"])
+            .reset_index()
             .set_index("feature_id")
         )
         gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
@@ -892,7 +893,7 @@ class FeatureApi:
                 gdf_features.loc[feature_id, "area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
                 gdf_features.loc[feature_id, "area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
         gdf_features["geometry"] = geom_column
-        return gdf_features.reset_index()
+        return gdf_features.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional = None) -> Tuple[gpd.GeoDataFrame, dict]:

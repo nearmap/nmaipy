@@ -266,7 +266,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
     if not isinstance(aoi_gdf, gpd.GeoDataFrame):
         logger.warning("AOI geometries not available, skipping building style filtering")
     else:
-        for aoi_id in aoi_gdf.index.unique(): # Loop over each AOI in the set
+        for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
             gdf_aoi = gdf.loc[[aoi_id]]
             gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
             if len(gdf_aoi_buildings) == 0:

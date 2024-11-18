@@ -49,7 +49,7 @@ class TestFeatureAPI:
             building_count == 2
         )  # Expect a single, joined building kept after filter, from two touching residential homes.
         # The AOI ID has been assigned
-        assert len(rollup_df[rollup_df.aoi_id == aoi_id]) == 1
+        assert len(rollup_df.loc[[aoi_id]]) == 1
         # Unclipped area should be about 450 sqm
         assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(275, rel=0.1)
 
@@ -71,7 +71,7 @@ class TestFeatureAPI:
         assert len(features_gdf) == 3
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 3
         # The AOI ID has been assigned
-        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 3
+        assert len(features_gdf.loc[[aoi_id]]) == 3
 
     def test_trim_features_to_aoi(self, cache_directory: Path):
         aoi = loads(
@@ -146,7 +146,7 @@ class TestFeatureAPI:
         assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
 
         # The AOI ID has been assigned to all features
-        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == len(features_gdf)
+        assert len(features_gdf.loc[[aoi_id]]) == len(features_gdf)
 
     def test_not_found(self, cache_directory: Path):
         # Somewhere in the Pacific
@@ -218,10 +218,10 @@ class TestFeatureAPI:
         aois = []
         for i in range(4):
             for j in range(4):
-                aois.append({"aoi_id": f"{i}_{j}", "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j)})
+                aois.append({AOI_ID_COLUMN_NAME: f"{i}_{j}", "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j)})
         # Add an AOI with an invalid type to test an error case - multipolygon of two separate chunks
 
-        aoi_gdf = gpd.GeoDataFrame(aois)
+        aoi_gdf = gpd.GeoDataFrame(aois).set_index(AOI_ID_COLUMN_NAME)
         date_1 = "2020-01-01"
         date_2 = "2020-12-01"
         country = "au"
@@ -260,14 +260,14 @@ class TestFeatureAPI:
             for j in range(4):
                 aois.append(
                     {
-                        "aoi_id": f"{i}_{j}",
+                        AOI_ID_COLUMN_NAME: f"{i}_{j}",
                         "since": "2020-01-01",
                         "until": "2020-03-01",
                         "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j),
                     }
                 )
 
-        aoi_gdf = gpd.GeoDataFrame(aois)
+        aoi_gdf = gpd.GeoDataFrame(aois).set_index(AOI_ID_COLUMN_NAME)
         country = "au"
         packs = ["building"]
 
@@ -326,7 +326,7 @@ class TestFeatureAPI:
         assert len(features_gdf) == 6
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 6
         # The AOI ID has been assigned
-        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 6
+        assert len(features_gdf.loc[[aoi_id]]) == 6
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 6
 
@@ -353,7 +353,7 @@ class TestFeatureAPI:
         assert len(features_gdf) == 10
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 10
         # The AOI ID has been assigned
-        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 10
+        assert len(features_gdf.loc[[aoi_id]]) == 10
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 10
 
@@ -384,7 +384,7 @@ class TestFeatureAPI:
         assert len(features_gdf) == 1
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
         # The AOI ID has been assigned
-        assert len(features_gdf[features_gdf.aoi_id == aoi_id]) == 1
+        assert len(features_gdf.loc[[aoi_id]]) == 1
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 1
 
@@ -520,7 +520,7 @@ class TestFeatureAPI:
         assert classes_df.loc[SOLAR_ID].description == "Solar Panel"
         assert classes_df.loc[SOLAR_HW_ID].description == "Solar Hot Water"
         assert len(classes_df) == 5
-        
+
     def test_unknown_pack(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
         with pytest.raises(ValueError) as excinfo:
