@@ -347,7 +347,7 @@ class AOIExporter:
                 )
                 rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
                 self.logger.info(
-                    f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
+                    f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df.index.unique())} unique {rollup_df.index.name}s."
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
@@ -382,9 +382,6 @@ class AOIExporter:
                 len_all_features = len(features_gdf)
                 features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=aoi_gdf, region=self.country)
                 len_filtered_features = len(features_gdf)
-                self.logger.debug(
-                    f"Chunk {chunk_id}:  Filtering removed {len_all_features-len_filtered_features} to leave {len_filtered_features} on {len(features_gdf[AOI_ID_COLUMN_NAME].unique())} unique {AOI_ID_COLUMN_NAME}s."
-                )
 
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
@@ -513,6 +510,7 @@ class AOIExporter:
             return
 
         aoi_gdf = parcels.read_from_file(aoi_path, id_column=AOI_ID_COLUMN_NAME)
+
         if isinstance(aoi_gdf, gpd.GeoDataFrame):
             aoi_gdf = aoi_gdf.to_crs(API_CRS)
         else:
@@ -546,10 +544,6 @@ class AOIExporter:
             else:
                 logger.info("No latest date will used")
 
-        if AOI_ID_COLUMN_NAME not in aoi_gdf:
-            self.logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
-            aoi_gdf[AOI_ID_COLUMN_NAME] = aoi_gdf.index
-
         jobs = []
         num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
         self.logger.info(f"Exporting {len(aoi_gdf)} AOIs as {num_chunks} chunk files.")
@@ -580,7 +574,7 @@ class AOIExporter:
                     # Use 'aoi_path' to construct chunk_id
                     chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
                     self.logger.debug(
-                        f"Parallel processing chunk {chunk_id} - min {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].min()}, max {AOI_ID_COLUMN_NAME} is {batch[AOI_ID_COLUMN_NAME].max()}"
+                        f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
                     )
                     jobs.append(
                         executor.submit(
@@ -626,9 +620,6 @@ class AOIExporter:
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
-            data = data.set_index(AOI_ID_COLUMN_NAME)
-            if "index" in data.columns:
-                data = data.drop(columns=["index"])
             if self.rollup_format == "parquet":
                 data.to_parquet(outpath, index=True)
             elif self.rollup_format == "csv":

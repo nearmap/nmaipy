@@ -63,7 +63,7 @@ class TestAIOfflineParcel:
         )
         exporter.process_chunk(
             chunk_id=chunk_id,
-            parcel_gdf=parcels_3_gdf,
+            aoi_gdf=parcels_3_gdf,
             classes_df=classes_df,
 
         )
@@ -113,7 +113,7 @@ class TestAIOfflineParcel:
         )
         exporter.process_chunk(
             chunk_id=chunk_id,
-            parcel_gdf=parcel_gdf_au_tests,
+            aoi_gdf=parcel_gdf_au_tests,
             classes_df=classes_df,
         )
 
@@ -213,7 +213,7 @@ class TestAIOfflineParcel:
             )
             exporter.process_chunk(
                 chunk_id=chunk_id,
-                parcel_gdf=parcels_2_gdf,
+                aoi_gdf=parcels_2_gdf,
                 classes_df=classes_df,
             )
 

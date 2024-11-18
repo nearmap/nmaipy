@@ -129,7 +129,7 @@ logger = log.get_logger()
 def read_from_file(
     path: Path,
     drop_empty: Optional[bool] = True,
-    id_column: Optional[str] = "id",
+    id_column: Optional[str] = AOI_ID_COLUMN_NAME,
     source_crs: Optional[str] = LAT_LONG_CRS,
     target_crs: Optional[str] = LAT_LONG_CRS,
 ) -> gpd.GeoDataFrame:
@@ -151,12 +151,15 @@ def read_from_file(
 
     Returns: GeoDataFrame
     """
-    suffix = path.split(".")[-1]
+    if isinstance(path, str):
+        suffix = path.split(".")[-1]
+    elif isinstance(path, Path):
+        suffix = path.suffix[1:]
     if suffix in ("csv", "psv", "tsv"):
         if suffix == "csv":
-            parcels_gdf = pd.read_csv(path)
+            parcels_gdf = pd.read_csv(path, index_col=id_column)
         elif suffix == "psv":
-            parcels_gdf = pd.read_csv(path, sep="|")
+            parcels_gdf = pd.read_csv(path, sep="|", index_col=id_column)
         elif suffix == "tsv":
             parcels_gdf = pd.read_csv(path, sep="\t")
     elif suffix == "parquet":
@@ -185,6 +188,7 @@ def read_from_file(
 
         # Drop any empty geometries
         if drop_empty:
+            num_dropped = len(parcels_gdf)
             parcels_gdf = parcels_gdf.dropna(subset=["geometry"])
             parcels_gdf = parcels_gdf[~parcels_gdf.is_empty]
             parcels_gdf = parcels_gdf[parcels_gdf.is_valid]
@@ -193,18 +197,25 @@ def read_from_file(
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
                 parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+            num_dropped -= len(parcels_gdf)
+            if num_dropped > 0:
+                logger.warning(f"Dropping {num_dropped} rows with empty or invalid geometries, or ones with zero area")
 
     if len(parcels_gdf) == 0:
         raise RuntimeError(f"No valid parcels in {path=}")
 
     # Check that identifier is unique
-    if id_column not in parcels_gdf:
-        parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
-        parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
-    if parcels_gdf[id_column].duplicated().any():
+    if parcels_gdf.index.name != id_column:
+        # Bump the index to a column in case it's important
+        parcels_gdf = parcels_gdf.reset_index()
+        if id_column not in parcels_gdf:
+            logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
+            parcels_gdf.index.name = id_column  # Set a new unique ordered index for reference
+        else: # The index must already be there as a column
+            logger.warning(f"Moving {AOI_ID_COLUMN_NAME} to be the index - generating unique IDs")
+            parcels_gdf = parcels_gdf.set_index(id_column)
+    if parcels_gdf.index.duplicated().any():
         raise ValueError(f"Duplicate IDs found for {id_column=}")
-
-    parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
     return parcels_gdf
 
 
@@ -255,12 +266,15 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
     if not isinstance(aoi_gdf, gpd.GeoDataFrame):
         logger.warning("AOI geometries not available, skipping building style filtering")
     else:
-        for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique(): # Loop over each AOI in the set
-            gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+        for aoi_id in aoi_gdf.index.unique(): # Loop over each AOI in the set
+            gdf_aoi = gdf.loc[[aoi_id]]
             gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
             if len(gdf_aoi_buildings) == 0:
                 continue # Skip if there are no buildings in the AOI
-            aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry # Get in metric projection for area/geospatial calcs in metres.
+            features_from_aoi = aoi_gdf.loc[[aoi_id]]
+            aoi_poly = (
+                features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
+            )  # Get in metric projection for area/geospatial calcs in metres.
             building_statuses = []
             for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
                 building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
@@ -289,7 +303,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
         no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
         gdf = gdf.loc[~parent_removed | no_parent]
 
-    return gdf.reset_index(drop=True)
+    return gdf
 
 
 def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
@@ -595,28 +609,29 @@ def parcel_rollup(
     """
     mu = MeasurementUnits(country)
     area_units = mu.area_units()
+    assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
+    assert features_gdf.index.name == AOI_ID_COLUMN_NAME
 
-    if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
+    if len(parcels_gdf.index.unique()) != len(parcels_gdf):
         raise Exception(
-            f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+            f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
     if primary_decision == "nearest":
         merge_cols = [
-            AOI_ID_COLUMN_NAME,
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
             "geometry",
         ]
     else:
-        merge_cols = [AOI_ID_COLUMN_NAME]
+        merge_cols = []
         if "geometry" in parcels_gdf.columns:
             merge_cols += ["geometry"]
 
-    df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
+    df = features_gdf.merge(parcels_gdf[merge_cols], left_index=True, right_index=True, suffixes=["_feature", "_aoi"])
 
     rollups = []
     # Loop over parcels with features in them
-    for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
+    for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
         if primary_decision == "nearest":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
@@ -633,7 +648,7 @@ def parcel_rollup(
             primary_lat = None
 
         if "geometry" in parcels_gdf.columns:
-            parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+            parcel_geom = parcels_gdf.loc[[aoi_id]]
             assert len(parcel_geom) == 1
             parcel_geom = parcel_geom.iloc[0].geometry
         else:
@@ -659,7 +674,7 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
-    for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
+    for row in parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame(
                 [],
@@ -676,10 +691,11 @@ def parcel_rollup(
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )
-        parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
+        parcel[AOI_ID_COLUMN_NAME] = row._asdict()["Index"]
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
+    rollup_df = rollup_df.set_index(AOI_ID_COLUMN_NAME)
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 
