@@ -519,7 +519,7 @@ class TestParcels:
         )
 
         # Test that all buffers fail when they're too large for the parcels.
-        assert df.filter(like="30ft_tree_zone").isna().all().all()
+        assert df.filter(like="30ft_tree_zone").isna().all().all() # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).

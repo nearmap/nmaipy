@@ -228,7 +228,7 @@ class AOIExporter:
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
-        calc_buffers=False,
+        calc_buffers=False, #TODO: Buffers need some work, not yet passing tests.
         include_parcel_geometry=False,
         save_features=False,
         rollup_format='csv',

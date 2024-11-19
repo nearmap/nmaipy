@@ -497,86 +497,90 @@ def feature_attributes(
                 parcel[f"primary_{name}_confidence"] = None
 
         if class_id == ROOF_ID:
-            # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
+            # Initialize buffers to None - only override with values if valid buffers can be produced
             if len(class_features_gdf) > 0 and calc_buffers:
+                # Initialize buffer results to None
                 for B in TREE_BUFFERS_M:
-                    parcel[f"roof_{B}_tree_zone_sqm"] = None
-                    parcel[f"roof_{B}_woodyveg_zone_sqm"] = None
-                    parcel[f"roof_count_{B}_roof_zone"] = None
+                    parcel[f"total_roof_{B}_tree_zone"] = None
+                    parcel[f"total_roof_{B}_woodyveg_zone"] = None
+                    parcel[f"total_roof_count_{B}"] = None
 
-                # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
-                rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
-                if (
-                    parcel[f"{name}_total_clipped_area_{area_units}"]
-                    < rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]
-                ):
-                    break
+                # Only proceed if all roofs are fully within the parcel
+                rounding_factor = 0.99  # Account for pre-calculated vs on-the-fly area calc differences
+                if (parcel[f"{name}_total_clipped_area_{area_units}"] >= 
+                    rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]):
 
-                # Create vegetation buffers.
-                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
-                if len(veg_medhigh_features_gdf) > 0:
-                    veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                        veg_medhigh_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
-                    )
-                veg_woody_features_gdf = features_gdf[features_gdf.class_id == VEG_WOODY_1107_ID]
-                if len(veg_woody_features_gdf) > 0:
-                    veg_woody_features_gdf = gpd.GeoDataFrame(
-                        veg_woody_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
-                    )
+                    # Convert everything to area-based CRS upfront
+                    area_crs = AREA_CRS[country]
+                    if parcel_geom is not None:
+                        parcel_geom_area = gpd.GeoSeries([parcel_geom], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
 
-                roof_features_gdf = features_gdf[features_gdf.class_id == ROOF_ID]
-                if len(roof_features_gdf) > 0:
-                    roof_features_gdf = gpd.GeoDataFrame(
-                        roof_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
-                    )
+                    # Get vegetation features if present
+                    veg_medhigh = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
+                    veg_woody = features_gdf[features_gdf.class_id == VEG_WOODY_COMPOSITE_ID]
 
-                for B in TREE_BUFFERS_M:
-                    gdf_buffered_buildings = gpd.GeoDataFrame(
+                    if len(veg_medhigh) > 0:
+                        veg_medhigh_geoms = gpd.GeoDataFrame(
+                            veg_medhigh,
+                            geometry='geometry_feature',
+                            crs=LAT_LONG_CRS
+                        ).to_crs(area_crs)
+                    else:
+                        veg_medhigh_geoms = None
+
+                    if len(veg_woody) > 0:
+                        veg_woody_geoms = gpd.GeoDataFrame(
+                            veg_woody,
+                            geometry='geometry_feature',
+                            crs=LAT_LONG_CRS
+                        ).to_crs(area_crs)
+                    else:
+                        veg_woody_geoms = None
+
+                    # Convert roofs to area CRS
+                    roof_geoms = gpd.GeoDataFrame(
                         class_features_gdf,
-                        geometry="geometry_feature",
-                        crs=LAT_LONG_CRS,
-                    )
-                    # Wipe over feature geometries with their buffered version...
-                    gdf_buffered_buildings["geometry_feature"] = (
-                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
-                    )
+                        geometry='geometry_feature',
+                        crs=LAT_LONG_CRS
+                    ).to_crs(area_crs)
 
-                    # Calculate areas, supressing warnings about geographic crs (it's relative not absolute that matters)
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings(
-                            "ignore",
-                            message="Geometry is in a geographic CRS.",
-                        )
-                        area_ratio = gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum() / gdf_buffered_buildings["geometry_feature"].area.sum()
-                    if (
-                        parcel_geom is not None
-                        and (area_ratio < 1)
-                    ):
-                        # Buffer exceeds Query AOI somewhere.
-                        break
+                    # Calculate buffers for each distance
+                    for buffer_name, buffer_dist in TREE_BUFFERS_M.items():
+                        # Create buffered regions around roofs
+                        buffered_roofs = roof_geoms.copy()
+                        buffered_roofs['geometry'] = buffered_roofs.buffer(buffer_dist)
 
-                    # Calculate area covered by each buffer zone
-                    gdf_intersection = gdf_buffered_buildings.overlay(roof_features_gdf, how="intersection")
-                    gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                    parcel[f"roof_{B}_roof_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        # Create unified buffer of all roofs
+                        unified_buffer = buffered_roofs.geometry.union_all()
 
-                    # Count number of roofs intersecting each zone
-                    parcel[f"roof_count_{B}_roof_zone"] = len(gdf_intersection.index.unique())
+                        # Check if any buffer extends beyond parcel
+                        if parcel_geom is not None:
+                            area_ratio = unified_buffer.intersection(parcel_geom_area).area / unified_buffer.area
+                            if area_ratio < 0.99:  # Allow 1% margin for geometric precision
+                                continue  # Skip this buffer size if it exceeds parcel boundary
 
-                    if len(veg_medhigh_features_gdf) > 0:
-                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
-                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"roof_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-                    if len(veg_woody_features_gdf) > 0:
-                        gdf_intersection = gdf_buffered_buildings.overlay(veg_woody_features_gdf, how="intersection")
-                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"roof_{B}_woodyveg_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        # Count overlapping roofs
+                        parcel[f"total_roof_count_{buffer_name}"] = len(roof_geoms[roof_geoms.intersects(unified_buffer)])
+
+                        # Calculate tree overlap if medium/high vegetation present
+                        if veg_medhigh_geoms is not None:
+                            tree_overlap = veg_medhigh_geoms.intersection(unified_buffer)
+                            tree_area = tree_overlap.area.sum()
+                            if country in IMPERIAL_COUNTRIES:
+                                tree_area *= SQUARED_METERS_TO_SQUARED_FEET
+                            parcel[f"total_roof_{buffer_name}_tree_zone"] = round(tree_area, 1)
+                        else:
+                            parcel[f"total_roof_{buffer_name}_tree_zone"] = 0.0
+
+                        # Calculate woody vegetation overlap
+                        if veg_woody_geoms is not None:
+                            woody_overlap = veg_woody_geoms.intersection(unified_buffer)
+                            woody_area = woody_overlap.area.sum()
+                            if country in IMPERIAL_COUNTRIES:
+                                woody_area *= SQUARED_METERS_TO_SQUARED_FEET
+                            parcel[f"total_roof_{buffer_name}_woodyveg_zone"] = round(woody_area, 1)
+                        else:
+                            parcel[f"total_roof_{buffer_name}_woodyveg_zone"] = 0.0
 
         elif class_id == BUILDING_LIFECYCLE_ID:
             # Add aggregated damage across whole parcel, weighted by building lifecycle area
