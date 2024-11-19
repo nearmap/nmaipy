@@ -8,10 +8,10 @@ import pytest
 from nmaipy.feature_api import FeatureApi
 from nmaipy.constants import *
 
-from scripts import ai_offline_parcel
+from nmaipy.exporter import AOIExporter
 
 
-class TestAIOfflineParcel:
+class TestExporter:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
     def test_process_chunk_rollup_single_multi_polygon_combo(
         self, parcels_3_gdf: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
@@ -49,7 +49,7 @@ class TestAIOfflineParcel:
         classes_df = feature_api.get_feature_classes(packs)
 
         print("Processing Chunk")
-        exporter = ai_offline_parcel.AOIExporter(
+        my_exporter = AOIExporter(
             output_dir=output_dir_rollup_api,
             country=country,
             packs=packs,
@@ -61,7 +61,7 @@ class TestAIOfflineParcel:
             beta=False,
             endpoint="rollup",
         )
-        exporter.process_chunk(
+        my_exporter.process_chunk(
             chunk_id=chunk_id,
             aoi_gdf=parcels_3_gdf,
             classes_df=classes_df,
@@ -102,7 +102,7 @@ class TestAIOfflineParcel:
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes(packs)
 
-        exporter = ai_offline_parcel.AOIExporter(
+        my_exporter = AOIExporter(
             output_dir=output_dir,
             country=country,
             packs=packs,
@@ -111,7 +111,7 @@ class TestAIOfflineParcel:
             no_cache=True,
             processes=8,
         )
-        exporter.process_chunk(
+        my_exporter.process_chunk(
             chunk_id=chunk_id,
             aoi_gdf=parcel_gdf_au_tests,
             classes_df=classes_df,
@@ -196,7 +196,7 @@ class TestAIOfflineParcel:
         classes_df = feature_api.get_feature_classes(packs)
 
         for endpoint, outdir in [("feature", output_dir), ("rollup", output_dir_rollup_api)]:
-            exporter = ai_offline_parcel.AOIExporter(
+            my_exporter = AOIExporter(
                 output_dir=outdir,
                 country=country,
                 packs=packs,
@@ -211,7 +211,7 @@ class TestAIOfflineParcel:
                 processes=8,
                 threads=20,
             )
-            exporter.process_chunk(
+            my_exporter.process_chunk(
                 chunk_id=chunk_id,
                 aoi_gdf=parcels_2_gdf,
                 classes_df=classes_df,

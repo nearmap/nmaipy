@@ -1363,7 +1363,7 @@ class FeatureApi:
                 executor.shutdown(wait=True)  # Ensure executor shuts down
                 self.cleanup()  # Clean up sessions after bulk operation
 
-        features_gdf = pd.concat(data) if len(data) > 0 else pd.DataFrame([])
+        features_gdf = pd.concat([df for df in data if len(df) > 0]) if len(data) > 0 else gpd.GeoDataFrame([])
         metadata_df = pd.DataFrame(metadata).set_index(AOI_ID_COLUMN_NAME) if len(metadata) > 0 else pd.DataFrame([])
         errors_df = pd.DataFrame(errors) if len(errors) > 0 else pd.DataFrame([])
         return features_gdf, metadata_df, errors_df
