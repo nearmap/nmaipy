@@ -202,6 +202,10 @@ class FeatureApi:
             aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             maxretry: Number of retries to attempt on a failed request
         """
+        # Initialize thread-safety attributes first
+        self._sessions = []
+        self._thread_local = threading.local()
+        self._lock = threading.Lock()
 
         URL_ROOT = f"https://{url_root}"
         self.FEATURES_URL = URL_ROOT + "/features.json"
@@ -226,7 +230,7 @@ class FeatureApi:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
         self._sessions = []
         self._thread_local = threading.local()
-        self._lock = threading.Lock()  # Add lock for thread-safe session management
+        self._lock = threading.Lock()  # Initialize lock here
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -248,13 +252,22 @@ class FeatureApi:
 
     def cleanup(self):
         """Clean up all sessions"""
-        with self._lock:
-            for session in self._sessions:
-                try:
-                    session.close()
-                except:
-                    pass
-            self._sessions.clear()
+        if hasattr(self, '_lock') and hasattr(self, '_sessions'):
+            with self._lock:
+                for session in self._sessions:
+                    try:
+                        session.close()
+                    except:
+                        pass
+                self._sessions.clear()
+        else:  # Fallback if attributes don't exist
+            if hasattr(self, '_sessions'):
+                for session in self._sessions:
+                    try:
+                        session.close()
+                    except:
+                        pass
+                self._sessions.clear()
 
     @contextlib.contextmanager
     def _session_scope(self):
@@ -948,7 +961,7 @@ class FeatureApi:
                 df[col_name] = None
 
         for col in FeatureApi.FLOAT_COLS:
-            if col in df:
+            if (col in df):
                 df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
