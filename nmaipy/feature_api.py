@@ -25,6 +25,14 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 import shapely.geometry
 import stringcase
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get API key, with fallback to empty string
+API_KEY = os.getenv("API_KEY", "")
+
 from nmaipy import log
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
@@ -165,7 +173,7 @@ class FeatureApi:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: Optional[str] = API_KEY,
         bulk_mode: Optional[bool] = True,
         cache_dir: Optional[Path] = None,
         overwrite_cache: Optional[bool] = False,
@@ -1362,9 +1370,11 @@ class FeatureApi:
                     for job in jobs:
                         aoi_data, aoi_metadata, aoi_error = job.result()
                         if aoi_data is not None:
-                            data.append(aoi_data)
+                            if len(aoi_data) > 0:
+                                data.append(aoi_data)
                         if aoi_metadata is not None:
-                            metadata.append(aoi_metadata)
+                            if len(aoi_metadata) > 0:
+                                metadata.append(aoi_metadata)
                         if aoi_error is not None:
                             if len(errors) > max_allowed_error_count:
                                 cleanup_executor(executor)
