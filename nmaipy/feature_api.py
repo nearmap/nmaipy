@@ -170,7 +170,7 @@ class FeatureApi:
         cache_dir: Optional[Path] = None,
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
-        workers: Optional[int] = 10,
+        threads: Optional[int] = 10,
         alpha: Optional[bool] = False,
         beta: Optional[bool] = False,
         prerelease: Optional[bool] = False,
@@ -190,7 +190,7 @@ class FeatureApi:
             cache_dir: Directory to use as a payload cache
             overwrite_cache: Set to overwrite values stored in the cache
             compress_cache: Whether to use gzip compression (.json.gz) or save raw json text (.json).
-            workers: Number of threads to spawn for concurrent execution
+            threads: Number of threads to spawn for concurrent execution
             alpha: Include alpha features
             beta: Include beta features
             prerelease: Include prerelease features
@@ -202,6 +202,10 @@ class FeatureApi:
             aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             maxretry: Number of retries to attempt on a failed request
         """
+        # Initialize thread-safety attributes first
+        self._sessions = []
+        self._thread_local = threading.local()
+        self._lock = threading.Lock()
 
         URL_ROOT = f"https://{url_root}"
         self.FEATURES_URL = URL_ROOT + "/features.json"
@@ -226,11 +230,11 @@ class FeatureApi:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
         self._sessions = []
         self._thread_local = threading.local()
-        self._lock = threading.Lock()  # Add lock for thread-safe session management
+        self._lock = threading.Lock()  # Initialize lock here
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
-        self.workers = workers
+        self.threads = threads
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
@@ -248,13 +252,22 @@ class FeatureApi:
 
     def cleanup(self):
         """Clean up all sessions"""
-        with self._lock:
-            for session in self._sessions:
-                try:
-                    session.close()
-                except:
-                    pass
-            self._sessions.clear()
+        if hasattr(self, '_lock') and hasattr(self, '_sessions'):
+            with self._lock:
+                for session in self._sessions:
+                    try:
+                        session.close()
+                    except:
+                        pass
+                self._sessions.clear()
+        else:  # Fallback if attributes don't exist
+            if hasattr(self, '_sessions'):
+                for session in self._sessions:
+                    try:
+                        session.close()
+                    except:
+                        pass
+                self._sessions.clear()
 
     @contextlib.contextmanager
     def _session_scope(self):
@@ -504,6 +517,10 @@ class FeatureApi:
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
             logger.debug(f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates.")
         elif (since is not None) or (until is not None):
+            if since and not isinstance(since, str):
+                raise ValueError("Since must be a string")
+            if until and not isinstance(until, str):
+                raise ValueError("Until must be a string")
             if since:
                 request_string += f"&since={since}"
             if until:
@@ -808,7 +825,7 @@ class FeatureApi:
 
         # Columns that don't require aggregation.
         agg_cols_first = [
-            "aoi_id",
+            AOI_ID_COLUMN_NAME,
             "class_id",
             "description",
             "confidence",
@@ -848,7 +865,8 @@ class FeatureApi:
         )
 
         # final output - same format, same set of feature_ids, but fewer rows due to dedup and merging.
-        features_gdf_out = features_gdf_dissolved.join(features_gdf_summed).reset_index()
+        # Set the index back to being the AOI_ID column
+        features_gdf_out = features_gdf_dissolved.join(features_gdf_summed).reset_index().set_index(AOI_ID_COLUMN_NAME)
 
         return features_gdf_out
 
@@ -869,6 +887,7 @@ class FeatureApi:
         gdf_features = (
             gdf_features[gdf_features.intersects(geometry)]
             .drop_duplicates(subset=["feature_id"])
+            .reset_index()
             .set_index("feature_id")
         )
         gdf_clip = cls._clip_features_to_polygon(gdf_features.geometry, geometry, region)
@@ -887,10 +906,10 @@ class FeatureApi:
                 gdf_features.loc[feature_id, "area_sqm"] = gdf_clip.loc[feature_id, "clipped_area_sqm"]
                 gdf_features.loc[feature_id, "area_sqft"] = gdf_clip.loc[feature_id, "clipped_area_sqft"]
         gdf_features["geometry"] = geom_column
-        return gdf_features.reset_index()
+        return gdf_features.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     @classmethod
-    def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
+    def payload_gdf(cls, payload: dict, aoi_id: Optional = None) -> Tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a feature API response dictionary.
 
@@ -942,7 +961,7 @@ class FeatureApi:
                 df[col_name] = None
 
         for col in FeatureApi.FLOAT_COLS:
-            if col in df:
+            if (col in df):
                 df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
@@ -951,10 +970,11 @@ class FeatureApi:
         # Add AOI ID if specified
         if aoi_id is not None:
             try:
-                df[AOI_ID_COLUMN_NAME] = aoi_id
+                df[AOI_ID_COLUMN_NAME] = [aoi_id]*len(df)
+                df = df.set_index(AOI_ID_COLUMN_NAME)
             except Exception as e:
                 logger.error(
-                    f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
+                    f"Problem setting aoi_id to {AOI_ID_COLUMN_NAME} as {aoi_id=} (dataframe has {len(df)} rows)."
                 )
                 raise ValueError
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
@@ -993,6 +1013,7 @@ class FeatureApi:
         if aoi_id is not None:
             try:
                 df[AOI_ID_COLUMN_NAME] = aoi_id
+                df = df.set_index(AOI_ID_COLUMN_NAME)
             except Exception as e:
                 logger.error(
                     f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
@@ -1040,7 +1061,6 @@ class FeatureApi:
             raise Exception(
                 f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
-
         try:
             if isinstance(geometry, MultiPolygon) and len(geometry.geoms) > 1:
                 # A proper multi-polygon - run it as separate requests, then recombine.
@@ -1060,7 +1080,7 @@ class FeatureApi:
                     features_gdf = self.trim_features_to_aoi(features_gdf, geometry, region)
 
                 # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
-                metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
+                metadata_df = pd.DataFrame(metadata).drop(columns=["link", AOI_ID_COLUMN_NAME])
                 metadata_df = metadata_df.drop_duplicates()
                 if len(metadata_df) > 1:
                     raise AIFeatureAPIError(
@@ -1104,7 +1124,7 @@ class FeatureApi:
                     # Creat metadata
                     metadata_df = metadata_df.drop_duplicates().iloc[0]
                     metadata = {
-                        "aoi_id": metadata_df["aoi_id"],
+                        AOI_ID_COLUMN_NAME: metadata_df[AOI_ID_COLUMN_NAME],
                         "system_version": metadata_df["system_version"],
                         "link": metadata_df["link"],
                         "date": metadata_df["date"],
@@ -1295,14 +1315,9 @@ class FeatureApi:
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
-        with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
             try:
                 max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
-
-                if AOI_ID_COLUMN_NAME not in gdf.columns:
-                    raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
-                elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
-                    raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
 
                 # are address fields present?
                 has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
@@ -1310,9 +1325,9 @@ class FeatureApi:
                 has_geom = "geometry" in gdf.columns
 
                 # Run in thread pool
-                with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+                with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
                     jobs = []
-                    for _, row in gdf.iterrows():
+                    for aoi_id, row in gdf.iterrows():
                         # Overwrite blanket since/until dates with per request since/until if columns are present
                         since = since_bulk
                         if SINCE_COL_NAME in row:
@@ -1326,7 +1341,6 @@ class FeatureApi:
                         if SURVEY_RESOURCE_ID_COL_NAME in row:
                             if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
                                 survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-
                         jobs.append(
                             executor.submit(
                                 self.get_features_gdf,
@@ -1334,7 +1348,7 @@ class FeatureApi:
                                 region,
                                 packs,
                                 classes,
-                                row[AOI_ID_COLUMN_NAME],
+                                aoi_id,
                                 since,
                                 until,
                                 {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
@@ -1362,12 +1376,9 @@ class FeatureApi:
                 executor.shutdown(wait=True)  # Ensure executor shuts down
                 self.cleanup()  # Clean up sessions after bulk operation
 
-        # Combine results. reset_index() here because the index of the combined dataframes
-        # is just the row number in the chunk submitted to each worker, and so we get an
-        # index in the final dataframe that is not unique, and also not very useful.
-        features_gdf = pd.concat(data).reset_index(drop=True) if len(data) > 0 else pd.DataFrame([])
-        metadata_df = pd.DataFrame(metadata).reset_index(drop=True) if len(metadata) > 0 else pd.DataFrame([])
-        errors_df = pd.DataFrame(errors).reset_index(drop=True) if len(errors) > 0 else pd.DataFrame([])
+        features_gdf = pd.concat([df for df in data if len(df) > 0]) if len(data) > 0 else gpd.GeoDataFrame([])
+        metadata_df = pd.DataFrame(metadata).set_index(AOI_ID_COLUMN_NAME) if len(metadata) > 0 else pd.DataFrame([])
+        errors_df = pd.DataFrame(errors) if len(errors) > 0 else pd.DataFrame([])
         return features_gdf, metadata_df, errors_df
 
     def get_rollup_df(
@@ -1424,7 +1435,7 @@ class FeatureApi:
                 # Warning - using arbitrary int index means duplicate index.
 
                 # Deduplicate metadata, picking from the first part of the multipolygon rather than attempting to merge
-                metadata_df = pd.DataFrame(metadata).drop(columns=["link", "aoi_id"])
+                metadata_df = pd.DataFrame(metadata).drop(columns=["link", AOI_ID_COLUMN_NAME])
                 metadata_df = metadata_df.drop_duplicates()
                 if len(metadata_df) > 1:
                     raise AIFeatureAPIError(
@@ -1520,21 +1531,16 @@ class FeatureApi:
         """
         max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
 
-        if AOI_ID_COLUMN_NAME not in gdf.columns:
-            raise KeyError(f"No ID column {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
-        elif AOI_ID_COLUMN_NAME in gdf.columns[gdf.columns.duplicated()]:
-            raise KeyError(f"Duplicate ID columns {AOI_ID_COLUMN_NAME} in dataframe, {gdf.columns=}")
-
         # are address fields present?
         has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
         # is a geometry field present?
         has_geom = "geometry" in gdf.columns
 
         # Run in thread pool
-        with concurrent.futures.ThreadPoolExecutor(self.workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
             try:
                 jobs = []
-                for _, row in gdf.iterrows():
+                for aoi_id, row in gdf.iterrows():
                     # Overwrite blanket since/until dates with per request since/until if columns are present
                     since = since_bulk
                     if SINCE_COL_NAME in row:
@@ -1556,7 +1562,7 @@ class FeatureApi:
                             region,
                             packs,
                             classes,
-                            row[AOI_ID_COLUMN_NAME],
+                            aoi_id,
                             since,
                             until,
                             {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,

@@ -83,7 +83,8 @@ def parcels_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     16 polygons in Fairlight, Sydney, as well as a point, an empty polygon and an empty row.
     """
-    return parcels.read_from_file(data_directory / "test_parcels.csv")
+    gdf = parcels.read_from_file(data_directory / "test_parcels.csv")
+    return gdf
 
 
 @pytest.fixture(scope="session")
@@ -91,7 +92,8 @@ def parcels_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     100 realistic property boundaries from New Jersey.
     """
-    return parcels.read_from_file(data_directory / "test_parcels_2.csv")
+    gdf = parcels.read_from_file(data_directory / "test_parcels_2.csv")
+    return gdf
 
 
 @pytest.fixture(scope="session")
@@ -99,7 +101,8 @@ def parcels_3_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     Two multipolygons in Cobar, NSW.
     """
-    return parcels.read_from_file(data_directory / "test_parcels_3.csv")
+    gdf = parcels.read_from_file(data_directory / "test_parcels_3.csv")
+    return gdf
 
 
 @pytest.fixture(scope="session")
@@ -107,7 +110,7 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     Features pulled from a cached csv from the AI Feature API for the parcels_gdf fixture.
     """
-    df = pd.read_csv(data_directory / "test_features.csv")
+    df = pd.read_csv(data_directory / "test_features.csv", index_col=AOI_ID_COLUMN_NAME)
     df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
@@ -121,7 +124,7 @@ def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     Features pulled from a cached csv from the AI Feature API for the parcels_2_gdf fixture.
     """
-    df = pd.read_csv(data_directory / "test_features_2.csv")
+    df = pd.read_csv(data_directory / "test_features_2.csv", index_col=AOI_ID_COLUMN_NAME)
     df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
@@ -147,5 +150,6 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
     }
 
     parcel_gdf = gpd.GeoDataFrame([syd_row, adelaide_row], crs=API_CRS)
-    parcel_gdf[AOI_ID_COLUMN_NAME] = range(len(parcel_gdf))
+    parcel_gdf.index = range(len(parcel_gdf))
+    parcel_gdf.index.name = AOI_ID_COLUMN_NAME
     return parcel_gdf

@@ -129,7 +129,7 @@ logger = log.get_logger()
 def read_from_file(
     path: Path,
     drop_empty: Optional[bool] = True,
-    id_column: Optional[str] = "id",
+    id_column: Optional[str] = AOI_ID_COLUMN_NAME,
     source_crs: Optional[str] = LAT_LONG_CRS,
     target_crs: Optional[str] = LAT_LONG_CRS,
 ) -> gpd.GeoDataFrame:
@@ -151,19 +151,23 @@ def read_from_file(
 
     Returns: GeoDataFrame
     """
-    if path.suffix in (".csv", ".psv", ".tsv"):
-        if path.suffix == ".csv":
-            parcels_gdf = pd.read_csv(path)
-        elif path.suffix == ".psv":
-            parcels_gdf = pd.read_csv(path, sep="|")
-        elif path.suffix == ".tsv":
+    if isinstance(path, str):
+        suffix = path.split(".")[-1]
+    elif isinstance(path, Path):
+        suffix = path.suffix[1:]
+    if suffix in ("csv", "psv", "tsv"):
+        if suffix == "csv":
+            parcels_gdf = pd.read_csv(path, index_col=id_column)
+        elif suffix == "psv":
+            parcels_gdf = pd.read_csv(path, sep="|", index_col=id_column)
+        elif suffix == "tsv":
             parcels_gdf = pd.read_csv(path, sep="\t")
-    elif path.suffix == ".parquet":
+    elif suffix == "parquet":
         parcels_gdf = gpd.read_parquet(path)
-    elif path.suffix in (".geojson", ".gpkg"):
+    elif suffix in ("geojson", "gpkg"):
         parcels_gdf = gpd.read_file(path)
     else:
-        raise NotImplemented(f"Source format not supported: {path.suffix=}")
+        raise NotImplementedError(f"Source format not supported: {suffix=}")
 
     if not "geometry" in parcels_gdf:
         logger.warning(f"Input file has no AOI geometries - some operations will not work.")
@@ -184,6 +188,7 @@ def read_from_file(
 
         # Drop any empty geometries
         if drop_empty:
+            num_dropped = len(parcels_gdf)
             parcels_gdf = parcels_gdf.dropna(subset=["geometry"])
             parcels_gdf = parcels_gdf[~parcels_gdf.is_empty]
             parcels_gdf = parcels_gdf[parcels_gdf.is_valid]
@@ -192,18 +197,25 @@ def read_from_file(
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
                 parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
+            num_dropped -= len(parcels_gdf)
+            if num_dropped > 0:
+                logger.warning(f"Dropping {num_dropped} rows with empty or invalid geometries, or ones with zero area")
 
     if len(parcels_gdf) == 0:
         raise RuntimeError(f"No valid parcels in {path=}")
 
     # Check that identifier is unique
-    if id_column not in parcels_gdf:
-        parcels_gdf = parcels_gdf.reset_index()  # Bump the index to a column in case it's important
-        parcels_gdf[id_column] = range(len(parcels_gdf))  # Set a new unique ordered index for reference
-    if parcels_gdf[id_column].duplicated().any():
+    if parcels_gdf.index.name != id_column:
+        # Bump the index to a column in case it's important
+        parcels_gdf = parcels_gdf.reset_index()
+        if id_column not in parcels_gdf:
+            logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
+            parcels_gdf.index.name = id_column  # Set a new unique ordered index for reference
+        else: # The index must already be there as a column
+            logger.warning(f"Moving {AOI_ID_COLUMN_NAME} to be the index - generating unique IDs")
+            parcels_gdf = parcels_gdf.set_index(id_column)
+    if parcels_gdf.index.duplicated().any():
         raise ValueError(f"Duplicate IDs found for {id_column=}")
-
-    parcels_gdf = parcels_gdf.rename(columns={id_column: AOI_ID_COLUMN_NAME})
     return parcels_gdf
 
 
@@ -254,12 +266,15 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
     if not isinstance(aoi_gdf, gpd.GeoDataFrame):
         logger.warning("AOI geometries not available, skipping building style filtering")
     else:
-        for aoi_id in aoi_gdf[AOI_ID_COLUMN_NAME].unique(): # Loop over each AOI in the set
-            gdf_aoi = gdf[gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+        for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
+            gdf_aoi = gdf.loc[[aoi_id]]
             gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
             if len(gdf_aoi_buildings) == 0:
                 continue # Skip if there are no buildings in the AOI
-            aoi_poly = aoi_gdf[aoi_gdf[AOI_ID_COLUMN_NAME] == aoi_id].to_crs(AREA_CRS[region]).iloc[0].geometry # Get in metric projection for area/geospatial calcs in metres.
+            features_from_aoi = aoi_gdf.loc[[aoi_id]]
+            aoi_poly = (
+                features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
+            )  # Get in metric projection for area/geospatial calcs in metres.
             building_statuses = []
             for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
                 building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
@@ -288,7 +303,7 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
         no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
         gdf = gdf.loc[~parent_removed | no_parent]
 
-    return gdf.reset_index(drop=True)
+    return gdf
 
 
 def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
@@ -482,86 +497,90 @@ def feature_attributes(
                 parcel[f"primary_{name}_confidence"] = None
 
         if class_id == ROOF_ID:
-            # Initialise buffers to None - only wipe over with correct answers if valid can be produced.
+            # Initialize buffers to None - only override with values if valid buffers can be produced
             if len(class_features_gdf) > 0 and calc_buffers:
+                # Initialize buffer results to None
                 for B in TREE_BUFFERS_M:
-                    parcel[f"roof_{B}_tree_zone_sqm"] = None
-                    parcel[f"roof_{B}_woodyveg_zone_sqm"] = None
-                    parcel[f"roof_count_{B}_roof_zone"] = None
+                    parcel[f"total_roof_{B}_tree_zone"] = None
+                    parcel[f"total_roof_{B}_woodyveg_zone"] = None
+                    parcel[f"total_roof_count_{B}"] = None
 
-                # Buffers can't be valid if any buildings clip the parcel. Shortcut attempted buffer creation.
-                rounding_factor = 0.99  # To account for pre-calculated vs on-the-fly area calc differences
-                if (
-                    parcel[f"{name}_total_clipped_area_{area_units}"]
-                    < rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]
-                ):
-                    break
+                # Only proceed if all roofs are fully within the parcel
+                rounding_factor = 0.99  # Account for pre-calculated vs on-the-fly area calc differences
+                if (parcel[f"{name}_total_clipped_area_{area_units}"] >= 
+                    rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]):
 
-                # Create vegetation buffers.
-                veg_medhigh_features_gdf = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
-                if len(veg_medhigh_features_gdf) > 0:
-                    veg_medhigh_features_gdf = gpd.GeoDataFrame(
-                        veg_medhigh_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
-                    )
-                veg_woody_features_gdf = features_gdf[features_gdf.class_id == VEG_WOODY_1107_ID]
-                if len(veg_woody_features_gdf) > 0:
-                    veg_woody_features_gdf = gpd.GeoDataFrame(
-                        veg_woody_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
-                    )
+                    # Convert everything to area-based CRS upfront
+                    area_crs = AREA_CRS[country]
+                    if parcel_geom is not None:
+                        parcel_geom_area = gpd.GeoSeries([parcel_geom], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
 
-                roof_features_gdf = features_gdf[features_gdf.class_id == ROOF_ID]
-                if len(roof_features_gdf) > 0:
-                    roof_features_gdf = gpd.GeoDataFrame(
-                        roof_features_gdf,
-                        crs=LAT_LONG_CRS,
-                        geometry="geometry_feature",
-                    )
+                    # Get vegetation features if present
+                    veg_medhigh = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
+                    veg_woody = features_gdf[features_gdf.class_id == VEG_WOODY_COMPOSITE_ID]
 
-                for B in TREE_BUFFERS_M:
-                    gdf_buffered_buildings = gpd.GeoDataFrame(
+                    if len(veg_medhigh) > 0:
+                        veg_medhigh_geoms = gpd.GeoDataFrame(
+                            veg_medhigh,
+                            geometry='geometry_feature',
+                            crs=LAT_LONG_CRS
+                        ).to_crs(area_crs)
+                    else:
+                        veg_medhigh_geoms = None
+
+                    if len(veg_woody) > 0:
+                        veg_woody_geoms = gpd.GeoDataFrame(
+                            veg_woody,
+                            geometry='geometry_feature',
+                            crs=LAT_LONG_CRS
+                        ).to_crs(area_crs)
+                    else:
+                        veg_woody_geoms = None
+
+                    # Convert roofs to area CRS
+                    roof_geoms = gpd.GeoDataFrame(
                         class_features_gdf,
-                        geometry="geometry_feature",
-                        crs=LAT_LONG_CRS,
-                    )
-                    # Wipe over feature geometries with their buffered version...
-                    gdf_buffered_buildings["geometry_feature"] = (
-                        gdf_buffered_buildings.to_crs(AREA_CRS[country]).buffer(TREE_BUFFERS_M[B]).to_crs(LAT_LONG_CRS)
-                    )
+                        geometry='geometry_feature',
+                        crs=LAT_LONG_CRS
+                    ).to_crs(area_crs)
 
-                    # Calculate areas, supressing warnings about geographic crs (it's relative not absolute that matters)
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings(
-                            "ignore",
-                            message="Geometry is in a geographic CRS.",
-                        )
-                        area_ratio = gdf_buffered_buildings["geometry_feature"].intersection(parcel_geom).area.sum() / gdf_buffered_buildings["geometry_feature"].area.sum()
-                    if (
-                        parcel_geom is not None
-                        and (area_ratio < 1)
-                    ):
-                        # Buffer exceeds Query AOI somewhere.
-                        break
+                    # Calculate buffers for each distance
+                    for buffer_name, buffer_dist in TREE_BUFFERS_M.items():
+                        # Create buffered regions around roofs
+                        buffered_roofs = roof_geoms.copy()
+                        buffered_roofs['geometry'] = buffered_roofs.buffer(buffer_dist)
 
-                    # Calculate area covered by each buffer zone
-                    gdf_intersection = gdf_buffered_buildings.overlay(roof_features_gdf, how="intersection")
-                    gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                    parcel[f"roof_{B}_roof_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        # Create unified buffer of all roofs
+                        unified_buffer = buffered_roofs.geometry.union_all()
 
-                    # Count number of roofs intersecting each zone
-                    parcel[f"roof_count_{B}_roof_zone"] = len(gdf_intersection.index.unique())
+                        # Check if any buffer extends beyond parcel
+                        if parcel_geom is not None:
+                            area_ratio = unified_buffer.intersection(parcel_geom_area).area / unified_buffer.area
+                            if area_ratio < 0.99:  # Allow 1% margin for geometric precision
+                                continue  # Skip this buffer size if it exceeds parcel boundary
 
-                    if len(veg_medhigh_features_gdf) > 0:
-                        gdf_intersection = gdf_buffered_buildings.overlay(veg_medhigh_features_gdf, how="intersection")
-                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"roof_{B}_tree_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
-                    if len(veg_woody_features_gdf) > 0:
-                        gdf_intersection = gdf_buffered_buildings.overlay(veg_woody_features_gdf, how="intersection")
-                        gdf_intersection["buff_area_sqm"] = gdf_intersection.to_crs(AREA_CRS[country]).area
-                        parcel[f"roof_{B}_woodyveg_zone_sqm"] = gdf_intersection["buff_area_sqm"].sum()
+                        # Count overlapping roofs
+                        parcel[f"total_roof_count_{buffer_name}"] = len(roof_geoms[roof_geoms.intersects(unified_buffer)])
+
+                        # Calculate tree overlap if medium/high vegetation present
+                        if veg_medhigh_geoms is not None:
+                            tree_overlap = veg_medhigh_geoms.intersection(unified_buffer)
+                            tree_area = tree_overlap.area.sum()
+                            if country in IMPERIAL_COUNTRIES:
+                                tree_area *= SQUARED_METERS_TO_SQUARED_FEET
+                            parcel[f"total_roof_{buffer_name}_tree_zone"] = round(tree_area, 1)
+                        else:
+                            parcel[f"total_roof_{buffer_name}_tree_zone"] = 0.0
+
+                        # Calculate woody vegetation overlap
+                        if veg_woody_geoms is not None:
+                            woody_overlap = veg_woody_geoms.intersection(unified_buffer)
+                            woody_area = woody_overlap.area.sum()
+                            if country in IMPERIAL_COUNTRIES:
+                                woody_area *= SQUARED_METERS_TO_SQUARED_FEET
+                            parcel[f"total_roof_{buffer_name}_woodyveg_zone"] = round(woody_area, 1)
+                        else:
+                            parcel[f"total_roof_{buffer_name}_woodyveg_zone"] = 0.0
 
         elif class_id == BUILDING_LIFECYCLE_ID:
             # Add aggregated damage across whole parcel, weighted by building lifecycle area
@@ -594,28 +613,29 @@ def parcel_rollup(
     """
     mu = MeasurementUnits(country)
     area_units = mu.area_units()
+    assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
+    assert features_gdf.index.name == AOI_ID_COLUMN_NAME
 
-    if len(parcels_gdf[AOI_ID_COLUMN_NAME].unique()) != len(parcels_gdf):
+    if len(parcels_gdf.index.unique()) != len(parcels_gdf):
         raise Exception(
-            f"AOI id column {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf[AOI_ID_COLUMN_NAME].unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+            f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
     if primary_decision == "nearest":
         merge_cols = [
-            AOI_ID_COLUMN_NAME,
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
             "geometry",
         ]
     else:
-        merge_cols = [AOI_ID_COLUMN_NAME]
+        merge_cols = []
         if "geometry" in parcels_gdf.columns:
             merge_cols += ["geometry"]
 
-    df = features_gdf.merge(parcels_gdf[merge_cols], on=AOI_ID_COLUMN_NAME, suffixes=["_feature", "_aoi"])
+    df = features_gdf.merge(parcels_gdf[merge_cols], left_index=True, right_index=True, suffixes=["_feature", "_aoi"])
 
     rollups = []
     # Loop over parcels with features in them
-    for aoi_id, group in df.groupby(AOI_ID_COLUMN_NAME):
+    for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
         if primary_decision == "nearest":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
@@ -632,7 +652,7 @@ def parcel_rollup(
             primary_lat = None
 
         if "geometry" in parcels_gdf.columns:
-            parcel_geom = parcels_gdf[parcels_gdf[AOI_ID_COLUMN_NAME] == aoi_id]
+            parcel_geom = parcels_gdf.loc[[aoi_id]]
             assert len(parcel_geom) == 1
             parcel_geom = parcel_geom.iloc[0].geometry
         else:
@@ -658,7 +678,7 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
-    for row in parcels_gdf[~parcels_gdf[AOI_ID_COLUMN_NAME].isin(features_gdf[AOI_ID_COLUMN_NAME])].itertuples():
+    for row in parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples():
         parcel = feature_attributes(
             gpd.GeoDataFrame(
                 [],
@@ -675,10 +695,11 @@ def parcel_rollup(
             primary_decision=primary_decision,
             calc_buffers=calc_buffers,
         )
-        parcel[AOI_ID_COLUMN_NAME] = row._asdict()[AOI_ID_COLUMN_NAME]
+        parcel[AOI_ID_COLUMN_NAME] = row._asdict()["Index"]
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
+    rollup_df = rollup_df.set_index(AOI_ID_COLUMN_NAME)
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 

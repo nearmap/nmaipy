@@ -7,3 +7,5 @@ __pycache__
 /.vscode/
 /data/
 .env
+.coverage
+tests/data/cache/*

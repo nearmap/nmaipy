@@ -37,7 +37,7 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, alpha=True, beta=True).get_features_gdf_bulk(
         parcels_gdf, packs=packs, region="au", since_bulk="2021-10-04", until_bulk="2021-10-04"
     )
-    features_gdf.to_csv(outfname, index=False)
+    features_gdf.to_csv(outfname)
 
 
 # @pytest.mark.skip("Comment out this line if you wish to regen the test data")
@@ -49,10 +49,10 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     from nmaipy.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, workers=1).get_features_gdf_bulk(
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1).get_features_gdf_bulk(
         parcels_2_gdf, packs=packs, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
     )
-    features_gdf.to_csv(outfname, index=False)
+    features_gdf.to_csv(outfname)
 
 
 class TestParcels:
@@ -316,22 +316,22 @@ class TestParcels:
             calc_buffers=False,
             primary_decision="largest_intersection",
         )
-        df.to_csv(data_directory / "test_parcels_2_rollup.csv", index=False)
-        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv")  # Expected ground truth results
+        df.to_csv(data_directory / "test_parcels_2_rollup.csv")
+        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME)  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
 
     def test_nearest_primary(self):
         parcels_gdf = gpd.GeoDataFrame(
             [
                 {
-                    "aoi_id": 0,
+                    AOI_ID_COLUMN_NAME: 0,
                     "lat": 42.0005,
                     "lon": -114.9997,
                     "geometry": loads("POLYGON ((-114.999 42, -114.999 42.001, -115 42.001, -115 42, -114.999 42))"),
                 }
             ],
             geometry="geometry",
-        )
+        ).set_index(AOI_ID_COLUMN_NAME)
         parcels_gdf = parcels_gdf.set_crs("EPSG:4326")
         country = "us"
         features_gdf = gpd.GeoDataFrame(
@@ -339,7 +339,7 @@ class TestParcels:
                 # This should be the primary
                 {
                     "feature_id": 0,
-                    "aoi_id": 0,
+                    AOI_ID_COLUMN_NAME: 0,
                     "confidence": 0.94,
                     "fidelity": 0.7,  # Made up
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
@@ -351,7 +351,7 @@ class TestParcels:
                 # Larger, but further away
                 {
                     "feature_id": 1,
-                    "aoi_id": 0,
+                    AOI_ID_COLUMN_NAME: 0,
                     "confidence": 0.92,
                     "fidelity": 0.7,  # Made up
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
@@ -363,7 +363,7 @@ class TestParcels:
                 # Closer, but low confidence
                 {
                     "feature_id": 2,
-                    "aoi_id": 0,
+                    AOI_ID_COLUMN_NAME: 0,
                     "confidence": 0.85,
                     "fidelity": 0.6,
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
@@ -372,8 +372,8 @@ class TestParcels:
                         "POLYGON ((-114.9996 42.0005, -114.9996 42.00056, -114.9999 42.00056, -114.9999 42.0005, -114.9996 42.0005))"
                     ),
                 },
-            ]
-        )
+            ],
+        ).set_index(AOI_ID_COLUMN_NAME)
         features_gdf = features_gdf.set_crs("EPSG:4326")
 
         # calculate areas
@@ -381,11 +381,11 @@ class TestParcels:
         features_gdf = features_gdf.to_crs("esri:102003")
         features_gdf["area_sqm"] = features_gdf.area
         features_gdf["unclipped_area_sqm"] = features_gdf["area_sqm"]
-        gdf = features_gdf.merge(parcels_gdf, on="aoi_id", how="left", suffixes=["_feature", "_aoi"])
+        gdf = features_gdf.join(parcels_gdf, how="left", lsuffix="_feature", rsuffix="_aoi")
         gdf["clipped_area_sqm"] = gdf.apply(
             lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
         )
-        features_gdf = features_gdf.merge(gdf[["feature_id", "clipped_area_sqm"]])
+        features_gdf = features_gdf.merge(gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"])
         for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
             features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
         parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
@@ -411,11 +411,11 @@ class TestParcels:
                     "primary_pool_clipped_area_sqft": 2717.3,
                     "primary_pool_unclipped_area_sqft": 2717.3,
                     "primary_pool_confidence": 0.94,
-                    "aoi_id": 0,
+                    AOI_ID_COLUMN_NAME: 0,
                     "mesh_date": "2021-10-10",
                 }
             ]
-        )
+        ).set_index(AOI_ID_COLUMN_NAME)
         pd.testing.assert_frame_equal(rollup_df, expected, atol=1e-3)
 
     def test_filter_and_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
@@ -432,11 +432,11 @@ class TestParcels:
         assert len(error_df) == 0
 
         # Had a bug that didn't do AOI IDs properly
-        assert features_gdf[AOI_ID_COLUMN_NAME].isna().sum() == 0
-        assert metadata_df[AOI_ID_COLUMN_NAME].isna().sum() == 0
+        assert features_gdf.index.isna().sum() == 0
+        assert metadata_df.index.isna().sum() == 0
 
         # We get results in all AOIs
-        assert len(features_gdf.aoi_id.unique()) == len(parcel_gdf)
+        assert len(features_gdf.index.unique()) == len(parcel_gdf)
 
         features_gdf_filtered = parcels.filter_features_in_parcels(
             features_gdf, aoi_gdf=parcel_gdf, region=country
@@ -444,7 +444,7 @@ class TestParcels:
         assert (
             len(features_gdf) > len(features_gdf_filtered) * 0.95
         )  # Very little should have been filtered out in these examples.
-        assert len(features_gdf_filtered.aoi_id.unique()) == len(parcel_gdf)
+        assert len(features_gdf_filtered.index.unique()) == len(parcel_gdf)
 
         # Check rollup matches what's expected
         rollup_df = parcels.parcel_rollup(
@@ -519,7 +519,7 @@ class TestParcels:
         )
 
         # Test that all buffers fail when they're too large for the parcels.
-        assert df.filter(like="30ft_tree_zone").isna().all().all()
+        assert df.filter(like="30ft_tree_zone").isna().all().all() # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
@@ -546,8 +546,8 @@ class TestParcels:
         aoi_id = 42
 
         parcels_gdf = gpd.GeoDataFrame(
-            [{"geometry": aoi, "aoi_id": aoi_id, "since": date_1, "until": date_2}], crs=API_CRS
-        )
+            [{"geometry": aoi, AOI_ID_COLUMN_NAME: aoi_id, "since": date_1, "until": date_2}], crs=API_CRS
+        ).set_index(AOI_ID_COLUMN_NAME)
 
         classes_df = pd.DataFrame(
             {"id": ROOF_ID, "description": "roof"}, {"id": WATER_BODY_ID, "description": "water_body"}
@@ -569,7 +569,7 @@ class TestParcels:
             calc_buffers=False,
             primary_decision="largest_intersection",
         )
-        assert df.loc[0, "roof_count"] < 1
+        assert df.loc[42, "roof_count"] < 1
 
     def test_rollup_snake_geometry(self, cache_directory: Path):
         """
@@ -590,8 +590,8 @@ class TestParcels:
         survey_resource_id = "6d1db358-f051-567c-b255-0428f66a9e08"
 
         parcels_gdf = gpd.GeoDataFrame(
-            [{"geometry": aoi, "aoi_id": aoi_id, "survey_resource_id": survey_resource_id}], crs=API_CRS
-        )
+            [{"geometry": aoi, AOI_ID_COLUMN_NAME: aoi_id, "survey_resource_id": survey_resource_id}], crs=API_CRS
+        ).set_index(AOI_ID_COLUMN_NAME)
 
         classes_df = pd.DataFrame(
             [
@@ -600,7 +600,7 @@ class TestParcels:
             ]
         ).set_index("id")
 
-        feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, workers=4)
+        feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, threads=4)
         features_gdf, metadata, error = feature_api.get_features_gdf(
             aoi, country, packs, None, aoi_id, survey_resource_id=survey_resource_id
         )
@@ -621,9 +621,9 @@ class TestParcels:
         print(metadata)
         print(df.T)
         features_gdf.drop(columns="attributes").to_file(cache_directory / "snake_test_features.geojson")
-        np.testing.assert_approx_equal(df.loc[0, "parcel_area_sqm"], 17236.0, significant=5)
-        assert df.loc[0, "pct_tree_cover"] < 1
-        np.testing.assert_approx_equal(df.loc[0, "pct_tree_cover"], 0.81, significant=2)
+        np.testing.assert_approx_equal(df.loc[51310013081068, "parcel_area_sqm"], 17236.0, significant=5)
+        assert df.loc[51310013081068, "pct_tree_cover"] < 1
+        np.testing.assert_approx_equal(df.loc[51310013081068, "pct_tree_cover"], 0.81, significant=2)
 
     def test_large_query_geoid_11179800001006(self, cache_directory: Path):
         """
@@ -643,7 +643,7 @@ class TestParcels:
 
         parcels_gdf = gpd.GeoDataFrame(
             [{"geometry": aoi, "aoi_id": aoi_id, "since": date_1, "until": date_2}], crs=API_CRS
-        )
+        ).set_index(AOI_ID_COLUMN_NAME)
 
         classes_df = pd.DataFrame(
             [
@@ -667,5 +667,5 @@ class TestParcels:
         print(metadata)
         print(df.T)
         assert (
-            df.loc[0, "building_count"] == 25
+            df.loc[11179800001006, "building_count"] == 25
         )  # Includes some lower confidence ones that had been filtered by the previous thresholds.
