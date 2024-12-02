@@ -472,9 +472,8 @@ class TestParcels:
 
         """
         classes_df = pd.DataFrame(
-            {"id": BUILDING_ID, "description": "building"},
-            {"id": POOL_ID, "description": "pool"},
-            {"id": LAWN_GRASS_ID, "description": "lawn"},
+            {"id": ROOF_ID, "description": "roof"},
+            {"id": VEG_MEDHIGH_ID, "description": "tree"},
         ).set_index("id")
         country = "au"
         features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
@@ -486,8 +485,15 @@ class TestParcels:
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
-        # For this test, every result should be NaN for buffers, as there's always a building overlapping the parcel boundary.
-        assert df.filter(like="buffer").head().isna().all().all()
+        # For this test, every parcel has buildings that cross the edges.
+        # One parcel has the primary roof not intersecting the edge:
+        assert not df.loc["1_0"].filter(like="buffer_").isna().any()
+
+        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(df.loc["1_0", "primary_roof_buffer_0ft_zone_sqm"], abs=0.05)
+        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(df.loc["1_0", "primary_roof_buffer_0ft_roof_sqm"], abs=0.05)
+
+        # every other result should be NaN for buffers, as the primary building is always overlapping the parcel boundary.
+        assert df.filter(like="buffer").notna().any(axis=1).sum() == 1
 
     def test_tree_buffers_real(self, features_2_gdf, parcels_2_gdf):
         """
@@ -504,8 +510,7 @@ class TestParcels:
         country = "us"
         classes_df = pd.DataFrame([
             {"id": ROOF_ID, "description": "roof"},
-            {"id": POOL_ID, "description": "pool"},
-            {"id": LAWN_GRASS_ID, "description": "lawn"},
+            {"id": VEG_MEDHIGH_ID, "description": "tree"},
         ]).set_index("id")
         country = "us"
         features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
@@ -523,10 +528,24 @@ class TestParcels:
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        np.testing.assert_allclose(
-            df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 0, 0], rtol=0.12
+        tree_zone_sums = df.filter(regex="primary_roof_buffer_.*_tree_.*", axis=1).sum().values
+        np.testing.assert_allclose(tree_zone_sums, [344.96, 616.9, 755.2], rtol=0.05)
+
+        tree_zone_example = df.loc["08e57bff-9337-58ea-b8d6-b55b59431c64"]
+        assert tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
+        assert tree_zone_example.loc["primary_roof_buffer_5ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
+        assert tree_zone_example.loc["primary_roof_buffer_10ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
+        assert (
+            tree_zone_example.loc["primary_roof_area_sqft"]
+            == pytest.approx(tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] / 0.0929, rel=0.02)
         )
-        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [25, 3, 0, 0], rtol=0.05)
+        assert tree_zone_example.loc["primary_roof_buffer_0ft_tree_sqm"] == pytest.approx(
+            4.72, abs=0.5
+        )  # Same as tree overhang
+        assert tree_zone_example.loc["primary_roof_buffer_5ft_tree_sqm"] == pytest.approx(
+            21.5, abs=0.5
+        )
+        assert tree_zone_example.loc["primary_roof_buffer_10ft_tree_sqm"] == pytest.approx(47.6, abs=0.5)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """

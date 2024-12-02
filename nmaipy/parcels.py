@@ -116,12 +116,20 @@ DEFAULT_FILTERING = {
     },
 }
 
-TREE_BUFFERS_M = dict(
+BUFFER_ZONES_M = dict(
+    buffer_0ft=0.0,
     buffer_5ft=1.524,
     buffer_10ft=3.048,
     buffer_30ft=9.144,
     buffer_100ft=30.48,
 )
+
+BUFFER_CLASSES = {
+    "tree": VEG_MEDHIGH_ID,
+    "woody_veg": VEG_WOODY_COMPOSITE_ID,
+    "roof": ROOF_ID,
+    "yard_debris": CLASS_1111_YARD_DEBRIS,
+}
 
 logger = log.get_logger()
 
@@ -429,163 +437,128 @@ def feature_attributes(
 
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:
-            if len(class_features_gdf) > 0:
-                # Add primary feature attributes for discrete features if there are any
-                if primary_decision == "largest_intersection":
-                    # NB: Sort first by clipped area (priority). However, sometimes clipped areas are zero (in the case of damage detection), so secondary sort on unclipped is necessary.
-                    primary_feature = class_features_gdf.sort_values(["clipped_area_sqm", "unclipped_area_sqm"], ascending=False).iloc[0]
-
-                elif primary_decision == "nearest":
-                    primary_point = Point(primary_lon, primary_lat)
-                    primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
-                    class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
-
-                    if len(class_features_gdf_top) > 0:
-                        nearest_feature_idx = (
-                            class_features_gdf_top.set_geometry("geometry_feature")
-                            .to_crs("EPSG:3857")
-                            .distance(primary_point)
-                            .idxmin()
-                        )
-                    else:
-                        nearest_feature_idx = (
-                            class_features_gdf.set_geometry("geometry_feature")
-                            .to_crs("EPSG:3857")
-                            .distance(primary_point)
-                            .idxmin()
-                        )
-                    primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
-                else:
-                    raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
-                if country in IMPERIAL_COUNTRIES:
-                    parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
-                    parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
-                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
-                else:
-                    parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
-                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
-                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
-                parcel[f"primary_{name}_confidence"] = primary_feature.confidence
-                if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
-                    parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
-
-                # Add roof and building attributes
-                if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
-                    for col in ["building_small", "building_multiparcel"]:
-                        s = col.split("_")[1]
-                        parcel[f"primary_{name}_{s}"] = primary_feature[col]
-                    if class_id == ROOF_ID:
-                        primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
-                        primary_attributes["feature_id"] = primary_feature.feature_id
-                    elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
-                        primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
-                    else:
-                        primary_attributes = {}
-
-                    for key, val in primary_attributes.items():
-                        parcel[f"primary_{name}_" + str(key)] = val
-                if class_id == BUILDING_LIFECYCLE_ID:
-                    # Provide the confidence values for each damage rating class for the primary building lifecycle feature
-                    primary_attributes = flatten_building_lifecycle_damage_attributes(primary_feature.attributes)
-                    for key, val in primary_attributes.items():
-                        parcel[f"primary_{name}_" + str(key)] = val
-            else:
+            if len(class_features_gdf) == 0:
                 # Fill values if there are no features
                 parcel[f"primary_{name}_area_{area_units}"] = 0.0
                 parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
                 parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
                 parcel[f"primary_{name}_confidence"] = None
+                continue
 
-        if class_id == ROOF_ID:
-            # Initialize buffers to None - only override with values if valid buffers can be produced
-            if len(class_features_gdf) > 0 and calc_buffers:
-                # Initialize buffer results to None
-                for B in TREE_BUFFERS_M:
-                    parcel[f"total_roof_{B}_tree_zone"] = None
-                    parcel[f"total_roof_{B}_woodyveg_zone"] = None
-                    parcel[f"total_roof_count_{B}"] = None
+            # Add primary feature attributes for discrete features if there are any
+            if primary_decision == "largest_intersection":
+                # NB: Sort first by clipped area (priority). However, sometimes clipped areas are zero (in the case of damage detection), so secondary sort on unclipped is necessary.
+                primary_feature = class_features_gdf.sort_values(["clipped_area_sqm", "unclipped_area_sqm"], ascending=False).iloc[0]
 
-                # Only proceed if all roofs are fully within the parcel
-                rounding_factor = 0.99  # Account for pre-calculated vs on-the-fly area calc differences
-                if (parcel[f"{name}_total_clipped_area_{area_units}"] >= 
-                    rounding_factor * parcel[f"{name}_total_unclipped_area_{area_units}"]):
+            elif primary_decision == "nearest":
+                primary_point = Point(primary_lon, primary_lat)
+                primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
+                class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
 
-                    # Convert everything to area-based CRS upfront
-                    area_crs = AREA_CRS[country]
-                    if parcel_geom is not None:
-                        parcel_geom_area = gpd.GeoSeries([parcel_geom], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
+                if len(class_features_gdf_top) > 0:
+                    nearest_feature_idx = (
+                        class_features_gdf_top.set_geometry("geometry_feature")
+                        .to_crs("EPSG:3857")
+                        .distance(primary_point)
+                        .idxmin()
+                    )
+                else:
+                    nearest_feature_idx = (
+                        class_features_gdf.set_geometry("geometry_feature")
+                        .to_crs("EPSG:3857")
+                        .distance(primary_point)
+                        .idxmin()
+                    )
+                primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
+            else:
+                raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
+            if country in IMPERIAL_COUNTRIES:
+                parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
+                parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
+                parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
+            else:
+                parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
+                parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
+                parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
+            parcel[f"primary_{name}_confidence"] = primary_feature.confidence
+            if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+                parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
 
-                    # Get vegetation features if present
-                    veg_medhigh = features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]
-                    veg_woody = features_gdf[features_gdf.class_id == VEG_WOODY_COMPOSITE_ID]
+            # Add roof and building attributes
+            if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+                for col in ["building_small", "building_multiparcel"]:
+                    s = col.split("_")[1]
+                    parcel[f"primary_{name}_{s}"] = primary_feature[col]
+                if class_id == ROOF_ID:
+                    primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
+                    primary_attributes["feature_id"] = primary_feature.feature_id
+                elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
+                    primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
+                else:
+                    primary_attributes = {}
 
-                    if len(veg_medhigh) > 0:
-                        veg_medhigh_geoms = gpd.GeoDataFrame(
-                            veg_medhigh,
-                            geometry='geometry_feature',
-                            crs=LAT_LONG_CRS
-                        ).to_crs(area_crs)
-                    else:
-                        veg_medhigh_geoms = None
+                for key, val in primary_attributes.items():
+                    parcel[f"primary_{name}_" + str(key)] = val
+            if class_id == BUILDING_LIFECYCLE_ID:
+                # Provide the confidence values for each damage rating class for the primary building lifecycle feature
+                primary_attributes = flatten_building_lifecycle_damage_attributes(primary_feature.attributes)
+                for key, val in primary_attributes.items():
+                    parcel[f"primary_{name}_" + str(key)] = val
 
-                    if len(veg_woody) > 0:
-                        veg_woody_geoms = gpd.GeoDataFrame(
-                            veg_woody,
-                            geometry='geometry_feature',
-                            crs=LAT_LONG_CRS
-                        ).to_crs(area_crs)
-                    else:
-                        veg_woody_geoms = None
+            if class_id == ROOF_ID:
+                if not calc_buffers:
+                    continue
 
-                    # Convert roofs to area CRS
-                    roof_geoms = gpd.GeoDataFrame(
-                        class_features_gdf,
-                        geometry='geometry_feature',
-                        crs=LAT_LONG_CRS
-                    ).to_crs(area_crs)
+                assert parcel_geom is not None, "Parcel geometry must be provided for buffer calculations"
 
-                    # Calculate buffers for each distance
-                    for buffer_name, buffer_dist in TREE_BUFFERS_M.items():
-                        # Create buffered regions around roofs
-                        buffered_roofs = roof_geoms.copy()
-                        buffered_roofs['geometry'] = buffered_roofs.buffer(buffer_dist)
+                # Convert everything to area-based CRS upfront
+                area_crs = AREA_CRS[country]
+                parcel_geom_area = gpd.GeoSeries([parcel_geom], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
+                primary_roof_geom_area = gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
 
-                        # Create unified buffer of all roofs
-                        unified_buffer = buffered_roofs.geometry.union_all()
+                # Get geodataframe of only the relevant features for buffering, and convert to area projection
+                buffer_features_gdf = gpd.GeoDataFrame(
+                    features_gdf[features_gdf.class_id.isin(BUFFER_CLASSES.values())],
+                    geometry="geometry_feature",
+                    crs=LAT_LONG_CRS
+                    )
+                buffer_features_gdf = buffer_features_gdf.to_crs(area_crs)
 
-                        # Check if any buffer extends beyond parcel
-                        if parcel_geom is not None:
-                            area_ratio = unified_buffer.intersection(parcel_geom_area).area / unified_buffer.area
-                            if area_ratio < 0.99:  # Allow 1% margin for geometric precision
-                                continue  # Skip this buffer size if it exceeds parcel boundary
+                # Calculate buffers for each distance
+                for buffer_name, buffer_dist in BUFFER_ZONES_M.items():
+                    # Create buffered regions around roofs
+                    buffered_primary_roof_geom_area = primary_roof_geom_area.buffer(buffer_dist)
 
-                        # Count overlapping roofs
-                        parcel[f"total_roof_count_{buffer_name}"] = len(roof_geoms[roof_geoms.intersects(unified_buffer)])
+                    if not buffered_primary_roof_geom_area.within(parcel_geom_area):
+                        # Skip if the buffer protrudes outside the parcel
+                        continue
 
-                        # Calculate tree overlap if medium/high vegetation present
-                        if veg_medhigh_geoms is not None:
-                            tree_overlap = veg_medhigh_geoms.intersection(unified_buffer)
-                            tree_area = tree_overlap.area.sum()
-                            if country in IMPERIAL_COUNTRIES:
-                                tree_area *= SQUARED_METERS_TO_SQUARED_FEET
-                            parcel[f"total_roof_{buffer_name}_tree_zone"] = round(tree_area, 1)
-                        else:
-                            parcel[f"total_roof_{buffer_name}_tree_zone"] = 0.0
+                    # Proceed calculating intersections etc. with the buffered primary roof
+                    parcel[f"primary_roof_{buffer_name}_zone_sqm"] = buffered_primary_roof_geom_area.area
 
-                        # Calculate woody vegetation overlap
-                        if veg_woody_geoms is not None:
-                            woody_overlap = veg_woody_geoms.intersection(unified_buffer)
-                            woody_area = woody_overlap.area.sum()
-                            if country in IMPERIAL_COUNTRIES:
-                                woody_area *= SQUARED_METERS_TO_SQUARED_FEET
-                            parcel[f"total_roof_{buffer_name}_woodyveg_zone"] = round(woody_area, 1)
-                        else:
-                            parcel[f"total_roof_{buffer_name}_woodyveg_zone"] = 0.0
+                    # Trim buffer features to only the buffer zone, and drop any that are empty
+                    bf_trimmed_gdf = buffer_features_gdf.copy()
+                    bf_trimmed_gdf["geometry_feature"] = bf_trimmed_gdf.intersection(buffered_primary_roof_geom_area)
+                    bf_trimmed_gdf = bf_trimmed_gdf[~bf_trimmed_gdf.is_empty]
+                    
+                    # Calculate total area of union of all buffer features
+                    buffer_union = bf_trimmed_gdf.union_all()
+                    parcel[f"primary_roof_{buffer_name}_all_buffer_classes_sqm"] = buffer_union.area
 
-        elif class_id == BUILDING_LIFECYCLE_ID:
-            # Add aggregated damage across whole parcel, weighted by building lifecycle area
-            # TODO: Finish this.
-            pass
+                    # TODO: Figure out what to do about the interior of the primary roof - is it part of the zone?
+                    # TODO: Are zones exclusive rings, or is each just larger than the previous?
+
+                    for bc_name, bc_id in BUFFER_CLASSES.items():
+                        bc_gdf = bf_trimmed_gdf[bf_trimmed_gdf.class_id == bc_id]
+
+                        # Calculate union of all features of this class before getting area
+                        bc_union = bc_gdf.union_all()
+                        parcel[f"primary_roof_{buffer_name}_{bc_name}_sqm"] = bc_union.area
+
+            elif class_id == BUILDING_LIFECYCLE_ID:
+                # Add aggregated damage across whole parcel, weighted by building lifecycle area
+                # TODO: Finish this.
+                pass
     return parcel
 
 
