@@ -526,6 +526,13 @@ def feature_attributes(
 
                 # Calculate buffers for each distance
                 for buffer_name, buffer_dist in BUFFER_ZONES_M.items():
+                    # Create column names
+                    parcel[f"primary_roof_{buffer_name}_zone_sqm"] = None
+                    parcel[f"primary_roof_{buffer_name}_all_buffer_classes_sqm"] = None
+                    for bc_name in BUFFER_CLASSES.keys():
+                        parcel[f"primary_roof_{buffer_name}_{bc_name}_sqm"] = None
+
+                for buffer_name, buffer_dist in BUFFER_ZONES_M.items():
                     # Create buffered regions around roofs
                     buffered_primary_roof_geom_area = primary_roof_geom_area.buffer(buffer_dist)
 
@@ -540,7 +547,7 @@ def feature_attributes(
                     bf_trimmed_gdf = buffer_features_gdf.copy()
                     bf_trimmed_gdf["geometry_feature"] = bf_trimmed_gdf.intersection(buffered_primary_roof_geom_area)
                     bf_trimmed_gdf = bf_trimmed_gdf[~bf_trimmed_gdf.is_empty]
-                    
+
                     # Calculate total area of union of all buffer features
                     buffer_union = bf_trimmed_gdf.union_all()
                     parcel[f"primary_roof_{buffer_name}_all_buffer_classes_sqm"] = buffer_union.area

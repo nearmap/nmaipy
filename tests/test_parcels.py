@@ -487,7 +487,11 @@ class TestParcels:
         )
         # For this test, every parcel has buildings that cross the edges.
         # One parcel has the primary roof not intersecting the edge:
-        assert not df.loc["1_0"].filter(like="buffer_").isna().any()
+        assert not df.loc["1_0"].filter(like="buffer_0ft").isna().any()
+        assert not df.loc["1_0"].filter(like="buffer_5ft").isna().any()
+        assert df.loc["1_0"].filter(like="buffer_10ft").isna().all()
+        assert df.loc["1_0"].filter(like="buffer_30ft").isna().all()
+        assert df.loc["1_0"].filter(like="buffer_100ft").isna().all()
 
         assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(df.loc["1_0", "primary_roof_buffer_0ft_zone_sqm"], abs=0.05)
         assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(df.loc["1_0", "primary_roof_buffer_0ft_roof_sqm"], abs=0.05)
@@ -529,7 +533,7 @@ class TestParcels:
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
         tree_zone_sums = df.filter(regex="primary_roof_buffer_.*_tree_.*", axis=1).sum().values
-        np.testing.assert_allclose(tree_zone_sums, [344.96, 616.9, 755.2], rtol=0.05)
+        np.testing.assert_allclose(tree_zone_sums, [344.96, 616.9, 755.2, 0, 0], rtol=0.05)
 
         tree_zone_example = df.loc["08e57bff-9337-58ea-b8d6-b55b59431c64"]
         assert tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
