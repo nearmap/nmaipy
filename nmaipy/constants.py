@@ -132,6 +132,9 @@ CONNECTED_CLASS_IDS = (
     ]
 )
 
+CLASS_1111_YARD_DEBRIS = "405efaad-4b79-585d-88d8-43ae5fbb6f05"
+
+# Roof Condition / Malady Classes
 CLASS_1050_TARP = "abb1f304-ce01-527b-b799-cbfd07551b2c"  # "temporary repair",
 CLASS_1052_RUST = "526496bf-7344-5024-82d7-77ceb671feb4"  # "rust",
 CLASS_1079_MISSING_SHINGLES = "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12"  # "missing tiles or shingles",
