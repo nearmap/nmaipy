@@ -228,7 +228,7 @@ class AOIExporter:
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
-        calc_buffers=False, #TODO: Buffers need some work, not yet passing tests.
+        calc_buffers=False,
         include_parcel_geometry=False,
         save_features=False,
         rollup_format='csv',
@@ -422,7 +422,6 @@ class AOIExporter:
             if self.include_parcel_geometry:
                 columns.append("geometry")
             columns = [c for c in columns if c in final_df.columns]
-            final_df = final_df[columns]
             date2str = lambda d: str(d).replace("-", "")
             make_link = (
                 lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
@@ -449,12 +448,28 @@ class AOIExporter:
                 self.logger.error(final_df)
                 self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
+                # Check for column name collisions between any two dataframes
+                metadata_cols = set(metadata_df.columns)
+                features_cols = set(features_gdf.columns)
+                aoi_cols = set(aoi_gdf.columns)
+                
+                metadata_features_overlap = metadata_cols & features_cols - {AOI_ID_COLUMN_NAME}
+                metadata_aoi_overlap = metadata_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
+                features_aoi_overlap = features_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
+                
+                all_overlapping = metadata_features_overlap | metadata_aoi_overlap | features_aoi_overlap
+                if all_overlapping:
+                    self.logger.warning(
+                        f"Column name collisions detected. The following columns exist in multiple dataframes "
+                        f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
+                    )
+
                 final_features_df = gpd.GeoDataFrame(
                     metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
                         aoi_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
                     ),
                     crs=API_CRS,
-                )
+                ) #TODO: This is the source of an error - we're merging dataframes with columns in common, and ending up two aoi_geometry columns (as well as a bunch of redundant ones with _x and _y suffixes)
                 if "aoi_geometry" in final_features_df.columns:
                     final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
                 final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
