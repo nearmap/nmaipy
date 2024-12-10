@@ -576,7 +576,8 @@ class TestParcels:
             {"id": ROOF_ID, "description": "roof"}, {"id": WATER_BODY_ID, "description": "water_body"}
         ).set_index("id")
 
-        feature_api = FeatureApi(cache_dir=cache_directory)
+        feature_api = FeatureApi(cache_dir=cache_directory, aoi_grid_min_pct=80)
+
         features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2)
         print(metadata)
         features_gdf = parcels.filter_features_in_parcels(

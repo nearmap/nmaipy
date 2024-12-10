@@ -131,6 +131,12 @@ BUFFER_CLASSES = {
     "yard_debris": CLASS_1111_YARD_DEBRIS,
 }
 
+BUFFER_UNION_CLASSES = {
+    "woody_veg": VEG_WOODY_COMPOSITE_ID,
+    "roof": ROOF_ID,
+    "yard_debris": CLASS_1111_YARD_DEBRIS,
+}
+
 logger = log.get_logger()
 
 
@@ -241,7 +247,9 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
 
     Returns: Filtered features_gdf GeoDataFrame
     """
-    if len(features_gdf) == 0:
+    if features_gdf is None:
+        return features_gdf
+    elif len(features_gdf) == 0:
         return features_gdf
     gdf = features_gdf.copy()
 
@@ -528,7 +536,7 @@ def feature_attributes(
                 for buffer_name, buffer_dist in BUFFER_ZONES_M.items():
                     # Create column names
                     parcel[f"primary_roof_{buffer_name}_zone_sqm"] = None
-                    parcel[f"primary_roof_{buffer_name}_all_buffer_classes_sqm"] = None
+                    parcel[f"primary_roof_{buffer_name}_buffer_union_classes_sqm"] = None
                     for bc_name in BUFFER_CLASSES.keys():
                         parcel[f"primary_roof_{buffer_name}_{bc_name}_sqm"] = None
 
@@ -548,12 +556,9 @@ def feature_attributes(
                     bf_trimmed_gdf["geometry_feature"] = bf_trimmed_gdf.intersection(buffered_primary_roof_geom_area)
                     bf_trimmed_gdf = bf_trimmed_gdf[~bf_trimmed_gdf.is_empty]
 
-                    # Calculate total area of union of all buffer features
-                    buffer_union = bf_trimmed_gdf.union_all()
-                    parcel[f"primary_roof_{buffer_name}_all_buffer_classes_sqm"] = buffer_union.area
-
-                    # TODO: Figure out what to do about the interior of the primary roof - is it part of the zone?
-                    # TODO: Are zones exclusive rings, or is each just larger than the previous?
+                    # Calculate total area of union of all buffer features from the BUFFER_UNION_CLASSES dictionary
+                    buffer_union = bf_trimmed_gdf.query("class_id in @BUFFER_UNION_CLASSES.values()").union_all()
+                    parcel[f"primary_roof_{buffer_name}_buffer_union_classes_sqm"] = buffer_union.area
 
                     for bc_name, bc_id in BUFFER_CLASSES.items():
                         bc_gdf = bf_trimmed_gdf[bf_trimmed_gdf.class_id == bc_id]
