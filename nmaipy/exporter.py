@@ -449,9 +449,11 @@ class AOIExporter:
                 self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
                 # Check for column name collisions between any two dataframes
+                final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
+
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
-                aoi_cols = set(aoi_gdf.columns)
+                aoi_cols = set(final_features_df.columns)
                 
                 metadata_features_overlap = metadata_cols & features_cols - {AOI_ID_COLUMN_NAME}
                 metadata_aoi_overlap = metadata_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
@@ -463,13 +465,13 @@ class AOIExporter:
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-
+                
                 final_features_df = gpd.GeoDataFrame(
                     metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
-                        aoi_gdf.rename(columns=dict(geometry="aoi_geometry")), on=AOI_ID_COLUMN_NAME
+                        final_features_df, on=AOI_ID_COLUMN_NAME
                     ),
                     crs=API_CRS,
-                ) #TODO: This is the source of an error - we're merging dataframes with columns in common, and ending up two aoi_geometry columns (as well as a bunch of redundant ones with _x and _y suffixes)
+                )
                 if "aoi_geometry" in final_features_df.columns:
                     final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
                 final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
