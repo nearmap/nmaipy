@@ -49,8 +49,8 @@ DEFAULT_FILTERING = {
         CLASS_1149_PATCHING: 0.50,  # "patching",
         CLASS_1186_STRUCTURAL_DAMAGE: 0.50,  # "structural_damage",
         # Roof Shapes
-        CLASS_1013_HIP: 0.50,
-        CLASS_1014_GABLE: 0.50,
+        CLASS_1013_HIP: 0.50, # Keep fixed at 0.50 due to rate filing
+        CLASS_1014_GABLE: 0.50, # Keep fixed at 0.50 due to rate filing
         CLASS_1015_DUTCH_GABLE: 0.57,
         CLASS_1019_GAMBREL: 0.70,
         CLASS_1020_CONICAL: 0.50,  # turret / conical. This is normall small part on the roof. It's hard to be larger than 0.58
@@ -62,8 +62,8 @@ DEFAULT_FILTERING = {
         # Roof Materials
         CLASS_1191_FLAT: 0.50,
         CLASS_1007_TILE: 0.55,
-        CLASS_1008_ASPHALT_SHINGLE: 0.50,
-        CLASS_1009_METAL_PANEL: 0.50,
+        CLASS_1008_ASPHALT_SHINGLE: 0.50, # Keep fixed at 0.50 due to rate filing
+        CLASS_1009_METAL_PANEL: 0.50, # Keep fixed at 0.50 due to rate filing
         CLASS_1100_BALLASTED: 0.64,
         CLASS_1101_MOD_BIT: 0.50,
         CLASS_1103_TPO: 0.53,
