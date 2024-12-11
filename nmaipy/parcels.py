@@ -299,6 +299,16 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
             building_statuses.index = gdf_aoi_buildings.index
             gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
             gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+
+            # Clip any building that is "multiparcel" to the intersection with the AOI
+            multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
+            if multiparcel_mask.any():
+                aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
+                new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
+                print(str(new_geometries.iloc[0]))
+                print(str(gdf_aoi_buildings.loc[multiparcel_mask, "geometry"].iloc[0]))
+                gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
+
             out_gdf_building_style.append(gdf_aoi_buildings)
 
         if len(out_gdf_building_style) > 0:
