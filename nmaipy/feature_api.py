@@ -1261,7 +1261,9 @@ class FeatureApi:
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
-            logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error ({e.status_code}).")
+            logger.debug(
+                f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
+            )
             raise AIFeatureAPIGridError(e.status_code)
         if len(features_gdf) == 0:
             # Got no data back from any grid square in the AOI.
