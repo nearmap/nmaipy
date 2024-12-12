@@ -1,13 +1,13 @@
+import warnings
 from pathlib import Path
 from typing import List, Optional, Union
-import warnings
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import MultiPolygon, Polygon, Point
+from shapely.geometry import MultiPolygon, Point, Polygon
 
-from nmaipy import log
 import nmaipy.reference_code
+from nmaipy import log
 from nmaipy.constants import *
 
 TRUE_STRING = "Y"
@@ -49,8 +49,8 @@ DEFAULT_FILTERING = {
         CLASS_1149_PATCHING: 0.50,  # "patching",
         CLASS_1186_STRUCTURAL_DAMAGE: 0.50,  # "structural_damage",
         # Roof Shapes
-        CLASS_1013_HIP: 0.50, # Keep fixed at 0.50 due to rate filing
-        CLASS_1014_GABLE: 0.50, # Keep fixed at 0.50 due to rate filing
+        CLASS_1013_HIP: 0.50,  # Keep fixed at 0.50 due to rate filing
+        CLASS_1014_GABLE: 0.50,  # Keep fixed at 0.50 due to rate filing
         CLASS_1015_DUTCH_GABLE: 0.57,
         CLASS_1019_GAMBREL: 0.70,
         CLASS_1020_CONICAL: 0.50,  # turret / conical. This is normall small part on the roof. It's hard to be larger than 0.58
@@ -62,8 +62,8 @@ DEFAULT_FILTERING = {
         # Roof Materials
         CLASS_1191_FLAT: 0.50,
         CLASS_1007_TILE: 0.55,
-        CLASS_1008_ASPHALT_SHINGLE: 0.50, # Keep fixed at 0.50 due to rate filing
-        CLASS_1009_METAL_PANEL: 0.50, # Keep fixed at 0.50 due to rate filing
+        CLASS_1008_ASPHALT_SHINGLE: 0.50,  # Keep fixed at 0.50 due to rate filing
+        CLASS_1009_METAL_PANEL: 0.50,  # Keep fixed at 0.50 due to rate filing
         CLASS_1100_BALLASTED: 0.64,
         CLASS_1101_MOD_BIT: 0.50,
         CLASS_1103_TPO: 0.53,
@@ -80,7 +80,7 @@ DEFAULT_FILTERING = {
         ROOF_ID: 0.15,
     },
     "min_area_in_parcel": {
-        BUILDING_LIFECYCLE_ID: 0, # Point classes have no clipped area, so we can't filter them out based on area.
+        BUILDING_LIFECYCLE_ID: 0,  # Point classes have no clipped area, so we can't filter them out based on area.
         BUILDING_ID: 4,
         BUILDING_NEW_ID: 4,
         ROOF_ID: 4,
@@ -190,7 +190,8 @@ def read_from_file(
             # If from a tabular data source, try to convert to a GeoDataFrame (requires a geometry column)
             geometry = gpd.GeoSeries.from_wkt(parcels_gdf.geometry.fillna("POLYGON(EMPTY)"))
             parcels_gdf = gpd.GeoDataFrame(
-                parcels_gdf, geometry=geometry,
+                parcels_gdf,
+                geometry=geometry,
                 crs=source_crs,
             )
     if "geometry" in parcels_gdf:
@@ -225,7 +226,7 @@ def read_from_file(
         if id_column not in parcels_gdf:
             logger.warning(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
             parcels_gdf.index.name = id_column  # Set a new unique ordered index for reference
-        else: # The index must already be there as a column
+        else:  # The index must already be there as a column
             logger.warning(f"Moving {AOI_ID_COLUMN_NAME} to be the index - generating unique IDs")
             parcels_gdf = parcels_gdf.set_index(id_column)
     if parcels_gdf.index.duplicated().any():
@@ -233,7 +234,9 @@ def read_from_file(
     return parcels_gdf
 
 
-def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str) -> gpd.GeoDataFrame:
+def filter_features_in_parcels(
+    features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str
+) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
      - Features that are considered noise (small or low confidence)
@@ -264,7 +267,9 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
 
     # Calculate the ratio of a feature that falls within the parcel
     gdf["intersection_ratio"] = gdf["clipped_area_" + suffix] / gdf["unclipped_area_" + suffix]
-    gdf["intersection_ratio"] = gdf["intersection_ratio"].fillna(1) # If unclipped area is zero, assume the feature is fully inside the parcel
+    gdf["intersection_ratio"] = gdf["intersection_ratio"].fillna(
+        1
+    )  # If unclipped area is zero, assume the feature is fully inside the parcel
 
     # Filter small features
     gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_size"]).fillna(0) <= gdf["unclipped_area_" + suffix]]
@@ -286,19 +291,25 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
             gdf_aoi = gdf.loc[[aoi_id]]
             gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
             if len(gdf_aoi_buildings) == 0:
-                continue # Skip if there are no buildings in the AOI
+                continue  # Skip if there are no buildings in the AOI
             features_from_aoi = aoi_gdf.loc[[aoi_id]]
             aoi_poly = (
                 features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
             )  # Get in metric projection for area/geospatial calcs in metres.
             building_statuses = []
-            for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
+            for building_poly in gdf_aoi_buildings.to_crs(
+                AREA_CRS[region]
+            ).geometry:  # Loop through buildings in the AOI
                 building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
                 building_statuses.append(building_status)
             building_statuses = pd.DataFrame(building_statuses)
             building_statuses.index = gdf_aoi_buildings.index
-            gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
-            gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+            gdf_aoi_buildings = pd.concat(
+                [gdf_aoi_buildings, building_statuses], axis=1
+            )  # Append extra columns for all buildings in this parcel
+            gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(
+                columns=["building_keep"]
+            )  # Remove any we should filter out
 
             # Clip any building that is "multiparcel" to the intersection with the AOI
             multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
@@ -466,7 +477,9 @@ def feature_attributes(
             # Add primary feature attributes for discrete features if there are any
             if primary_decision == "largest_intersection":
                 # NB: Sort first by clipped area (priority). However, sometimes clipped areas are zero (in the case of damage detection), so secondary sort on unclipped is necessary.
-                primary_feature = class_features_gdf.sort_values(["clipped_area_sqm", "unclipped_area_sqm"], ascending=False).iloc[0]
+                primary_feature = class_features_gdf.sort_values(
+                    ["clipped_area_sqm", "unclipped_area_sqm"], ascending=False
+                ).iloc[0]
 
             elif primary_decision == "nearest":
                 primary_point = Point(primary_lon, primary_lat)
@@ -532,14 +545,16 @@ def feature_attributes(
                 # Convert everything to area-based CRS upfront
                 area_crs = AREA_CRS[country]
                 parcel_geom_area = gpd.GeoSeries([parcel_geom], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
-                primary_roof_geom_area = gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
+                primary_roof_geom_area = gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).to_crs(
+                    area_crs
+                )[0]
 
                 # Get geodataframe of only the relevant features for buffering, and convert to area projection
                 buffer_features_gdf = gpd.GeoDataFrame(
                     features_gdf[features_gdf.class_id.isin(BUFFER_CLASSES.values())],
                     geometry="geometry_feature",
-                    crs=LAT_LONG_CRS
-                    )
+                    crs=LAT_LONG_CRS,
+                )
                 buffer_features_gdf = buffer_features_gdf.to_crs(area_crs)
 
                 # Calculate buffers for each distance

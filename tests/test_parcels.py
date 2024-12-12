@@ -1,29 +1,30 @@
+import os
+import sys
 from pathlib import Path
 
 import geopandas as gpd
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 from shapely.wkt import loads
 
 from nmaipy import parcels
 from nmaipy.constants import (
-    BUILDING_LIFECYCLE_ID,
-    BUILDING_ID,
-    BUILDING_NEW_ID,
-    ROOF_ID,
-    LAWN_GRASS_ID,
-    POOL_ID,
-    VEG_MEDHIGH_ID,
     AOI_ID_COLUMN_NAME,
     API_CRS,
-    WATER_BODY_ID,
     AREA_CRS,
+    BUILDING_ID,
+    LAWN_GRASS_ID,
+    POOL_ID,
+    ROOF_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
+    VEG_MEDHIGH_ID,
+    WATER_BODY_ID,
 )
 from nmaipy.feature_api import FeatureApi
 
 data_directory = Path(__file__).parent / "data"
+
 
 # @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
@@ -307,7 +308,9 @@ class TestParcels:
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         country = "au"
-        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(
+            features_2_gdf, aoi_gdf=parcels_2_gdf, region=country
+        )
         df = parcels.parcel_rollup(
             parcels_2_gdf,
             features_2_gdf_filtered,
@@ -317,7 +320,9 @@ class TestParcels:
             primary_decision="largest_intersection",
         )
         df.to_csv(data_directory / "test_parcels_2_rollup.csv")
-        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME)  # Expected ground truth results
+        expected = pd.read_csv(
+            data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME
+        )  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
 
     def test_nearest_primary(self):
@@ -385,7 +390,9 @@ class TestParcels:
         gdf["clipped_area_sqm"] = gdf.apply(
             lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
         )
-        features_gdf = features_gdf.merge(gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"])
+        features_gdf = features_gdf.merge(
+            gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"]
+        )
         for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
             features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
         parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
@@ -438,9 +445,7 @@ class TestParcels:
         # We get results in all AOIs
         assert len(features_gdf.index.unique()) == len(parcel_gdf)
 
-        features_gdf_filtered = parcels.filter_features_in_parcels(
-            features_gdf, aoi_gdf=parcel_gdf, region=country
-        )
+        features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
         assert (
             len(features_gdf) > len(features_gdf_filtered) * 0.95
         )  # Very little should have been filtered out in these examples.
@@ -493,8 +498,12 @@ class TestParcels:
         assert df.loc["1_0"].filter(like="buffer_30ft").isna().all()
         assert df.loc["1_0"].filter(like="buffer_100ft").isna().all()
 
-        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(df.loc["1_0", "primary_roof_buffer_0ft_zone_sqm"], abs=0.05)
-        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(df.loc["1_0", "primary_roof_buffer_0ft_roof_sqm"], abs=0.05)
+        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(
+            df.loc["1_0", "primary_roof_buffer_0ft_zone_sqm"], abs=0.05
+        )
+        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(
+            df.loc["1_0", "primary_roof_buffer_0ft_roof_sqm"], abs=0.05
+        )
 
         # every other result should be NaN for buffers, as the primary building is always overlapping the parcel boundary.
         assert df.filter(like="buffer").notna().any(axis=1).sum() == 1
@@ -512,12 +521,16 @@ class TestParcels:
 
         """
         country = "us"
-        classes_df = pd.DataFrame([
-            {"id": ROOF_ID, "description": "roof"},
-            {"id": VEG_MEDHIGH_ID, "description": "tree"},
-        ]).set_index("id")
+        classes_df = pd.DataFrame(
+            [
+                {"id": ROOF_ID, "description": "roof"},
+                {"id": VEG_MEDHIGH_ID, "description": "tree"},
+            ]
+        ).set_index("id")
         country = "us"
-        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(
+            features_2_gdf, aoi_gdf=parcels_2_gdf, region=country
+        )
         df = parcels.parcel_rollup(
             parcels_2_gdf,
             features_2_gdf_filtered,
@@ -528,7 +541,9 @@ class TestParcels:
         )
 
         # Test that all buffers fail when they're too large for the parcels.
-        assert df.filter(like="30ft_tree_zone").isna().all().all() # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
+        assert (
+            df.filter(like="30ft_tree_zone").isna().all().all()
+        )  # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
@@ -539,16 +554,13 @@ class TestParcels:
         assert tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
         assert tree_zone_example.loc["primary_roof_buffer_5ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
         assert tree_zone_example.loc["primary_roof_buffer_10ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
-        assert (
-            tree_zone_example.loc["primary_roof_area_sqft"]
-            == pytest.approx(tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] / 0.0929, rel=0.02)
+        assert tree_zone_example.loc["primary_roof_area_sqft"] == pytest.approx(
+            tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] / 0.0929, rel=0.02
         )
         assert tree_zone_example.loc["primary_roof_buffer_0ft_tree_sqm"] == pytest.approx(
             4.72, abs=0.5
         )  # Same as tree overhang
-        assert tree_zone_example.loc["primary_roof_buffer_5ft_tree_sqm"] == pytest.approx(
-            21.5, abs=0.5
-        )
+        assert tree_zone_example.loc["primary_roof_buffer_5ft_tree_sqm"] == pytest.approx(21.5, abs=0.5)
         assert tree_zone_example.loc["primary_roof_buffer_10ft_tree_sqm"] == pytest.approx(47.6, abs=0.5)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
@@ -578,11 +590,11 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory, aoi_grid_min_pct=80)
 
-        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2)
-        print(metadata)
-        features_gdf = parcels.filter_features_in_parcels(
-            features_gdf, region=country, aoi_gdf=parcels_gdf
+        features_gdf, metadata, errors = feature_api.get_features_gdf(
+            aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2
         )
+        print(metadata)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, region=country, aoi_gdf=parcels_gdf)
         print(features_gdf.T)
         print(features_gdf.description.value_counts())
         df = parcels.parcel_rollup(
@@ -693,3 +705,8 @@ class TestParcels:
         assert (
             df.loc[11179800001006, "building_count"] == 25
         )  # Includes some lower confidence ones that had been filtered by the previous thresholds.
+
+
+if __name__ == "__main__":
+    current_file = os.path.abspath(__file__)
+    sys.exit(pytest.main([current_file]))
