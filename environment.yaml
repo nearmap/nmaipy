@@ -5,20 +5,21 @@ channels:
   - main
 dependencies:
   # Environment specific dependencies
-  - python=3.11
+  - black
+  - click
+  - descartes
+  - geopandas
+  - ipykernel
+  - isort
+  - matplotlib
   - numpy
   - pandas
-  - shapely
-  - rtree
-  - geopandas
-  - matplotlib
-  - descartes
-  - tqdm
-  - stringcase
   - pyarrow
-  - isort
-  - black
   - pytest
-  - ipykernel
+  - python=3.11
+  - python-dotenv
   - requests
-  - click
+  - rtree
+  - shapely
+  - stringcase
+  - tqdm
