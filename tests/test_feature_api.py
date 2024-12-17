@@ -1,29 +1,30 @@
+import os
+import sys
 from pathlib import Path
 
-import pandas as pd
 import geopandas as gpd
+import pandas as pd
 import pytest
 from shapely.affinity import translate
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Polygon
 from shapely.wkt import loads
 
-from nmaipy import parcels
+from nmaipy import parcels, reference_code
 from nmaipy.constants import (
-    BUILDING_ID,
-    ROOF_ID,
-    BUILDING_NEW_ID,
-    SOLAR_ID,
-    VEG_MEDHIGH_ID,
-    ASPHALT_ID,
-    SOLAR_HW_ID,
+    AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
+    ASPHALT_ID,
+    BUILDING_ID,
+    BUILDING_NEW_ID,
     ROLLUP_BUILDING_COUNT_ID,
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
-    AOI_ID_COLUMN_NAME,
-    AREA_CRS,
+    ROOF_ID,
+    SOLAR_HW_ID,
+    SOLAR_ID,
+    VEG_MEDHIGH_ID,
 )
 from nmaipy.feature_api import FeatureApi
-from nmaipy import reference_code
 
 
 class TestFeatureAPI:
@@ -35,7 +36,9 @@ class TestFeatureAPI:
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        rollup_df, metadata, error = feature_api.get_rollup_df(sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        rollup_df, metadata, error = feature_api.get_rollup_df(
+            sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
         print(rollup_df.T)
         print(f"WKT of Query AOI: {sydney_aoi}")
 
@@ -61,8 +64,10 @@ class TestFeatureAPI:
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2)
-        features_gdf = features_gdf.query("class_id == @ROOF_ID") # Filter out building classes, just keep roof.
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
+        features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         # No error
         assert error is None
         # Date is in range
@@ -95,7 +100,9 @@ class TestFeatureAPI:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
 
         print(metadata)
         print(features_gdf.T)
@@ -178,14 +185,18 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
         assert error is None
 
         # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
@@ -200,14 +211,18 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
         assert error is None
 
         # Then re-request using invalid API key to ensure data is not being pulled from the API but read from the cache.
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
+        )
         # Check output
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
@@ -242,7 +257,9 @@ class TestFeatureAPI:
         assert len(features_gdf) == 69
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 69
 
-        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2)
+        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
+            aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2
+        )
         # Check metadata
         assert len(metadata_df) == 16
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
@@ -445,8 +462,11 @@ class TestFeatureAPI:
         assert features_gdf_asphalt["clipped_area_sqm"].sum() == pytest.approx(259.2, rel=0.02)
 
     def test_multiparcel_building_filter_1(self, cache_directory: Path):
-        aoi = loads("Polygon ((151.27703696149524148 -33.79262202320504827, 151.27733681519475795 -33.79266133351605816, 151.27731228659985163 -33.79279055527718612, 151.27701243290030675 -33.79275124502552075, 151.27703696149524148 -33.79262202320504827))")
-        building = loads(""" POLYGON ((
+        aoi = loads(
+            "Polygon ((151.27703696149524148 -33.79262202320504827, 151.27733681519475795 -33.79266133351605816, 151.27731228659985163 -33.79279055527718612, 151.27701243290030675 -33.79275124502552075, 151.27703696149524148 -33.79262202320504827))"
+        )
+        building = loads(
+            """ POLYGON ((
             151.27712199999999143 -33.7926259999999985,
             151.27713900000000535 -33.79253500000000088,
             151.2771669999999915 -33.79253899999999788,
@@ -488,7 +508,7 @@ class TestFeatureAPI:
         """
         )
         country = "au"
-        pass # TODO: Implement test. This should come up as a multi parcel building.
+        pass  # TODO: Implement test. This should come up as a multi parcel building.
 
         # Convert the polygons to a metric CRS
         aoi_metric = gpd.GeoDataFrame(geometry=[aoi], crs=API_CRS).to_crs(AREA_CRS[country]).iloc[0].geometry
@@ -547,3 +567,8 @@ class TestFeatureAPI:
             "trampoline",
         }
         assert not expected_subset.difference(packs.keys())
+
+
+if __name__ == "__main__":
+    current_file = os.path.abspath(__file__)
+    sys.exit(pytest.main([current_file]))
