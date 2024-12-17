@@ -281,54 +281,88 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
 
     if not isinstance(aoi_gdf, gpd.GeoDataFrame):
         logger.warning("AOI geometries not available, skipping building style filtering")
+        return gdf
+
+    # Filter out buildings that are not in the AOI, and clip geometries of multiparcel buildings
+    for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
+        gdf_aoi = gdf.loc[[aoi_id]]
+        gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
+        if len(gdf_aoi_buildings) == 0:
+            continue # Skip if there are no buildings in the AOI
+        features_from_aoi = aoi_gdf.loc[[aoi_id]]
+        aoi_poly = (
+            features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
+        )  # Get in metric projection for area/geospatial calcs in metres.
+        building_statuses = []
+        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
+            building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
+            building_statuses.append(building_status)
+        building_statuses = pd.DataFrame(building_statuses)
+        building_statuses.index = gdf_aoi_buildings.index
+        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
+        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+
+        # Clip any building that is "multiparcel" to the intersection with the AOI
+        multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
+        if multiparcel_mask.any():
+            aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
+            new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
+            gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
+
+        out_gdf_building_style.append(gdf_aoi_buildings)
+
+    if len(out_gdf_building_style) > 0:
+        out_gdf_building_style = pd.concat(out_gdf_building_style)
+        gdf = pd.concat([gdf_non_building_style, out_gdf_building_style])
     else:
-        for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
-            gdf_aoi = gdf.loc[[aoi_id]]
-            gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
-            if len(gdf_aoi_buildings) == 0:
-                continue # Skip if there are no buildings in the AOI
-            features_from_aoi = aoi_gdf.loc[[aoi_id]]
-            aoi_poly = (
-                features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
-            )  # Get in metric projection for area/geospatial calcs in metres.
-            building_statuses = []
-            for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
-                building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
-                building_statuses.append(building_status)
-            building_statuses = pd.DataFrame(building_statuses)
-            building_statuses.index = gdf_aoi_buildings.index
-            gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
-            gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+        gdf = gdf_non_building_style
 
-            # Clip any building that is "multiparcel" to the intersection with the AOI
-            multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
-            if multiparcel_mask.any():
-                aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
-                new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
-                print(str(new_geometries.iloc[0]))
-                print(str(gdf_aoi_buildings.loc[multiparcel_mask, "geometry"].iloc[0]))
-                gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
-
-            out_gdf_building_style.append(gdf_aoi_buildings)
-
-        if len(out_gdf_building_style) > 0:
-            out_gdf_building_style = pd.concat(out_gdf_building_style)
-            gdf = pd.concat([gdf_non_building_style, out_gdf_building_style])
-        else:
-            gdf = gdf_non_building_style
-
-    # Filter based on area and ratio in parcel
+    # Filter all featuers based on area and ratio in parcel
     area_mask = gdf.class_id.map(DEFAULT_FILTERING["min_area_in_parcel"]).fillna(0) <= gdf["clipped_area_" + suffix]
     ratio_mask = gdf.class_id.map(DEFAULT_FILTERING["min_ratio_in_parcel"]).fillna(0) <= gdf.intersection_ratio
     gdf = gdf[area_mask & ratio_mask]
 
     # Only drop objects where the parent has been explicitly removed as above (otherwise we drop solar panels without a building request, etc.)
-    if "parent_id" in gdf:
-        feature_ids_removed = set(features_gdf.feature_id) - set(gdf.feature_id)
-        parent_removed = gdf.parent_id.isin(feature_ids_removed)
-        no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
-        gdf = gdf.loc[~parent_removed | no_parent]
+    feature_ids_removed = set(features_gdf.feature_id) - set(gdf.feature_id)
+    parent_removed = gdf.parent_id.isin(feature_ids_removed)
+    no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
+    gdf = gdf.loc[~parent_removed | no_parent]
 
+    # For features with a parent, do an intersection to reduce them to the area of the parent, in the case of multiparcel buildings
+    has_parent = ~((gdf.parent_id == "") | gdf.parent_id.isna())
+    features_to_update = gdf[has_parent].copy()
+
+    # Create lookup of parent geometries
+    idx_cols = [AOI_ID_COLUMN_NAME, "feature_id"]
+    parent_geoms = gdf[gdf.feature_id.isin(features_to_update.parent_id)].reset_index().set_index(idx_cols).geometry.reset_index()
+
+    # Remove features who's parent is not in the payload (e.g. if the parent class was not selected for returning)
+    features_to_update = features_to_update[features_to_update.parent_id.isin(parent_geoms["feature_id"])].reset_index().set_index(idx_cols)
+    parent_geoms = parent_geoms.set_index(idx_cols)
+
+    # Update geometries of child features by intersecting with parent geometry
+    for idx, row in features_to_update.iterrows():
+        parent_row = parent_geoms.loc[(idx[0], row.parent_id)]
+        assert len(parent_row) == 1, f"Expected one parent row for {idx=}, got {len(parent_row)}"
+        features_to_update.loc[idx, "parent_geom"] = parent_row.geometry
+    features_to_update["new_geom"] = features_to_update.geometry.intersection(gpd.GeoSeries(features_to_update.parent_geom, crs=features_to_update.crs), align=False)
+    features_to_update["new_area"] = gpd.GeoSeries(features_to_update.new_geom, crs=features_to_update.crs).to_crs(AREA_CRS[region]).area
+
+    # Recalculate areas for clipped features
+    if 'area_sqm' in gdf.columns:
+        features_to_update['area_sqm'] = features_to_update["new_area"]
+    elif 'area_sqft' in gdf.columns:
+        features_to_update["area_sqft"] = features_to_update["new_area"] * METERS_TO_FEET * METERS_TO_FEET
+
+
+    # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
+    gdf = gdf.reset_index().set_index(idx_cols)
+    assert not gdf.index.has_duplicates
+    assert not features_to_update.index.has_duplicates
+    gdf.update(features_to_update)
+    gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
+
+    #TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
 
 
@@ -702,5 +736,3 @@ def parcel_rollup(
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
             rollup_df[col] = rollup_df[col].round(2)
-            logger.debug("Rounded column %s to 2 decimal places", col)
-    return rollup_df
