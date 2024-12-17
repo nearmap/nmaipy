@@ -340,27 +340,28 @@ def filter_features_in_parcels(features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoD
     features_to_update = features_to_update[features_to_update.parent_id.isin(parent_geoms["feature_id"])].reset_index().set_index(idx_cols)
     parent_geoms = parent_geoms.set_index(idx_cols)
 
-    # Update geometries of child features by intersecting with parent geometry
-    for idx, row in features_to_update.iterrows():
-        parent_row = parent_geoms.loc[(idx[0], row.parent_id)]
-        assert len(parent_row) == 1, f"Expected one parent row for {idx=}, got {len(parent_row)}"
-        features_to_update.loc[idx, "parent_geom"] = parent_row.geometry
-    features_to_update["new_geom"] = features_to_update.geometry.intersection(gpd.GeoSeries(features_to_update.parent_geom, crs=features_to_update.crs), align=False)
-    features_to_update["new_area"] = gpd.GeoSeries(features_to_update.new_geom, crs=features_to_update.crs).to_crs(AREA_CRS[region]).area
+    if len(features_to_update) > 0:
+        # Update geometries of child features by intersecting with parent geometry
+        for idx, row in features_to_update.iterrows():
+            parent_row = parent_geoms.loc[(idx[0], row.parent_id)]
+            assert len(parent_row) == 1, f"Expected one parent row for {idx=}, got {len(parent_row)}"
+            features_to_update.loc[idx, "parent_geom"] = parent_row.geometry
+        features_to_update["new_geom"] = features_to_update.geometry.intersection(gpd.GeoSeries(features_to_update.parent_geom, crs=features_to_update.crs), align=False)
+        features_to_update["new_area"] = gpd.GeoSeries(features_to_update.new_geom, crs=features_to_update.crs).to_crs(AREA_CRS[region]).area
 
-    # Recalculate areas for clipped features
-    if 'area_sqm' in gdf.columns:
-        features_to_update['area_sqm'] = features_to_update["new_area"]
-    elif 'area_sqft' in gdf.columns:
-        features_to_update["area_sqft"] = features_to_update["new_area"] * METERS_TO_FEET * METERS_TO_FEET
+        # Recalculate areas for clipped features
+        if 'area_sqm' in gdf.columns:
+            features_to_update['area_sqm'] = features_to_update["new_area"]
+        elif 'area_sqft' in gdf.columns:
+            features_to_update["area_sqft"] = features_to_update["new_area"] * METERS_TO_FEET * METERS_TO_FEET
 
 
-    # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
-    gdf = gdf.reset_index().set_index(idx_cols)
-    assert not gdf.index.has_duplicates
-    assert not features_to_update.index.has_duplicates
-    gdf.update(features_to_update)
-    gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
+        # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
+        gdf = gdf.reset_index().set_index(idx_cols)
+        assert not gdf.index.has_duplicates
+        assert not features_to_update.index.has_duplicates
+        gdf.update(features_to_update)
+        gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     #TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
@@ -736,3 +737,4 @@ def parcel_rollup(
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
             rollup_df[col] = rollup_df[col].round(2)
+    return rollup_df
