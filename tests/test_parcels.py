@@ -349,6 +349,7 @@ class TestParcels:
                     "fidelity": 0.7,  # Made up
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
                     "mesh_date": "2021-10-10",
+                    "parent_id": None,
                     "geometry": loads(
                         "POLYGON ((-114.9996 42.0001, -114.9996 42.00040000000001, -114.9999 42.00040000000001, -114.9999 42.0001, -114.9996 42.0001))"
                     ),
@@ -361,6 +362,7 @@ class TestParcels:
                     "fidelity": 0.7,  # Made up
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
                     "mesh_date": "2021-10-10",
+                    "parent_id": 2,
                     "geometry": loads(
                         "POLYGON ((-114.9991 42.0001, -114.9991 42.00040000000001, -114.9995 42.00040000000001, -114.9995 42.0001, -114.9991 42.0001))"
                     ),
@@ -373,6 +375,7 @@ class TestParcels:
                     "fidelity": 0.6,
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
                     "mesh_date": "2021-10-10",
+                    "parent_id": 5,
                     "geometry": loads(
                         "POLYGON ((-114.9996 42.0005, -114.9996 42.00056, -114.9999 42.00056, -114.9999 42.0005, -114.9996 42.0005))"
                     ),
