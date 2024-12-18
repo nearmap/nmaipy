@@ -335,40 +335,39 @@ def filter_features_in_parcels(
 
     # For features with a parent, do an intersection to reduce them to the area of the parent, in the case of multiparcel buildings
     has_parent = ~((gdf.parent_id == "") | gdf.parent_id.isna())
-    features_to_update = gdf[has_parent].copy()
-
-    # Create lookup of parent geometries
     idx_cols = [AOI_ID_COLUMN_NAME, "feature_id"]
-    parent_geoms = gdf[gdf.feature_id.isin(features_to_update.parent_id)].reset_index().set_index(idx_cols).geometry.reset_index()
+    features_to_update = gdf[has_parent].copy().reset_index().set_index(idx_cols)
 
-    # Remove features who's parent is not in the payload (e.g. if the parent class was not selected for returning)
-    features_to_update = features_to_update[features_to_update.parent_id.isin(parent_geoms["feature_id"])].reset_index().set_index(idx_cols)
-    parent_geoms = parent_geoms.set_index(idx_cols)
+    # Wherever a parent exists in the same AOI, identify the parent geometry as a column next to the child feature "geometry".
+    gdf_parent_lookup = features_to_update["geometry"].reset_index().rename(columns={"feature_id": "parent_id", "geometry": "parent_geometry"})
+    features_to_update = features_to_update.reset_index().merge(gdf_parent_lookup, on=["aoi_id", "parent_id"], how="left").set_index(
+        idx_cols
+    )
 
-    if len(features_to_update) > 0:
-        # Update geometries of child features by intersecting with parent geometry
-        for idx, row in features_to_update.iterrows():
-            parent_row = parent_geoms.loc[(idx[0], row.parent_id)]
-            assert len(parent_row) == 1, f"Expected one parent row for {idx=}, got {len(parent_row)}"
-            features_to_update.loc[idx, "parent_geom"] = parent_row.geometry
-        features_to_update["new_geom"] = features_to_update.geometry.intersection(gpd.GeoSeries(features_to_update.parent_geom, crs=features_to_update.crs), align=False)
-        features_to_update["new_area"] = gpd.GeoSeries(features_to_update.new_geom, crs=features_to_update.crs).to_crs(AREA_CRS[region]).area
+    # Update our knowledge of which features actually have a parent (as some may have a parent ID that isn't in the dataframe)
+    has_parent = features_to_update.parent_geometry.notna()
 
-        # Recalculate areas for clipped features
-        if 'area_sqm' in gdf.columns:
-            features_to_update['area_sqm'] = features_to_update["new_area"]
-        elif 'area_sqft' in gdf.columns:
-            features_to_update["area_sqft"] = features_to_update["new_area"] * METERS_TO_FEET * METERS_TO_FEET
+    # Update geometry to the intersection of "geometry" and "parent_geometry" for all features with a parent - otherwise leave as is
+    features_to_update.loc[has_parent, "geometry"] = features_to_update[has_parent]["geometry"].intersection(
+        gpd.GeoSeries(features_to_update[has_parent]["parent_geometry"], crs=features_to_update.crs), align=False
+    )
 
+    new_area = features_to_update.geometry.to_crs(AREA_CRS[region]).area
 
-        # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
-        gdf = gdf.reset_index().set_index(idx_cols)
-        assert not gdf.index.has_duplicates
-        assert not features_to_update.index.has_duplicates
-        gdf.update(features_to_update)
-        gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
+    # Recalculate areas for clipped features
+    if 'area_sqm' in gdf.columns:
+        features_to_update.loc[has_parent, 'area_sqm'] = new_area
+    elif 'area_sqft' in gdf.columns:
+        features_to_update.loc[has_parent, "area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
 
-    #TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
+    # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
+    gdf = gdf.reset_index().set_index(idx_cols)
+    assert not gdf.index.has_duplicates
+    assert not features_to_update.index.has_duplicates
+    gdf.update(features_to_update)
+    gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
+
+    # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
 
 
