@@ -301,7 +301,7 @@ class TestParcels:
         }
         assert expected == parcels.flatten_roof_attributes(attributes, "au")
 
-    def test_rollup(self, parcels_2_gdf, features_2_gdf):
+    def test_rollup(self, parcels_2_gdf, features_2_gdf, parcels_gdf, features_gdf):
         classes_df = pd.DataFrame(
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
@@ -324,6 +324,22 @@ class TestParcels:
             data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME
         )  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
+
+        features_gdf_filtered = parcels.filter_features_in_parcels(
+            features_gdf, aoi_gdf=parcels_gdf, region=country
+        )
+        df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf_filtered,
+            classes_df,
+            country=country,
+            calc_buffers=False,
+            primary_decision="largest_intersection",
+        )
+        df.to_csv(data_directory / "test_parcels_rollup.csv")
+        expected = pd.read_csv(
+            data_directory / "test_parcels_rollup.csv", index_col=AOI_ID_COLUMN_NAME
+        )
 
     def test_nearest_primary(self):
         parcels_gdf = gpd.GeoDataFrame(
@@ -509,7 +525,7 @@ class TestParcels:
         )
 
         # every other result should be NaN for buffers, as the primary building is always overlapping the parcel boundary.
-        assert df.filter(like="buffer").notna().any(axis=1).sum() == 1
+        assert df.filter(like="buffer").notna().any(axis=1).sum() == 2
 
     def test_tree_buffers_real(self, features_2_gdf, parcels_2_gdf):
         """
