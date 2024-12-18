@@ -1,31 +1,28 @@
-import logging
-
 import concurrent.futures
+import contextlib
+import gzip
 import hashlib
-from http import HTTPStatus
 import json
+import logging
 import os
-from pathlib import Path
 import threading
 import time
-from typing import Dict, List, Optional, Tuple, Union
 import uuid
+from http import HTTPStatus
 from io import StringIO
-import contextlib
-from functools import wraps
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
-import gzip
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from shapely.geometry import MultiPolygon, Polygon, shape
 import shapely.geometry
 import stringcase
-
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from shapely.geometry import MultiPolygon, Polygon, shape
+from urllib3.util.retry import Retry
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,20 +32,20 @@ API_KEY = os.getenv("API_KEY", "")
 
 from nmaipy import log
 from nmaipy.constants import (
-    AOI_ID_COLUMN_NAME,
-    LAT_LONG_CRS,
-    SINCE_COL_NAME,
-    UNTIL_COL_NAME,
-    SURVEY_RESOURCE_ID_COL_NAME,
-    MAX_RETRIES,
-    AOI_EXCEEDS_MAX_SIZE,
     ADDRESS_FIELDS,
-    SQUARED_METERS_TO_SQUARED_FEET,
-    AREA_CRS,
+    AOI_EXCEEDS_MAX_SIZE,
+    AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
     CONNECTED_CLASS_IDS,
+    LAT_LONG_CRS,
+    MAX_RETRIES,
     ROLLUP_SURVEY_DATE_ID,
     ROLLUP_SYSTEM_VERSION_ID,
+    SINCE_COL_NAME,
+    SQUARED_METERS_TO_SQUARED_FEET,
+    SURVEY_RESOURCE_ID_COL_NAME,
+    UNTIL_COL_NAME,
 )
 
 TIMEOUT_SECONDS = 120  # Max time to wait for a server response.
@@ -155,6 +152,7 @@ class FeatureApi:
     """
     Class to connect to the AI Feature API
     """
+
     CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -260,7 +258,7 @@ class FeatureApi:
 
     def cleanup(self):
         """Clean up all sessions"""
-        if hasattr(self, '_lock') and hasattr(self, '_sessions'):
+        if hasattr(self, "_lock") and hasattr(self, "_sessions"):
             with self._lock:
                 for session in self._sessions:
                     try:
@@ -269,7 +267,7 @@ class FeatureApi:
                         pass
                 self._sessions.clear()
         else:  # Fallback if attributes don't exist
-            if hasattr(self, '_sessions'):
+            if hasattr(self, "_sessions"):
                 for session in self._sessions:
                     try:
                         session.close()
@@ -302,7 +300,7 @@ class FeatureApi:
         try:
             yield session
         finally:
-            pass # Don't close here - keep session alive for thread reuse
+            pass  # Don't close here - keep session alive for thread reuse
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
@@ -350,7 +348,7 @@ class FeatureApi:
             # Strip out any classes that we don't get a valid description for from the "packs" endpoint.
             all_classes = [c for c in all_classes if c in df_classes.index]
             df_classes = df_classes.loc[all_classes]
-            df_classes = df_classes.query("type == 'Feature'") # Filter out non-feature classes
+            df_classes = df_classes.query("type == 'Feature'")  # Filter out non-feature classes
 
         return df_classes
 
@@ -523,7 +521,9 @@ class FeatureApi:
 
         # Add dates if given
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
-            logger.debug(f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates.")
+            logger.debug(
+                f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates."
+            )
         elif (since is not None) or (until is not None):
             if since and not isinstance(since, str):
                 raise ValueError("Since must be a string")
@@ -716,7 +716,9 @@ class FeatureApi:
 
                                 if feature["classId"] in CONNECTED_CLASS_IDS:
                                     # Replace geometry, with geojson style mapped clipped geometry
-                                    data["features"][i]["geometry"] = shapely.geometry.mapping(gdf_clip.loc[i, "geometry"])
+                                    data["features"][i]["geometry"] = shapely.geometry.mapping(
+                                        gdf_clip.loc[i, "geometry"]
+                                    )
                                     data["features"][i]["areaSqm"] = gdf_clip.loc[i, "clipped_area_sqm"]
                                     data["features"][i]["areaSqft"] = gdf_clip.loc[i, "clipped_area_sqft"]
 
@@ -969,7 +971,7 @@ class FeatureApi:
                 df[col_name] = None
 
         for col in FeatureApi.FLOAT_COLS:
-            if (col in df):
+            if col in df:
                 df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
@@ -978,7 +980,7 @@ class FeatureApi:
         # Add AOI ID if specified
         if aoi_id is not None:
             try:
-                df[AOI_ID_COLUMN_NAME] = [aoi_id]*len(df)
+                df[AOI_ID_COLUMN_NAME] = [aoi_id] * len(df)
                 df = df.set_index(AOI_ID_COLUMN_NAME)
             except Exception as e:
                 logger.error(
@@ -1101,7 +1103,9 @@ class FeatureApi:
                     metadata = metadata[0]
             else:
                 features_gdf, metadata, error = None, None, None
-                payload = self.get_features(geometry, region, packs, classes, since, until, address_fields, survey_resource_id)
+                payload = self.get_features(
+                    geometry, region, packs, classes, since, until, address_fields, survey_resource_id
+                )
                 features_gdf, metadata = self.payload_gdf(payload, aoi_id)
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
@@ -1122,9 +1126,17 @@ class FeatureApi:
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry, region, packs, classes, aoi_id, since, until, survey_resource_id, aoi_grid_inexact=self.aoi_grid_inexact,
+                        geometry,
+                        region,
+                        packs,
+                        classes,
+                        aoi_id,
+                        since,
+                        until,
+                        survey_resource_id,
+                        aoi_grid_inexact=self.aoi_grid_inexact,
                     )
-                    error = None # Reset error if we got here without an exception
+                    error = None  # Reset error if we got here without an exception
 
                     # Recombine gridded features
                     features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
@@ -1257,11 +1269,13 @@ class FeatureApi:
                 since_bulk=since,
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
-                max_allowed_error_pct=100-self.aoi_grid_min_pct,
+                max_allowed_error_pct=100 - self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
             )
         except AIFeatureAPIError as e:
-            logger.debug(f"Failed whole grid for aoi_id {aoi_id}. Single error ({e.status_code}).")
+            logger.debug(
+                f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
+            )
             raise AIFeatureAPIGridError(e.status_code)
         if len(features_gdf) == 0:
             # Got no data back from any grid square in the AOI.
@@ -1275,7 +1289,9 @@ class FeatureApi:
                 logger.warning(
                     f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
                 )
-                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query.")
+                raise AIFeatureAPIGridError(
+                    DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query."
+                )
         elif survey_resource_id is None:
             logger.debug(
                 f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
@@ -1283,7 +1299,9 @@ class FeatureApi:
             # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
-            logger.debug(f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}.")
+            logger.debug(
+                f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+            )
 
             # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
 
@@ -1378,7 +1396,9 @@ class FeatureApi:
                         if aoi_error is not None:
                             if len(errors) > max_allowed_error_count:
                                 cleanup_executor(executor)
-                                logger.debug(f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs.")
+                                logger.debug(
+                                    f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
+                                )
                                 raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                             else:
                                 errors.append(aoi_error)
@@ -1410,7 +1430,7 @@ class FeatureApi:
         Args:
             geometry: AOI in EPSG4326
             region: The country code, used as a key to AREA_CRS.
-            packs: List of AI 
+            packs: List of AI
             classes: List of classes
             aoi_id: ID of the AOI to add to the data
             since: Earliest date to pull data for
@@ -1458,7 +1478,9 @@ class FeatureApi:
                     metadata = metadata[0]
             else:
                 rollup_df, metadata, error = None, None, None
-                payload = self.get_rollup(geometry, region, packs, classes, since, until, address_fields, survey_resource_id)
+                payload = self.get_rollup(
+                    geometry, region, packs, classes, since, until, address_fields, survey_resource_id
+                )
                 rollup_df, metadata = self.payload_rollup_df(payload, aoi_id)
         except AIFeatureAPIError as e:
             # Catch acceptable errors

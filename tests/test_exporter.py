@@ -1,14 +1,14 @@
+import os
+import sys
 from pathlib import Path
-import logging
 
 import geopandas as gpd
 import pandas as pd
 import pytest
 
-from nmaipy.feature_api import FeatureApi
 from nmaipy.constants import *
-
 from nmaipy.exporter import AOIExporter
+from nmaipy.feature_api import FeatureApi
 
 
 class TestExporter:
@@ -65,7 +65,6 @@ class TestExporter:
             chunk_id=chunk_id,
             aoi_gdf=parcels_3_gdf,
             classes_df=classes_df,
-
         )
 
         data_rollup_api_errors = []
@@ -345,7 +344,12 @@ class TestExporter:
             # "link",
             # "mesh_date",
         ]:
-            pass # TODO: Enable once we've reconciled formats and filtering rules with rollup API.
+            pass  # TODO: Enable once we've reconciled formats and filtering rules with rollup API.
             # pd.testing.assert_series_equal(
             #     data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ident_col], check_names=False
             # )
+
+
+if __name__ == "__main__":
+    current_file = os.path.abspath(__file__)
+    sys.exit(pytest.main([current_file]))

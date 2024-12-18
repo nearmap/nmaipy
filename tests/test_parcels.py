@@ -1,29 +1,30 @@
+import os
+import sys
 from pathlib import Path
 
 import geopandas as gpd
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 from shapely.wkt import loads
 
 from nmaipy import parcels
 from nmaipy.constants import (
-    BUILDING_LIFECYCLE_ID,
-    BUILDING_ID,
-    BUILDING_NEW_ID,
-    ROOF_ID,
-    LAWN_GRASS_ID,
-    POOL_ID,
-    VEG_MEDHIGH_ID,
     AOI_ID_COLUMN_NAME,
     API_CRS,
-    WATER_BODY_ID,
     AREA_CRS,
+    BUILDING_ID,
+    LAWN_GRASS_ID,
+    POOL_ID,
+    ROOF_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
+    VEG_MEDHIGH_ID,
+    WATER_BODY_ID,
 )
 from nmaipy.feature_api import FeatureApi
 
 data_directory = Path(__file__).parent / "data"
+
 
 # @pytest.mark.skip("Comment out this line if you wish to regen the test data")
 def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
@@ -300,14 +301,16 @@ class TestParcels:
         }
         assert expected == parcels.flatten_roof_attributes(attributes, "au")
 
-    def test_rollup(self, parcels_2_gdf, features_2_gdf):
+    def test_rollup(self, parcels_2_gdf, features_2_gdf, parcels_gdf, features_gdf):
         classes_df = pd.DataFrame(
             {"id": BUILDING_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         country = "au"
-        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(
+            features_2_gdf, aoi_gdf=parcels_2_gdf, region=country
+        )
         df = parcels.parcel_rollup(
             parcels_2_gdf,
             features_2_gdf_filtered,
@@ -317,8 +320,26 @@ class TestParcels:
             primary_decision="largest_intersection",
         )
         df.to_csv(data_directory / "test_parcels_2_rollup.csv")
-        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME)  # Expected ground truth results
+        expected = pd.read_csv(
+            data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME
+        )  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
+
+        features_gdf_filtered = parcels.filter_features_in_parcels(
+            features_gdf, aoi_gdf=parcels_gdf, region=country
+        )
+        df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf_filtered,
+            classes_df,
+            country=country,
+            calc_buffers=False,
+            primary_decision="largest_intersection",
+        )
+        df.to_csv(data_directory / "test_parcels_rollup.csv")
+        expected = pd.read_csv(
+            data_directory / "test_parcels_rollup.csv", index_col=AOI_ID_COLUMN_NAME
+        )
 
     def test_nearest_primary(self):
         parcels_gdf = gpd.GeoDataFrame(
@@ -344,6 +365,7 @@ class TestParcels:
                     "fidelity": 0.7,  # Made up
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
                     "mesh_date": "2021-10-10",
+                    "parent_id": None,
                     "geometry": loads(
                         "POLYGON ((-114.9996 42.0001, -114.9996 42.00040000000001, -114.9999 42.00040000000001, -114.9999 42.0001, -114.9996 42.0001))"
                     ),
@@ -356,6 +378,7 @@ class TestParcels:
                     "fidelity": 0.7,  # Made up
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
                     "mesh_date": "2021-10-10",
+                    "parent_id": 2,
                     "geometry": loads(
                         "POLYGON ((-114.9991 42.0001, -114.9991 42.00040000000001, -114.9995 42.00040000000001, -114.9995 42.0001, -114.9991 42.0001))"
                     ),
@@ -368,6 +391,7 @@ class TestParcels:
                     "fidelity": 0.6,
                     "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
                     "mesh_date": "2021-10-10",
+                    "parent_id": 5,
                     "geometry": loads(
                         "POLYGON ((-114.9996 42.0005, -114.9996 42.00056, -114.9999 42.00056, -114.9999 42.0005, -114.9996 42.0005))"
                     ),
@@ -385,7 +409,9 @@ class TestParcels:
         gdf["clipped_area_sqm"] = gdf.apply(
             lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
         )
-        features_gdf = features_gdf.merge(gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"])
+        features_gdf = features_gdf.merge(
+            gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"]
+        )
         for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
             features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
         parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
@@ -438,9 +464,7 @@ class TestParcels:
         # We get results in all AOIs
         assert len(features_gdf.index.unique()) == len(parcel_gdf)
 
-        features_gdf_filtered = parcels.filter_features_in_parcels(
-            features_gdf, aoi_gdf=parcel_gdf, region=country
-        )
+        features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
         assert (
             len(features_gdf) > len(features_gdf_filtered) * 0.95
         )  # Very little should have been filtered out in these examples.
@@ -472,9 +496,8 @@ class TestParcels:
 
         """
         classes_df = pd.DataFrame(
-            {"id": BUILDING_ID, "description": "building"},
-            {"id": POOL_ID, "description": "pool"},
-            {"id": LAWN_GRASS_ID, "description": "lawn"},
+            {"id": ROOF_ID, "description": "roof"},
+            {"id": VEG_MEDHIGH_ID, "description": "tree"},
         ).set_index("id")
         country = "au"
         features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
@@ -486,8 +509,23 @@ class TestParcels:
             calc_buffers=True,
             primary_decision="largest_intersection",
         )
-        # For this test, every result should be NaN for buffers, as there's always a building overlapping the parcel boundary.
-        assert df.filter(like="buffer").head().isna().all().all()
+        # For this test, every parcel has buildings that cross the edges.
+        # One parcel has the primary roof not intersecting the edge:
+        assert not df.loc["1_0"].filter(like="buffer_0ft").isna().any()
+        assert not df.loc["1_0"].filter(like="buffer_5ft").isna().any()
+        assert df.loc["1_0"].filter(like="buffer_10ft").isna().all()
+        assert df.loc["1_0"].filter(like="buffer_30ft").isna().all()
+        assert df.loc["1_0"].filter(like="buffer_100ft").isna().all()
+
+        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(
+            df.loc["1_0", "primary_roof_buffer_0ft_zone_sqm"], abs=0.05
+        )
+        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(
+            df.loc["1_0", "primary_roof_buffer_0ft_roof_sqm"], abs=0.05
+        )
+
+        # every other result should be NaN for buffers, as the primary building is always overlapping the parcel boundary.
+        assert df.filter(like="buffer").notna().any(axis=1).sum() == 2
 
     def test_tree_buffers_real(self, features_2_gdf, parcels_2_gdf):
         """
@@ -502,13 +540,16 @@ class TestParcels:
 
         """
         country = "us"
-        classes_df = pd.DataFrame([
-            {"id": ROOF_ID, "description": "roof"},
-            {"id": POOL_ID, "description": "pool"},
-            {"id": LAWN_GRASS_ID, "description": "lawn"},
-        ]).set_index("id")
+        classes_df = pd.DataFrame(
+            [
+                {"id": ROOF_ID, "description": "roof"},
+                {"id": VEG_MEDHIGH_ID, "description": "tree"},
+            ]
+        ).set_index("id")
         country = "us"
-        features_2_gdf_filtered = parcels.filter_features_in_parcels(features_2_gdf, aoi_gdf=parcels_2_gdf, region=country)
+        features_2_gdf_filtered = parcels.filter_features_in_parcels(
+            features_2_gdf, aoi_gdf=parcels_2_gdf, region=country
+        )
         df = parcels.parcel_rollup(
             parcels_2_gdf,
             features_2_gdf_filtered,
@@ -519,14 +560,27 @@ class TestParcels:
         )
 
         # Test that all buffers fail when they're too large for the parcels.
-        assert df.filter(like="30ft_tree_zone").isna().all().all() # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
+        assert (
+            df.filter(like="30ft_tree_zone").isna().all().all()
+        )  # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
         assert df.filter(like="100ft_tree_zone").isna().all().all()
 
         # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        np.testing.assert_allclose(
-            df.filter(regex="roof_.*_tree_zone").sum().values, [278, 188, 0, 0], rtol=0.12
+        tree_zone_sums = df.filter(regex="primary_roof_buffer_.*_tree_.*", axis=1).sum().values
+        np.testing.assert_allclose(tree_zone_sums, [344.96, 616.9, 755.2, 0, 0], rtol=0.05)
+
+        tree_zone_example = df.loc["08e57bff-9337-58ea-b8d6-b55b59431c64"]
+        assert tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
+        assert tree_zone_example.loc["primary_roof_buffer_5ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
+        assert tree_zone_example.loc["primary_roof_buffer_10ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
+        assert tree_zone_example.loc["primary_roof_area_sqft"] == pytest.approx(
+            tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] / 0.0929, rel=0.02
         )
-        np.testing.assert_allclose(df.filter(like="roof_count_buffer").sum().values, [25, 3, 0, 0], rtol=0.05)
+        assert tree_zone_example.loc["primary_roof_buffer_0ft_tree_sqm"] == pytest.approx(
+            4.72, abs=0.5
+        )  # Same as tree overhang
+        assert tree_zone_example.loc["primary_roof_buffer_5ft_tree_sqm"] == pytest.approx(21.5, abs=0.5)
+        assert tree_zone_example.loc["primary_roof_buffer_10ft_tree_sqm"] == pytest.approx(47.6, abs=0.5)
 
     def test_building_fidelity_filter_scenario(self, cache_directory: Path):
         """
@@ -553,12 +607,13 @@ class TestParcels:
             {"id": ROOF_ID, "description": "roof"}, {"id": WATER_BODY_ID, "description": "water_body"}
         ).set_index("id")
 
-        feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, errors = feature_api.get_features_gdf(aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2)
-        print(metadata)
-        features_gdf = parcels.filter_features_in_parcels(
-            features_gdf, region=country, aoi_gdf=parcels_gdf
+        feature_api = FeatureApi(cache_dir=cache_directory, aoi_grid_min_pct=80)
+
+        features_gdf, metadata, errors = feature_api.get_features_gdf(
+            aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2
         )
+        print(metadata)
+        features_gdf = parcels.filter_features_in_parcels(features_gdf, region=country, aoi_gdf=parcels_gdf)
         print(features_gdf.T)
         print(features_gdf.description.value_counts())
         df = parcels.parcel_rollup(
@@ -669,3 +724,8 @@ class TestParcels:
         assert (
             df.loc[11179800001006, "building_count"] == 25
         )  # Includes some lower confidence ones that had been filtered by the previous thresholds.
+
+
+if __name__ == "__main__":
+    current_file = os.path.abspath(__file__)
+    sys.exit(pytest.main([current_file]))
