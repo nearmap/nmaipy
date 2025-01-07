@@ -1,30 +1,30 @@
 import argparse
 import concurrent.futures
+import json
 import os
+import sys
+import traceback
+import warnings
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional
-import json
-import sys
-from enum import Enum
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import warnings
-import traceback
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
 from nmaipy import log, parcels
 from nmaipy.constants import (
-    AOI_ID_COLUMN_NAME,
-    SINCE_COL_NAME,
-    UNTIL_COL_NAME,
-    API_CRS,
-    SURVEY_RESOURCE_ID_COL_NAME,
-    DEFAULT_URL_ROOT,
     ADDRESS_FIELDS,
+    AOI_ID_COLUMN_NAME,
+    API_CRS,
+    DEFAULT_URL_ROOT,
+    SINCE_COL_NAME,
+    SURVEY_RESOURCE_ID_COL_NAME,
+    UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -218,11 +218,11 @@ def parse_arguments():
 class AOIExporter:
     def __init__(
         self,
-        aoi_file='default_aoi_file',
-        output_dir='default_output_dir',
+        aoi_file="default_aoi_file",
+        output_dir="default_output_dir",
         packs=None,
         classes=None,
-        primary_decision='largest_intersection',
+        primary_decision="largest_intersection",
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         processes=PROCESSES,
@@ -231,23 +231,24 @@ class AOIExporter:
         calc_buffers=False,
         include_parcel_geometry=False,
         save_features=False,
-        rollup_format='csv',
+        rollup_format="csv",
         cache_dir=None,
         no_cache=False,
         overwrite_cache=False,
         compress_cache=False,
-        country='us',
+        country="us",
         alpha=False,
         beta=False,
         prerelease=False,
         only3d=False,
         since=None,
         until=None,
-        endpoint='feature',
+        endpoint="feature",
         url_root=DEFAULT_URL_ROOT,
         system_version_prefix=None,
         system_version=None,
-        log_level='INFO',
+        log_level="INFO",
+        clip_multiparcel_buildings=True,
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -280,6 +281,7 @@ class AOIExporter:
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.log_level = log_level
+        self.clip_multiparcel_buildings = clip_multiparcel_buildings
 
         # Configure logger
         log.configure_logger(self.log_level)
@@ -380,7 +382,12 @@ class AOIExporter:
 
                 # Filter features
                 len_all_features = len(features_gdf)
-                features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=aoi_gdf, region=self.country)
+                features_gdf = parcels.filter_features_in_parcels(
+                    features_gdf,
+                    aoi_gdf=aoi_gdf,
+                    region=self.country,
+                    clip_multiparcel_buildings=self.clip_multiparcel_buildings,
+                )
                 len_filtered_features = len(features_gdf)
 
                 # Create rollup
@@ -430,11 +437,15 @@ class AOIExporter:
                 if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
                     final_df["link"] = final_df.apply(make_link, axis=1)
                 final_df = final_df.drop(columns=["system_version", "date"])
-            self.logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
+            self.logger.debug(
+                f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
+            )
             try:
                 errors_df.to_parquet(outfile_errors)
             except Exception as e:
-                self.logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
+                self.logger.error(
+                    f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
+                )
                 self.logger.error(errors_df.shape)
                 self.logger.error(errors_df)
             try:
@@ -454,18 +465,18 @@ class AOIExporter:
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
                 aoi_cols = set(final_features_df.columns)
-                
+
                 metadata_features_overlap = metadata_cols & features_cols - {AOI_ID_COLUMN_NAME}
                 metadata_aoi_overlap = metadata_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
                 features_aoi_overlap = features_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
-                
+
                 all_overlapping = metadata_features_overlap | metadata_aoi_overlap | features_aoi_overlap
                 if all_overlapping:
                     self.logger.warning(
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-                
+
                 final_features_df = gpd.GeoDataFrame(
                     metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
                         final_features_df, on=AOI_ID_COLUMN_NAME
@@ -509,12 +520,12 @@ class AOIExporter:
 
         # Get classes
         feature_api = FeatureApi(
-                api_key=self.api_key(), alpha=self.alpha, beta=self.beta, prerelease=self.prerelease, only3d=self.only3d
-            )
+            api_key=self.api_key(), alpha=self.alpha, beta=self.beta, prerelease=self.prerelease, only3d=self.only3d
+        )
         if self.packs is not None:
             classes_df = feature_api.get_feature_classes(self.packs)
         else:
-            classes_df = feature_api.get_feature_classes() # All classes
+            classes_df = feature_api.get_feature_classes()  # All classes
             if self.classes is not None:
                 classes_df = classes_df[classes_df.index.isin(self.classes)]
 
@@ -705,6 +716,7 @@ def main():
         log_level=args.log_level,
     )
     exporter.run()
+
 
 if __name__ == "__main__":
     main()
