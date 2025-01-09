@@ -980,14 +980,13 @@ class FeatureApi:
         # Add AOI ID if specified
         if aoi_id is not None:
             try:
-                df[AOI_ID_COLUMN_NAME] = [aoi_id] * len(df)
-                df = df.set_index(AOI_ID_COLUMN_NAME)
+                df[AOI_ID_COLUMN_NAME] = [aoi_id] * len(df)  # Add as column
+                metadata[AOI_ID_COLUMN_NAME] = aoi_id
             except Exception as e:
                 logger.error(
                     f"Problem setting aoi_id to {AOI_ID_COLUMN_NAME} as {aoi_id=} (dataframe has {len(df)} rows)."
                 )
                 raise ValueError
-            metadata[AOI_ID_COLUMN_NAME] = aoi_id
         # Cast to GeoDataFrame
         if "geometry" in df.columns:
             gdf = gpd.GeoDataFrame(df.assign(geometry=df.geometry.apply(shape)))
