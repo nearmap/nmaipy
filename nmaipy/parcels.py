@@ -368,7 +368,7 @@ def filter_features_in_parcels(
     # Recalculate areas for clipped features
     if "area_sqm" in gdf.columns:
         features_to_update.loc[has_parent, "area_sqm"] = new_area
-    elif "area_sqft" in gdf.columns:
+    if "area_sqft" in gdf.columns:
         features_to_update.loc[has_parent, "area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
 
     # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
@@ -377,6 +377,42 @@ def filter_features_in_parcels(
     assert not features_to_update.index.has_duplicates
     gdf.update(features_to_update)
     gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
+
+    # TODO: If we only request certain classes in the API call, will all attributes still show up for these features
+    # or only the ones that also have a corresponding feature row? For example, if we don't request staining, will
+    # staining still be a roof condition attribute of the roof class? If so, how are we going to properly update
+    # the attributes after performing clipping?
+
+    # Get all of the features that have attributes
+    features_with_attributes_df = gdf[gdf["attributes"].astype(bool)]
+
+    for row in features_with_attributes_df.itertuples():
+        for attribute in row.attributes:
+            if "components" in attribute:
+                for component in attribute["components"]:
+                    # Get all of the child features for this parent feature
+                    child_features_df = gdf[
+                        (gdf["class_id"] == component["classId"]) & (gdf["parent_id"] == row.feature_id)
+                    ]
+                    # If there are no child features found, then skip
+                    if len(child_features_df) == 0:
+                        continue
+
+                    # Update the areas in case we applied clipping
+                    child_area_sqm = child_features_df["area_sqm"].sum()
+                    component["areaSqm"] = child_area_sqm
+
+                    child_area_sqft = child_features_df["area_sqft"].sum()
+                    component["areaSqft"] = child_area_sqft
+
+                    # Update the ratio in case we applied clipping
+                    parent_area_sqm = row.area_sqm  # TODO: Confirm which parent area to use for the ratio
+                    ratio = (
+                        child_area_sqm / parent_area_sqm
+                    )  # TODO: Should we handle edge cases where parent_area_sqm is zero?
+                    component["ratio"] = ratio
+
+                    # TODO: what to do with confidence and dominant?
 
     # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
@@ -482,8 +518,13 @@ def feature_attributes(
 
         # Add attributes that apply to all feature classes
         # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
-        parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
-        parcel[f"{name}_count"] = len(class_features_gdf)
+        parcel[f"{name}_present"] = (
+            TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
+        )  # PROBLEM: All of these features could be empty but we are simply using the existence of them to determine if they are present.
+        parcel[f"{name}_count"] = len(
+            class_features_gdf
+        )  # PROBLEM: All of these features could be empty but we are simply using the existence of them to determine the count.
+        # However, do we keep them around because there is an unclipped area? Or do we remove them because they are not present in the clipped area like the building?
         if country in IMPERIAL_COUNTRIES:
             parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
             parcel[f"{name}_total_clipped_area_sqft"] = round(class_features_gdf.clipped_area_sqft.sum(), 1)
