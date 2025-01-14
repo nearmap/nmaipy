@@ -609,7 +609,12 @@ def feature_attributes(
                     buffered_primary_roof_geom_area = primary_roof_geom_area.buffer(buffer_dist)
 
                     if not buffered_primary_roof_geom_area.within(parcel_geom_area):
+                        # logger.info(features_gdf)
                         # Skip if the buffer protrudes outside the parcel
+                        # logger.info(
+                        #     f"""skipping buffer calculation for aoi_id:feature_id {features_gdf["aoi_id"].tolist()[0]}, nmaipy feature_id {features_gdf["feature_id"].tolist()[0]}; buffer {buffer_dist} extends outside parcel."""
+                        # )
+                        # logger.info(gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).iloc[0])
                         continue
 
                     # Proceed calculating intersections etc. with the buffered primary roof
