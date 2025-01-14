@@ -366,10 +366,10 @@ def filter_features_in_parcels(
     new_area = features_to_update.geometry.to_crs(AREA_CRS[region]).area
 
     # Recalculate areas for clipped features
-    if "area_sqm" in gdf.columns:
-        features_to_update.loc[has_parent, "area_sqm"] = new_area
-    if "area_sqft" in gdf.columns:
-        features_to_update.loc[has_parent, "area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
+    if "clipped_area_sqm" in gdf.columns:
+        features_to_update.loc[has_parent, "clipped_area_sqm"] = new_area
+    if "clipped_area_sqft" in gdf.columns:
+        features_to_update.loc[has_parent, "clipped_area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
 
     # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
     gdf = gdf.reset_index().set_index(idx_cols)
@@ -378,14 +378,10 @@ def filter_features_in_parcels(
     gdf.update(features_to_update)
     gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
-    # TODO: If we only request certain classes in the API call, will all attributes still show up for these features
-    # or only the ones that also have a corresponding feature row? For example, if we don't request staining, will
-    # staining still be a roof condition attribute of the roof class? If so, how are we going to properly update
-    # the attributes after performing clipping?
-
     # Get all of the features that have attributes
     features_with_attributes_df = gdf[gdf["attributes"].astype(bool)]
 
+    # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) in case we applied clipping above.
     for row in features_with_attributes_df.itertuples():
         for attribute in row.attributes:
             if "components" in attribute:
@@ -394,25 +390,35 @@ def filter_features_in_parcels(
                     child_features_df = gdf[
                         (gdf["class_id"] == component["classId"]) & (gdf["parent_id"] == row.feature_id)
                     ]
-                    # If there are no child features found, then skip
+                    # If there are no child features found, then don't do anything
                     if len(child_features_df) == 0:
                         continue
 
-                    # Update the areas in case we applied clipping
-                    child_area_sqm = child_features_df["area_sqm"].sum()
-                    component["areaSqm"] = child_area_sqm
+                    # If the child area has been clipped to 0, then update the values accordingly
+                    child_area_sqm = child_features_df["clipped_area_sqm"].sum()
+                    if child_area_sqm == 0:
+                        component["areaSqm"] = 0
+                        component["areaSqft"] = 0
+                        component["ratio"] = 0
+                        component["confidence"] = None
+                        continue
 
-                    child_area_sqft = child_features_df["area_sqft"].sum()
+                    # Update the areas in case we applied clipping
+                    component["areaSqm"] = child_area_sqm
+                    child_area_sqft = child_features_df["clipped_area_sqft"].sum()
                     component["areaSqft"] = child_area_sqft
 
                     # Update the ratio in case we applied clipping
-                    parent_area_sqm = row.area_sqm  # TODO: Confirm which parent area to use for the ratio
-                    ratio = (
-                        child_area_sqm / parent_area_sqm
-                    )  # TODO: Should we handle edge cases where parent_area_sqm is zero?
+                    parent_area_sqm = row.clipped_area_sqm
+                    # Handle edge case in case the parent area is zero
+                    ratio = (child_area_sqm / parent_area_sqm) if parent_area_sqm > 0 else 0
                     component["ratio"] = ratio
 
-                    # TODO: what to do with confidence and dominant?
+                    # Update the (area-weighted) confidence in case we applied clipping
+                    child_confidence = (
+                        child_features_df["confidence"] * child_features_df["clipped_area_sqm"]
+                    ).sum() / child_area_sqm
+                    component["confidence"] = child_confidence
 
     # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
