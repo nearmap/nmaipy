@@ -382,13 +382,29 @@ def filter_features_in_parcels(
     features_with_attributes_df = gdf[gdf["attributes"].astype(bool)]
 
     # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) in case we applied clipping above.
-    for row in features_with_attributes_df.itertuples():
-        for attribute in row.attributes:
+    for parent_feature in features_with_attributes_df.itertuples():
+        for attribute in parent_feature.attributes:
             if "components" in attribute:
                 for component in attribute["components"]:
+                    child_class_id = component["classId"]
+                    parent_feature_id = parent_feature.feature_id
+
+                    # Feature API uses the STRUCTURALLY_DAMAGED_ROOF for the Roof Condition attribute. However, the
+                    # structural damage composite class is what is being used for the RSI score and displayed in Tower.
+                    # Therefore, if the structural damage composite class is available as a feature returned from the API,
+                    # we should use that instead of the STRUCTURALLY_DAMAGED_ROOF class.
+                    if child_class_id == STRUCTURALLY_DAMAGED_ROOF:
+                        has_structural_damage_composite = (
+                            (gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE) & (gdf["parent_id"] == parent_feature_id)
+                        ).any()
+                        # If structural damage composite is available, use that one instead
+                        if has_structural_damage_composite:
+                            child_class_id = CLASS_1186_STRUCTURAL_DAMAGE
+                            component["classId"] = child_class_id
+
                     # Get all of the child features for this parent feature
                     child_features_df = gdf[
-                        (gdf["class_id"] == component["classId"]) & (gdf["parent_id"] == row.feature_id)
+                        (gdf["class_id"] == child_class_id) & (gdf["parent_id"] == parent_feature_id)
                     ]
                     # If there are no child features found, then don't do anything
                     if len(child_features_df) == 0:
@@ -409,7 +425,7 @@ def filter_features_in_parcels(
                     component["areaSqft"] = child_area_sqft
 
                     # Update the ratio in case we applied clipping
-                    parent_area_sqm = row.clipped_area_sqm
+                    parent_area_sqm = parent_feature.clipped_area_sqm
                     # Handle edge case in case the parent area is zero
                     ratio = (child_area_sqm / parent_area_sqm) if parent_area_sqm > 0 else 0
                     component["ratio"] = ratio
