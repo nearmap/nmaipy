@@ -524,13 +524,8 @@ def feature_attributes(
 
         # Add attributes that apply to all feature classes
         # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
-        parcel[f"{name}_present"] = (
-            TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
-        )  # PROBLEM: All of these features could be empty but we are simply using the existence of them to determine if they are present.
-        parcel[f"{name}_count"] = len(
-            class_features_gdf
-        )  # PROBLEM: All of these features could be empty but we are simply using the existence of them to determine the count.
-        # However, do we keep them around because there is an unclipped area? Or do we remove them because they are not present in the clipped area like the building?
+        parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
+        parcel[f"{name}_count"] = len(class_features_gdf)
         if country in IMPERIAL_COUNTRIES:
             parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
             parcel[f"{name}_total_clipped_area_sqft"] = round(class_features_gdf.clipped_area_sqft.sum(), 1)
