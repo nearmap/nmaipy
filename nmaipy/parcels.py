@@ -598,6 +598,16 @@ def feature_attributes(
                         .idxmin()
                     )
                 primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
+            elif primary_decision == "nearest_no_filter":
+                primary_point = Point(primary_lon, primary_lat)
+                primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
+                nearest_feature_idx = (
+                    class_features_gdf.set_geometry("geometry_feature")
+                    .to_crs("EPSG:3857")
+                    .distance(primary_point)
+                    .idxmin()
+                )
+                primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
             else:
                 raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
             if country in IMPERIAL_COUNTRIES:
@@ -727,7 +737,7 @@ def parcel_rollup(
         raise Exception(
             f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
-    if primary_decision == "nearest":
+    if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
         merge_cols = [
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
@@ -743,7 +753,7 @@ def parcel_rollup(
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
-        if primary_decision == "nearest":
+        if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
                 primary_lon = primary_lon[0]
