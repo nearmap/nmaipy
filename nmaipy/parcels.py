@@ -378,6 +378,92 @@ def filter_features_in_parcels(
     gdf.update(features_to_update)
     gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
+    # Get all of the structural damage composite features
+    all_damage_composite_rows = gdf[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE]
+    # If there are any structural damage composite features and their clipped area is greater than 0
+    if len(all_damage_composite_rows) > 0 and all_damage_composite_rows["clipped_area_sqm"].sum() > 0:
+        # Get all of the roofs in the same AOI as the structural damage composite features
+        # (need to reset the aoi index since it is not unique here)
+        roof_rows = (
+            gdf[(gdf["class_id"] == ROOF_ID) & (gdf.index.isin(all_damage_composite_rows.index))]
+            .reset_index()
+            .set_index(["aoi_id", "feature_id"])
+        )
+
+        # Get all of the parent building_lifecycle of the structural damage composite features
+        lifecycle_rows = (
+            gdf[gdf["feature_id"].isin(all_damage_composite_rows["parent_id"])]
+            .reset_index()
+            .set_index(["aoi_id", "feature_id"])
+        )
+
+        for (
+            aoi_id,
+            lifecycle_feature_id,
+        ), lifecycle_row in lifecycle_rows.iterrows():
+            # Filter roof rows to include only those with the same AOI ID
+            aoi_roof_rows = roof_rows.loc[aoi_id].copy()
+
+            # Calculate intersection areas for each roof row with the building lifecycle
+            # Reproject both roof rows and building lifecycle rows to a projected CRS (EPSG:3857) for the intersection
+            lifecycle_geometry = gpd.GeoSeries(lifecycle_row.geometry, crs="EPSG:4326")
+            aoi_roof_rows["intersection_area"] = (
+                aoi_roof_rows["geometry"]
+                .to_crs("EPSG:3857")
+                .apply(lambda roof_geometry: roof_geometry.intersection(lifecycle_geometry.to_crs("EPSG:3857")).area)
+            )
+
+            # Filter rows with non-zero intersection areas (all rows with any intersection)
+            intersecting_aoi_roof_rows = aoi_roof_rows[aoi_roof_rows["intersection_area"] > 0]
+
+            # If there are no roof rows that intersect, then skip this building lifecycle
+            if intersecting_aoi_roof_rows.empty:
+                continue
+
+            # Find the roof row with the largest intersection area with the building lifecycle
+            max_intersection_idx = intersecting_aoi_roof_rows["intersection_area"].idxmax()
+            max_intersection_roof_row = intersecting_aoi_roof_rows.loc[max_intersection_idx]
+
+            # Get the other intersecting roof rows besides the one with the largest intersection
+            other_intersecting_aoi_roof_rows = intersecting_aoi_roof_rows[
+                intersecting_aoi_roof_rows.index != max_intersection_idx
+            ]
+
+            # Replace the max roof feature_id, geometry, and areas with the building lifecycle feature_id, geometry, and areas
+            columns_to_update = [
+                "geometry",
+                "area_sqm",
+                "area_sqft",
+                "clipped_area_sqm",
+                "clipped_area_sqft",
+                "unclipped_area_sqm",
+                "unclipped_area_sqft",
+            ]
+            max_roof_feature_id = max_intersection_roof_row.name
+            max_roof_mask = (gdf.index == aoi_id) & (gdf["feature_id"] == max_roof_feature_id)
+            gdf.loc[max_roof_mask, columns_to_update] = lifecycle_row[columns_to_update].values
+            # Update feature_id so we can get the RSI score corresponding to the building lifecycle feature in the retro pipeline
+            gdf.loc[max_roof_mask, "feature_id"] = lifecycle_feature_id
+
+            # Change the parent ID of all child features of all intersecting roofs to the building lifecycle feature ID
+            intersecting_aoi_roof_feature_ids = intersecting_aoi_roof_rows.index.get_level_values("feature_id")
+            gdf.loc[gdf["parent_id"].isin(intersecting_aoi_roof_feature_ids), "parent_id"] = lifecycle_feature_id
+
+            # Remove this building lifecycle from the gdf
+            gdf = gdf[
+                ~(
+                    (gdf.index == aoi_id)
+                    & (gdf["feature_id"] == lifecycle_feature_id)
+                    & (gdf["class_id"] == BUILDING_LIFECYCLE_ID)
+                )
+            ]
+
+            # Remove the other intersecting roof rows from the gdf besides the one with the largest intersection that we replaced with the building lifecycle
+            other_intersecting_aoi_roof_feature_ids = other_intersecting_aoi_roof_rows.index.get_level_values(
+                "feature_id"
+            )
+            gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(other_intersecting_aoi_roof_feature_ids)))]
+
     # Get all of the features that have attributes
     features_with_attributes_df = gdf[gdf["attributes"].astype(bool)]
 
