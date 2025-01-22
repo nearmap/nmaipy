@@ -1,3 +1,4 @@
+import json
 import warnings
 from pathlib import Path
 from typing import List, Optional, Union
@@ -235,7 +236,7 @@ def read_from_file(
 
 
 def filter_features_in_parcels(
-    features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str
+    features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str, clip_multiparcel_buildings: bool = True
 ) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
@@ -293,26 +294,31 @@ def filter_features_in_parcels(
         gdf_aoi = gdf.loc[[aoi_id]]
         gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
         if len(gdf_aoi_buildings) == 0:
-            continue # Skip if there are no buildings in the AOI
+            continue  # Skip if there are no buildings in the AOI
         features_from_aoi = aoi_gdf.loc[[aoi_id]]
         aoi_poly = (
             features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
         )  # Get in metric projection for area/geospatial calcs in metres.
         building_statuses = []
-        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
+        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry:  # Loop through buildings in the AOI
             building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
             building_statuses.append(building_status)
         building_statuses = pd.DataFrame(building_statuses)
         building_statuses.index = gdf_aoi_buildings.index
-        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
-        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+        gdf_aoi_buildings = pd.concat(
+            [gdf_aoi_buildings, building_statuses], axis=1
+        )  # Append extra columns for all buildings in this parcel
+        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(
+            columns=["building_keep"]
+        )  # Remove any we should filter out
 
-        # Clip any building that is "multiparcel" to the intersection with the AOI
-        multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
-        if multiparcel_mask.any():
-            aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
-            new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
-            gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
+        if clip_multiparcel_buildings:
+            # Clip any building that is "multiparcel" to the intersection with the AOI
+            multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
+            if multiparcel_mask.any():
+                aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
+                new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
+                gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
 
         out_gdf_building_style.append(gdf_aoi_buildings)
 
@@ -339,9 +345,15 @@ def filter_features_in_parcels(
     features_to_update = gdf[has_parent].copy().reset_index().set_index(idx_cols)
 
     # Wherever a parent exists in the same AOI, identify the parent geometry as a column next to the child feature "geometry".
-    gdf_parent_lookup = features_to_update["geometry"].reset_index().rename(columns={"feature_id": "parent_id", "geometry": "parent_geometry"})
-    features_to_update = features_to_update.reset_index().merge(gdf_parent_lookup, on=["aoi_id", "parent_id"], how="left").set_index(
-        idx_cols
+    gdf_parent_lookup = (
+        features_to_update["geometry"]
+        .reset_index()
+        .rename(columns={"feature_id": "parent_id", "geometry": "parent_geometry"})
+    )
+    features_to_update = (
+        features_to_update.reset_index()
+        .merge(gdf_parent_lookup, on=["aoi_id", "parent_id"], how="left")
+        .set_index(idx_cols)
     )
 
     # Update our knowledge of which features actually have a parent (as some may have a parent ID that isn't in the dataframe)
@@ -355,10 +367,10 @@ def filter_features_in_parcels(
     new_area = features_to_update.geometry.to_crs(AREA_CRS[region]).area
 
     # Recalculate areas for clipped features
-    if 'area_sqm' in gdf.columns:
-        features_to_update.loc[has_parent, 'area_sqm'] = new_area
-    elif 'area_sqft' in gdf.columns:
-        features_to_update.loc[has_parent, "area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
+    if "clipped_area_sqm" in gdf.columns:
+        features_to_update.loc[has_parent, "clipped_area_sqm"] = new_area
+    if "clipped_area_sqft" in gdf.columns:
+        features_to_update.loc[has_parent, "clipped_area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
 
     # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
     gdf = gdf.reset_index().set_index(idx_cols)
@@ -366,6 +378,173 @@ def filter_features_in_parcels(
     assert not features_to_update.index.has_duplicates
     gdf.update(features_to_update)
     gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
+
+    # Get all of the structural damage composite features
+    all_damage_gdf = gdf[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE]
+
+    # Iterate over the AOIs with structural damage composite features
+    for aoi_id in all_damage_gdf.index.unique():
+        # Get the structural damage composite features in this AOI
+        aoi_damage_gdf = all_damage_gdf.loc[aoi_id]
+
+        # Skip this AOI if the total structrual damage area is 0
+        if aoi_damage_gdf["clipped_area_sqm"].sum() == 0:
+            continue
+
+        # Filter for only the features in this AOI
+        # NOTE: This was needed just in case some features span multiple AOIs
+        aoi_gdf = gdf.loc[aoi_id]
+        aoi_roof_gdf = aoi_gdf[aoi_gdf["class_id"] == ROOF_ID]
+
+        # Get the building lifecycle features in this AOI with structural damage composite children
+        lifecycle_gdf = aoi_gdf[aoi_gdf["feature_id"].isin(aoi_damage_gdf["parent_id"])]
+
+        # Iterate over the building lifecycle features with structural damage composite children
+        for lifecycle_row in lifecycle_gdf.itertuples():
+            # Get the structural damage composite features that are children of this building lifecycle feature
+            damage_gdf = aoi_damage_gdf[aoi_damage_gdf["parent_id"] == lifecycle_row.feature_id]
+
+            # Get the roofs that intersect with this building lifecycle feature
+            # Reproject both roof rows and building lifecycle rows to a projected CRS (EPSG:3857) for the intersection
+            lifecycle_geometry = gpd.GeoSeries(lifecycle_row.geometry, crs="EPSG:4326")
+            aoi_roof_gdf_3857 = aoi_roof_gdf.to_crs("EPSG:3857")
+            lifecycle_geometry_3857 = lifecycle_geometry.to_crs("EPSG:3857").unary_union
+            intersecting_roof_gdf = aoi_roof_gdf[aoi_roof_gdf_3857["geometry"].intersects(lifecycle_geometry_3857)]
+
+            if intersecting_roof_gdf.empty:
+                # If there are no roof rows that intersect
+                roof_covers_damage = False
+            else:
+                # Do these intersecting roofs fully contain the structural damage composite features inside of their geometries?
+                roof_covers_damage = (
+                    intersecting_roof_gdf["geometry"]
+                    .to_crs("EPSG:3857")
+                    .unary_union.contains(damage_gdf["geometry"].to_crs("EPSG:3857").unary_union)
+                )
+
+            # If the roofs fully cover the structural damage composite features, then we will use the roof geometries
+            # and not the building lifecycle geometries since they look better.
+            # We just need to update the roof structural damage attributes so the rollup gets calculated correctly
+            if roof_covers_damage:
+                # Iterate over the roofs
+                for roof_row in intersecting_roof_gdf.itertuples():
+                    # Get the structural damage composite features that intersect with this roof
+                    roof_geometry = gpd.GeoSeries(roof_row.geometry, crs="EPSG:4326").to_crs("EPSG:3857").iloc[0]
+                    intersecting_damage_gdf = damage_gdf[
+                        damage_gdf["geometry"].to_crs("EPSG:3857").intersects(roof_geometry)
+                    ]
+
+                    # Change the parent ID of these structural damage composite features to the roof feature ID
+                    # NOTE: This will allow for the attributes to get calculated correctly in the rollup
+                    gdf.loc[
+                        (gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_damage_gdf["feature_id"])),
+                        "parent_id",
+                    ] = roof_row.feature_id
+
+                # Remove this building lifecycle to avoid confusion downstream
+                gdf = gdf[
+                    ~(
+                        (gdf.index == aoi_id)
+                        & (gdf["feature_id"] == lifecycle_row.feature_id)
+                        & (gdf["class_id"] == BUILDING_LIFECYCLE_ID)
+                    )
+                ]
+            else:
+                # If the roofs do not fully cover the structural damage composite features, then we will replace the
+                # the roof features with the building lifecycle feature
+
+                # Update the building lifecycle feature to be a roof feature
+                lifecycle_mask = (gdf.index == aoi_id) & (gdf["feature_id"] == lifecycle_row.feature_id)
+                gdf.loc[lifecycle_mask, "class_id"] = ROOF_ID
+                gdf.loc[lifecycle_mask, "internal_class_id"] = 1002
+                gdf.loc[lifecycle_mask, "description"] = "Roof"
+
+                if intersecting_roof_gdf.empty:
+                    # If there are no roofs that intersect, then manually create the roof attributes with just the structural damage
+                    # NOTE: Just needs a placeholder so the component can be updated in the next step for the rollup
+
+                    # Read in the empty roof attributes from a json file
+                    current_dir = Path(__file__).parent
+                    roof_attributes_file_path = current_dir / "empty_roof_attributes.json"
+                    with open(roof_attributes_file_path) as f:
+                        empty_roof_attributes = json.load(f)
+                    # Copy the empty roof attributes over to the building lifecycle feature
+                    empty_roof_attributes_series = pd.Series([empty_roof_attributes], name="attributes")
+                    gdf.loc[lifecycle_mask, "attributes"] = empty_roof_attributes_series
+                else:
+                    # Copy the roof attributes from one of the roofs over to the building lifecycle feature
+                    # NOTE: Doesn't matter which one we copy over as these will get updated in the next step
+                    # NOTE: Index (aoi_id is not unique at this point so need to use nlargest)
+                    largest_intersecting_roof = intersecting_roof_gdf.nlargest(1, "clipped_area_sqm")
+                    gdf.loc[lifecycle_mask, "attributes"] = largest_intersecting_roof["attributes"]
+
+                    # Update the parent ID of all intersecting roof child features to the building lifecycle feature ID
+                    # NOTE: This is needed so that the rollup gets calculated correctly
+                    intersecting_roof_feature_ids = intersecting_roof_gdf["feature_id"]
+                    gdf.loc[gdf["parent_id"].isin(intersecting_roof_feature_ids), "parent_id"] = (
+                        lifecycle_row.feature_id
+                    )
+
+                    # Remove all of the intersecting roof features (these have been replaced by the building lifecycle feature)
+                    gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_roof_feature_ids)))]
+
+    # Get all of the features that have attributes
+    features_with_attributes_df = gdf[gdf["attributes"].astype(bool)]
+
+    # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) in case we applied clipping above.
+    for parent_feature in features_with_attributes_df.itertuples():
+        for attribute in parent_feature.attributes:
+            if "components" in attribute:
+                for component in attribute["components"]:
+                    child_class_id = component["classId"]
+                    parent_feature_id = parent_feature.feature_id
+
+                    # Feature API uses the STRUCTURALLY_DAMAGED_ROOF for the Roof Condition attribute. However, the
+                    # structural damage composite class is what is being used for the RSI score and displayed in Tower.
+                    # Therefore, if the structural damage composite class is available as a feature returned from the API,
+                    # we should use that instead of the STRUCTURALLY_DAMAGED_ROOF class.
+                    if child_class_id == STRUCTURALLY_DAMAGED_ROOF:
+                        has_structural_damage_composite = (
+                            (gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE) & (gdf["parent_id"] == parent_feature_id)
+                        ).any()
+                        # If structural damage composite is available, use that one instead
+                        if has_structural_damage_composite:
+                            child_class_id = CLASS_1186_STRUCTURAL_DAMAGE
+                            component["classId"] = child_class_id
+
+                    # Get all of the child features for this parent feature
+                    child_features_df = gdf[
+                        (gdf["class_id"] == child_class_id) & (gdf["parent_id"] == parent_feature_id)
+                    ]
+                    # If there are no child features found, then don't do anything
+                    if len(child_features_df) == 0:
+                        continue
+
+                    # If the child area has been clipped to 0, then update the values accordingly
+                    child_area_sqm = child_features_df["clipped_area_sqm"].sum()
+                    if child_area_sqm == 0:
+                        component["areaSqm"] = 0
+                        component["areaSqft"] = 0
+                        component["ratio"] = 0
+                        component["confidence"] = None
+                        continue
+
+                    # Update the areas in case we applied clipping
+                    component["areaSqm"] = child_area_sqm
+                    child_area_sqft = child_features_df["clipped_area_sqft"].sum()
+                    component["areaSqft"] = child_area_sqft
+
+                    # Update the ratio in case we applied clipping
+                    parent_area_sqm = parent_feature.clipped_area_sqm
+                    # Handle edge case in case the parent area is zero
+                    ratio = (child_area_sqm / parent_area_sqm) if parent_area_sqm > 0 else 0
+                    component["ratio"] = ratio
+
+                    # Update the (area-weighted) confidence in case we applied clipping
+                    child_confidence = (
+                        child_features_df["confidence"] * child_features_df["clipped_area_sqm"]
+                    ).sum() / child_area_sqm
+                    component["confidence"] = child_confidence
 
     # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
@@ -529,6 +708,16 @@ def feature_attributes(
                         .idxmin()
                     )
                 primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
+            elif primary_decision == "nearest_no_filter":
+                primary_point = Point(primary_lon, primary_lat)
+                primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
+                nearest_feature_idx = (
+                    class_features_gdf.set_geometry("geometry_feature")
+                    .to_crs("EPSG:3857")
+                    .distance(primary_point)
+                    .idxmin()
+                )
+                primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
             else:
                 raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
             if country in IMPERIAL_COUNTRIES:
@@ -598,7 +787,12 @@ def feature_attributes(
                     buffered_primary_roof_geom_area = primary_roof_geom_area.buffer(buffer_dist)
 
                     if not buffered_primary_roof_geom_area.within(parcel_geom_area):
+                        # logger.info(features_gdf)
                         # Skip if the buffer protrudes outside the parcel
+                        # logger.info(
+                        #     f"""skipping buffer calculation for aoi_id:feature_id {features_gdf["aoi_id"].tolist()[0]}, nmaipy feature_id {features_gdf["feature_id"].tolist()[0]}; buffer {buffer_dist} extends outside parcel."""
+                        # )
+                        # logger.info(gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).iloc[0])
                         continue
 
                     # Proceed calculating intersections etc. with the buffered primary roof
@@ -658,7 +852,7 @@ def parcel_rollup(
         raise Exception(
             f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
-    if primary_decision == "nearest":
+    if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
         merge_cols = [
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
@@ -674,7 +868,7 @@ def parcel_rollup(
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
-        if primary_decision == "nearest":
+        if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
                 primary_lon = primary_lon[0]
