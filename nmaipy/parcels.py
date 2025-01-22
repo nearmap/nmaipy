@@ -385,7 +385,8 @@ def filter_features_in_parcels(
     # Iterate over the AOIs with structural damage composite features
     for aoi_id in all_damage_gdf.index.unique():
         # Get the structural damage composite features in this AOI
-        aoi_damage_gdf = all_damage_gdf.loc[aoi_id]
+        # NOTE: Need the inside brackets to ensure that we are always returning a dataframe for downstream operations
+        aoi_damage_gdf = all_damage_gdf.loc[[aoi_id]]
 
         # Skip this AOI if the total structrual damage area is 0
         if aoi_damage_gdf["clipped_area_sqm"].sum() == 0:
@@ -469,8 +470,9 @@ def filter_features_in_parcels(
                     with open(roof_attributes_file_path) as f:
                         empty_roof_attributes = json.load(f)
                     # Copy the empty roof attributes over to the building lifecycle feature
-                    empty_roof_attributes_series = pd.Series([empty_roof_attributes], name="attributes")
-                    gdf.loc[lifecycle_mask, "attributes"] = empty_roof_attributes_series
+                    gdf.loc[lifecycle_mask, "attributes"] = gdf.loc[lifecycle_mask].apply(
+                        lambda _: empty_roof_attributes, axis=1
+                    )
                 else:
                     # Copy the roof attributes from one of the roofs over to the building lifecycle feature
                     # NOTE: Doesn't matter which one we copy over as these will get updated in the next step
