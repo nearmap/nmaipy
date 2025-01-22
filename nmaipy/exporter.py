@@ -419,6 +419,7 @@ class AOIExporter:
                 + meta_data_columns
                 + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
             )
+            final_df = final_df[columns]
             if self.include_parcel_geometry:
                 columns.append("geometry")
             columns = [c for c in columns if c in final_df.columns]
@@ -454,18 +455,15 @@ class AOIExporter:
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
                 aoi_cols = set(final_features_df.columns)
-                
                 metadata_features_overlap = metadata_cols & features_cols - {AOI_ID_COLUMN_NAME}
                 metadata_aoi_overlap = metadata_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
                 features_aoi_overlap = features_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
-                
                 all_overlapping = metadata_features_overlap | metadata_aoi_overlap | features_aoi_overlap
                 if all_overlapping:
                     self.logger.warning(
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-                
                 final_features_df = gpd.GeoDataFrame(
                     metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
                         final_features_df, on=AOI_ID_COLUMN_NAME
