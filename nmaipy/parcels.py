@@ -289,6 +289,9 @@ def filter_features_in_parcels(
         logger.warning("AOI geometries not available, skipping building style filtering")
         return gdf
 
+    # Keep track of the AOIs we applied multiparcel building clipping to
+    aois_with_clipped_buildings = []
+
     # Filter out buildings that are not in the AOI, and clip geometries of multiparcel buildings
     for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
         gdf_aoi = gdf.loc[[aoi_id]]
@@ -319,6 +322,8 @@ def filter_features_in_parcels(
                 aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
                 new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
                 gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
+
+                aois_with_clipped_buildings.append(aoi_id)
 
         out_gdf_building_style.append(gdf_aoi_buildings)
 
@@ -382,6 +387,9 @@ def filter_features_in_parcels(
     # Get all of the structural damage composite features
     all_damage_gdf = gdf[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE]
 
+    # Keep track of the AOIs that need their attributes updated
+    aois_with_structural_damage = []
+
     # Iterate over the AOIs with structural damage composite features
     for aoi_id in all_damage_gdf.index.unique():
         # Get the structural damage composite features in this AOI
@@ -391,6 +399,9 @@ def filter_features_in_parcels(
         # Skip this AOI if the total structrual damage area is 0
         if aoi_damage_gdf["clipped_area_sqm"].sum() == 0:
             continue
+
+        # Add this AOI to the list of AOIs that need their attributes updated
+        aois_with_structural_damage.append(aoi_id)
 
         # Filter for only the features in this AOI
         # NOTE: This was needed just in case some features span multiple AOIs
@@ -491,9 +502,15 @@ def filter_features_in_parcels(
                     gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_roof_feature_ids)))]
 
     # Get all of the features that have attributes
-    features_with_attributes_df = gdf[gdf["attributes"].astype(bool)]
+    # NOTE: For efficiency reasons, we will limit the AOIs that either have multiparcel buildings that were clipped or have
+    # structural damage composite features that need their attributes updated. Also, we will only update the roof attributes
+    # for the retro pipeline.
+    aois_needing_updates = set(aois_with_clipped_buildings + aois_with_structural_damage)
+    features_with_attributes_df = gdf[
+        gdf.index.isin(aois_needing_updates) & (gdf["class_id"] == ROOF_ID) & (gdf["attributes"].astype(bool))
+    ]
 
-    # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) in case we applied clipping above.
+    # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) that need updating.
     for parent_feature in features_with_attributes_df.itertuples():
         for attribute in parent_feature.attributes:
             if "components" in attribute:
