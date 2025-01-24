@@ -514,10 +514,12 @@ def filter_features_in_parcels(
         gdf.index.isin(aois_needing_updates) & (gdf["class_id"] == ROOF_ID) & (gdf["attributes"].astype(bool))
     ]
 
+    # Get all of the children of the roofs that need their attributes updated
     children_needing_updates_df = gdf[
         gdf.index.isin(aois_needing_updates) & (gdf["parent_id"].isin(roofs_needing_updates_df["feature_id"]))
     ]
 
+    # Expand the children dataframe to include the clipped area of the parent roof needed for the calculations
     expanded_children_df = children_needing_updates_df.reset_index().merge(
         roofs_needing_updates_df.reset_index()[["aoi_id", "feature_id", "clipped_area_sqm"]].rename(
             columns={
@@ -531,6 +533,7 @@ def filter_features_in_parcels(
         right_on=["roof_aoi_id", "roof_feature_id"],
     )
 
+    # Group the children dataframe by the parent ID and class ID and calculate the aggregates
     grouped_children_df = expanded_children_df.groupby(["aoi_id", "parent_id", "class_id"]).agg(
         clipped_area_sqm=("clipped_area_sqm", "sum"),
         clipped_area_sqft=("clipped_area_sqft", "sum"),
