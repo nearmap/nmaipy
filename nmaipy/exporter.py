@@ -3,6 +3,7 @@ import concurrent.futures
 import json
 import os
 import sys
+import time
 import traceback
 import warnings
 from enum import Enum
@@ -381,16 +382,22 @@ class AOIExporter:
                     return
 
                 # Filter features
-                len_all_features = len(features_gdf)
+                start_time = time.time()  # Start timer
+                self.logger.info(f"Chunk {chunk_id}: Filtering {len(features_gdf)} features in parcels")
                 features_gdf = parcels.filter_features_in_parcels(
                     features_gdf,
                     aoi_gdf=aoi_gdf,
                     region=self.country,
                     clip_multiparcel_buildings=self.clip_multiparcel_buildings,
                 )
-                len_filtered_features = len(features_gdf)
+                end_time = time.time()  # End timer
+                self.logger.info(
+                    f"Chunk {chunk_id}: Filtered features in parcels in {end_time - start_time:.2f} seconds"
+                )
 
                 # Create rollup
+                start_time = time.time()  # Start timer
+                self.logger.info(f"Chunk {chunk_id}: Creating rollup for {len(features_gdf)} features")
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
                     features_gdf,
@@ -399,6 +406,8 @@ class AOIExporter:
                     calc_buffers=self.calc_buffers,
                     primary_decision=self.primary_decision,
                 )
+                end_time = time.time()  # End timer
+                self.logger.info(f"Chunk {chunk_id}: Created rollup in {end_time - start_time:.2f} seconds")
             else:
                 self.logger.error(f"Not a valid endpoint selection: {self.endpoint}")
                 sys.exit(1)

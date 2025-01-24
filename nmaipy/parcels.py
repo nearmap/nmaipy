@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import MultiPolygon, Point, Polygon
+from tqdm import tqdm
 
 import nmaipy.reference_code
 from nmaipy import log
@@ -293,7 +295,9 @@ def filter_features_in_parcels(
     aois_with_clipped_buildings = []
 
     # Filter out buildings that are not in the AOI, and clip geometries of multiparcel buildings
-    for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
+    for aoi_id in tqdm(
+        gdf.index.unique(), desc="Filter buildings not in AOI and clip geometries of multiparcel buildings"
+    ):  # Loop over each AOI in the set
         gdf_aoi = gdf.loc[[aoi_id]]
         gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
         if len(gdf_aoi_buildings) == 0:
@@ -391,7 +395,7 @@ def filter_features_in_parcels(
     aois_with_structural_damage = []
 
     # Iterate over the AOIs with structural damage composite features
-    for aoi_id in all_damage_gdf.index.unique():
+    for aoi_id in tqdm(all_damage_gdf.index.unique(), desc="Update structural damage composite features"):
         # Get the structural damage composite features in this AOI
         # NOTE: Need the inside brackets to ensure that we are always returning a dataframe for downstream operations
         aoi_damage_gdf = all_damage_gdf.loc[[aoi_id]]
@@ -506,64 +510,105 @@ def filter_features_in_parcels(
     # structural damage composite features that need their attributes updated. Also, we will only update the roof attributes
     # for the retro pipeline.
     aois_needing_updates = set(aois_with_clipped_buildings + aois_with_structural_damage)
-    features_with_attributes_df = gdf[
+    roofs_needing_updates_df = gdf[
         gdf.index.isin(aois_needing_updates) & (gdf["class_id"] == ROOF_ID) & (gdf["attributes"].astype(bool))
     ]
 
-    # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) that need updating.
-    for parent_feature in features_with_attributes_df.itertuples():
-        for attribute in parent_feature.attributes:
-            if "components" in attribute:
-                for component in attribute["components"]:
-                    child_class_id = component["classId"]
-                    parent_feature_id = parent_feature.feature_id
+    children_needing_updates_df = gdf[
+        gdf.index.isin(aois_needing_updates) & (gdf["parent_id"].isin(roofs_needing_updates_df["feature_id"]))
+    ]
 
-                    # Feature API uses the STRUCTURALLY_DAMAGED_ROOF for the Roof Condition attribute. However, the
-                    # structural damage composite class is what is being used for the RSI score and displayed in Tower.
-                    # Therefore, if the structural damage composite class is available as a feature returned from the API,
-                    # we should use that instead of the STRUCTURALLY_DAMAGED_ROOF class.
-                    if child_class_id == STRUCTURALLY_DAMAGED_ROOF:
-                        has_structural_damage_composite = (
-                            (gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE) & (gdf["parent_id"] == parent_feature_id)
-                        ).any()
-                        # If structural damage composite is available, use that one instead
-                        if has_structural_damage_composite:
-                            child_class_id = CLASS_1186_STRUCTURAL_DAMAGE
-                            component["classId"] = child_class_id
+    expanded_children_df = children_needing_updates_df.reset_index().merge(
+        roofs_needing_updates_df.reset_index()[["aoi_id", "feature_id", "clipped_area_sqm"]].rename(
+            columns={
+                "aoi_id": "roof_aoi_id",
+                "feature_id": "roof_feature_id",
+                "clipped_area_sqm": "roof_clipped_area_sqm",
+            }
+        ),
+        how="left",
+        left_on=["aoi_id", "parent_id"],
+        right_on=["roof_aoi_id", "roof_feature_id"],
+    )
 
-                    # Get all of the child features for this parent feature
-                    child_features_df = gdf[
-                        (gdf["class_id"] == child_class_id) & (gdf["parent_id"] == parent_feature_id)
-                    ]
-                    # If there are no child features found, then don't do anything
-                    if len(child_features_df) == 0:
-                        continue
+    grouped_children_df = expanded_children_df.groupby(["aoi_id", "parent_id", "class_id"]).agg(
+        clipped_area_sqm=("clipped_area_sqm", "sum"),
+        clipped_area_sqft=("clipped_area_sqft", "sum"),
+        roof_clipped_area_sqm=(
+            "roof_clipped_area_sqm",
+            "first",
+        ),  # Use first value of `parent_clipped_area_sqm` (assuming it's constant per group)
+        weighted_confidence_numerator=(
+            "confidence",
+            lambda x: np.sum(x * expanded_children_df.loc[x.index, "clipped_area_sqm"]),
+        ),
+    )
 
-                    # If the child area has been clipped to 0, then update the values accordingly
-                    child_area_sqm = child_features_df["clipped_area_sqm"].sum()
-                    if child_area_sqm == 0:
-                        component["areaSqm"] = 0
-                        component["areaSqft"] = 0
-                        component["ratio"] = 0
-                        component["confidence"] = None
-                        continue
+    # Calculate the area-weighted confidence score and handle division by zero
+    grouped_children_df["weighted_confidence"] = (
+        grouped_children_df["weighted_confidence_numerator"] / grouped_children_df["clipped_area_sqm"]
+    ).where(grouped_children_df["clipped_area_sqm"] > 0, np.nan)
 
-                    # Update the areas in case we applied clipping
-                    component["areaSqm"] = child_area_sqm
-                    child_area_sqft = child_features_df["clipped_area_sqft"].sum()
-                    component["areaSqft"] = child_area_sqft
+    # Calculate the ratio, handling division by zero
+    grouped_children_df["ratio"] = (
+        grouped_children_df["clipped_area_sqm"] / grouped_children_df["roof_clipped_area_sqm"]
+    ).where(grouped_children_df["roof_clipped_area_sqm"] > 0, 0)
 
-                    # Update the ratio in case we applied clipping
-                    parent_area_sqm = parent_feature.clipped_area_sqm
-                    # Handle edge case in case the parent area is zero
-                    ratio = (child_area_sqm / parent_area_sqm) if parent_area_sqm > 0 else 0
-                    component["ratio"] = ratio
+    pass
 
-                    # Update the (area-weighted) confidence in case we applied clipping
-                    child_confidence = (
-                        child_features_df["confidence"] * child_features_df["clipped_area_sqm"]
-                    ).sum() / child_area_sqm
-                    component["confidence"] = child_confidence
+    # TODO: Verify the above is working as expected. Then, we need to now update the attributes using these values in an efficient way
+
+    # Step 1: Group child features by parent_id and class_id, and calculate aggregates
+
+    # Step 2: Merge aggregated data with parent features
+
+    # Step 3: Update attributes in parent features
+    # for parent_feature in tqdm(merged_df.itertuples(), desc="Update areas, ratios, and confidences"):
+    #     for attribute in parent_feature.attributes:
+    #         if "components" in attribute:
+    #             for component in attribute["components"]:
+    #                 child_class_id = component["classId"]
+    #                 parent_feature_id = parent_feature.parent_id
+
+    #                 # Handle special case for STRUCTURALLY_DAMAGED_ROOF
+    #                 if child_class_id == STRUCTURALLY_DAMAGED_ROOF:
+    #                     has_structural_damage_composite = (
+    #                         (gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE) & (gdf["parent_id"] == parent_feature_id)
+    #                     ).any()
+    #                     if has_structural_damage_composite:
+    #                         child_class_id = CLASS_1186_STRUCTURAL_DAMAGE
+    #                         component["classId"] = child_class_id
+
+    #                 # Get aggregated data for this parent-child pair
+    #                 match = (merged_df["parent_id"] == parent_feature_id) & (merged_df["class_id"] == child_class_id)
+    #                 if not match.any():
+    #                     continue  # Skip if no match found
+
+    #                 agg_data = merged_df.loc[match].iloc[0]
+
+    #                 # Update component attributes
+    #                 child_area_sqm = agg_data.child_area_sqm
+    #                 if child_area_sqm == 0:
+    #                     component["areaSqm"] = 0
+    #                     component["areaSqft"] = 0
+    #                     component["ratio"] = 0
+    #                     component["confidence"] = None
+    #                     continue
+
+    #                 # Update areas
+    #                 component["areaSqm"] = child_area_sqm
+    #                 component["areaSqft"] = agg_data.child_area_sqft
+
+    #                 # Update ratio
+    #                 parent_area_sqm = parent_feature.clipped_area_sqm
+    #                 component["ratio"] = (child_area_sqm / parent_area_sqm) if parent_area_sqm > 0 else 0
+
+    #                 # Update confidence
+    #                 component["confidence"] = (
+    #                     agg_data.weighted_confidence / agg_data.total_area_weight
+    #                     if agg_data.total_area_weight > 0
+    #                     else None
+    #                 )
 
     # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
@@ -663,7 +708,7 @@ def feature_attributes(
 
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
-    for class_id, name in classes_df.description.items():
+    for class_id, name in tqdm(classes_df.description.items(), desc="Flattening features", leave=False):
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
@@ -886,7 +931,7 @@ def parcel_rollup(
 
     rollups = []
     # Loop over parcels with features in them
-    for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
+    for aoi_id, group in tqdm(df.reset_index().groupby(AOI_ID_COLUMN_NAME), desc="Processing AOI Rollups"):
         if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
@@ -929,7 +974,9 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
-    for row in parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples():
+    for row in tqdm(
+        parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples(), desc="Processing Empty AOIs"
+    ):
         parcel = feature_attributes(
             gpd.GeoDataFrame(
                 [],
