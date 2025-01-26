@@ -506,6 +506,7 @@ def filter_features_in_parcels(
                     # Remove all of the intersecting roof features (these have been replaced by the building lifecycle feature)
                     gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_roof_feature_ids)))]
 
+    print("Start updating attributes for clipped buildings and structural damage composite features")
     start_time = time.time()
 
     # Get all of the features that have attributes
@@ -914,7 +915,7 @@ def filter_features_in_parcels(
     gdf = gdf.set_index("aoi_id")
 
     # Print the time taken to update the attributes
-    print(f"Time taken to update the attributes: {time.time() - start_time:.2f} seconds")
+    print(f"Finished updating attributes in {time.time() - start_time:.2f} seconds")
 
     return gdf
 
@@ -1013,7 +1014,7 @@ def feature_attributes(
 
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
-    for class_id, name in tqdm(classes_df.description.items(), desc="Flattening features", leave=False):
+    for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
