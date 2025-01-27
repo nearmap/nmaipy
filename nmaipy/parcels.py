@@ -514,14 +514,24 @@ def filter_features_in_parcels(
     # structural damage composite features that need their attributes updated. Also, we will only update the roof attributes
     # for the retro pipeline.
     aois_needing_updates = set(aois_with_clipped_buildings + aois_with_structural_damage)
+
+    if not aois_needing_updates:
+        return gdf
+
     roofs_needing_updates_df = gdf[
         gdf.index.isin(aois_needing_updates) & (gdf["class_id"] == ROOF_ID) & (gdf["attributes"].astype(bool))
     ]
+
+    if roofs_needing_updates_df.empty:
+        return gdf
 
     # Get all of the children of the roofs that need their attributes updated
     children_needing_updates_df = gdf[
         gdf.index.isin(aois_needing_updates) & (gdf["parent_id"].isin(roofs_needing_updates_df["feature_id"]))
     ]
+
+    if children_needing_updates_df.empty:
+        return gdf
 
     # Expand the children dataframe to include the clipped area of the parent roof needed for the calculations
     expanded_children_df = children_needing_updates_df.reset_index().merge(
@@ -872,7 +882,9 @@ def filter_features_in_parcels(
         for description, desc_group in group.groupby("description"):
             # Parent-specific info (assumes the same for all rows in the group)
             parent_class_id = desc_group["parent_class_id"].iloc[0]
-            parent_internal_class_id = desc_group["parent_internal_class_id"].iloc[0]
+            parent_internal_class_id = int(
+                desc_group["parent_internal_class_id"].iloc[0]
+            )  # make sure it's not an int64
 
             # Create the components list
             components = [
