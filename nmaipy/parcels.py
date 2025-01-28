@@ -506,6 +506,10 @@ def filter_features_in_parcels(
                     # Remove all of the intersecting roof features (these have been replaced by the building lifecycle feature)
                     gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_roof_feature_ids)))]
 
+    # Hack: Let's rename the structural damage composite class description to structural damage so that it gets
+    # picked up in the attribute update below properly
+    gdf.loc[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE, "description"] = "Structural Damage"
+
     print("Start updating attributes for clipped buildings and structural damage composite features")
     start_time = time.time()
 
@@ -756,8 +760,8 @@ def filter_features_in_parcels(
             },
             "children": [
                 {
-                    "class_id": "f907e625-26b3-59db-a806-d41f62ce1f1b",
-                    "internal_class_id": 1049,
+                    "class_id": CLASS_1186_STRUCTURAL_DAMAGE,  # Use structural damage composite class
+                    "internal_class_id": 1186,
                     "child_description": "Structural Damage",
                 },
                 {
