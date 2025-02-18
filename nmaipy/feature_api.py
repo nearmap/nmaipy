@@ -60,7 +60,7 @@ class RetryRequest(Retry):
     Inherited retry request to limit back-off to 1 second.
     """
 
-    BACKOFF_MAX = 1
+    BACKOFF_MAX = 5  # Maximum backoff time in seconds
 
 
 class AIFeatureAPIError(Exception):
@@ -283,11 +283,12 @@ class FeatureApi:
             session = requests.Session()
             retries = RetryRequest(
                 total=self.maxretry,
-                backoff_factor=0.05,
+                backoff_factor=0.2,
                 status_forcelist=[
-                    HTTPStatus.TOO_MANY_REQUESTS,
-                    HTTPStatus.BAD_GATEWAY,
-                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    HTTPStatus.TOO_MANY_REQUESTS, # 429
+                    HTTPStatus.BAD_GATEWAY, # 502
+                    HTTPStatus.SERVICE_UNAVAILABLE, # 503
+                    HTTPStatus.INTERNAL_SERVER_ERROR, # 500
                 ],
             )
             session.mount(
@@ -774,7 +775,7 @@ class FeatureApi:
         """
         location_marker_string = "?locationMarker"
         if not location_marker_string not in link:
-            return link.append(location_marker_string)
+            return link + location_marker_string
         else:
             return link
 
