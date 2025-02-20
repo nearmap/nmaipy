@@ -25,6 +25,7 @@ from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape
 from urllib3.util.retry import Retry
 import urllib3  # Add this with other imports
+import ssl  # Add this with other imports
 
 # Load environment variables from .env file
 load_dotenv()
@@ -82,10 +83,12 @@ class RetryRequest(Retry):
             RemoteDisconnected,  # From http.client
             requests.exceptions.ProxyError,
             requests.exceptions.SSLError,
+            urllib3.exceptions.SSLError,  # Added to catch SSL errors from urllib3
             requests.exceptions.Timeout,
             urllib3.exceptions.ProtocolError,
-            EOFError,  # Sometimes occurs with RemoteDisconnectedinstead of requests
+            EOFError,  # Sometimes occurs with RemoteDisconnected
             ConnectionResetError,  # Python built-in exception
+            ssl.SSLEOFError,  # Explicit SSL EOF error
         })
 
     def new_timeout(self, *args, **kwargs):
@@ -98,6 +101,7 @@ class RetryRequest(Retry):
         """Helper to create retry config with better defaults"""
         kwargs.setdefault('backoff_factor', 1.0)
         kwargs.setdefault('status_forcelist', [429, 500, 502, 503, 504])
+        kwargs.setdefault('respect_retry_after_header', True)
         return super().from_int(retries, **kwargs)
 
 

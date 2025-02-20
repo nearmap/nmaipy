@@ -552,8 +552,8 @@ class AOIExporter:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Only cleanup if feature_api was successfully created
-            if feature_api is not None:
+            # Only cleanup if feature_api has been declared as a variable
+            if "feature_api" in locals():
                 try:
                     feature_api.cleanup()
                 except:
@@ -720,7 +720,12 @@ class AOIExporter:
                     self.logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
                     sys.exit(1)
         if len(data) > 0:
-            data = gpd.GeoDataFrame(pd.concat(data))
+            data = pd.concat(data)
+            if "geometry" in data.columns:
+                if not isinstance(data.geometry, gpd.GeoSeries):
+                    data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
+            data = gpd.GeoDataFrame(data, crs=API_CRS)
+            
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
