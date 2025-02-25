@@ -710,7 +710,7 @@ class FeatureApi:
                     text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                     message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                 )
-            logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
+            # logger.debug(f"Requesting: {self._clean_api_key(request_string)}") # Enable for extremely verbose debug logging!
             cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
             # Check if it's already cached

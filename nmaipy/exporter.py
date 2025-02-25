@@ -487,6 +487,7 @@ class AOIExporter:
                 self.logger.error(final_df)
                 self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
+                logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
                 # Check for column name collisions between any two dataframes
                 final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
 
@@ -542,7 +543,6 @@ class AOIExporter:
             
             # Force garbage collection
             gc.collect()
-            gc.collect()  # Second pass to clean up circular references
             
             # Log memory change
             end_mem = get_memory_usage()
@@ -720,7 +720,7 @@ class AOIExporter:
                     self.logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
                     sys.exit(1)
         if len(data) > 0:
-            data = pd.concat(data)
+            data = pd.concat([data for data in data if len(data) > 0])
             if "geometry" in data.columns:
                 if not isinstance(data.geometry, gpd.GeoSeries):
                     data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
@@ -733,7 +733,8 @@ class AOIExporter:
                 data.to_parquet(outpath, index=True)
             elif self.rollup_format == "csv":
                 if "geometry" in data.columns:
-                    data["geometry"] = data.geometry.to_wkt()
+                    if isinstance(data.geometry, gpd.GeoSeries):
+                        data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 self.logger.info("Invalid output format specified - reverting to csv")
