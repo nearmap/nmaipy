@@ -1,11 +1,14 @@
 import json
+import time
 import warnings
 from pathlib import Path
 from typing import List, Optional, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import MultiPolygon, Point, Polygon
+from tqdm import tqdm
 
 import nmaipy.reference_code
 from nmaipy import log
@@ -293,7 +296,9 @@ def filter_features_in_parcels(
     aois_with_clipped_buildings = []
 
     # Filter out buildings that are not in the AOI, and clip geometries of multiparcel buildings
-    for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
+    for aoi_id in tqdm(
+        gdf.index.unique(), desc="Filter buildings not in AOI and clip geometries of multiparcel buildings"
+    ):  # Loop over each AOI in the set
         gdf_aoi = gdf.loc[[aoi_id]]
         gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
         if len(gdf_aoi_buildings) == 0:
@@ -391,7 +396,7 @@ def filter_features_in_parcels(
     aois_with_structural_damage = []
 
     # Iterate over the AOIs with structural damage composite features
-    for aoi_id in all_damage_gdf.index.unique():
+    for aoi_id in tqdm(all_damage_gdf.index.unique(), desc="Update structural damage composite features"):
         # Get the structural damage composite features in this AOI
         # NOTE: Need the inside brackets to ensure that we are always returning a dataframe for downstream operations
         aoi_damage_gdf = all_damage_gdf.loc[[aoi_id]]
@@ -501,71 +506,433 @@ def filter_features_in_parcels(
                     # Remove all of the intersecting roof features (these have been replaced by the building lifecycle feature)
                     gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_roof_feature_ids)))]
 
+    # Hack: Let's rename the structural damage composite class description to structural damage so that it gets
+    # picked up in the attribute update below properly
+    gdf.loc[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE, "description"] = "Structural Damage"
+
+    print("Start updating attributes for clipped buildings and structural damage composite features")
+    start_time = time.time()
+
     # Get all of the features that have attributes
     # NOTE: For efficiency reasons, we will limit the AOIs that either have multiparcel buildings that were clipped or have
     # structural damage composite features that need their attributes updated. Also, we will only update the roof attributes
     # for the retro pipeline.
     aois_needing_updates = set(aois_with_clipped_buildings + aois_with_structural_damage)
-    features_with_attributes_df = gdf[
+
+    if not aois_needing_updates:
+        return gdf
+
+    roofs_needing_updates_df = gdf[
         gdf.index.isin(aois_needing_updates) & (gdf["class_id"] == ROOF_ID) & (gdf["attributes"].astype(bool))
     ]
 
-    # Update the areas, ratios, and confidences for the features with attributes (e.g. roofs) that need updating.
-    for parent_feature in features_with_attributes_df.itertuples():
-        for attribute in parent_feature.attributes:
-            if "components" in attribute:
-                for component in attribute["components"]:
-                    child_class_id = component["classId"]
-                    parent_feature_id = parent_feature.feature_id
+    if roofs_needing_updates_df.empty:
+        return gdf
 
-                    # Feature API uses the STRUCTURALLY_DAMAGED_ROOF for the Roof Condition attribute. However, the
-                    # structural damage composite class is what is being used for the RSI score and displayed in Tower.
-                    # Therefore, if the structural damage composite class is available as a feature returned from the API,
-                    # we should use that instead of the STRUCTURALLY_DAMAGED_ROOF class.
-                    if child_class_id == STRUCTURALLY_DAMAGED_ROOF:
-                        has_structural_damage_composite = (
-                            (gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE) & (gdf["parent_id"] == parent_feature_id)
-                        ).any()
-                        # If structural damage composite is available, use that one instead
-                        if has_structural_damage_composite:
-                            child_class_id = CLASS_1186_STRUCTURAL_DAMAGE
-                            component["classId"] = child_class_id
+    # Get all of the children of the roofs that need their attributes updated
+    children_needing_updates_df = gdf[
+        gdf.index.isin(aois_needing_updates) & (gdf["parent_id"].isin(roofs_needing_updates_df["feature_id"]))
+    ]
 
-                    # Get all of the child features for this parent feature
-                    child_features_df = gdf[
-                        (gdf["class_id"] == child_class_id) & (gdf["parent_id"] == parent_feature_id)
-                    ]
-                    # If there are no child features found, then don't do anything
-                    if len(child_features_df) == 0:
-                        continue
+    if children_needing_updates_df.empty:
+        return gdf
 
-                    # If the child area has been clipped to 0, then update the values accordingly
-                    child_area_sqm = child_features_df["clipped_area_sqm"].sum()
-                    if child_area_sqm == 0:
-                        component["areaSqm"] = 0
-                        component["areaSqft"] = 0
-                        component["ratio"] = 0
-                        component["confidence"] = None
-                        continue
+    # Expand the children dataframe to include the clipped area of the parent roof needed for the calculations
+    expanded_children_df = children_needing_updates_df.reset_index().merge(
+        roofs_needing_updates_df.reset_index()[["aoi_id", "feature_id", "clipped_area_sqm"]].rename(
+            columns={
+                "aoi_id": "roof_aoi_id",
+                "feature_id": "roof_feature_id",
+                "clipped_area_sqm": "roof_clipped_area_sqm",
+            }
+        ),
+        how="left",
+        left_on=["aoi_id", "parent_id"],
+        right_on=["roof_aoi_id", "roof_feature_id"],
+    )
 
-                    # Update the areas in case we applied clipping
-                    component["areaSqm"] = child_area_sqm
-                    child_area_sqft = child_features_df["clipped_area_sqft"].sum()
-                    component["areaSqft"] = child_area_sqft
+    # Group the children dataframe by the parent ID and class ID and calculate the aggregates
+    grouped_children_df = expanded_children_df.groupby(["aoi_id", "parent_id", "class_id"]).agg(
+        internal_class_id=("internal_class_id", "first"),
+        child_description=("description", "first"),
+        weighted_confidence_numerator=(
+            "confidence",
+            lambda x: np.sum(x * expanded_children_df.loc[x.index, "clipped_area_sqm"]),
+        ),
+        clipped_area_sqm=("clipped_area_sqm", "sum"),
+        clipped_area_sqft=("clipped_area_sqft", "sum"),
+        roof_clipped_area_sqm=(
+            "roof_clipped_area_sqm",
+            "first",
+        ),  # Use first value of `parent_clipped_area_sqm` (assuming it's constant per group)
+    )
 
-                    # Update the ratio in case we applied clipping
-                    parent_area_sqm = parent_feature.clipped_area_sqm
-                    # Handle edge case in case the parent area is zero
-                    ratio = (child_area_sqm / parent_area_sqm) if parent_area_sqm > 0 else 0
-                    component["ratio"] = ratio
+    # Calculate the area-weighted confidence score and handle division by zero
+    grouped_children_df["weighted_confidence"] = (
+        grouped_children_df["weighted_confidence_numerator"] / grouped_children_df["clipped_area_sqm"]
+    ).where(grouped_children_df["clipped_area_sqm"] > 0, np.nan)
 
-                    # Update the (area-weighted) confidence in case we applied clipping
-                    child_confidence = (
-                        child_features_df["confidence"] * child_features_df["clipped_area_sqm"]
-                    ).sum() / child_area_sqm
-                    component["confidence"] = child_confidence
+    # Calculate the ratio, handling division by zero
+    grouped_children_df["ratio"] = (
+        grouped_children_df["clipped_area_sqm"] / grouped_children_df["roof_clipped_area_sqm"]
+    ).where(grouped_children_df["roof_clipped_area_sqm"] > 0, 0)
 
-    # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
+    # Convert the description_to_class_ids mapping to a DataFrame
+    description_to_class_ids = {
+        "Roof material": {
+            "parent_info": {
+                "parent_class_id": "89c7d478-58de-56bd-96d2-e71e27a36905",
+                "parent_internal_class_id": 3,
+            },
+            "children": [
+                {
+                    "class_id": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+                    "internal_class_id": 1007,
+                    "child_description": "Tile",
+                },
+                {
+                    "class_id": "4bbf8dbd-cc81-5773-961f-0121101422be",
+                    "internal_class_id": 1008,
+                    "child_description": "Shingle",
+                },
+                {
+                    "class_id": "4424186a-0b42-5608-a5a0-d4432695c260",
+                    "internal_class_id": 1009,
+                    "child_description": "Metal",
+                },
+                {
+                    "class_id": "4558c4fb-3ddf-549d-b2d2-471384be23d1",
+                    "internal_class_id": 1100,
+                    "child_description": "Ballasted",
+                },
+                {
+                    "class_id": "87437e20-d9f5-57e1-8b87-4a9c81ec3b65",
+                    "internal_class_id": 1101,
+                    "child_description": "Mod-Bit",
+                },
+                {
+                    "class_id": "383930f1-d866-5aa3-9f97-553311f3162d",
+                    "internal_class_id": 1103,
+                    "child_description": "PVC/TPO",
+                },
+                {
+                    "class_id": "64db6ea0-7248-53f5-b6a6-6ed733c5f9b8",
+                    "internal_class_id": 1104,
+                    "child_description": "EPDM",
+                },
+                {
+                    "class_id": "9fc4c92e-4405-573e-bce6-102b74ab89a3",
+                    "internal_class_id": 1105,
+                    "child_description": "Wood Shake",
+                },
+                {
+                    "class_id": "09ed6bf9-182a-5c79-ae59-f5531181d298",
+                    "internal_class_id": 1160,
+                    "child_description": "Clay Tile",
+                },
+                {
+                    "class_id": "cdc50dcc-e522-5361-8f02-4e30673311bb",
+                    "internal_class_id": 1163,
+                    "child_description": "Slate",
+                },
+                {
+                    "class_id": "3563c8f1-e81e-52c7-bd56-eaa937010403",
+                    "internal_class_id": 1165,
+                    "child_description": "Built Up",
+                },
+                {
+                    "class_id": "b2573072-b3a5-5f7c-973f-06b7649665ff",
+                    "internal_class_id": 1168,
+                    "child_description": "Roof Coating",
+                },
+            ],
+        },
+        "Roof types": {
+            "parent_info": {
+                "parent_class_id": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+                "parent_internal_class_id": 4,
+            },
+            "children": [
+                {
+                    "class_id": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+                    "internal_class_id": 1013,
+                    "child_description": "Hip",
+                },
+                {
+                    "class_id": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+                    "internal_class_id": 1014,
+                    "child_description": "Gable",
+                },
+                {
+                    "class_id": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+                    "internal_class_id": 1015,
+                    "child_description": "Dutch Gable",
+                },
+                {
+                    "class_id": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+                    "internal_class_id": 1016,
+                    "child_description": "Flat (Deprecated)",
+                },
+                {
+                    "class_id": "7ac62320-52f3-5301-94c5-7adf6b93a3b8",
+                    "internal_class_id": 1018,
+                    "child_description": "Shed",
+                },
+                {
+                    "class_id": "4bb630b9-f9eb-5f95-85b8-f0c6caf16e9b",
+                    "internal_class_id": 1019,
+                    "child_description": "Gambrel",
+                },
+                {
+                    "class_id": "89582082-e5b8-5853-bc94-3a0392cab98a",
+                    "internal_class_id": 1020,
+                    "child_description": "Turret",
+                },
+                {
+                    "class_id": "1234ea84-e334-5c58-88a9-6554be3dfc05",
+                    "internal_class_id": 1173,
+                    "child_description": "Parapet",
+                },
+                {
+                    "class_id": "7eb3b1b6-0d75-5b1f-b41c-b14146ff0c54",
+                    "internal_class_id": 1174,
+                    "child_description": "Mansard",
+                },
+                {
+                    "class_id": "924afbab-aae6-5c26-92e8-9173e4320495",
+                    "internal_class_id": 1176,
+                    "child_description": "Jerkinhead",
+                },
+                {
+                    "class_id": "e92bc8a2-9fa3-5094-b3b6-2881d94642ab",
+                    "internal_class_id": 1178,
+                    "child_description": "Quonset",
+                },
+                {
+                    "class_id": "09b925d2-df1d-599b-89f1-3ffd39df791e",
+                    "internal_class_id": 1180,
+                    "child_description": "Bowstring Truss",
+                },
+                {
+                    "class_id": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+                    "internal_class_id": 1191,
+                    "child_description": "Flat",
+                },
+            ],
+        },
+        "Roof overhang attributes": {
+            "parent_info": {
+                "parent_class_id": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+                "parent_internal_class_id": 5,
+            },
+            "children": [
+                {
+                    "class_id": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+                    "internal_class_id": 1045,
+                    "child_description": "Tree Overhang",
+                },
+                {
+                    "class_id": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+                    "internal_class_id": 1084,
+                    "child_description": "Leaf-off Tree Overhang",
+                },
+                {
+                    "class_id": "38c4dd92-868c-582a-a4d5-537c88dcec75",
+                    "internal_class_id": 1085,
+                    "child_description": "Low Vegetation (0.5m-2m) Overhang",
+                },
+                {
+                    "class_id": "fcbb15ea-93e5-587c-8941-246353817741",
+                    "internal_class_id": 1086,
+                    "child_description": "Very Low Vegetation (<0.5m) Overhang",
+                },
+                {
+                    "class_id": "1ef797a5-8057-5e8b-a24d-dc7cd8f1fa7b",
+                    "internal_class_id": 1087,
+                    "child_description": "Power Line Overhang",
+                },
+            ],
+        },
+        "Roof Condition": {
+            "parent_info": {
+                "parent_class_id": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+                "parent_internal_class_id": 10,
+            },
+            "children": [
+                {
+                    "class_id": CLASS_1186_STRUCTURAL_DAMAGE,  # Use structural damage composite class
+                    "internal_class_id": 1186,
+                    "child_description": "Structural Damage",
+                },
+                {
+                    "class_id": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+                    "internal_class_id": 1050,
+                    "child_description": "Roof with Temporary Repair",
+                },
+                {
+                    "class_id": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+                    "internal_class_id": 1051,
+                    "child_description": "Roof Ponding",
+                },
+                {
+                    "class_id": "526496bf-7344-5024-82d7-77ceb671feb4",
+                    "internal_class_id": 1052,
+                    "child_description": "Roof Rusting",
+                },
+                {
+                    "class_id": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+                    "internal_class_id": 1053,
+                    "child_description": "Tile or Shingle Staining",
+                },
+                {
+                    "class_id": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                    "internal_class_id": 1079,
+                    "child_description": "Missing Roof Tile or Shingle",
+                },
+                {
+                    "class_id": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+                    "internal_class_id": 1080,
+                    "child_description": "Roof with Permanent Repair",
+                },
+                {
+                    "class_id": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+                    "internal_class_id": 1081,
+                    "child_description": "Zinc Staining",
+                },
+                {
+                    "class_id": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+                    "internal_class_id": 1139,
+                    "child_description": "Roof Debris",
+                },
+                {
+                    "class_id": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+                    "internal_class_id": 1140,
+                    "child_description": "Exposed Roof Deck",
+                },
+                {
+                    "class_id": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+                    "internal_class_id": 1141,
+                    "child_description": "Missing Asphalt shingles",
+                },
+                {
+                    "class_id": "94944057-968c-5df3-828b-285091b7e266",
+                    "internal_class_id": 1142,
+                    "child_description": "Active Ponding",
+                },
+                {
+                    "class_id": "319f552f-f4b7-520d-9b16-c8abb394b043",
+                    "internal_class_id": 1144,
+                    "child_description": "Roof Staining",
+                },
+                {
+                    "class_id": "97a6f930-82ae-55f2-b856-635e2250af29",
+                    "internal_class_id": 1146,
+                    "child_description": "Worn Shingles",
+                },
+                {
+                    "class_id": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                    "internal_class_id": 1147,
+                    "child_description": "Exposed Underlayment",
+                },
+                {
+                    "class_id": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+                    "internal_class_id": 1149,
+                    "child_description": "Roof Patching",
+                },
+            ],
+        },
+    }
+
+    # Flatten the dictionary into a DataFrame for parent and child information
+    description_to_class_ids_df = pd.DataFrame(
+        [
+            {
+                "description": description,
+                "parent_class_id": data["parent_info"]["parent_class_id"],
+                "parent_internal_class_id": data["parent_info"]["parent_internal_class_id"],
+                "class_id": child["class_id"],
+                "internal_class_id": child["internal_class_id"],
+                "child_description": child["child_description"],
+            }
+            for description, data in description_to_class_ids.items()
+            for child in data["children"]
+        ]
+    )
+
+    # Create all possible combinations of (aoi_id, parent_id, description, class_id)
+    unique_aoi_parent = grouped_children_df.index.droplevel("class_id").drop_duplicates()
+    all_combinations = unique_aoi_parent.to_frame(index=False).merge(description_to_class_ids_df, how="cross")
+
+    # Merge with the grouped_children_df and fill missing values
+    expanded_df = all_combinations.merge(
+        grouped_children_df.reset_index(),
+        on=["aoi_id", "parent_id", "class_id", "internal_class_id", "child_description"],
+        how="left",
+    )
+
+    # Fill missing values with defaults
+    expanded_df["weighted_confidence"] = expanded_df["weighted_confidence"].fillna(np.nan)
+    expanded_df["clipped_area_sqm"] = expanded_df["clipped_area_sqm"].fillna(0)
+    expanded_df["clipped_area_sqft"] = expanded_df["clipped_area_sqft"].fillna(0)
+    expanded_df["ratio"] = expanded_df["ratio"].fillna(0)
+
+    # Reorganize the DataFrame
+    final_df = expanded_df.sort_values(["aoi_id", "parent_id", "description", "class_id"]).set_index(
+        ["aoi_id", "parent_id", "description", "class_id"]
+    )
+
+    def create_attributes(group):
+        attributes = []
+        for description, desc_group in group.groupby("description"):
+            # Parent-specific info (assumes the same for all rows in the group)
+            parent_class_id = desc_group["parent_class_id"].iloc[0]
+            parent_internal_class_id = int(
+                desc_group["parent_internal_class_id"].iloc[0]
+            )  # make sure it's not an int64
+
+            # Create the components list
+            components = [
+                {
+                    "classId": row["class_id"],
+                    "internalClassId": row["internal_class_id"],
+                    "description": row["child_description"],
+                    "confidence": row["weighted_confidence"],
+                    "areaSqm": row["clipped_area_sqm"],
+                    "areaSqft": row["clipped_area_sqft"],
+                    "ratio": row["ratio"],
+                }
+                for _, row in desc_group.iterrows()  # Iterate explicitly over rows
+            ]
+
+            # Append the dictionary for this description
+            attributes.append(
+                {
+                    "classId": parent_class_id,
+                    "internalClassId": parent_internal_class_id,
+                    "description": description,
+                    "components": components,
+                }
+            )
+        return attributes
+
+    # Reset the index to ensure "class_id" and other columns are accessible as columns
+    final_df_reset = final_df.reset_index()
+
+    # Group by aoi_id and parent_id and apply the function
+    result_df = final_df_reset.groupby(["aoi_id", "parent_id"]).apply(create_attributes).reset_index(name="attributes")
+
+    # Rename parent_id to feature_id
+    result_df = result_df.rename(columns={"parent_id": "feature_id"})
+
+    # Based on the aoi_id and parent_id, update the attributes in the gdf
+    gdf = gdf.merge(result_df, left_on=["aoi_id", "feature_id"], right_on=["aoi_id", "feature_id"], how="left")
+    gdf["attributes"] = gdf["attributes_y"].combine_first(gdf["attributes_x"])
+    gdf = gdf.drop(columns=["attributes_x", "attributes_y"])
+    gdf = gdf.set_index("aoi_id")
+
+    # Print the time taken to update the attributes
+    print(f"Finished updating attributes in {time.time() - start_time:.2f} seconds")
+
     return gdf
 
 
@@ -886,7 +1253,7 @@ def parcel_rollup(
 
     rollups = []
     # Loop over parcels with features in them
-    for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
+    for aoi_id, group in tqdm(df.reset_index().groupby(AOI_ID_COLUMN_NAME), desc="Processing AOI Rollups"):
         if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
@@ -929,7 +1296,9 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
-    for row in parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples():
+    for row in tqdm(
+        parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples(), desc="Processing Empty AOIs"
+    ):
         parcel = feature_attributes(
             gpd.GeoDataFrame(
                 [],
