@@ -322,7 +322,9 @@ class AOIExporter:
         return os.getenv("API_KEY")
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
-        """Create a parcel rollup for a chunk of parcels."""
+        """
+        Create a parcel rollup for a chunk of parcels.
+        """
         feature_api = None
         start_mem = get_memory_usage()
         try:
@@ -534,10 +536,16 @@ class AOIExporter:
             if feature_api:
                 feature_api.cleanup()
                 del feature_api
-            del features_gdf
-            del metadata_df
-            del errors_df
-            del final_df
+            if "rollup_df" in locals():
+                del rollup_df
+            if "features_gdf" in locals():
+                del features_gdf
+            if "metadata_df" in locals():
+                del metadata_df
+            if "errors_df" in locals():
+                del errors_df
+            if "final_df" in locals():
+                del final_df
             if 'final_features_df' in locals():
                 del final_features_df
             
@@ -601,7 +609,7 @@ class AOIExporter:
         else:
             self.logger.info("No geometry found in parcel data - using address fields")
             for field in ADDRESS_FIELDS:
-                if (field not in aoi_gdf):
+                if field not in aoi_gdf:
                     self.logger.error(f"Missing field {field} in parcel data")
                     sys.exit(1)
 

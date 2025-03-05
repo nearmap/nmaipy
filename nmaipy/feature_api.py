@@ -22,7 +22,7 @@ import shapely.geometry
 import stringcase
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
-from shapely.geometry import MultiPolygon, Polygon, shape
+from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
 from urllib3.util.retry import Retry
 import urllib3  # Add this with other imports
 import ssl  # Add this with other imports
@@ -327,10 +327,10 @@ class FeatureApi:
                 total=self.maxretry,
                 backoff_factor=0.2,
                 status_forcelist=[
-                    HTTPStatus.TOO_MANY_REQUESTS,      # 429
-                    HTTPStatus.INTERNAL_SERVER_ERROR,   # 500
-                    HTTPStatus.BAD_GATEWAY,            # 502
-                    HTTPStatus.SERVICE_UNAVAILABLE,    # 503
+                    HTTPStatus.TOO_MANY_REQUESTS,
+                    HTTPStatus.BAD_GATEWAY,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    HTTPStatus.INTERNAL_SERVER_ERROR, # 500
                 ],
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
@@ -450,6 +450,19 @@ class FeatureApi:
         If the coord string return does not represent the polygon exactly, the exact flag is set to False.
         """
         convex_hull = None
+        if isinstance(geometry, (GeometryCollection)):
+            logger.debug(f"Geometry is a collection - extracting polygons. {geometry=}")
+            # Extract all polygons and multipolygons from collection
+            polygons = []
+            for geom in geometry.geoms:
+                if isinstance(geom, (Polygon, MultiPolygon)):
+                    polygons.append(geom)
+            if len(polygons) == 0:
+                raise ValueError("No valid polygons found in GeometryCollection")
+            # Combine into single multipolygon
+            geometry = MultiPolygon(polygons)
+            exact = False
+
         if isinstance(geometry, MultiPolygon):
             if len(geometry.geoms) == 1:
                 g = geometry.geoms[0]
