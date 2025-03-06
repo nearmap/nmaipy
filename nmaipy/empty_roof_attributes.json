@@ -1,0 +1,462 @@
+[
+    {
+        "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
+        "internalClassId": 3,
+        "description": "Roof material",
+        "components": [
+            {
+                "classId": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+                "internalClassId": 1007,
+                "description": "Tile",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+                "internalClassId": 1008,
+                "description": "Shingle",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+                "internalClassId": 1009,
+                "description": "Metal",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "4558c4fb-3ddf-549d-b2d2-471384be23d1",
+                "internalClassId": 1100,
+                "description": "Ballasted",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "87437e20-d9f5-57e1-8b87-4a9c81ec3b65",
+                "internalClassId": 1101,
+                "description": "Mod-Bit",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "383930f1-d866-5aa3-9f97-553311f3162d",
+                "internalClassId": 1103,
+                "description": "PVC/TPO",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "64db6ea0-7248-53f5-b6a6-6ed733c5f9b8",
+                "internalClassId": 1104,
+                "description": "EPDM",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "9fc4c92e-4405-573e-bce6-102b74ab89a3",
+                "internalClassId": 1105,
+                "description": "Wood Shake",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "09ed6bf9-182a-5c79-ae59-f5531181d298",
+                "internalClassId": 1160,
+                "description": "Clay Tile",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "cdc50dcc-e522-5361-8f02-4e30673311bb",
+                "internalClassId": 1163,
+                "description": "Slate",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "3563c8f1-e81e-52c7-bd56-eaa937010403",
+                "internalClassId": 1165,
+                "description": "Built Up",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            },
+            {
+                "classId": "b2573072-b3a5-5f7c-973f-06b7649665ff",
+                "internalClassId": 1168,
+                "description": "Roof Coating",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0,
+                "dominant": false
+            }
+        ]
+    },
+    {
+        "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+        "internalClassId": 4,
+        "description": "Roof types",
+        "components": [
+            {
+                "classId": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+                "internalClassId": 1013,
+                "description": "Hip",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+                "internalClassId": 1014,
+                "description": "Gable",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+                "internalClassId": 1015,
+                "description": "Dutch Gable",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+                "internalClassId": 1016,
+                "description": "Flat (Deprecated)",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "7ac62320-52f3-5301-94c5-7adf6b93a3b8",
+                "internalClassId": 1018,
+                "description": "Shed",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "4bb630b9-f9eb-5f95-85b8-f0c6caf16e9b",
+                "internalClassId": 1019,
+                "description": "Gambrel",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "89582082-e5b8-5853-bc94-3a0392cab98a",
+                "internalClassId": 1020,
+                "description": "Turret",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "1234ea84-e334-5c58-88a9-6554be3dfc05",
+                "internalClassId": 1173,
+                "description": "Parapet",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "7eb3b1b6-0d75-5b1f-b41c-b14146ff0c54",
+                "internalClassId": 1174,
+                "description": "Mansard",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "924afbab-aae6-5c26-92e8-9173e4320495",
+                "internalClassId": 1176,
+                "description": "Jerkinhead",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "e92bc8a2-9fa3-5094-b3b6-2881d94642ab",
+                "internalClassId": 1178,
+                "description": "Quonset",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "09b925d2-df1d-599b-89f1-3ffd39df791e",
+                "internalClassId": 1180,
+                "description": "Bowstring Truss",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+                "internalClassId": 1191,
+                "description": "Flat",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            }
+        ]
+    },
+    {
+        "classId": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+        "internalClassId": 5,
+        "description": "Roof overhang attributes",
+        "components": [
+            {
+                "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+                "internalClassId": 1045,
+                "description": "Tree Overhang",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+                "internalClassId": 1084,
+                "description": "Leaf-off Tree Overhang",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "38c4dd92-868c-582a-a4d5-537c88dcec75",
+                "internalClassId": 1085,
+                "description": "Low Vegetation (0.5m-2m) Overhang",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "fcbb15ea-93e5-587c-8941-246353817741",
+                "internalClassId": 1086,
+                "description": "Very Low Vegetation (<0.5m) Overhang",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "1ef797a5-8057-5e8b-a24d-dc7cd8f1fa7b",
+                "internalClassId": 1087,
+                "description": "Power Line Overhang",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            }
+        ]
+    },
+    {
+        "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
+        "internalClassId": 7,
+        "description": "Roof 3d attributes",
+        "has3dAttributes": false
+    },
+    {
+        "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+        "internalClassId": 10,
+        "description": "Roof Condition",
+        "components": [
+            {
+                "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+                "internalClassId": 1049,
+                "description": "Structural Damage",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+                "internalClassId": 1050,
+                "description": "Roof with Temporary Repair",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+                "internalClassId": 1051,
+                "description": "Roof Ponding",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+                "internalClassId": 1052,
+                "description": "Roof Rusting",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+                "internalClassId": 1053,
+                "description": "Tile or Shingle Staining",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                "internalClassId": 1079,
+                "description": "Missing Roof Tile or Shingle",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+                "internalClassId": 1080,
+                "description": "Roof with Permanent Repair",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+                "internalClassId": 1081,
+                "description": "Zinc Staining",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+                "internalClassId": 1139,
+                "description": "Roof Debris",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+                "internalClassId": 1140,
+                "description": "Exposed Roof Deck",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+                "internalClassId": 1141,
+                "description": "Missing Asphalt shingles",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "94944057-968c-5df3-828b-285091b7e266",
+                "internalClassId": 1142,
+                "description": "Active Ponding",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+                "internalClassId": 1144,
+                "description": "Roof Staining",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+                "internalClassId": 1146,
+                "description": "Worn Shingles",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                "internalClassId": 1147,
+                "description": "Exposed Underlayment",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            },
+            {
+                "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+                "internalClassId": 1149,
+                "description": "Roof Patching",
+                "confidence": null,
+                "areaSqm": 0,
+                "areaSqft": 0,
+                "ratio": 0
+            }
+        ]
+    }
+]

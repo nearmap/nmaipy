@@ -1,10 +1,14 @@
+import json
+import time
 import warnings
 from pathlib import Path
 from typing import List, Optional, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import MultiPolygon, Point, Polygon
+from tqdm import tqdm
 
 import nmaipy.reference_code
 from nmaipy import log
@@ -235,7 +239,7 @@ def read_from_file(
 
 
 def filter_features_in_parcels(
-    features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str
+    features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str, clip_multiparcel_buildings: bool = True
 ) -> gpd.GeoDataFrame:
     """
     Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
@@ -288,31 +292,43 @@ def filter_features_in_parcels(
         logger.warning("AOI geometries not available, skipping building style filtering")
         return gdf
 
+    # Keep track of the AOIs we applied multiparcel building clipping to
+    aois_with_clipped_buildings = []
+
     # Filter out buildings that are not in the AOI, and clip geometries of multiparcel buildings
-    for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
+    for aoi_id in tqdm(
+        gdf.index.unique(), desc="Filter buildings not in AOI and clip geometries of multiparcel buildings"
+    ):  # Loop over each AOI in the set
         gdf_aoi = gdf.loc[[aoi_id]]
         gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
         if len(gdf_aoi_buildings) == 0:
-            continue # Skip if there are no buildings in the AOI
+            continue  # Skip if there are no buildings in the AOI
         features_from_aoi = aoi_gdf.loc[[aoi_id]]
         aoi_poly = (
             features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
         )  # Get in metric projection for area/geospatial calcs in metres.
         building_statuses = []
-        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
+        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry:  # Loop through buildings in the AOI
             building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
             building_statuses.append(building_status)
         building_statuses = pd.DataFrame(building_statuses)
         building_statuses.index = gdf_aoi_buildings.index
-        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
-        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+        gdf_aoi_buildings = pd.concat(
+            [gdf_aoi_buildings, building_statuses], axis=1
+        )  # Append extra columns for all buildings in this parcel
+        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(
+            columns=["building_keep"]
+        )  # Remove any we should filter out
 
-        # Clip any building that is "multiparcel" to the intersection with the AOI
-        multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
-        if multiparcel_mask.any():
-            aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
-            new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
-            gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
+        if clip_multiparcel_buildings:
+            # Clip any building that is "multiparcel" to the intersection with the AOI
+            multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
+            if multiparcel_mask.any():
+                aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
+                new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
+                gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
+
+                aois_with_clipped_buildings.append(aoi_id)
 
         out_gdf_building_style.append(gdf_aoi_buildings)
 
@@ -339,9 +355,15 @@ def filter_features_in_parcels(
     features_to_update = gdf[has_parent].copy().reset_index().set_index(idx_cols)
 
     # Wherever a parent exists in the same AOI, identify the parent geometry as a column next to the child feature "geometry".
-    gdf_parent_lookup = features_to_update["geometry"].reset_index().rename(columns={"feature_id": "parent_id", "geometry": "parent_geometry"})
-    features_to_update = features_to_update.reset_index().merge(gdf_parent_lookup, on=["aoi_id", "parent_id"], how="left").set_index(
-        idx_cols
+    gdf_parent_lookup = (
+        features_to_update["geometry"]
+        .reset_index()
+        .rename(columns={"feature_id": "parent_id", "geometry": "parent_geometry"})
+    )
+    features_to_update = (
+        features_to_update.reset_index()
+        .merge(gdf_parent_lookup, on=["aoi_id", "parent_id"], how="left")
+        .set_index(idx_cols)
     )
 
     # Update our knowledge of which features actually have a parent (as some may have a parent ID that isn't in the dataframe)
@@ -355,10 +377,10 @@ def filter_features_in_parcels(
     new_area = features_to_update.geometry.to_crs(AREA_CRS[region]).area
 
     # Recalculate areas for clipped features
-    if 'area_sqm' in gdf.columns:
-        features_to_update.loc[has_parent, 'area_sqm'] = new_area
-    elif 'area_sqft' in gdf.columns:
-        features_to_update.loc[has_parent, "area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
+    if "clipped_area_sqm" in gdf.columns:
+        features_to_update.loc[has_parent, "clipped_area_sqm"] = new_area
+    if "clipped_area_sqft" in gdf.columns:
+        features_to_update.loc[has_parent, "clipped_area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
 
     # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
     gdf = gdf.reset_index().set_index(idx_cols)
@@ -367,7 +389,550 @@ def filter_features_in_parcels(
     gdf.update(features_to_update)
     gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
-    # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
+    # Get all of the structural damage composite features
+    all_damage_gdf = gdf[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE]
+
+    # Keep track of the AOIs that need their attributes updated
+    aois_with_structural_damage = []
+
+    # Iterate over the AOIs with structural damage composite features
+    for aoi_id in tqdm(all_damage_gdf.index.unique(), desc="Update structural damage composite features"):
+        # Get the structural damage composite features in this AOI
+        # NOTE: Need the inside brackets to ensure that we are always returning a dataframe for downstream operations
+        aoi_damage_gdf = all_damage_gdf.loc[[aoi_id]]
+
+        # Skip this AOI if the total structrual damage area is 0
+        if aoi_damage_gdf["clipped_area_sqm"].sum() == 0:
+            continue
+
+        # Add this AOI to the list of AOIs that need their attributes updated
+        aois_with_structural_damage.append(aoi_id)
+
+        # Filter for only the features in this AOI
+        # NOTE: This was needed just in case some features span multiple AOIs
+        aoi_gdf = gdf.loc[aoi_id]
+        aoi_roof_gdf = aoi_gdf[aoi_gdf["class_id"] == ROOF_ID]
+
+        # Get the building lifecycle features in this AOI with structural damage composite children
+        lifecycle_gdf = aoi_gdf[aoi_gdf["feature_id"].isin(aoi_damage_gdf["parent_id"])]
+
+        # Iterate over the building lifecycle features with structural damage composite children
+        for lifecycle_row in lifecycle_gdf.itertuples():
+            # Get the structural damage composite features that are children of this building lifecycle feature
+            damage_gdf = aoi_damage_gdf[aoi_damage_gdf["parent_id"] == lifecycle_row.feature_id]
+
+            # Get the roofs that intersect with this building lifecycle feature
+            # Reproject both roof rows and building lifecycle rows to a projected CRS (EPSG:3857) for the intersection
+            lifecycle_geometry = gpd.GeoSeries(lifecycle_row.geometry, crs="EPSG:4326")
+            aoi_roof_gdf_3857 = aoi_roof_gdf.to_crs("EPSG:3857")
+            lifecycle_geometry_3857 = lifecycle_geometry.to_crs("EPSG:3857").unary_union
+            intersecting_roof_gdf = aoi_roof_gdf[aoi_roof_gdf_3857["geometry"].intersects(lifecycle_geometry_3857)]
+
+            if intersecting_roof_gdf.empty:
+                # If there are no roof rows that intersect
+                roof_covers_damage = False
+            else:
+                # Do these intersecting roofs fully contain the structural damage composite features inside of their geometries?
+                roof_covers_damage = (
+                    intersecting_roof_gdf["geometry"]
+                    .to_crs("EPSG:3857")
+                    .unary_union.contains(damage_gdf["geometry"].to_crs("EPSG:3857").unary_union)
+                )
+
+            # If the roofs fully cover the structural damage composite features, then we will use the roof geometries
+            # and not the building lifecycle geometries since they look better.
+            # We just need to update the roof structural damage attributes so the rollup gets calculated correctly
+            if roof_covers_damage:
+                # Iterate over the roofs
+                for roof_row in intersecting_roof_gdf.itertuples():
+                    # Get the structural damage composite features that intersect with this roof
+                    roof_geometry = gpd.GeoSeries(roof_row.geometry, crs="EPSG:4326").to_crs("EPSG:3857").iloc[0]
+                    intersecting_damage_gdf = damage_gdf[
+                        damage_gdf["geometry"].to_crs("EPSG:3857").intersects(roof_geometry)
+                    ]
+
+                    # Change the parent ID of these structural damage composite features to the roof feature ID
+                    # NOTE: This will allow for the attributes to get calculated correctly in the rollup
+                    gdf.loc[
+                        (gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_damage_gdf["feature_id"])),
+                        "parent_id",
+                    ] = roof_row.feature_id
+
+                # Remove this building lifecycle to avoid confusion downstream
+                gdf = gdf[
+                    ~(
+                        (gdf.index == aoi_id)
+                        & (gdf["feature_id"] == lifecycle_row.feature_id)
+                        & (gdf["class_id"] == BUILDING_LIFECYCLE_ID)
+                    )
+                ]
+            else:
+                # If the roofs do not fully cover the structural damage composite features, then we will replace the
+                # the roof features with the building lifecycle feature
+
+                # Update the building lifecycle feature to be a roof feature
+                lifecycle_mask = (gdf.index == aoi_id) & (gdf["feature_id"] == lifecycle_row.feature_id)
+                gdf.loc[lifecycle_mask, "class_id"] = ROOF_ID
+                gdf.loc[lifecycle_mask, "internal_class_id"] = 1002
+                gdf.loc[lifecycle_mask, "description"] = "Roof"
+
+                if intersecting_roof_gdf.empty:
+                    # If there are no roofs that intersect, then manually create the roof attributes with just the structural damage
+                    # NOTE: Just needs a placeholder so the component can be updated in the next step for the rollup
+
+                    # Read in the empty roof attributes from a json file
+                    current_dir = Path(__file__).parent
+                    roof_attributes_file_path = current_dir / "empty_roof_attributes.json"
+                    with open(roof_attributes_file_path) as f:
+                        empty_roof_attributes = json.load(f)
+                    # Copy the empty roof attributes over to the building lifecycle feature
+                    gdf.loc[lifecycle_mask, "attributes"] = gdf.loc[lifecycle_mask].apply(
+                        lambda _: empty_roof_attributes, axis=1
+                    )
+                else:
+                    # Copy the roof attributes from one of the roofs over to the building lifecycle feature
+                    # NOTE: Doesn't matter which one we copy over as these will get updated in the next step
+                    # NOTE: Index (aoi_id is not unique at this point so need to use nlargest)
+                    largest_intersecting_roof = intersecting_roof_gdf.nlargest(1, "clipped_area_sqm")
+                    gdf.loc[lifecycle_mask, "attributes"] = largest_intersecting_roof["attributes"]
+
+                    # Update the parent ID of all intersecting roof child features to the building lifecycle feature ID
+                    # NOTE: This is needed so that the rollup gets calculated correctly
+                    intersecting_roof_feature_ids = intersecting_roof_gdf["feature_id"]
+                    gdf.loc[gdf["parent_id"].isin(intersecting_roof_feature_ids), "parent_id"] = (
+                        lifecycle_row.feature_id
+                    )
+
+                    # Remove all of the intersecting roof features (these have been replaced by the building lifecycle feature)
+                    gdf = gdf[~((gdf.index == aoi_id) & (gdf["feature_id"].isin(intersecting_roof_feature_ids)))]
+
+    # Hack: Let's rename the structural damage composite class description to structural damage so that it gets
+    # picked up in the attribute update below properly
+    gdf.loc[gdf["class_id"] == CLASS_1186_STRUCTURAL_DAMAGE, "description"] = "Structural Damage"
+
+    print("Start updating attributes for clipped buildings and structural damage composite features")
+    start_time = time.time()
+
+    # Get all of the features that have attributes
+    # NOTE: For efficiency reasons, we will limit the AOIs that either have multiparcel buildings that were clipped or have
+    # structural damage composite features that need their attributes updated. Also, we will only update the roof attributes
+    # for the retro pipeline.
+    aois_needing_updates = set(aois_with_clipped_buildings + aois_with_structural_damage)
+
+    if not aois_needing_updates:
+        return gdf
+
+    roofs_needing_updates_df = gdf[
+        gdf.index.isin(aois_needing_updates) & (gdf["class_id"] == ROOF_ID) & (gdf["attributes"].astype(bool))
+    ]
+
+    if roofs_needing_updates_df.empty:
+        return gdf
+
+    # Get all of the children of the roofs that need their attributes updated
+    children_needing_updates_df = gdf[
+        gdf.index.isin(aois_needing_updates) & (gdf["parent_id"].isin(roofs_needing_updates_df["feature_id"]))
+    ]
+
+    if children_needing_updates_df.empty:
+        return gdf
+
+    # Expand the children dataframe to include the clipped area of the parent roof needed for the calculations
+    expanded_children_df = children_needing_updates_df.reset_index().merge(
+        roofs_needing_updates_df.reset_index()[["aoi_id", "feature_id", "clipped_area_sqm"]].rename(
+            columns={
+                "aoi_id": "roof_aoi_id",
+                "feature_id": "roof_feature_id",
+                "clipped_area_sqm": "roof_clipped_area_sqm",
+            }
+        ),
+        how="left",
+        left_on=["aoi_id", "parent_id"],
+        right_on=["roof_aoi_id", "roof_feature_id"],
+    )
+
+    # Group the children dataframe by the parent ID and class ID and calculate the aggregates
+    grouped_children_df = expanded_children_df.groupby(["aoi_id", "parent_id", "class_id"]).agg(
+        internal_class_id=("internal_class_id", "first"),
+        child_description=("description", "first"),
+        weighted_confidence_numerator=(
+            "confidence",
+            lambda x: np.sum(x * expanded_children_df.loc[x.index, "clipped_area_sqm"]),
+        ),
+        clipped_area_sqm=("clipped_area_sqm", "sum"),
+        clipped_area_sqft=("clipped_area_sqft", "sum"),
+        roof_clipped_area_sqm=(
+            "roof_clipped_area_sqm",
+            "first",
+        ),  # Use first value of `parent_clipped_area_sqm` (assuming it's constant per group)
+    )
+
+    # Calculate the area-weighted confidence score and handle division by zero
+    grouped_children_df["weighted_confidence"] = (
+        grouped_children_df["weighted_confidence_numerator"] / grouped_children_df["clipped_area_sqm"]
+    ).where(grouped_children_df["clipped_area_sqm"] > 0, np.nan)
+
+    # Calculate the ratio, handling division by zero
+    grouped_children_df["ratio"] = (
+        grouped_children_df["clipped_area_sqm"] / grouped_children_df["roof_clipped_area_sqm"]
+    ).where(grouped_children_df["roof_clipped_area_sqm"] > 0, 0)
+
+    # Convert the description_to_class_ids mapping to a DataFrame
+    description_to_class_ids = {
+        "Roof material": {
+            "parent_info": {
+                "parent_class_id": "89c7d478-58de-56bd-96d2-e71e27a36905",
+                "parent_internal_class_id": 3,
+            },
+            "children": [
+                {
+                    "class_id": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+                    "internal_class_id": 1007,
+                    "child_description": "Tile",
+                },
+                {
+                    "class_id": "4bbf8dbd-cc81-5773-961f-0121101422be",
+                    "internal_class_id": 1008,
+                    "child_description": "Shingle",
+                },
+                {
+                    "class_id": "4424186a-0b42-5608-a5a0-d4432695c260",
+                    "internal_class_id": 1009,
+                    "child_description": "Metal",
+                },
+                {
+                    "class_id": "4558c4fb-3ddf-549d-b2d2-471384be23d1",
+                    "internal_class_id": 1100,
+                    "child_description": "Ballasted",
+                },
+                {
+                    "class_id": "87437e20-d9f5-57e1-8b87-4a9c81ec3b65",
+                    "internal_class_id": 1101,
+                    "child_description": "Mod-Bit",
+                },
+                {
+                    "class_id": "383930f1-d866-5aa3-9f97-553311f3162d",
+                    "internal_class_id": 1103,
+                    "child_description": "PVC/TPO",
+                },
+                {
+                    "class_id": "64db6ea0-7248-53f5-b6a6-6ed733c5f9b8",
+                    "internal_class_id": 1104,
+                    "child_description": "EPDM",
+                },
+                {
+                    "class_id": "9fc4c92e-4405-573e-bce6-102b74ab89a3",
+                    "internal_class_id": 1105,
+                    "child_description": "Wood Shake",
+                },
+                {
+                    "class_id": "09ed6bf9-182a-5c79-ae59-f5531181d298",
+                    "internal_class_id": 1160,
+                    "child_description": "Clay Tile",
+                },
+                {
+                    "class_id": "cdc50dcc-e522-5361-8f02-4e30673311bb",
+                    "internal_class_id": 1163,
+                    "child_description": "Slate",
+                },
+                {
+                    "class_id": "3563c8f1-e81e-52c7-bd56-eaa937010403",
+                    "internal_class_id": 1165,
+                    "child_description": "Built Up",
+                },
+                {
+                    "class_id": "b2573072-b3a5-5f7c-973f-06b7649665ff",
+                    "internal_class_id": 1168,
+                    "child_description": "Roof Coating",
+                },
+            ],
+        },
+        "Roof types": {
+            "parent_info": {
+                "parent_class_id": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+                "parent_internal_class_id": 4,
+            },
+            "children": [
+                {
+                    "class_id": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+                    "internal_class_id": 1013,
+                    "child_description": "Hip",
+                },
+                {
+                    "class_id": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+                    "internal_class_id": 1014,
+                    "child_description": "Gable",
+                },
+                {
+                    "class_id": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+                    "internal_class_id": 1015,
+                    "child_description": "Dutch Gable",
+                },
+                {
+                    "class_id": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+                    "internal_class_id": 1016,
+                    "child_description": "Flat (Deprecated)",
+                },
+                {
+                    "class_id": "7ac62320-52f3-5301-94c5-7adf6b93a3b8",
+                    "internal_class_id": 1018,
+                    "child_description": "Shed",
+                },
+                {
+                    "class_id": "4bb630b9-f9eb-5f95-85b8-f0c6caf16e9b",
+                    "internal_class_id": 1019,
+                    "child_description": "Gambrel",
+                },
+                {
+                    "class_id": "89582082-e5b8-5853-bc94-3a0392cab98a",
+                    "internal_class_id": 1020,
+                    "child_description": "Turret",
+                },
+                {
+                    "class_id": "1234ea84-e334-5c58-88a9-6554be3dfc05",
+                    "internal_class_id": 1173,
+                    "child_description": "Parapet",
+                },
+                {
+                    "class_id": "7eb3b1b6-0d75-5b1f-b41c-b14146ff0c54",
+                    "internal_class_id": 1174,
+                    "child_description": "Mansard",
+                },
+                {
+                    "class_id": "924afbab-aae6-5c26-92e8-9173e4320495",
+                    "internal_class_id": 1176,
+                    "child_description": "Jerkinhead",
+                },
+                {
+                    "class_id": "e92bc8a2-9fa3-5094-b3b6-2881d94642ab",
+                    "internal_class_id": 1178,
+                    "child_description": "Quonset",
+                },
+                {
+                    "class_id": "09b925d2-df1d-599b-89f1-3ffd39df791e",
+                    "internal_class_id": 1180,
+                    "child_description": "Bowstring Truss",
+                },
+                {
+                    "class_id": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+                    "internal_class_id": 1191,
+                    "child_description": "Flat",
+                },
+            ],
+        },
+        "Roof overhang attributes": {
+            "parent_info": {
+                "parent_class_id": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+                "parent_internal_class_id": 5,
+            },
+            "children": [
+                {
+                    "class_id": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+                    "internal_class_id": 1045,
+                    "child_description": "Tree Overhang",
+                },
+                {
+                    "class_id": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+                    "internal_class_id": 1084,
+                    "child_description": "Leaf-off Tree Overhang",
+                },
+                {
+                    "class_id": "38c4dd92-868c-582a-a4d5-537c88dcec75",
+                    "internal_class_id": 1085,
+                    "child_description": "Low Vegetation (0.5m-2m) Overhang",
+                },
+                {
+                    "class_id": "fcbb15ea-93e5-587c-8941-246353817741",
+                    "internal_class_id": 1086,
+                    "child_description": "Very Low Vegetation (<0.5m) Overhang",
+                },
+                {
+                    "class_id": "1ef797a5-8057-5e8b-a24d-dc7cd8f1fa7b",
+                    "internal_class_id": 1087,
+                    "child_description": "Power Line Overhang",
+                },
+            ],
+        },
+        "Roof Condition": {
+            "parent_info": {
+                "parent_class_id": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+                "parent_internal_class_id": 10,
+            },
+            "children": [
+                {
+                    "class_id": CLASS_1186_STRUCTURAL_DAMAGE,  # Use structural damage composite class
+                    "internal_class_id": 1186,
+                    "child_description": "Structural Damage",
+                },
+                {
+                    "class_id": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+                    "internal_class_id": 1050,
+                    "child_description": "Roof with Temporary Repair",
+                },
+                {
+                    "class_id": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+                    "internal_class_id": 1051,
+                    "child_description": "Roof Ponding",
+                },
+                {
+                    "class_id": "526496bf-7344-5024-82d7-77ceb671feb4",
+                    "internal_class_id": 1052,
+                    "child_description": "Roof Rusting",
+                },
+                {
+                    "class_id": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+                    "internal_class_id": 1053,
+                    "child_description": "Tile or Shingle Staining",
+                },
+                {
+                    "class_id": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                    "internal_class_id": 1079,
+                    "child_description": "Missing Roof Tile or Shingle",
+                },
+                {
+                    "class_id": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+                    "internal_class_id": 1080,
+                    "child_description": "Roof with Permanent Repair",
+                },
+                {
+                    "class_id": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+                    "internal_class_id": 1081,
+                    "child_description": "Zinc Staining",
+                },
+                {
+                    "class_id": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+                    "internal_class_id": 1139,
+                    "child_description": "Roof Debris",
+                },
+                {
+                    "class_id": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+                    "internal_class_id": 1140,
+                    "child_description": "Exposed Roof Deck",
+                },
+                {
+                    "class_id": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+                    "internal_class_id": 1141,
+                    "child_description": "Missing Asphalt shingles",
+                },
+                {
+                    "class_id": "94944057-968c-5df3-828b-285091b7e266",
+                    "internal_class_id": 1142,
+                    "child_description": "Active Ponding",
+                },
+                {
+                    "class_id": "319f552f-f4b7-520d-9b16-c8abb394b043",
+                    "internal_class_id": 1144,
+                    "child_description": "Roof Staining",
+                },
+                {
+                    "class_id": "97a6f930-82ae-55f2-b856-635e2250af29",
+                    "internal_class_id": 1146,
+                    "child_description": "Worn Shingles",
+                },
+                {
+                    "class_id": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                    "internal_class_id": 1147,
+                    "child_description": "Exposed Underlayment",
+                },
+                {
+                    "class_id": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+                    "internal_class_id": 1149,
+                    "child_description": "Roof Patching",
+                },
+            ],
+        },
+    }
+
+    # Flatten the dictionary into a DataFrame for parent and child information
+    description_to_class_ids_df = pd.DataFrame(
+        [
+            {
+                "description": description,
+                "parent_class_id": data["parent_info"]["parent_class_id"],
+                "parent_internal_class_id": data["parent_info"]["parent_internal_class_id"],
+                "class_id": child["class_id"],
+                "internal_class_id": child["internal_class_id"],
+                "child_description": child["child_description"],
+            }
+            for description, data in description_to_class_ids.items()
+            for child in data["children"]
+        ]
+    )
+
+    # Create all possible combinations of (aoi_id, parent_id, description, class_id)
+    unique_aoi_parent = grouped_children_df.index.droplevel("class_id").drop_duplicates()
+    all_combinations = unique_aoi_parent.to_frame(index=False).merge(description_to_class_ids_df, how="cross")
+
+    # Merge with the grouped_children_df and fill missing values
+    expanded_df = all_combinations.merge(
+        grouped_children_df.reset_index(),
+        on=["aoi_id", "parent_id", "class_id", "internal_class_id", "child_description"],
+        how="left",
+    )
+
+    # Fill missing values with defaults
+    expanded_df["weighted_confidence"] = expanded_df["weighted_confidence"].fillna(np.nan)
+    expanded_df["clipped_area_sqm"] = expanded_df["clipped_area_sqm"].fillna(0)
+    expanded_df["clipped_area_sqft"] = expanded_df["clipped_area_sqft"].fillna(0)
+    expanded_df["ratio"] = expanded_df["ratio"].fillna(0)
+
+    # Reorganize the DataFrame
+    final_df = expanded_df.sort_values(["aoi_id", "parent_id", "description", "class_id"]).set_index(
+        ["aoi_id", "parent_id", "description", "class_id"]
+    )
+
+    def create_attributes(group):
+        attributes = []
+        for description, desc_group in group.groupby("description"):
+            # Parent-specific info (assumes the same for all rows in the group)
+            parent_class_id = desc_group["parent_class_id"].iloc[0]
+            parent_internal_class_id = int(
+                desc_group["parent_internal_class_id"].iloc[0]
+            )  # make sure it's not an int64
+
+            # Create the components list
+            components = [
+                {
+                    "classId": row["class_id"],
+                    "internalClassId": row["internal_class_id"],
+                    "description": row["child_description"],
+                    "confidence": row["weighted_confidence"],
+                    "areaSqm": row["clipped_area_sqm"],
+                    "areaSqft": row["clipped_area_sqft"],
+                    "ratio": row["ratio"],
+                }
+                for _, row in desc_group.iterrows()  # Iterate explicitly over rows
+            ]
+
+            # Append the dictionary for this description
+            attributes.append(
+                {
+                    "classId": parent_class_id,
+                    "internalClassId": parent_internal_class_id,
+                    "description": description,
+                    "components": components,
+                }
+            )
+        return attributes
+
+    # Reset the index to ensure "class_id" and other columns are accessible as columns
+    final_df_reset = final_df.reset_index()
+
+    # Group by aoi_id and parent_id and apply the function
+    result_df = final_df_reset.groupby(["aoi_id", "parent_id"]).apply(create_attributes).reset_index(name="attributes")
+
+    # Rename parent_id to feature_id
+    result_df = result_df.rename(columns={"parent_id": "feature_id"})
+
+    # Based on the aoi_id and parent_id, update the attributes in the gdf
+    gdf = gdf.merge(result_df, left_on=["aoi_id", "feature_id"], right_on=["aoi_id", "feature_id"], how="left")
+    gdf["attributes"] = gdf["attributes_y"].combine_first(gdf["attributes_x"])
+    gdf = gdf.drop(columns=["attributes_x", "attributes_y"])
+    gdf = gdf.set_index("aoi_id")
+
+    # Print the time taken to update the attributes
+    print(f"Finished updating attributes in {time.time() - start_time:.2f} seconds")
+
     return gdf
 
 
@@ -529,6 +1094,16 @@ def feature_attributes(
                         .idxmin()
                     )
                 primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
+            elif primary_decision == "nearest_no_filter":
+                primary_point = Point(primary_lon, primary_lat)
+                primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
+                nearest_feature_idx = (
+                    class_features_gdf.set_geometry("geometry_feature")
+                    .to_crs("EPSG:3857")
+                    .distance(primary_point)
+                    .idxmin()
+                )
+                primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
             else:
                 raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
             if country in IMPERIAL_COUNTRIES:
@@ -598,7 +1173,12 @@ def feature_attributes(
                     buffered_primary_roof_geom_area = primary_roof_geom_area.buffer(buffer_dist)
 
                     if not buffered_primary_roof_geom_area.within(parcel_geom_area):
+                        # logger.info(features_gdf)
                         # Skip if the buffer protrudes outside the parcel
+                        # logger.info(
+                        #     f"""skipping buffer calculation for aoi_id:feature_id {features_gdf["aoi_id"].tolist()[0]}, nmaipy feature_id {features_gdf["feature_id"].tolist()[0]}; buffer {buffer_dist} extends outside parcel."""
+                        # )
+                        # logger.info(gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).iloc[0])
                         continue
 
                     # Proceed calculating intersections etc. with the buffered primary roof
@@ -658,7 +1238,7 @@ def parcel_rollup(
         raise Exception(
             f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
-    if primary_decision == "nearest":
+    if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
         merge_cols = [
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
@@ -673,8 +1253,8 @@ def parcel_rollup(
 
     rollups = []
     # Loop over parcels with features in them
-    for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
-        if primary_decision == "nearest":
+    for aoi_id, group in tqdm(df.reset_index().groupby(AOI_ID_COLUMN_NAME), desc="Processing AOI Rollups"):
+        if primary_decision == "nearest" or primary_decision == "nearest_no_filter":
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
                 primary_lon = primary_lon[0]
@@ -716,7 +1296,9 @@ def parcel_rollup(
         area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
-    for row in parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples():
+    for row in tqdm(
+        parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples(), desc="Processing Empty AOIs"
+    ):
         parcel = feature_attributes(
             gpd.GeoDataFrame(
                 [],
