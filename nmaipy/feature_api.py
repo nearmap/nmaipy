@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from http import HTTPStatus
+from http.client import RemoteDisconnected
 from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -21,8 +22,10 @@ import shapely.geometry
 import stringcase
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
-from shapely.geometry import MultiPolygon, Polygon, shape
+from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
 from urllib3.util.retry import Retry
+import urllib3  # Add this with other imports
+import ssl  # Add this with other imports
 
 # Load environment variables from .env file
 load_dotenv()
@@ -57,10 +60,49 @@ logger = log.get_logger()
 
 class RetryRequest(Retry):
     """
-    Inherited retry request to limit back-off to 1 second.
+    Inherited retry request to limit back-off to 5 seconds.
     """
 
-    BACKOFF_MAX = 1
+    BACKOFF_MAX = 5  # Maximum backoff time in seconds
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Add all connection-related errors to retry on
+        self.RETRY_AFTER_STATUS_CODES = frozenset({
+            HTTPStatus.TOO_MANY_REQUESTS,      # 429
+            HTTPStatus.INTERNAL_SERVER_ERROR,   # 500
+            HTTPStatus.BAD_GATEWAY,            # 502
+            HTTPStatus.SERVICE_UNAVAILABLE,     # 503
+        })
+        
+        # Add connection errors that should trigger retries
+        self.RETRY_ON_EXCEPTIONS = frozenset({
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ReadTimeout,
+            RemoteDisconnected,  # From http.client
+            requests.exceptions.ProxyError,
+            requests.exceptions.SSLError,
+            urllib3.exceptions.SSLError,  # Added to catch SSL errors from urllib3
+            requests.exceptions.Timeout,
+            urllib3.exceptions.ProtocolError,
+            EOFError,  # Sometimes occurs with RemoteDisconnected
+            ConnectionResetError,  # Python built-in exception
+            ssl.SSLEOFError,  # Explicit SSL EOF error
+        })
+
+    def new_timeout(self, *args, **kwargs):
+        """Override to set a minimum backoff time"""
+        timeout = super().new_timeout(*args, **kwargs)
+        return max(timeout, 1.0)  # At least 1 second between retries
+
+    @classmethod
+    def from_int(cls, retries, **kwargs):
+        """Helper to create retry config with better defaults"""
+        kwargs.setdefault('backoff_factor', 1.0)
+        kwargs.setdefault('status_forcelist', [429, 500, 502, 503, 504])
+        kwargs.setdefault('respect_retry_after_header', True)
+        return super().from_int(retries, **kwargs)
 
 
 class AIFeatureAPIError(Exception):
@@ -283,17 +325,30 @@ class FeatureApi:
             session = requests.Session()
             retries = RetryRequest(
                 total=self.maxretry,
-                backoff_factor=0.05,
+                backoff_factor=0.2,
                 status_forcelist=[
                     HTTPStatus.TOO_MANY_REQUESTS,
                     HTTPStatus.BAD_GATEWAY,
                     HTTPStatus.SERVICE_UNAVAILABLE,
+                    HTTPStatus.INTERNAL_SERVER_ERROR, # 500
                 ],
+                allowed_methods=["GET", "POST"],
+                raise_on_status=False,
+                connect=self.maxretry,
+                read=self.maxretry,
+                redirect=self.maxretry,
             )
-            session.mount(
-                "https://",
-                HTTPAdapter(max_retries=retries, pool_maxsize=self.POOL_SIZE, pool_connections=self.POOL_SIZE),
+            adapter = HTTPAdapter(
+                max_retries=retries,
+                pool_maxsize=self.POOL_SIZE,  # Double the pool size
+                pool_connections=self.POOL_SIZE,
+                pool_block=True
             )
+            session.mount("https://", adapter)
+
+            # Set longer timeouts
+            session.timeout = (30, 600)  # (connect timeout, read timeout)
+            
             self._thread_local.session = session
             with self._lock:
                 self._sessions.append(session)
@@ -395,6 +450,19 @@ class FeatureApi:
         If the coord string return does not represent the polygon exactly, the exact flag is set to False.
         """
         convex_hull = None
+        if isinstance(geometry, (GeometryCollection)):
+            logger.debug(f"Geometry is a collection - extracting polygons. {geometry=}")
+            # Extract all polygons and multipolygons from collection
+            polygons = []
+            for geom in geometry.geoms:
+                if isinstance(geom, (Polygon, MultiPolygon)):
+                    polygons.append(geom)
+            if len(polygons) == 0:
+                raise ValueError("No valid polygons found in GeometryCollection")
+            # Combine into single multipolygon
+            geometry = MultiPolygon(polygons)
+            exact = False
+
         if isinstance(geometry, MultiPolygon):
             if len(geometry.geoms) == 1:
                 g = geometry.geoms[0]
@@ -655,7 +723,7 @@ class FeatureApi:
                     text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                     message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
                 )
-            logger.debug(f"Requesting: {self._clean_api_key(request_string)}")
+            # logger.debug(f"Requesting: {self._clean_api_key(request_string)}") # Enable for extremely verbose debug logging!
             cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
 
             # Check if it's already cached
@@ -773,8 +841,8 @@ class FeatureApi:
         Check whether the link contains the location marker flag, and add it if not present.
         """
         location_marker_string = "?locationMarker"
-        if not location_marker_string not in link:
-            return link.append(location_marker_string)
+        if location_marker_string not in link:
+            return link + location_marker_string
         else:
             return link
 
@@ -971,7 +1039,7 @@ class FeatureApi:
                 df[col_name] = None
 
         for col in FeatureApi.FLOAT_COLS:
-            if col in df:
+            if (col in df):
                 df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})

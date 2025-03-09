@@ -28,6 +28,14 @@ from nmaipy.constants import (
 )
 from nmaipy.feature_api import FeatureApi
 
+import psutil
+import time
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+import gc
+import atexit
+import signal
+
 
 class Endpoint(Enum):
     FEATURE = "feature"
@@ -215,6 +223,31 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def cleanup_process_resources():
+    """Helper to ensure processes are cleaned up"""
+    import gc
+    gc.collect()
+    # Force cleanup of any remaining ProcessPoolExecutor threads
+    concurrent.futures.process._threads_wakeups.clear()
+
+def cleanup_thread_sessions(executor):
+    """Helper to ensure thread sessions are properly closed"""
+    if hasattr(executor, '_threads'):
+        for thread in executor._threads:
+            if hasattr(thread, '_local'):
+                if hasattr(thread._local, 'session'):
+                    try:
+                        thread._local.session.close()
+                    except:
+                        pass
+
+def get_memory_usage():
+    """Get current memory usage of the process"""
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info().rss / 1024**3  # Convert to GB
+    return mem
+
+
 class AOIExporter:
     def __init__(
         self,
@@ -293,6 +326,7 @@ class AOIExporter:
         Create a parcel rollup for a chunk of parcels.
         """
         feature_api = None
+        start_mem = get_memory_usage()
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
@@ -346,8 +380,11 @@ class AOIExporter:
                     max_allowed_error_pct=100,
                 )
                 rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
+                mem = psutil.virtual_memory()
                 self.logger.info(
-                    f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. {len(rollup_df)} rollups returned on {len(rollup_df.index.unique())} unique {rollup_df.index.name}s."
+                    f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
+                    f"{len(rollup_df)} rollups returned on {len(rollup_df.index.unique())} unique {rollup_df.index.name}s. "
+                    f"Memory: {(mem.total - mem.available)/1024**3:.1f}GB / {mem.total/1024**3:.1f}GB ({mem.percent}%)"
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
@@ -368,7 +405,11 @@ class AOIExporter:
                     classes=self.classes,
                     max_allowed_error_pct=100,
                 )
-                self.logger.info(f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests.")
+                mem = psutil.virtual_memory()
+                self.logger.info(
+                    f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
+                    f"Memory: {(mem.total - mem.available)/1024**3:.1f}GB / {mem.total/1024**3:.1f}GB ({mem.percent}%)"
+                )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
                         self.logger.debug(errors_df.value_counts("message"))
@@ -448,6 +489,7 @@ class AOIExporter:
                 self.logger.error(final_df)
                 self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
+                logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
                 # Check for column name collisions between any two dataframes
                 final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
 
@@ -489,9 +531,43 @@ class AOIExporter:
                         )
                         self.logger.error(e)
             self.logger.debug(f"Finished saving chunk {chunk_id}")
-        finally:
+            
+            # Force cleanup
             if feature_api:
-                feature_api._sessions = []
+                feature_api.cleanup()
+                del feature_api
+            if "rollup_df" in locals():
+                del rollup_df
+            if "features_gdf" in locals():
+                del features_gdf
+            if "metadata_df" in locals():
+                del metadata_df
+            if "errors_df" in locals():
+                del errors_df
+            if "final_df" in locals():
+                del final_df
+            if 'final_features_df' in locals():
+                del final_features_df
+            
+            # Force garbage collection
+            gc.collect()
+            
+            # Log memory change
+            end_mem = get_memory_usage()
+            self.logger.info(f"Chunk {chunk_id} memory delta: {end_mem - start_mem:.1f}GB (now at {end_mem:.1f}GB)")
+            
+        except Exception as e:
+            self.logger.error(f"Error processing chunk {chunk_id}: {e}")
+            raise
+        finally:
+            # Only cleanup if feature_api has been declared as a variable
+            if "feature_api" in locals():
+                try:
+                    feature_api.cleanup()
+                except:
+                    pass
+                del feature_api
+            gc.collect()
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
@@ -585,32 +661,51 @@ class AOIExporter:
             )
             chunks = np.array_split(aoi_gdf, num_chunks)
         processes = int(self.processes)
-        with concurrent.futures.ProcessPoolExecutor(processes) as executor:
+        max_retries = 3
+        retry_delay = 5  # seconds
+
+        for attempt in range(max_retries):
             try:
-                for i, batch in enumerate(chunks):
-                    # Use 'aoi_path' to construct chunk_id
-                    chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
-                    self.logger.debug(
-                        f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
-                    )
-                    jobs.append(
-                        executor.submit(
-                            self.process_chunk,
-                            chunk_id,
-                            batch,
-                            classes_df,
-                        )
-                    )
-                for j in jobs:
+                with ProcessPoolExecutor(processes) as executor:
                     try:
-                        j.result()
-                    except Exception as e:
-                        self.logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
-                        self.logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
-                        executor.shutdown(wait=False)
-                        sys.exit(1)
-            finally:
-                executor.shutdown(wait=True)
+                        for i, batch in enumerate(chunks):
+                            chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
+                            self.logger.debug(
+                                f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
+                            )
+                            jobs.append(
+                                executor.submit(
+                                    self.process_chunk,
+                                    chunk_id,
+                                    batch,
+                                    classes_df,
+                                )
+                            )
+                        for j in jobs:
+                            try:
+                                j.result()
+                            except Exception as e:
+                                self.logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
+                                self.logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
+                                cleanup_thread_sessions(executor)
+                                executor.shutdown(wait=False)
+                                raise
+                        break  # Success - exit retry loop
+                    finally:
+                        cleanup_thread_sessions(executor)
+                        executor.shutdown(wait=True)
+                        cleanup_process_resources()
+            except BrokenProcessPool as e:
+                if attempt < max_retries - 1:
+                    self.logger.warning(f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {retry_delay}s delay...")
+                    cleanup_process_resources()
+                    time.sleep(retry_delay)
+                    jobs = []  # Reset jobs list for retry
+                else:
+                    self.logger.error(f"Process pool broken after {max_retries} attempts, giving up")
+                    cleanup_process_resources()
+                    raise
+
         data = []
         data_features = []
         errors = []
@@ -633,7 +728,12 @@ class AOIExporter:
                     self.logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
                     sys.exit(1)
         if len(data) > 0:
-            data = gpd.GeoDataFrame(pd.concat(data))
+            data = pd.concat([data for data in data if len(data) > 0])
+            if "geometry" in data.columns:
+                if not isinstance(data.geometry, gpd.GeoSeries):
+                    data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
+            data = gpd.GeoDataFrame(data, crs=API_CRS)
+            
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
@@ -641,7 +741,8 @@ class AOIExporter:
                 data.to_parquet(outpath, index=True)
             elif self.rollup_format == "csv":
                 if "geometry" in data.columns:
-                    data["geometry"] = data.geometry.to_wkt()
+                    if isinstance(data.geometry, gpd.GeoSeries):
+                        data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 self.logger.info("Invalid output format specified - reverting to csv")
@@ -671,6 +772,26 @@ class AOIExporter:
 
 
 def main():
+        # Set higher file descriptor limits for running many processes in parallel.
+    import resource
+    import sys
+    
+    if sys.platform != 'win32':
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        desired = 32000  # Same as ulimit -n 32000
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
+            new_soft, new_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            logger.info(f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}")
+        except ValueError as e:
+            # If desired limit is too high, try setting to hard limit
+            logger.warning(f"Could not set file descriptor limit to {desired}, trying hard limit {hard}")
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+                new_soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+                logger.info(f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}")
+            except ValueError as e:
+                logger.warning(f"Could not increase file descriptor limits: {e}")
     args = parse_arguments()
     exporter = AOIExporter(
         aoi_file=args.aoi_file,
@@ -708,3 +829,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+atexit.register(cleanup_process_resources)
+signal.signal(signal.SIGTERM, lambda *args: cleanup_process_resources())
