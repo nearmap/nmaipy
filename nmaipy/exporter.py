@@ -220,6 +220,7 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
+    parser.add_argument("--api-key", help="API key for authentication", required=False, type=str)  # Add API key argument
     return parser.parse_args()
 
 
@@ -281,6 +282,7 @@ class AOIExporter:
         system_version_prefix=None,
         system_version=None,
         log_level='INFO',
+        api_key=None,  # Add API key parameter
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -313,13 +315,15 @@ class AOIExporter:
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.log_level = log_level
+        self.api_key_param = api_key  # Store API key as instance variable
 
         # Configure logger
         log.configure_logger(self.log_level)
         self.logger = log.get_logger()
 
     def api_key(self) -> str:
-        return os.getenv("API_KEY")
+        # Use provided API key if available, otherwise fall back to environment variable
+        return self.api_key_param or os.getenv("API_KEY")
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
         """
@@ -824,6 +828,7 @@ def main():
         system_version_prefix=args.system_version_prefix,
         system_version=args.system_version,
         log_level=args.log_level,
+        api_key=args.api_key,  # Pass API key argument
     )
     exporter.run()
 
