@@ -13,6 +13,7 @@ import pandas as pd
 from tqdm import tqdm
 import warnings
 import traceback
+import shapely.geometry  # Add this import for checking geometry types
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
@@ -479,14 +480,31 @@ class AOIExporter:
                 self.logger.error(errors_df.shape)
                 self.logger.error(errors_df)
             try:
+                # Handle the geometry column separately to avoid conversion issues
+                has_geometry = "geometry" in final_df.columns
+                geometry_series = None
+                
+                if has_geometry:
+                    # Store the geometry column separately
+                    geometry_series = final_df["geometry"]
+                    final_df = final_df.drop(columns=["geometry"])
+                
+                # Convert dtypes on the dataframe without geometry
                 final_df = final_df.convert_dtypes()
-                if self.include_parcel_geometry:
+                
+                if has_geometry:
+                    # Reattach the geometry column
+                    final_df["geometry"] = geometry_series
+                    # Create a proper GeoDataFrame
                     final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
+                
                 final_df.to_parquet(outfile)
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
+                self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
                 self.logger.error(final_df.shape)
-                self.logger.error(final_df)
+                self.logger.error(final_df.dtypes)
+                self.logger.error(final_df.head())
                 self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
                 logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
@@ -524,11 +542,15 @@ class AOIExporter:
                         final_features_df = final_features_df[
                             ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
                         ]
+                        # Ensure it's a proper GeoDataFrame before saving to parquet
+                        if not isinstance(final_features_df, gpd.GeoDataFrame):
+                            final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
                         final_features_df.to_parquet(outfile_features)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
                         )
+                        self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
                         self.logger.error(e)
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             
@@ -741,13 +763,16 @@ class AOIExporter:
                 data.to_parquet(outpath, index=True)
             elif self.rollup_format == "csv":
                 if "geometry" in data.columns:
-                    if isinstance(data.geometry, gpd.GeoSeries):
+                    if hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
+                        # If it has a to_wkt method but isn't a GeoSeries
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 self.logger.info("Invalid output format specified - reverting to csv")
                 if "geometry" in data.columns:
-                    data["geometry"] = data.geometry.to_wkt()
+                    if hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
+                        # If it has a to_wkt method but isn't a GeoSeries
+                        data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
         outpath_errors = final_path / f"{Path(aoi_path).stem}_errors.csv"
         self.logger.info(f"Saving error data as .csv to {outpath_errors}")
