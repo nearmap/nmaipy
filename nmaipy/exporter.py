@@ -211,6 +211,12 @@ def parse_arguments():
         required=False,
         default=None,
     )
+    parser.add_argument(
+        "--api-key",
+        help="API key to use (overrides API_KEY environment variable)",
+        type=str,
+        required=False,
+    )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     return parser.parse_args()
 
@@ -248,6 +254,7 @@ class AOIExporter:
         system_version_prefix=None,
         system_version=None,
         log_level='INFO',
+        api_key=None,
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -280,12 +287,15 @@ class AOIExporter:
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.log_level = log_level
+        self.api_key_param = api_key  # Store the API key parameter
 
         # Configure logger
         log.configure_logger(self.log_level)
         self.logger = log.get_logger()
 
     def api_key(self) -> str:
+        if hasattr(self, 'api_key_param') and self.api_key_param is not None:
+            return self.api_key_param
         return os.getenv("API_KEY")
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
@@ -701,6 +711,7 @@ def main():
         system_version_prefix=args.system_version_prefix,
         system_version=args.system_version,
         log_level=args.log_level,
+        api_key=args.api_key,
     )
     exporter.run()
 
