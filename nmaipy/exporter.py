@@ -219,6 +219,12 @@ def parse_arguments():
         required=False,
         default=None,
     )
+    parser.add_argument(
+        "--api-key",
+        help="API key to use (overrides API_KEY environment variable)",
+        type=str,
+        required=False,
+    )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
     parser.add_argument("--api-key", help="API key for authentication", required=False, type=str)  # Add API key argument
     return parser.parse_args()
@@ -315,7 +321,7 @@ class AOIExporter:
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.log_level = log_level
-        self.api_key_param = api_key  # Store API key as instance variable
+        self.api_key_param = api_key  # Store the API key parameter
 
         # Configure logger
         log.configure_logger(self.log_level)
@@ -323,7 +329,9 @@ class AOIExporter:
 
     def api_key(self) -> str:
         # Use provided API key if available, otherwise fall back to environment variable
-        return self.api_key_param or os.getenv("API_KEY")
+        if hasattr(self, 'api_key_param') and self.api_key_param is not None:
+            return self.api_key_param
+        return os.getenv("API_KEY")
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
         """
@@ -464,6 +472,7 @@ class AOIExporter:
                 + meta_data_columns
                 + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
             )
+            final_df = final_df[columns]
             if self.include_parcel_geometry:
                 columns.append("geometry")
             columns = [c for c in columns if c in final_df.columns]
@@ -500,18 +509,15 @@ class AOIExporter:
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
                 aoi_cols = set(final_features_df.columns)
-                
                 metadata_features_overlap = metadata_cols & features_cols - {AOI_ID_COLUMN_NAME}
                 metadata_aoi_overlap = metadata_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
                 features_aoi_overlap = features_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
-                
                 all_overlapping = metadata_features_overlap | metadata_aoi_overlap | features_aoi_overlap
                 if all_overlapping:
                     self.logger.warning(
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-                
                 final_features_df = gpd.GeoDataFrame(
                     metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
                         final_features_df, on=AOI_ID_COLUMN_NAME
