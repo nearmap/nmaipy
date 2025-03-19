@@ -90,11 +90,11 @@ DEFAULT_FILTERING = {
         SOLAR_ID: 1,
     },
     "min_ratio_in_parcel": {
-        BUILDING_LIFECYCLE_ID: 0,
-        BUILDING_ID: 0,  # Defer to more complex algorithm for building and roof - important for large buildings.
-        BUILDING_NEW_ID: 0,
-        BUILDING_UNDER_CONSTRUCTION_ID: 0,
-        ROOF_ID: 0,
+        BUILDING_LIFECYCLE_ID: 0.5,
+        BUILDING_ID: 0.5,  # Defer to more complex algorithm for building and roof - important for large buildings. Need 0.5 filter for removing small buildings.
+        BUILDING_NEW_ID: 0.5,
+        BUILDING_UNDER_CONSTRUCTION_ID: 0.5,
+        ROOF_ID: 0.5,
         TRAMPOLINE_ID: 0.5,
         POOL_ID: 0.5,
         CONSTRUCTION_ID: 0.5,
@@ -306,6 +306,7 @@ def filter_features_in_parcels(
         building_statuses.index = gdf_aoi_buildings.index
         gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
         gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
+        gdf_aoi_buildings.loc[gdf_aoi_buildings["building_multiparcel"], "intersection_ratio"] = 1.0 # For multiparcel buildings, we know they are fully in the parcel after clipping
 
         # Clip any building that is "multiparcel" to the intersection with the AOI
         multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
@@ -322,7 +323,7 @@ def filter_features_in_parcels(
     else:
         gdf = gdf_non_building_style
 
-    # Filter all featuers based on area and ratio in parcel
+    # Filter all features based on area and ratio in parcel
     area_mask = gdf.class_id.map(DEFAULT_FILTERING["min_area_in_parcel"]).fillna(0) <= gdf["clipped_area_" + suffix]
     ratio_mask = gdf.class_id.map(DEFAULT_FILTERING["min_ratio_in_parcel"]).fillna(0) <= gdf.intersection_ratio
     gdf = gdf[area_mask & ratio_mask]

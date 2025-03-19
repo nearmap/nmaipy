@@ -62,7 +62,7 @@ class TestParcels:
         assert len(f_gdf) == 154
         country = "us"
         filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, aoi_gdf=parcels_2_gdf)
-        assert len(filtered_gdf) == 130
+        assert len(filtered_gdf) == 129
         assert not (filtered_gdf.confidence < 0.58).any()
         assert not (filtered_gdf.unclipped_area_sqm < 4).any()
         assert not (filtered_gdf.fidelity < 0.15).any()
@@ -721,6 +721,10 @@ class TestParcels:
         )
         print(metadata)
         print(df.T)
+        # DEBUG for manual checks in QGIS (using QuickWKT plugin)
+        # str(parcels_gdf.geometry.union_all())
+        # str(features_gdf.query("confidence >= 0.65 & fidelity >= 0.15").union_all())
+
         assert (
             df.loc[11179800001006, "building_count"] == 25
         )  # Includes some lower confidence ones that had been filtered by the previous thresholds.
