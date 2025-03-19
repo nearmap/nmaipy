@@ -841,10 +841,10 @@ class FeatureApi:
         Check whether the link contains the location marker flag, and add it if not present.
         """
         location_marker_string = "?locationMarker"
-        if location_marker_string not in link:
-            return link + location_marker_string
-        else:
+        if location_marker_string in link:
             return link
+        else:
+            return link + location_marker_string
 
     @staticmethod
     def create_grid(df: gpd.GeoDataFrame, cell_size: float):
