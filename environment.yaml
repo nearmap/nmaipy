@@ -1,4 +1,3 @@
-name: nmaipy
 channels:
   - conda-forge
   - defaults

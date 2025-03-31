@@ -470,7 +470,7 @@ class AOIExporter:
             parcel_columns = [c for c in aoi_gdf.columns if c != "geometry"]
             columns = (
                 parcel_columns
-                + meta_data_columns
+                + [c for c in meta_data_columns if c in final_df.columns]
                 + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
             )
             final_df = final_df[columns]
