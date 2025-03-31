@@ -227,6 +227,7 @@ def parse_arguments():
         required=False,
     )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
+    parser.add_argument("--api-key", help="API key for authentication", required=False, type=str)  # Add API key argument
     return parser.parse_args()
 
 
@@ -288,7 +289,7 @@ class AOIExporter:
         system_version_prefix=None,
         system_version=None,
         log_level='INFO',
-        api_key=None,
+        api_key=None,  # Add API key parameter
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -328,6 +329,7 @@ class AOIExporter:
         self.logger = log.get_logger()
 
     def api_key(self) -> str:
+        # Use provided API key if available, otherwise fall back to environment variable
         if hasattr(self, 'api_key_param') and self.api_key_param is not None:
             return self.api_key_param
         return os.getenv("API_KEY")
@@ -857,7 +859,7 @@ def main():
         system_version_prefix=args.system_version_prefix,
         system_version=args.system_version,
         log_level=args.log_level,
-        api_key=args.api_key,
+        api_key=args.api_key,  # Pass API key argument
     )
     exporter.run()
 
