@@ -764,7 +764,7 @@ class AOIExporter:
             if "geometry" in data.columns:
                 if not isinstance(data.geometry, gpd.GeoSeries):
                     data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
-            data = gpd.GeoDataFrame(data, crs=API_CRS)
+                data = gpd.GeoDataFrame(data, crs=API_CRS)
             
         else:
             data = pd.DataFrame(data)
