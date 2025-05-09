@@ -1216,6 +1216,7 @@ class FeatureApi:
             "fidelity",  # not on every class
             "parentId",
             "geometry",
+            "clippedGeometry",  # Add clippedGeometry to columns list
             "areaSqm",
             "clippedAreaSqm",
             "unclippedAreaSqm",
@@ -1236,7 +1237,18 @@ class FeatureApi:
             features = payload["features"]
             if parcelMode and len(features) > 0 and "belongsToParcel" in features[0]:
                 features = [f for f in features if f.get("belongsToParcel", True)]
-            
+
+            # Check for and use clippedGeometry if present
+            # Add a new flag for multiparcel features (those with clippedGeometry)
+            for feature in features:
+                # Default is False - not a multiparcel feature
+                feature["multiparcelFeature"] = False
+
+                # If clippedGeometry exists, use it and mark as multiparcel feature
+                if "clippedGeometry" in feature and feature["clippedGeometry"]:
+                    feature["geometry"] = feature["clippedGeometry"]
+                    feature["multiparcelFeature"] = True
+
             df = pd.DataFrame(features)
             for col_name in set(columns).difference(set(df.columns)):
                 df[col_name] = None
@@ -1259,12 +1271,17 @@ class FeatureApi:
                 )
                 raise ValueError
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
-        # Cast to GeoDataFrame
+
+        # Cast to GeoDataFrame - now we drop clipped_geometry since we've already used it
         if "geometry" in df.columns:
             gdf = gpd.GeoDataFrame(df.assign(geometry=df.geometry.apply(shape)))
+            # Drop the clipped_geometry column if it exists
+            if "clipped_geometry" in gdf.columns:
+                gdf = gdf.drop(columns=["clipped_geometry"])
             gdf = gdf.set_crs(cls.SOURCE_CRS)
         else:
             gdf = df
+
         return gdf, metadata
 
     @classmethod
