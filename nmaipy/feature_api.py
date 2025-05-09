@@ -995,13 +995,14 @@ class FeatureApi:
         return gdf_features.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     @classmethod
-    def payload_gdf(cls, payload: dict, aoi_id: Optional = None) -> Tuple[gpd.GeoDataFrame, dict]:
+    def payload_gdf(cls, payload: dict, aoi_id: Optional = None, parcelMode: Optional[bool] = False) -> Tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a feature API response dictionary.
 
         Args:
             payload: API response dictionary
             aoi_id: Optional ID for the AOI to add to the data
+            parcelMode: If True, filter out features where belongsToParcel is False
 
         Returns:
             Features GeoDataFrame
@@ -1036,13 +1037,19 @@ class FeatureApi:
             "attributes",
             "surveyDate",
             "meshDate",
+            "belongsToParcel",  # New field from parcelMode API
         ]
 
         # Create features DataFrame
         if len(payload["features"]) == 0:
             df = pd.DataFrame([], columns=columns)
         else:
-            df = pd.DataFrame(payload["features"])
+            # Filter features if parcelMode is enabled
+            features = payload["features"]
+            if parcelMode and len(features) > 0 and "belongsToParcel" in features[0]:
+                features = [f for f in features if f.get("belongsToParcel", True)]
+            
+            df = pd.DataFrame(features)
             for col_name in set(columns).difference(set(df.columns)):
                 df[col_name] = None
 
@@ -1155,7 +1162,7 @@ class FeatureApi:
                     sub_payload = self.get_features(
                         sub_geometry, region, packs, classes, since, until, address_fields, survey_resource_id
                     )
-                    sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id)
+                    sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id, self.parcelMode)
                     features_gdf.append(sub_features_gdf)
                     metadata.append(sub_metadata)
                 # Warning - using arbitrary int index means duplicate index.
@@ -1182,7 +1189,7 @@ class FeatureApi:
                 payload = self.get_features(
                     geometry, region, packs, classes, since, until, address_fields, survey_resource_id
                 )
-                features_gdf, metadata = self.payload_gdf(payload, aoi_id)
+                features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcelMode)
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
