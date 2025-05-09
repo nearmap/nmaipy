@@ -229,6 +229,7 @@ class FeatureApi:
         aoi_grid_min_pct: Optional[int] = 100,
         aoi_grid_inexact: Optional[bool] = False,
         parcelMode: Optional[bool] = False,
+        use_post: Optional[bool] = True,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -250,6 +251,7 @@ class FeatureApi:
             aoi_grid_min_pct: Minimum percentage of sub-gridded squares the AOI must get valid responses from.
             aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             parcelMode: When set to True, uses the API's parcel mode which filters features based on parcel boundaries.
+            use_post: When set to True (default), uses POST requests for better geometry handling.
             maxretry: Number of retries to attempt on a failed request
         """
         # Initialize thread-safety attributes first
@@ -298,6 +300,7 @@ class FeatureApi:
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.parcelMode = parcelMode
+        self.use_post = use_post
         self.maxretry = maxretry
 
     def __del__(self):
@@ -526,6 +529,34 @@ class FeatureApi:
         lon, lat = self._make_latlon_path_for_cache(request_string)
         ext = "json.gz" if self.compress_cache else "json"
         return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
+        
+    def _post_request_cache_path(self, url: str, body: dict) -> Path:
+        """
+        Hash a POST request URL and body to create a cache path.
+        """
+        # Clean API key from URL
+        url = self._clean_api_key(url)
+
+        # Convert body to a stable string representation and hash
+        body_str = json.dumps(body, sort_keys=True)
+        combined_str = url + body_str
+        request_hash = hashlib.md5(combined_str.encode()).hexdigest()
+
+        # Extract lon/lat from geometry for cache directory organization
+        if "aoi" in body and body["aoi"].get("type") in ["Polygon", "MultiPolygon"]:
+            # Get first coordinate from first polygon
+            if body["aoi"]["type"] == "Polygon":
+                coords = body["aoi"]["coordinates"][0][0]
+            else:  # MultiPolygon
+                coords = body["aoi"]["coordinates"][0][0][0]
+
+            lon, lat = str(int(float(coords[0]))), str(int(float(coords[1])))
+        else:
+            # Fallback if no geometry or unexpected format
+            lon, lat = "0", "0"
+
+        ext = "json.gz" if self.compress_cache else "json"
+        return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
 
     def _request_error_message(self, request_string: str, response: requests.Response) -> str:
         """
@@ -579,8 +610,11 @@ class FeatureApi:
         survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
-        Create a request string with given parameters
+        Create a request string with given parameters for GET requests
         base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
+        
+        Note: This method is maintained for backward compatibility and for cases where GET requests are still needed.
+        For most cases, consider using _create_post_request instead, which handles complex geometries better.
         """
         urlbase = base_url
         if survey_resource_id is not None:
@@ -632,6 +666,88 @@ class FeatureApi:
                 classes = ",".join(classes)
             request_string += f"&classes={classes}"
         return request_string, exact
+        
+    def _create_post_request(
+        self,
+        base_url: str,
+        geometry: Union[Polygon, MultiPolygon],
+        packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        survey_resource_id: Optional[str] = None,
+    ) -> Tuple[str, dict, bool]:
+        """
+        Create parameters for a POST request with given parameters
+        base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
+
+        Returns:
+            - url: The URL to send the POST request to
+            - body: The JSON body for the POST request
+            - exact: Whether the geometry is exact or had to be approximated (always True for POST requests)
+        """
+        # Determine the correct URL
+        url = base_url
+        if survey_resource_id is not None:
+            url = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
+
+        # Add apikey as query parameter
+        url = f"{url}?apikey={self.api_key}"
+
+        # Create request body - only include 'aoi' in the body
+        body = {}
+
+        # Convert geometry to GeoJSON format
+        if geometry is not None:
+            body["aoi"] = shapely.geometry.mapping(geometry)
+
+        # Add all other parameters as query parameters, not in body
+        if self.alpha:
+            url += "&alpha=true"
+        if self.beta:
+            url += "&beta=true"
+        if self.prerelease:
+            url += "&prerelease=true"
+        if self.only3d:
+            url += "&3dCoverage=true"
+        if self.parcelMode:
+            url += "&parcelMode=true"
+        if self.system_version_prefix is not None:
+            url += f"&systemVersionPrefix={self.system_version_prefix}"
+        if self.system_version is not None:
+            url += f"&systemVersion={self.system_version}"
+        if self.bulk_mode:
+            url += "&bulk=true"
+
+        # Add dates as query parameters if given
+        if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
+            logger.debug(
+                f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates."
+            )
+        elif (since is not None) or (until is not None):
+            if since:
+                if not isinstance(since, str):
+                    raise ValueError("Since must be a string")
+                url += f"&since={since}"
+            if until:
+                if not isinstance(until, str):
+                    raise ValueError("Until must be a string")
+                url += f"&until={until}"
+
+        # Add packs as query parameters if given
+        if packs:
+            pack_param = packs if isinstance(packs, str) else ",".join(packs)
+            url += f"&packs={pack_param}"
+
+        # Add classes as query parameters if given
+        if classes:
+            class_param = classes if isinstance(classes, str) else ",".join(classes)
+            url += f"&classes={class_param}"
+
+        # With POST requests, we always get the exact geometry processed
+        exact = True
+
+        return url, body, exact
 
     def get_features(
         self,
@@ -643,7 +759,25 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
+        use_post: bool = True,  # Default to using POST for better geometry handling
     ):
+        """
+        Get features for the provided geometry.
+        
+        Args:
+            geometry: The polygon or multipolygon to query
+            region: Country code
+            packs: List of AI packs to include
+            classes: List of feature classes to include
+            since: Start date for the query
+            until: End date for the query
+            address_fields: Address fields for address-based queries
+            survey_resource_id: ID of the specific survey to query
+            use_post: Whether to use POST request (better for complex geometries) or GET
+        
+        Returns:
+            API response as a dictionary
+        """
         data = self._get_results(
             geometry=geometry,
             region=region,
@@ -654,6 +788,7 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_FEATURES,
+            use_post=use_post,
         )
         return data
 
@@ -667,7 +802,25 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
+        use_post: bool = True,  # Default to using POST, but API might not support it yet
     ):
+        """
+        Get rollup data for the provided geometry.
+        
+        Args:
+            geometry: The polygon or multipolygon to query
+            region: Country code
+            packs: List of AI packs to include
+            classes: List of feature classes to include
+            since: Start date for the query
+            until: End date for the query
+            address_fields: Address fields for address-based queries
+            survey_resource_id: ID of the specific survey to query
+            use_post: Whether to use POST request (better for complex geometries) or GET
+        
+        Returns:
+            API response as CSV text
+        """
         data = self._get_results(
             geometry=geometry,
             region=region,
@@ -678,6 +831,7 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_ROLLUPS,
+            use_post=use_post,
         )
         return data
 
@@ -692,21 +846,28 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         result_type: str = API_TYPE_FEATURES,
+        use_post: bool = True,  # Default to using POST for all new requests
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
 
-        Args: geometry: AOI in EPSG4326 region: Country code, used for recalculating areas. packs: List of AI packs
-        since: Earliest date to pull data for until: Latest date to pull data for address_fields: Fields for an
-        address based query (rather than query AOI based query). survey_resource_id: The ID of the survey resource id
-        if an exact survey is requested for the pull. NB: This is NOT the survey ID from coverage - it is the id of
-        the AI resource attached to that survey.
+        Args: 
+            geometry: AOI in EPSG4326
+            region: Country code, used for recalculating areas. 
+            packs: List of AI packs
+            since: Earliest date to pull data for 
+            until: Latest date to pull data for 
+            address_fields: Fields for an address based query (rather than query AOI based query).
+            survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull. 
+                               NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
+            result_type: Type of API endpoint (features or rollups)
+            use_post: Whether to use POST request (recommended) or GET request
 
         Returns:
             API response as a Dictionary
         """
         with self._session_scope() as session:
-            # Create request string
+            # Determine the base URL based on the result type and packs
             if result_type == self.API_TYPE_FEATURES:
                 base_url = self.FEATURES_URL
                 if packs is not None:
@@ -714,30 +875,48 @@ class FeatureApi:
                         base_url = self.FEATURES_DAMAGE_URL
             elif result_type == self.API_TYPE_ROLLUPS:
                 base_url = self.ROLLUPS_CSV_URL
-            request_string, exact = self._create_request_string(
-                base_url=base_url,
-                geometry=geometry,
-                packs=packs,
-                classes=classes,
-                since=since,
-                until=until,
-                address_fields=address_fields,
-                survey_resource_id=survey_resource_id,
-            )
-            if not exact and result_type == self.API_TYPE_ROLLUPS:
-                raise AIFeatureAPIError(
-                    response=None,
-                    request_string=self._clean_api_key(request_string),
-                    text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
-                    message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+                
+            # For address-based queries, always use GET (POST doesn't support address fields)
+            # For rollups, we might need to stick with GET until POST is fully supported in API
+            use_get = (address_fields is not None) or (not use_post)
+            
+            if use_get:
+                # Use the legacy GET request approach
+                request_string, exact = self._create_request_string(
+                    base_url=base_url,
+                    geometry=geometry,
+                    packs=packs,
+                    classes=classes,
+                    since=since,
+                    until=until,
+                    address_fields=address_fields,
+                    survey_resource_id=survey_resource_id,
                 )
-            # logger.debug(f"Requesting: {self._clean_api_key(request_string)}") # Enable for extremely verbose debug logging!
-            cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
-
+                cache_path = None if self.cache_dir is None else self._request_cache_path(request_string)
+                
+                if not exact and result_type == self.API_TYPE_ROLLUPS:
+                    raise AIFeatureAPIError(
+                        response=None,
+                        request_string=self._clean_api_key(request_string),
+                        text="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+                        message="MultiPolygons and inexact polygons not supported by rollup endpoint.",
+                    )
+            else:
+                # Use POST request with JSON body for better geometry handling
+                url, body, exact = self._create_post_request(
+                    base_url=base_url,
+                    geometry=geometry,
+                    packs=packs,
+                    classes=classes,
+                    since=since,
+                    until=until,
+                    survey_resource_id=survey_resource_id,
+                )
+                cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
+                
             # Check if it's already cached
             if self.cache_dir is not None and not self.overwrite_cache:
                 if cache_path.exists():
-                    # logger.debug(f"Retrieving payload from cache")
                     if self.compress_cache:
                         with gzip.open(cache_path, "rt", encoding="utf-8") as f:
                             try:
@@ -745,7 +924,7 @@ class FeatureApi:
                                 return json.loads(payload_str)
                             except EOFError as e:
                                 logger.error(f"Error loading compressed cache file {cache_path}.")
-                                logger.error(payload_str)
+                                logger.error(f"Error: {e}")
                     else:
                         with open(cache_path, "r") as f:
                             return json.load(f)
@@ -753,27 +932,34 @@ class FeatureApi:
             # Request data
             t1 = time.monotonic()
             try:
-                response = session.get(request_string, timeout=TIMEOUT_SECONDS)
+                if use_get:
+                    response = session.get(request_string, timeout=TIMEOUT_SECONDS)
+                    request_info = request_string  # For error reporting
+                else:
+                    headers = {'Content-Type': 'application/json'}
+                    response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                    request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
             except requests.exceptions.ChunkedEncodingError:
-                logger.info(f"ChunkedEncodingError for {self._clean_api_key(request_string)}")
-                self._handle_response_errors(None, request_string)
+                logger.info(f"ChunkedEncodingError for request")
+                self._handle_response_errors(None, request_info if use_get else url)
 
             response_time_ms = (time.monotonic() - t1) * 1e3
+            logger.debug(f"{response_time_ms:.1f}ms response time")
 
             if response.ok:
-                # logger.debug(f"{response_time_ms:.1f}ms response time for polygon with these packs: {packs}")
-
                 if result_type == self.API_TYPE_ROLLUPS:
                     data = response.text
                 elif result_type == self.API_TYPE_FEATURES:
                     try:
                         data = response.json()
                     except Exception as e:
-                        logging.warning("Error parsing JSON response from API.")
-                        raise AIFeatureAPIError(response, request_string)
-                    # If the AOI was altered for the API request, we need to filter features in the response, and clip connected features
-                    if not exact:
-                        # Filter out any features that are not a candidate (e.g. a polygon with a central hole).
+                        logging.warning(f"Error parsing JSON response from API: {e}")
+                        raise AIFeatureAPIError(response, request_info if use_get else url)
+                        
+                    # With POST requests, exact is always true, so we don't need this filtering
+                    # If the AOI was altered for the API request (GET only), we need to filter features
+                    if use_get and not exact:
+                        # Filter out any features that are not within the geometry
                         data_features_geoms = gpd.GeoSeries(
                             [shape(f["geometry"]) for f in data["features"]], crs=API_CRS, name="geometry"
                         )
@@ -783,7 +969,6 @@ class FeatureApi:
                             gdf_unclipped = data_features_geoms[keep_inds]
                             gdf_unclipped.index = range(len(keep_inds))
 
-                            # gdf_unclipped = gpd.GeoSeries(pd.DataFrame(data["features"]).geometry.apply(shape), crs=API_CRS)
                             gdf_clip = self._clip_features_to_polygon(gdf_unclipped, geometry, region)
 
                             for i, feature in enumerate(data["features"]):
@@ -812,9 +997,8 @@ class FeatureApi:
                 except requests.exceptions.ChunkedEncodingError:
                     text = ""
 
-                # logger.debug(f"{response_time_ms:.1f}ms failure response time {text} {status_code}")
-                if self.overwrite_cache:
-                    # Explicitly clean up request by deleting cache file, perhaps the request worked previously. Not out of spite, but to prevent confusing cases in future.
+                # Clean up cache if we're overwriting
+                if self.overwrite_cache and cache_path:
                     try:
                         os.remove(cache_path)
                     except OSError:
@@ -822,18 +1006,22 @@ class FeatureApi:
 
                 if status_code in AIFeatureAPIRequestSizeError.status_codes:
                     logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
-                    raise AIFeatureAPIRequestSizeError(response, request_string)
+                    raise AIFeatureAPIRequestSizeError(response, request_info if use_get else url)
                 elif status_code == HTTPStatus.BAD_REQUEST:
-                    error_code = json.loads(text)["code"]
-                    if error_code in AIFeatureAPIRequestSizeError.codes:
-                        logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
-                        raise AIFeatureAPIRequestSizeError(response, request_string)
-                    else:
-                        # Check for errors
-                        self._handle_response_errors(response, request_string)
+                    try:
+                        error_data = json.loads(text)
+                        error_code = error_data.get("code", "")
+                        if error_code in AIFeatureAPIRequestSizeError.codes:
+                            logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
+                            raise AIFeatureAPIRequestSizeError(response, request_info if use_get else url)
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+                    
+                    # Check for other errors
+                    self._handle_response_errors(response, request_info if use_get else url)
                 else:
-                    # Check for errors
-                    self._handle_response_errors(response, request_string)
+                    # Handle other HTTP errors
+                    self._handle_response_errors(response, request_info if use_get else url)
 
     @staticmethod
     def link_to_date(link: str) -> str:
@@ -1160,7 +1348,7 @@ class FeatureApi:
                 features_gdf, metadata, error = [], [], None
                 for sub_geometry in geometry.geoms:
                     sub_payload = self.get_features(
-                        sub_geometry, region, packs, classes, since, until, address_fields, survey_resource_id
+                        sub_geometry, region, packs, classes, since, until, address_fields, survey_resource_id, self.use_post
                     )
                     sub_features_gdf, sub_metadata = self.payload_gdf(sub_payload, aoi_id, self.parcelMode)
                     features_gdf.append(sub_features_gdf)
@@ -1187,7 +1375,7 @@ class FeatureApi:
             else:
                 features_gdf, metadata, error = None, None, None
                 payload = self.get_features(
-                    geometry, region, packs, classes, since, until, address_fields, survey_resource_id
+                    geometry, region, packs, classes, since, until, address_fields, survey_resource_id, self.use_post
                 )
                 features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcelMode)
         except AIFeatureAPIRequestSizeError as e:

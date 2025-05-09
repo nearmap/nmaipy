@@ -7,7 +7,7 @@ dependencies:
   - black
   - click
   - descartes
-  - geopandas
+  - geopandas>=1.0.1
   - ipykernel
   - isort
   - matplotlib
