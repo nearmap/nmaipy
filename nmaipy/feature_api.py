@@ -228,6 +228,7 @@ class FeatureApi:
         system_version: Optional[str] = None,
         aoi_grid_min_pct: Optional[int] = 100,
         aoi_grid_inexact: Optional[bool] = False,
+        parcelMode: Optional[bool] = False,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -248,12 +249,16 @@ class FeatureApi:
             system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
             aoi_grid_min_pct: Minimum percentage of sub-gridded squares the AOI must get valid responses from.
             aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
+            parcelMode: When set to True, uses the API's parcel mode which filters features based on parcel boundaries.
             maxretry: Number of retries to attempt on a failed request
         """
         # Initialize thread-safety attributes first
         self._sessions = []
         self._thread_local = threading.local()
         self._lock = threading.Lock()
+
+        if not bulk_mode:
+            url_root = "api.nearmap.com/ai/features/v4"
 
         URL_ROOT = f"https://{url_root}"
         self.FEATURES_URL = URL_ROOT + "/features.json"
@@ -292,6 +297,7 @@ class FeatureApi:
         self.system_version = system_version
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
+        self.parcelMode = parcelMode
         self.maxretry = maxretry
 
     def __del__(self):
@@ -610,6 +616,8 @@ class FeatureApi:
             request_string += "&prerelease=true"
         if self.only3d:
             request_string += "&3dCoverage=true"
+        if self.parcelMode:
+            request_string += "&parcelMode=true"
         if self.system_version_prefix is not None:
             request_string += f"&systemVersionPrefix={self.system_version_prefix}"
         if self.system_version is not None:
