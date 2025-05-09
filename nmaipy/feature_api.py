@@ -228,8 +228,7 @@ class FeatureApi:
         system_version: Optional[str] = None,
         aoi_grid_min_pct: Optional[int] = 100,
         aoi_grid_inexact: Optional[bool] = False,
-        parcelMode: Optional[bool] = False,
-        use_post: Optional[bool] = True,
+        parcel_mode: Optional[bool] = False,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -250,8 +249,7 @@ class FeatureApi:
             system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
             aoi_grid_min_pct: Minimum percentage of sub-gridded squares the AOI must get valid responses from.
             aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
-            parcelMode: When set to True, uses the API's parcel mode which filters features based on parcel boundaries.
-            use_post: When set to True (default), uses POST requests for better geometry handling.
+            parcel_mode: When set to True, uses the API's parcel mode which filters features based on parcel boundaries.
             maxretry: Number of retries to attempt on a failed request
         """
         # Initialize thread-safety attributes first
@@ -299,8 +297,7 @@ class FeatureApi:
         self.system_version = system_version
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
-        self.parcelMode = parcelMode
-        self.use_post = use_post
+        self.parcel_mode = parcel_mode
         self.maxretry = maxretry
 
     def __del__(self):
@@ -538,74 +535,6 @@ class FeatureApi:
             if temp_path.exists():
                 temp_path.unlink()
 
-    def _create_request_string(
-        self,
-        base_url: str,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
-    ) -> Tuple[str, bool]:
-        """
-        Create a request string with given parameters for GET requests
-        base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
-        
-        Note: This method is maintained for backward compatibility and for cases where GET requests are still needed.
-        For most cases, consider using _create_post_request instead, which handles complex geometries better.
-        """
-        urlbase = base_url
-        if survey_resource_id is not None:
-            urlbase = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
-        if geometry is not None:
-            coordstring, exact = self._geometry_to_coordstring(geometry)
-            request_string = f"{urlbase}?polygon={coordstring}&apikey={self.api_key}"
-        else:
-            exact = True  # we treat address-based as exact always
-            address_params = "&".join([f"{s}={address_fields[s]}" for s in address_fields])
-            request_string = f"{urlbase}?{address_params}&apikey={self.api_key}"
-
-        # Add dates if given
-        if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
-            logger.debug(
-                f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates."
-            )
-        elif (since is not None) or (until is not None):
-            if since and not isinstance(since, str):
-                raise ValueError("Since must be a string")
-            if until and not isinstance(until, str):
-                raise ValueError("Until must be a string")
-            if since:
-                request_string += f"&since={since}"
-            if until:
-                request_string += f"&until={until}"
-
-        if self.alpha:
-            request_string += "&alpha=true"
-        if self.beta:
-            request_string += "&beta=true"
-        if self.prerelease:
-            request_string += "&prerelease=true"
-        if self.only3d:
-            request_string += "&3dCoverage=true"
-        if self.parcelMode:
-            request_string += "&parcelMode=true"
-        if self.system_version_prefix is not None:
-            request_string += f"&systemVersionPrefix={self.system_version_prefix}"
-        if self.system_version is not None:
-            request_string += f"&systemVersion={self.system_version}"
-        # Add packs if given
-        if packs:
-            if isinstance(packs, list):
-                packs = ",".join(packs)
-            request_string += f"&packs={packs}"
-        if classes:
-            if isinstance(classes, list):
-                classes = ",".join(classes)
-            request_string += f"&classes={classes}"
-        return request_string, exact
         
     def _create_post_request(
         self,
@@ -650,7 +579,7 @@ class FeatureApi:
             url += "&prerelease=true"
         if self.only3d:
             url += "&3dCoverage=true"
-        if self.parcelMode:
+        if self.parcel_mode:
             url += "&parcelMode=true"
         if self.system_version_prefix is not None:
             url += f"&systemVersionPrefix={self.system_version_prefix}"
@@ -699,11 +628,10 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
-        use_post: bool = True,  # Default to using POST for better geometry handling
     ):
         """
         Get features for the provided geometry.
-        
+
         Args:
             geometry: The polygon or multipolygon to query
             region: Country code
@@ -713,8 +641,7 @@ class FeatureApi:
             until: End date for the query
             address_fields: Address fields for address-based queries
             survey_resource_id: ID of the specific survey to query
-            use_post: Whether to use POST request (better for complex geometries) or GET
-        
+
         Returns:
             API response as a dictionary
         """
@@ -728,7 +655,6 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_FEATURES,
-            use_post=use_post,
         )
         return data
 
@@ -742,11 +668,10 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
-        use_post: bool = True,  # Default to using POST, but API might not support it yet
     ):
         """
         Get rollup data for the provided geometry.
-        
+
         Args:
             geometry: The polygon or multipolygon to query
             region: Country code
@@ -756,8 +681,7 @@ class FeatureApi:
             until: End date for the query
             address_fields: Address fields for address-based queries
             survey_resource_id: ID of the specific survey to query
-            use_post: Whether to use POST request (better for complex geometries) or GET
-        
+
         Returns:
             API response as CSV text
         """
@@ -771,7 +695,6 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_ROLLUPS,
-            use_post=use_post,
         )
         return data
 
@@ -790,17 +713,16 @@ class FeatureApi:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
 
-        Args: 
+        Args:
             geometry: AOI in EPSG4326
-            region: Country code, used for recalculating areas. 
+            region: Country code, used for recalculating areas.
             packs: List of AI packs
-            since: Earliest date to pull data for 
-            until: Latest date to pull data for 
+            since: Earliest date to pull data for
+            until: Latest date to pull data for
             address_fields: Fields for an address based query (rather than query AOI based query).
-            survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull. 
+            survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull.
                                NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
             result_type: Type of API endpoint (features or rollups)
-            use_post: Wether to use POST request (recommended) or GET request
 
         Returns:
             API response as a Dictionary
@@ -1027,14 +949,14 @@ class FeatureApi:
         return features_gdf_out
 
     @classmethod
-    def payload_gdf(cls, payload: dict, aoi_id: Optional = None, parcelMode: Optional[bool] = False) -> Tuple[gpd.GeoDataFrame, dict]:
+    def payload_gdf(cls, payload: dict, aoi_id: Optional = None, parcel_mode: Optional[bool] = False) -> Tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a feature API response dictionary.
 
         Args:
             payload: API response dictionary
             aoi_id: Optional ID for the AOI to add to the data
-            parcelMode: If True, filter out features where belongsToParcel is False
+            parcel_mode: If True, filter out features where belongsToParcel is False
 
         Returns:
             Features GeoDataFrame
@@ -1077,21 +999,21 @@ class FeatureApi:
         if len(payload["features"]) == 0:
             df = pd.DataFrame([], columns=columns)
         else:
-            # Filter features if parcelMode is enabled
+            # Filter features if parcel_mode is enabled
             features = payload["features"]
-            if parcelMode and len(features) > 0 and "belongsToParcel" in features[0]:
+            if parcel_mode and len(features) > 0 and "belongsToParcel" in features[0]:
                 features = [f for f in features if f.get("belongsToParcel", True)]
 
             # Check for and use clippedGeometry if present
             # Add a new flag for multiparcel features (those with clippedGeometry)
             for feature in features:
                 # Default is False - not a multiparcel feature
-                feature["multiparcelFeature"] = False
+                feature["multiparcel_feature"] = False
 
                 # If clippedGeometry exists, use it and mark as multiparcel feature
                 if "clippedGeometry" in feature and feature["clippedGeometry"]:
                     feature["geometry"] = feature["clippedGeometry"]
-                    feature["multiparcelFeature"] = True
+                    feature["multiparcel_feature"] = True
 
             df = pd.DataFrame(features)
             for col_name in set(columns).difference(set(df.columns)):
@@ -1206,9 +1128,9 @@ class FeatureApi:
         try:
             features_gdf, metadata, error = None, None, None
             payload = self.get_features(
-                geometry, region, packs, classes, since, until, address_fields, survey_resource_id, self.use_post
+                geometry, region, packs, classes, since, until, address_fields, survey_resource_id
             )
-            features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcelMode)
+            features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
