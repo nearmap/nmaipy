@@ -108,6 +108,8 @@ class TestExporter:
             include_parcel_geometry=True,
             save_features=True,
             no_cache=True,
+            parcel_mode=True,
+            system_version_prefix="gen6-",
             processes=8,
         )
         my_exporter.process_chunk(

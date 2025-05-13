@@ -124,6 +124,11 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--no-parcel-mode",
+        help="If set, disable the API's parcel mode (which filters features based on parcel boundaries)",
+        action="store_true",
+    )
+    parser.add_argument(
         "--save-features",
         help="If set, save the raw vectors as a geoparquet file for loading in GIS tools. This can be quite time consuming.",
         action="store_true",
@@ -290,6 +295,7 @@ class AOIExporter:
         system_version=None,
         log_level='INFO',
         api_key=None,  # Add API key parameter
+        parcel_mode=True,  # Add parcel mode parameter with default True
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -323,6 +329,7 @@ class AOIExporter:
         self.system_version = system_version
         self.log_level = log_level
         self.api_key_param = api_key  # Store the API key parameter
+        self.parcel_mode = parcel_mode  # Store the parcel mode parameter
 
         # Configure logger
         log.configure_logger(self.log_level)
@@ -380,6 +387,7 @@ class AOIExporter:
                 system_version=self.system_version,
                 aoi_grid_min_pct=self.aoi_grid_min_pct,
                 aoi_grid_inexact=self.aoi_grid_inexact,
+                parcel_mode=self.parcel_mode,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(aoi_gdf)} AOIs ({self.endpoint=})")
@@ -617,7 +625,12 @@ class AOIExporter:
 
         # Get classes
         feature_api = FeatureApi(
-                api_key=self.api_key(), alpha=self.alpha, beta=self.beta, prerelease=self.prerelease, only3d=self.only3d
+                api_key=self.api_key(),
+                alpha=self.alpha,
+                beta=self.beta,
+                prerelease=self.prerelease,
+                only3d=self.only3d,
+                parcel_mode=self.parcel_mode
             )
         if self.packs is not None:
             classes_df = feature_api.get_feature_classes(self.packs)
@@ -810,7 +823,7 @@ def main():
         # Set higher file descriptor limits for running many processes in parallel.
     import resource
     import sys
-    
+
     if sys.platform != 'win32':
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         desired = 32000  # Same as ulimit -n 32000
@@ -860,6 +873,7 @@ def main():
         system_version=args.system_version,
         log_level=args.log_level,
         api_key=args.api_key,  # Pass API key argument
+        parcel_mode=not args.no_parcel_mode,  # Default to True unless --no-parcel-mode is set
     )
     exporter.run()
 
