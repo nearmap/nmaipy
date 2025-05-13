@@ -78,12 +78,17 @@ def read_from_file(
     elif isinstance(path, Path):
         suffix = path.suffix[1:]
     if suffix in ("csv", "psv", "tsv"):
+        # First read without setting index to avoid failure if id_column doesn't exist
         if suffix == "csv":
-            parcels_gdf = pd.read_csv(path, index_col=id_column)
+            parcels_gdf = pd.read_csv(path)
         elif suffix == "psv":
-            parcels_gdf = pd.read_csv(path, sep="|", index_col=id_column)
+            parcels_gdf = pd.read_csv(path, sep="|")
         elif suffix == "tsv":
             parcels_gdf = pd.read_csv(path, sep="\t")
+            
+        # Set the index only if the column exists
+        if id_column in parcels_gdf.columns:
+            parcels_gdf = parcels_gdf.set_index(id_column)
     elif suffix == "parquet":
         parcels_gdf = gpd.read_parquet(path)
     elif suffix in ("geojson", "gpkg"):

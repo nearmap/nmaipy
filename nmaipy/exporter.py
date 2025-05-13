@@ -232,7 +232,6 @@ def parse_arguments():
         required=False,
     )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
-    parser.add_argument("--api-key", help="API key for authentication", required=False, type=str)  # Add API key argument
     return parser.parse_args()
 
 
