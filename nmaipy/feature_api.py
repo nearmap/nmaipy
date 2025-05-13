@@ -195,7 +195,6 @@ class FeatureApi:
     Class to connect to the AI Feature API
     """
 
-    CHAR_LIMIT = 3800
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
         "fidelity",
@@ -224,11 +223,11 @@ class FeatureApi:
         prerelease: Optional[bool] = False,
         only3d: Optional[bool] = False,
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
-        system_version_prefix: Optional[str] = None,
+        system_version_prefix: Optional[str] = "gen6-",
         system_version: Optional[str] = None,
         aoi_grid_min_pct: Optional[int] = 100,
         aoi_grid_inexact: Optional[bool] = False,
-        parcel_mode: Optional[bool] = False,
+        parcel_mode: Optional[bool] = True,
         maxretry: int = MAX_RETRIES,
     ):
         """

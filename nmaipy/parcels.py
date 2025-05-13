@@ -15,106 +15,14 @@ FALSE_STRING = "N"
 PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 
 # All area values are in squared metres
-DEFAULT_FILTERING = {
-    "min_size": {
-        BUILDING_LIFECYCLE_ID: 4,
-        BUILDING_ID: 4,
-        BUILDING_NEW_ID: 4,
-        ROOF_ID: 4,
-        TRAMPOLINE_ID: 1,
-        POOL_ID: 4,
-        CONSTRUCTION_ID: 5,
-        SOLAR_ID: 1,
-        PLAYGROUND_ID: 2,
-    },
-    "min_confidence": {
-        BUILDING_LIFECYCLE_ID: 0.65,
-        BUILDING_ID: 0.65,
-        BUILDING_NEW_ID: 0.65,
-        ROOF_ID: 0.58,
-        TRAMPOLINE_ID: 0.6,
-        POOL_ID: 0.55,
-        CONSTRUCTION_ID: 0.8,
-        SOLAR_ID: 0.61,
-        # Roof Conditions
-        CLASS_1050_TARP: 0.52,  # "tarp",
-        CLASS_1052_RUST: 0.50,  # "rust",
-        CLASS_1079_MISSING_SHINGLES: 0.50,  # "missing_shingles",
-        CLASS_1139_DEBRIS: 0.50,  # "debris",
-        CLASS_1140_EXPOSED_DECK: 0.51,  # "exposed_deck",
-        CLASS_1051_PONDING: 0.50,  # "ponding",
-        CLASS_1144_STAINING: 0.50,  # "staining",
-        CLASS_1146_WORN_SHINGLES: 0.50,  # "worn_shingles",
-        CLASS_1147_EXPOSED_UNDERLAYMENT: 0.59,  # "exposed_underlayment",
-        CLASS_1149_PATCHING: 0.50,  # "patching",
-        CLASS_1186_STRUCTURAL_DAMAGE: 0.50,  # "structural_damage",
-        # Roof Shapes
-        CLASS_1013_HIP: 0.50,  # Keep fixed at 0.50 due to rate filing
-        CLASS_1014_GABLE: 0.50,  # Keep fixed at 0.50 due to rate filing
-        CLASS_1015_DUTCH_GABLE: 0.57,
-        CLASS_1019_GAMBREL: 0.70,
-        CLASS_1020_CONICAL: 0.50,  # turret / conical. This is normall small part on the roof. It's hard to be larger than 0.58
-        CLASS_1173_PARAPET: 0.50,  # check the definition of ontology. If ths parpet is the edges of the roof, then it's hard to be larger than 0.5
-        CLASS_1174_MANSARD: 0.64,
-        CLASS_1176_JERKINHEAD: 0.71,
-        CLASS_1178_QUONSET: 0.52,
-        CLASS_1180_BOWSTRING_TRUSS: 0.58,
-        # Roof Materials
-        CLASS_1191_FLAT: 0.50,
-        CLASS_1007_TILE: 0.55,
-        CLASS_1008_ASPHALT_SHINGLE: 0.50,  # Keep fixed at 0.50 due to rate filing
-        CLASS_1009_METAL_PANEL: 0.50,  # Keep fixed at 0.50 due to rate filing
-        CLASS_1100_BALLASTED: 0.64,
-        CLASS_1101_MOD_BIT: 0.50,
-        CLASS_1103_TPO: 0.53,
-        CLASS_1104_EPDM: 0.57,
-        CLASS_1105_WOOD_SHAKE: 0.61,
-        CLASS_1160_CLAY_TILE: 0.63,
-        CLASS_1163_SLATE: 0.58,
-        CLASS_1165_BUILT_UP: 0.50,
-        CLASS_1168_ROOF_COATING: 0.53,
-    },
-    "min_fidelity": {
-        BUILDING_ID: 0.15,
-        BUILDING_NEW_ID: 0.15,
-        ROOF_ID: 0.15,
-    },
-    "min_area_in_parcel": {
-        BUILDING_LIFECYCLE_ID: 0,  # Point classes have no clipped area, so we can't filter them out based on area.
-        BUILDING_ID: 4,
-        BUILDING_NEW_ID: 4,
-        ROOF_ID: 4,
-        TRAMPOLINE_ID: 1,
-        POOL_ID: 4,
-        CONSTRUCTION_ID: 5,
-        SOLAR_ID: 1,
-    },
-    "min_ratio_in_parcel": {
-        BUILDING_LIFECYCLE_ID: 0.5,
-        BUILDING_ID: 0.5,  # Defer to more complex algorithm for building and roof - important for large buildings. Need 0.5 filter for removing small buildings.
-        BUILDING_NEW_ID: 0.5,
-        BUILDING_UNDER_CONSTRUCTION_ID: 0.5,
-        ROOF_ID: 0.5,
-        TRAMPOLINE_ID: 0.5,
-        POOL_ID: 0.5,
-        CONSTRUCTION_ID: 0.5,
-        SOLAR_ID: 0.5,
-        CAR_ID: 0.5,
-        WHEELED_CONSTRUCTION_VEHICLE_ID: 0.5,
-        CONSTRUCTION_CRANE_ID: 0.5,
-        BOAT_ID: 0.5,
-        SILO_ID: 0.5,
-        SKYLIGHT_ID: 0.5,
-        PLAYGROUND_ID: 0.5,
-    },
-    "building_style_filtering": {
-        BUILDING_LIFECYCLE_ID: True,
-        BUILDING_ID: True,
-        BUILDING_NEW_ID: True,
-        BUILDING_UNDER_CONSTRUCTION_ID: True,
-        ROOF_ID: True,
-    },
-}
+BUILDING_SMALL_MAX_AREA_SQM = 30
+BUILDING_STYLE_CLASSE_IDS = [
+        BUILDING_LIFECYCLE_ID,
+        BUILDING_ID,
+        BUILDING_NEW_ID,
+        BUILDING_UNDER_CONSTRUCTION_ID,
+        ROOF_ID
+]
 
 BUFFER_ZONES_M = dict(
     buffer_0ft=0.0,
@@ -238,137 +146,35 @@ def filter_features_in_parcels(
     features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str
 ) -> gpd.GeoDataFrame:
     """
-    Drop features that are not considered as "inside" or "belonging to" a parcel. These fall into two categories:
-     - Features that are considered noise (small or low confidence)
-     - Features that intersect with the parcel boundary only because of a misalignment between the parcel boundary and
-       the feature data.
+    Add building flags (building_small, building_multiparcel) based on API data.
 
-    Default thresholds to make theses decisions are defined, but can be overwritten at runtime.
+    With the API's parcel_mode=True, all filtering happens on the server. This function now only
+    adds building flags for compatibility with the rest of the codebase:
+    - building_small: Based on area calculation
+    - building_multiparcel: Directly mapped from the API's multiparcel_feature flag
 
     Args:
-        features_gdf: Features data (see nmaipy.FeatureApi.get_features_gdf_bulk)
+        features_gdf: Features data (already filtered by API parcel_mode)
+        aoi_gdf: Area of Interest geometries (needed only for projection info)
+        region: Country/region code for projection systems
 
-    Returns: Filtered features_gdf GeoDataFrame
+    Returns: Features GeoDataFrame with building flags added
     """
-    if features_gdf is None:
+    if features_gdf is None or len(features_gdf) == 0:
         return features_gdf
-    elif len(features_gdf) == 0:
-        return features_gdf
+
     gdf = features_gdf.copy()
 
-    if "clipped_area_sqm" in gdf.columns and "unclipped_area_sqm" in gdf.columns:
-        suffix = "sqm"
-    elif "clipped_area_sqft" in gdf.columns and "unclipped_area_sqft" in gdf.columns:
-        suffix = "sqft"
-    else:
-        raise Exception(
-            f"We need consistent meters or feet to do filtering calculations, but we did not have the necessary columns... they are {gdf.columns.tolist()} in length {len(gdf)} dataframe"
-        )
+    # Get building class IDs
+    building_mask = gdf.class_id.isin(BUILDING_STYLE_CLASS_IDS)
 
-    # Calculate the ratio of a feature that falls within the parcel
-    gdf["intersection_ratio"] = gdf["clipped_area_" + suffix] / gdf["unclipped_area_" + suffix]
-    gdf["intersection_ratio"] = gdf["intersection_ratio"].fillna(
-        1
-    )  # If unclipped area is zero, assume the feature is fully inside the parcel
+    # If we have buildings
+    if building_mask.any():
+        # Set multiparcel flag directly from the API's multiparcel_feature if available
+        if "multiparcel_feature" in gdf.columns:
+            gdf.loc[building_mask, "building_multiparcel"] = gdf.loc[building_mask, "multiparcel_feature"]
+        gdf.loc[building_mask, "building_small"] = gdf.loc[building_mask, "unclipped_area_sqm"] < BUILDING_SMALL_MAX_AREA_SQM
 
-    # Filter small features
-    gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_size"]).fillna(0) <= gdf["unclipped_area_" + suffix]]
-
-    # Filter low confidence features
-    gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_confidence"]).fillna(0) <= gdf.confidence]
-
-    # Filter low fidelity features. If fidelity not present, assume 1 (perfect shape) to avoid rejection.
-    gdf = gdf[gdf.class_id.map(DEFAULT_FILTERING["min_fidelity"]).fillna(0) <= gdf.fidelity.fillna(1)]
-
-    building_style_ids = DEFAULT_FILTERING["building_style_filtering"].keys()
-    out_gdf_building_style = []
-    gdf_non_building_style = gdf[~gdf.class_id.isin(building_style_ids)]
-
-    if not isinstance(aoi_gdf, gpd.GeoDataFrame):
-        logger.warning("AOI geometries not available, skipping building style filtering")
-        return gdf
-
-    # Filter out buildings that are not in the AOI, and clip geometries of multiparcel buildings
-    for aoi_id in gdf.index.unique():  # Loop over each AOI in the set
-        gdf_aoi = gdf.loc[[aoi_id]]
-        gdf_aoi_buildings = gdf_aoi[gdf_aoi.class_id.isin(building_style_ids)]
-        if len(gdf_aoi_buildings) == 0:
-            continue # Skip if there are no buildings in the AOI
-        features_from_aoi = aoi_gdf.loc[[aoi_id]]
-        aoi_poly = (
-            features_from_aoi.to_crs(AREA_CRS[region]).iloc[0].geometry
-        )  # Get in metric projection for area/geospatial calcs in metres.
-        building_statuses = []
-        for building_poly in gdf_aoi_buildings.to_crs(AREA_CRS[region]).geometry: # Loop through buildings in the AOI
-            building_status = nmaipy.reference_code.get_building_status(building_poly, aoi_poly)
-            building_statuses.append(building_status)
-        building_statuses = pd.DataFrame(building_statuses)
-        building_statuses.index = gdf_aoi_buildings.index
-        gdf_aoi_buildings = pd.concat([gdf_aoi_buildings, building_statuses], axis=1) # Append extra columns for all buildings in this parcel
-        gdf_aoi_buildings = gdf_aoi_buildings[gdf_aoi_buildings.building_keep].drop(columns=["building_keep"]) # Remove any we should filter out
-        gdf_aoi_buildings.loc[gdf_aoi_buildings["building_multiparcel"], "intersection_ratio"] = 1.0 # For multiparcel buildings, we know they are fully in the parcel after clipping
-
-        # Clip any building that is "multiparcel" to the intersection with the AOI
-        multiparcel_mask = gdf_aoi_buildings["building_multiparcel"]
-        if multiparcel_mask.any():
-            aoi_poly_api_crs = features_from_aoi.iloc[0].geometry
-            new_geometries = gdf_aoi_buildings[multiparcel_mask].intersection(aoi_poly_api_crs).geometry
-            gdf_aoi_buildings.loc[multiparcel_mask, "geometry"] = new_geometries
-
-        out_gdf_building_style.append(gdf_aoi_buildings)
-
-    if len(out_gdf_building_style) > 0:
-        out_gdf_building_style = pd.concat(out_gdf_building_style)
-        gdf = pd.concat([gdf_non_building_style, out_gdf_building_style])
-    else:
-        gdf = gdf_non_building_style
-
-    # Filter all features based on area and ratio in parcel
-    area_mask = gdf.class_id.map(DEFAULT_FILTERING["min_area_in_parcel"]).fillna(0) <= gdf["clipped_area_" + suffix]
-    ratio_mask = gdf.class_id.map(DEFAULT_FILTERING["min_ratio_in_parcel"]).fillna(0) <= gdf.intersection_ratio
-    gdf = gdf[area_mask & ratio_mask]
-
-    # Only drop objects where the parent has been explicitly removed as above (otherwise we drop solar panels without a building request, etc.)
-    feature_ids_removed = set(features_gdf.feature_id) - set(gdf.feature_id)
-    parent_removed = gdf.parent_id.isin(feature_ids_removed)
-    no_parent = (gdf.parent_id == "") | gdf.parent_id.isna()
-    gdf = gdf.loc[~parent_removed | no_parent]
-
-    # For features with a parent, do an intersection to reduce them to the area of the parent, in the case of multiparcel buildings
-    has_parent = ~((gdf.parent_id == "") | gdf.parent_id.isna())
-    idx_cols = [AOI_ID_COLUMN_NAME, "feature_id"]
-    features_to_update = gdf[has_parent].copy().reset_index().set_index(idx_cols)
-
-    # Wherever a parent exists in the same AOI, identify the parent geometry as a column next to the child feature "geometry".
-    gdf_parent_lookup = features_to_update["geometry"].reset_index().rename(columns={"feature_id": "parent_id", "geometry": "parent_geometry"})
-    features_to_update = features_to_update.reset_index().merge(gdf_parent_lookup, on=["aoi_id", "parent_id"], how="left").set_index(
-        idx_cols
-    )
-
-    # Update our knowledge of which features actually have a parent (as some may have a parent ID that isn't in the dataframe)
-    has_parent = features_to_update.parent_geometry.notna()
-
-    # Update geometry to the intersection of "geometry" and "parent_geometry" for all features with a parent - otherwise leave as is
-    features_to_update.loc[has_parent, "geometry"] = features_to_update[has_parent]["geometry"].intersection(
-        gpd.GeoSeries(features_to_update[has_parent]["parent_geometry"], crs=features_to_update.crs), align=False
-    )
-
-    new_area = features_to_update.geometry.to_crs(AREA_CRS[region]).area
-
-    # Recalculate areas for clipped features
-    if 'area_sqm' in gdf.columns:
-        features_to_update.loc[has_parent, 'area_sqm'] = new_area
-    elif 'area_sqft' in gdf.columns:
-        features_to_update.loc[has_parent, "area_sqft"] = new_area * METERS_TO_FEET * METERS_TO_FEET
-
-    # Update gdf with the new information, from rows matching AOI_ID_COLUMN_NAME and feature_id
-    gdf = gdf.reset_index().set_index(idx_cols)
-    assert not gdf.index.has_duplicates
-    assert not features_to_update.index.has_duplicates
-    gdf.update(features_to_update)
-    gdf = gdf.reset_index().set_index(AOI_ID_COLUMN_NAME)
-
-    # TODO: Decide what to do do about ratios etc, and whether they get recalculated. Currently left as is.
     return gdf
 
 
@@ -487,7 +293,7 @@ def feature_attributes(
         else:
             parcel[f"{name}_confidence"] = None
 
-        if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+        if class_id in BUILDING_STYLE_CLASS_IDS:
             for col in ["building_small", "building_multiparcel"]:
                 if col in class_features_gdf.columns:
                     s = col.split("_")[1]
@@ -533,19 +339,17 @@ def feature_attributes(
             else:
                 raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
             if country in IMPERIAL_COUNTRIES:
-                parcel[f"primary_{name}_area_sqft"] = primary_feature.area_sqft
                 parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
                 parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
             else:
-                parcel[f"primary_{name}_area_sqm"] = primary_feature.area_sqm
                 parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
                 parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
             parcel[f"primary_{name}_confidence"] = primary_feature.confidence
-            if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+            if class_id in BUILDING_STYLE_CLASS_IDS:
                 parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
 
             # Add roof and building attributes
-            if class_id in DEFAULT_FILTERING["building_style_filtering"].keys():
+            if class_id in BUILDING_STYLE_CLASS_IDS:
                 for col in ["building_small", "building_multiparcel"]:
                     s = col.split("_")[1]
                     parcel[f"primary_{name}_{s}"] = primary_feature[col]
