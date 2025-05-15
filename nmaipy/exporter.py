@@ -837,13 +837,23 @@ class AOIExporter:
                 # If buildings export is enabled, process building features
                 if self.save_buildings:
                     self.logger.info(f"Saving building-level data as {self.rollup_format} to {outpath_buildings}")
+                    # Define geoparquet path for buildings
+                    outpath_buildings_geoparquet = final_path / f"{Path(aoi_path).stem}_building_features.parquet"
+                    
                     buildings_gdf = parcels.extract_building_features(
                         parcels_gdf=aoi_gdf,
                         features_gdf=features_gdf,
                         country=self.country
                     )
                     if len(buildings_gdf) > 0:
-                        # Convert geodataframe to plain dataframe for tabular output
+                        # First, save the geoparquet version with intact geometries
+                        self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
+                        try:
+                            buildings_gdf.to_parquet(outpath_buildings_geoparquet)
+                        except Exception as e:
+                            self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
+                            
+                        # Then convert geodataframe to plain dataframe for tabular output
                         # Keep geometry as WKT representation if needed
                         buildings_df = pd.DataFrame(buildings_gdf)
                         if "geometry" in buildings_df.columns:
