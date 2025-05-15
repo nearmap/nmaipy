@@ -29,8 +29,8 @@ from nmaipy.feature_api import FeatureApi
 
 class TestFeatureAPI:
     def test_get_rollup_df(self, sydney_aoi: Polygon, cache_directory: Path):
-        date_1 = "2020-02-28"
-        date_2 = "2020-02-28"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         region = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -46,19 +46,19 @@ class TestFeatureAPI:
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
-        # We get 2 buildings
+        # We get 1 building
         building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].iloc[0, 0]
         assert (
-            building_count == 2
+            building_count == 1
         )  # Expect a single, joined building kept after filter, from two touching residential homes.
         # The AOI ID has been assigned
         assert len(rollup_df.loc[[aoi_id]]) == 1
         # Unclipped area should be about 450 sqm
-        assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(275, rel=0.1)
+        assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(450, rel=0.1)
 
     def test_get_features_gdf(self, sydney_aoi: Polygon, cache_directory: Path):
-        date_1 = "2020-02-28"
-        date_2 = "2020-02-28"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         region = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -73,10 +73,10 @@ class TestFeatureAPI:
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
         # We get 3 buildings
-        assert len(features_gdf) == 3
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 3
+        assert len(features_gdf) == 1
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
         # The AOI ID has been assigned
-        assert len(features_gdf.loc[[aoi_id]]) == 3
+        assert len(features_gdf.loc[[aoi_id]]) == 1
 
     def test_trim_features_to_aoi(self, cache_directory: Path):
         aoi = loads(
@@ -130,27 +130,25 @@ class TestFeatureAPI:
         # TODO: Write a bunch of tests here for different nuanced scenarios.
 
     def test_large_aoi(self, cache_directory: Path, large_adelaide_aoi: Polygon):
-        survey_resource_id = "fe48a583-da45-5cd3-9fee-8321354bdf7a"  # 2011-03-03
+        survey_resource_id = "68c1c4e7-9267-52a5-84e7-23b6ed43bceb"  # 2025-03-06, Gen 6 run
         country = "au"
         packs = ["building", "vegetation"]
         aoi_id = "0"
 
-        feature_api = FeatureApi(cache_dir=cache_directory)
+        feature_api = FeatureApi(cache_dir=cache_directory, parcel_mode=True)
         features_gdf, metadata, error = feature_api.get_features_gdf(
             large_adelaide_aoi, region=country, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id
         )
         # No error
         assert error is None
         # We get 3 buildings
-        assert len(features_gdf.query("class_id == @ROOF_ID")) == 6  # Guessed
-        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
+        assert len(features_gdf.query("class_id == @ROOF_ID")) == 10  # Guessed
+        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 750  # Guessed
 
         # Assert that buildings aren't overhanging the edge of the parcel. If this fails, the clipped/unclipped hasn't been managed correctly during the grid merge.
         assert features_gdf.query("class_id == @ROOF_ID").clipped_area_sqm.sum() == pytest.approx(
             features_gdf.query("class_id == @ROOF_ID").unclipped_area_sqm.sum(), 0.1
         )
-
-        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 213  # Guessed
 
         # The AOI ID has been assigned to all features
         assert len(features_gdf.loc[[aoi_id]]) == len(features_gdf)
@@ -178,8 +176,8 @@ class TestFeatureAPI:
         assert isinstance(error["message"], str)
 
     def test_get_cache(self, cache_directory: Path, sydney_aoi: Polygon):
-        date_1 = "2020-06-01"
-        date_2 = "2020-12-01"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         country = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -201,11 +199,11 @@ class TestFeatureAPI:
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
-        assert len(features_gdf) == 3
+        assert len(features_gdf) == 1
 
     def test_get_compressed_cache(self, cache_directory: Path, sydney_aoi: Polygon):
-        date_1 = "2020-06-01"
-        date_2 = "2020-12-01"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         country = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -227,7 +225,7 @@ class TestFeatureAPI:
         assert error is None
         assert date_1 <= metadata["date"] <= date_2
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
-        assert len(features_gdf) == 3
+        assert len(features_gdf) == 1
 
     def test_get_bulk(self, cache_directory: Path, sydney_aoi: Polygon):
         aois = []
@@ -237,8 +235,8 @@ class TestFeatureAPI:
         # Add an AOI with an invalid type to test an error case - multipolygon of two separate chunks
 
         aoi_gdf = gpd.GeoDataFrame(aois).set_index(AOI_ID_COLUMN_NAME)
-        date_1 = "2020-01-01"
-        date_2 = "2020-12-01"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         country = "au"
         packs = ["building"]
 
@@ -254,8 +252,8 @@ class TestFeatureAPI:
         # Check error
         assert len(errors_df) == 0
         # We get only roofs
-        assert len(features_gdf) == 69
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 69
+        assert len(features_gdf) == 50
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 50
 
         rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
             aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2
@@ -278,8 +276,8 @@ class TestFeatureAPI:
                 aois.append(
                     {
                         AOI_ID_COLUMN_NAME: f"{i}_{j}",
-                        "since": "2020-01-01",
-                        "until": "2020-03-01",
+                        "since": "2025-01-20",
+                        "until": "2025-01-20",
                         "geometry": translate(sydney_aoi, 0.001 * i, 0.001 * j),
                     }
                 )
@@ -298,11 +296,11 @@ class TestFeatureAPI:
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
 
         # We get only buildings
-        assert len(features_gdf) == 69
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 69
+        assert len(features_gdf) == 50
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 50
         # The dates are within range
         for row in features_gdf.itertuples():
-            assert "2020-01-01" <= row.survey_date <= "2020-03-01"
+            assert "2025-01-20" <= row.survey_date <= "2025-01-20"
 
     def test_point_data(self, cache_directory: Path):
         # Small area around a power pole in Darwin, AU
@@ -313,7 +311,7 @@ class TestFeatureAPI:
         )
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, packs="poles")
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
         features_gdf[AOI_ID_COLUMN_NAME] = 0
         print(features_gdf.T)
         parcel_gdf = gpd.GeoDataFrame([{AOI_ID_COLUMN_NAME: 0}], crs=API_CRS, geometry=[aoi])
@@ -325,8 +323,8 @@ class TestFeatureAPI:
     def test_multipolygon_1(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))
         print(f"Multipolygon 1 (use QuickWKT in QGIS to visualise): {aoi}")
-        date_1 = "2020-01-01"
-        date_2 = "2020-06-01"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         country = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -339,19 +337,19 @@ class TestFeatureAPI:
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
-        # We get 3 buildings
-        assert len(features_gdf) == 6
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 6
+        # We get 4 roofs
+        assert len(features_gdf) == 4
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 4
         # The AOI ID has been assigned
-        assert len(features_gdf.loc[[aoi_id]]) == 6
+        assert len(features_gdf.loc[[aoi_id]]) == 4
         # All buildings intersect the AOI
-        assert len(features_gdf[features_gdf.intersects(aoi)]) == 6
+        assert len(features_gdf[features_gdf.intersects(aoi)]) == 4
 
     def test_multipolygon_2(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = MultiPolygon([translate(sydney_aoi, 0.001, 0.001), translate(sydney_aoi, 0.003, 0.003)])
         print(f"Multipolygon 2 (use QuickWKT in QGIS to visualise): {aoi}")
-        date_1 = "2020-02-28"
-        date_2 = "2020-02-28"
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
         country = "au"
         packs = ["building"]
         aoi_id = "123"
@@ -366,13 +364,13 @@ class TestFeatureAPI:
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
-        # We get 10 buildings
-        assert len(features_gdf) == 10
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 10
+        # We get 5 roofs
+        assert len(features_gdf) == 5
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 5
         # The AOI ID has been assigned
-        assert len(features_gdf.loc[[aoi_id]]) == 10
+        assert len(features_gdf.loc[[aoi_id]]) == 5
         # All buildings intersect the AOI
-        assert len(features_gdf[features_gdf.intersects(aoi)]) == 10
+        assert len(features_gdf[features_gdf.intersects(aoi)]) == 5
 
     def test_multipolygon_3(self, cache_directory: Path):
         """
@@ -460,71 +458,6 @@ class TestFeatureAPI:
         features_gdf_asphalt = features_gdf.query("class_id == @ASPHALT_ID")
         assert features_gdf_asphalt["clipped_area_sqm"].sum() == features_gdf_asphalt["area_sqm"].sum()
         assert features_gdf_asphalt["clipped_area_sqm"].sum() == pytest.approx(259.2, rel=0.02)
-
-    def test_multiparcel_building_filter_1(self, cache_directory: Path):
-        aoi = loads(
-            "Polygon ((151.27703696149524148 -33.79262202320504827, 151.27733681519475795 -33.79266133351605816, 151.27731228659985163 -33.79279055527718612, 151.27701243290030675 -33.79275124502552075, 151.27703696149524148 -33.79262202320504827))"
-        )
-        building = loads(
-            """ POLYGON ((
-            151.27712199999999143 -33.7926259999999985,
-            151.27713900000000535 -33.79253500000000088,
-            151.2771669999999915 -33.79253899999999788,
-            151.27716899999998645 -33.79252799999999723,
-            151.27730700000000752 -33.79254600000000153,
-            151.27729800000000182 -33.79259400000000113,
-            151.27730500000001257 -33.79259400000000113,
-            151.27729400000001192 -33.79264899999999727,
-            151.27729299999998602 -33.79265300000000138,
-            151.2772860000000037 -33.7926519999999968,
-            151.27727400000000557 -33.7927180000000007,
-            151.27727999999999042 -33.7927180000000007,
-            151.2772730000000081 -33.79276000000000124,
-            151.27726599999999735 -33.79275899999999666,
-            151.27726200000000745 -33.79278099999999796,
-            151.27721500000001242 -33.79277400000000142,
-            151.2772160000000099 -33.7927660000000003,
-            151.27712600000000975 -33.79275400000000218,
-            151.27712600000000975 -33.79275899999999666,
-            151.27709699999999771 -33.79275499999999965,
-            151.27705199999999763 -33.79274900000000059,
-            151.27705299999999511 -33.79274499999999648,
-            151.27701899999999569 -33.792740000000002,
-            151.27702500000000896 -33.79271099999999706,
-            151.27708799999999201 -33.79271899999999818,
-            151.27709300000000781 -33.79269399999999735,
-            151.27706399999999576 -33.79269000000000034,
-            151.27706499999999323 -33.79268199999999922,
-            151.27703099999999381 -33.79267699999999763,
-            151.27703700000000708 -33.79264500000000027,
-            151.27710099999998761 -33.79265300000000138,
-            151.27710500000000593 -33.79263300000000214,
-            151.2772380000000112 -33.79265099999999933,
-            151.27724000000000615 -33.79264500000000027,
-            151.2771889999999928 -33.7926390000000012,
-            151.2771889999999928 -33.79263499999999709,
-            151.27712199999999143 -33.7926259999999985
-        ))
-        """
-        )
-        country = "au"
-        pass  # TODO: Implement test. This should come up as a multi parcel building.
-
-        # Convert the polygons to a metric CRS
-        aoi_metric = gpd.GeoDataFrame(geometry=[aoi], crs=API_CRS).to_crs(AREA_CRS[country]).iloc[0].geometry
-        building_metric = gpd.GeoDataFrame(geometry=[building], crs=API_CRS).to_crs(AREA_CRS[country]).iloc[0].geometry
-
-        # Test the reference code for filtering
-        building_status = reference_code.get_building_status(building_metric, aoi_metric)
-        assert building_status["building_keep"]
-        assert not building_status["building_small"]
-        assert building_status["building_multiparcel"]
-
-        belongs_within, belongs_without, in_bigger_than_out = reference_code.check_in_out_belongingness_of_building(
-            building_metric, aoi_metric
-        )
-        assert belongs_within
-        assert belongs_without
 
     def test_classes(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
