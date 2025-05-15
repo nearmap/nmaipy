@@ -26,6 +26,7 @@ from nmaipy.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     DEFAULT_URL_ROOT,
     ADDRESS_FIELDS,
+    BUILDING_STYLE_CLASS_IDS,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -131,6 +132,11 @@ def parse_arguments():
     parser.add_argument(
         "--save-features",
         help="If set, save the raw vectors as a geoparquet file for loading in GIS tools. This can be quite time consuming.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--save-buildings",
+        help="If set, save a building-level geoparquet file with one row per building feature and associated attributes.",
         action="store_true",
     )
     parser.add_argument(
@@ -276,6 +282,7 @@ class AOIExporter:
         calc_buffers=False,
         include_parcel_geometry=False,
         save_features=False,
+        save_buildings=False,
         rollup_format='csv',
         cache_dir=None,
         no_cache=False,
@@ -310,6 +317,7 @@ class AOIExporter:
         self.calc_buffers = calc_buffers
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
+        self.save_buildings = save_buildings
         self.rollup_format = rollup_format
         self.cache_dir = cache_dir
         self.no_cache = no_cache
@@ -641,8 +649,16 @@ class AOIExporter:
         # Modify output file paths using the AOI file name
         outpath = final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
         outpath_features = final_path / f"{Path(aoi_path).stem}_features.parquet"
+        outpath_buildings = final_path / f"{Path(aoi_path).stem}_buildings.{self.rollup_format}"
 
-        if outpath.exists() and (outpath_features.exists() or not self.save_features):
+        # Check if all required outputs already exist
+        outputs_exist = outpath.exists()
+        if self.save_features:
+            outputs_exist = outputs_exist and outpath_features.exists()
+        if self.save_buildings:
+            outputs_exist = outputs_exist and outpath_buildings.exists()
+            
+        if outputs_exist:
             self.logger.info(f"Output already exists, skipping {Path(aoi_path).stem}")
             return
 
@@ -815,7 +831,36 @@ class AOIExporter:
                     self.logger.error(f"Failed to read {cp}.")
                 data_features.append(df_feature_chunk)
             if len(data_features) > 0:
-                pd.concat(data_features).to_parquet(outpath_features)
+                features_gdf = pd.concat(data_features)
+                features_gdf.to_parquet(outpath_features)
+                
+                # If buildings export is enabled, process building features
+                if self.save_buildings:
+                    self.logger.info(f"Saving building-level data as {self.rollup_format} to {outpath_buildings}")
+                    buildings_gdf = parcels.extract_building_features(
+                        parcels_gdf=aoi_gdf,
+                        features_gdf=features_gdf,
+                        country=self.country
+                    )
+                    if len(buildings_gdf) > 0:
+                        # Convert geodataframe to plain dataframe for tabular output
+                        # Keep geometry as WKT representation if needed
+                        buildings_df = pd.DataFrame(buildings_gdf)
+                        if "geometry" in buildings_df.columns:
+                            buildings_df["geometry"] = buildings_df.geometry.apply(lambda geom: geom.wkt if geom else None)
+                        
+                        # Save in the same format as rollup
+                        if self.rollup_format == "parquet":
+                            buildings_df.to_parquet(outpath_buildings, index=True)
+                        elif self.rollup_format == "csv":
+                            buildings_df.to_csv(outpath_buildings, index=True)
+                        else:
+                            self.logger.info("Invalid output format specified for buildings - reverting to csv")
+                            buildings_df.to_csv(outpath_buildings, index=True)
+                    else:
+                        self.logger.info(f"No building features found for {Path(aoi_path).stem}")
+            elif self.save_buildings:
+                self.logger.info(f"No features data available for buildings export in {Path(aoi_path).stem}")
 
 
 def main():
@@ -854,6 +899,7 @@ def main():
         calc_buffers=args.calc_buffers,
         include_parcel_geometry=args.include_parcel_geometry,
         save_features=args.save_features,
+        save_buildings=args.save_buildings,
         rollup_format=args.rollup_format,
         cache_dir=args.cache_dir,
         no_cache=args.no_cache,

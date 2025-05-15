@@ -8,7 +8,27 @@ from shapely.geometry import MultiPolygon, Point, Polygon
 
 import nmaipy.reference_code
 from nmaipy import log
-from nmaipy.constants import *
+from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME, 
+    API_CRS,
+    AREA_CRS,
+    BUILDING_ID,
+    BUILDING_NEW_ID,
+    BUILDING_LIFECYCLE_ID,
+    BUILDING_UNDER_CONSTRUCTION_ID,
+    BUILDING_STYLE_CLASS_IDS,
+    CLASSES_WITH_PRIMARY_FEATURE,
+    IMPERIAL_COUNTRIES,
+    LAT_LONG_CRS,
+    LAT_PRIMARY_COL_NAME,
+    LON_PRIMARY_COL_NAME,
+    METERS_TO_FEET,
+    ROOF_ID,
+    VEG_MEDHIGH_ID,
+    VEG_WOODY_COMPOSITE_ID,
+    CLASS_1111_YARD_DEBRIS,
+    MeasurementUnits,
+)
 
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
@@ -436,6 +456,118 @@ def feature_attributes(
                 pass
     return parcel
 
+
+def extract_building_features(
+    parcels_gdf: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+    country: str,
+) -> gpd.GeoDataFrame:
+    """
+    Extract building-related features and their attributes to create a building-level export.
+    
+    Args:
+        parcels_gdf: GeoDataFrame with AOI information
+        features_gdf: GeoDataFrame with all features
+        country: Country code for units
+            
+    Returns:
+        GeoDataFrame with one row per building feature, including geometry and attributes
+    """
+    if features_gdf is None or len(features_gdf) == 0:
+        return gpd.GeoDataFrame()
+        
+    # Filter for building-style features only
+    building_gdf = features_gdf[features_gdf.class_id.isin(BUILDING_STYLE_CLASS_IDS)].copy()
+    
+    if len(building_gdf) == 0:
+        return gpd.GeoDataFrame()
+        
+    # Create a list to store processed building records
+    building_records = []
+    
+    # Process each building feature
+    for idx, building in building_gdf.iterrows():
+        # Get AOI ID
+        aoi_id = building.name if hasattr(building, 'name') else idx
+        
+        # Start with basic feature info
+        building_record = {
+            AOI_ID_COLUMN_NAME: aoi_id,
+            "feature_id": building.feature_id,
+            "class_id": building.class_id,
+            "class_description": building.description,
+            "confidence": building.confidence,
+            "area_sqm": building.area_sqm if hasattr(building, 'area_sqm') else None,
+            "clipped_area_sqm": building.clipped_area_sqm if hasattr(building, 'clipped_area_sqm') else None,
+            "unclipped_area_sqm": building.unclipped_area_sqm if hasattr(building, 'unclipped_area_sqm') else None,
+            "area_sqft": building.area_sqft if hasattr(building, 'area_sqft') else None,
+            "clipped_area_sqft": building.clipped_area_sqft if hasattr(building, 'clipped_area_sqft') else None,
+            "unclipped_area_sqft": building.unclipped_area_sqft if hasattr(building, 'unclipped_area_sqft') else None,
+            "survey_date": building.survey_date if hasattr(building, 'survey_date') else None,
+            "mesh_date": building.mesh_date if hasattr(building, 'mesh_date') else None,
+            "geometry": building.geometry
+        }
+        
+        # Add building flags if available
+        if hasattr(building, 'building_small'):
+            building_record["building_small"] = building.building_small
+        if hasattr(building, 'multiparcel_feature'):
+            building_record["building_multiparcel"] = building.multiparcel_feature
+        if hasattr(building, 'fidelity'):
+            building_record["fidelity"] = building.fidelity
+            
+        # Flatten attributes based on the class type
+        try:
+            # Handle attributes - might be string or dict/list
+            attributes = building.attributes
+            if isinstance(attributes, str):
+                try:
+                    import json
+                    attributes = json.loads(attributes)
+                except (json.JSONDecodeError, TypeError):
+                    attributes = {}
+            
+            if building.class_id == ROOF_ID:
+                # For roof attributes, don't wrap in a list if it's already a list
+                # This is the key fix - roof attributes should be processed as they are
+                if isinstance(attributes, list):
+                    flat_attrs = flatten_roof_attributes(attributes, country=country)
+                else:
+                    flat_attrs = flatten_roof_attributes([attributes], country=country)
+                
+                for k, v in flat_attrs.items():
+                    building_record[k] = v
+            elif building.class_id in [BUILDING_ID, BUILDING_NEW_ID]:
+                flat_attrs = flatten_building_attributes([attributes], country=country)
+                for k, v in flat_attrs.items():
+                    building_record[k] = v
+            elif building.class_id == BUILDING_LIFECYCLE_ID:
+                flat_attrs = flatten_building_lifecycle_damage_attributes([attributes])
+                for k, v in flat_attrs.items():
+                    building_record[k] = v
+        except Exception as e:
+            # If any issues processing attributes, log and continue
+            logger.warning(f"Error processing attributes for feature {building.feature_id}: {str(e)}")
+                
+        building_records.append(building_record)
+        
+    if not building_records:
+        return gpd.GeoDataFrame()
+        
+    # Create GeoDataFrame from building records
+    buildings_df = gpd.GeoDataFrame(building_records, geometry="geometry", crs=API_CRS)
+    
+    # Add AOI information if available (merge on AOI ID)
+    if parcels_gdf is not None:
+        # Identify columns from parcels_gdf to include (exclude geometry to avoid conflicts)
+        parcel_cols = [col for col in parcels_gdf.columns if col != 'geometry']
+        if parcel_cols:
+            # Create copy with reset index to allow merging
+            parcel_info = parcels_gdf.reset_index()[parcel_cols + [AOI_ID_COLUMN_NAME]]
+            # Merge with buildings dataframe
+            buildings_df = buildings_df.merge(parcel_info, on=AOI_ID_COLUMN_NAME, how="left")
+    
+    return buildings_df
 
 def parcel_rollup(
     parcels_gdf: gpd.GeoDataFrame,
