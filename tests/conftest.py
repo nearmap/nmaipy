@@ -140,12 +140,12 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
     """
     # Syd
     syd_row = {
-        "since": "2020-01-01",
-        "until": "2020-06-01",
+        "since": "2024-01-01",
+        "until": "2025-01-01",
         "geometry": sydney_aoi,
     }
     adelaide_row = {
-        "survey_resource_id": "fe48a583-da45-5cd3-9fee-8321354bdf7a",  # 2011-03-03
+        "survey_resource_id": "68c1c4e7-9267-52a5-84e7-23b6ed43bceb",  # 2025-03-06, Gen 6 run
         "geometry": large_adelaide_aoi,
     }
 
