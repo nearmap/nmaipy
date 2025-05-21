@@ -376,8 +376,9 @@ def feature_attributes(
             # Add roof and building attributes
             if class_id in BUILDING_STYLE_CLASS_IDS:
                 for col in ["building_small", "building_multiparcel"]:
-                    s = col.split("_")[1]
-                    parcel[f"primary_{name}_{s}"] = primary_feature[col]
+                    if col in primary_feature:
+                        s = col.split("_")[1]
+                        parcel[f"primary_{name}_{s}"] = primary_feature[col]
                 if class_id == ROOF_ID:
                     primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
                     primary_attributes["feature_id"] = primary_feature.feature_id
