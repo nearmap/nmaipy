@@ -314,10 +314,6 @@ class TestFeatureAPI:
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
         features_gdf[AOI_ID_COLUMN_NAME] = 0
         print(features_gdf.T)
-        parcel_gdf = gpd.GeoDataFrame([{AOI_ID_COLUMN_NAME: 0}], crs=API_CRS, geometry=[aoi])
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
-        print(features_gdf.T)
-        # No data
         assert len(features_gdf) == 1  # 1 pole found
 
     def test_multipolygon_1(self, cache_directory: Path, sydney_aoi: Polygon):

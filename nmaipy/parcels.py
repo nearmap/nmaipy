@@ -35,7 +35,6 @@ FALSE_STRING = "N"
 PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
 
 # All area values are in squared metres
-BUILDING_SMALL_MAX_AREA_SQM = 30
 BUILDING_STYLE_CLASSE_IDS = [
         BUILDING_LIFECYCLE_ID,
         BUILDING_ID,
@@ -167,42 +166,6 @@ def read_from_file(
     return parcels_gdf
 
 
-def filter_features_in_parcels(
-    features_gdf: gpd.GeoDataFrame, aoi_gdf: gpd.GeoDataFrame, region: str
-) -> gpd.GeoDataFrame:
-    """
-    Add building flags (building_small, building_multiparcel) based on API data.
-
-    With the API's parcel_mode=True, all filtering happens on the server. This function now only
-    adds building flags for compatibility with the rest of the codebase:
-    - building_small: Based on area calculation
-    - building_multiparcel: Directly mapped from the API's multiparcel_feature flag
-
-    Args:
-        features_gdf: Features data (already filtered by API parcel_mode)
-        aoi_gdf: Area of Interest geometries (needed only for projection info)
-        region: Country/region code for projection systems
-
-    Returns: Features GeoDataFrame with building flags added
-    """
-    if features_gdf is None or len(features_gdf) == 0:
-        return features_gdf
-
-    gdf = features_gdf.copy()
-
-    # Get building class IDs
-    building_mask = gdf.class_id.isin(BUILDING_STYLE_CLASS_IDS)
-
-    # If we have buildings
-    if building_mask.any():
-        # Set multiparcel flag directly from the API's multiparcel_feature if available
-        if "multiparcel_feature" in gdf.columns:
-            gdf.loc[building_mask, "building_multiparcel"] = gdf.loc[building_mask, "multiparcel_feature"]
-        gdf.loc[building_mask, "building_small"] = gdf.loc[building_mask, "unclipped_area_sqm"] < BUILDING_SMALL_MAX_AREA_SQM
-
-    return gdf
-
-
 def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
     """
     Flatten building attributes
@@ -319,10 +282,9 @@ def feature_attributes(
             parcel[f"{name}_confidence"] = None
 
         if class_id in BUILDING_STYLE_CLASS_IDS:
-            for col in ["building_small", "building_multiparcel"]:
-                if col in class_features_gdf.columns:
-                    s = col.split("_")[1]
-                    parcel[f"{name}_{s}_count"] = len(class_features_gdf[class_features_gdf[col]])
+            col = "multiparcel_feature"
+            if col in class_features_gdf.columns:
+                parcel[f"{name}_{col}_count"] = len(class_features_gdf.query(f"{col} == True"))
 
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:
@@ -375,10 +337,9 @@ def feature_attributes(
 
             # Add roof and building attributes
             if class_id in BUILDING_STYLE_CLASS_IDS:
-                for col in ["building_small", "building_multiparcel"]:
-                    if col in primary_feature:
-                        s = col.split("_")[1]
-                        parcel[f"primary_{name}_{s}"] = primary_feature[col]
+                col = "multiparcel_feature"
+                if col in primary_feature:
+                    parcel[f"primary_{name}_{col}"] = primary_feature[col]
                 if class_id == ROOF_ID:
                     primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
                     primary_attributes["feature_id"] = primary_feature.feature_id
@@ -498,6 +459,7 @@ def extract_building_features(
             "class_id": building.class_id,
             "class_description": building.description,
             "confidence": building.confidence,
+            "fidelity": building.fidelity if hasattr(building, 'fidelity') else None,
             "area_sqm": building.area_sqm if hasattr(building, 'area_sqm') else None,
             "clipped_area_sqm": building.clipped_area_sqm if hasattr(building, 'clipped_area_sqm') else None,
             "unclipped_area_sqm": building.unclipped_area_sqm if hasattr(building, 'unclipped_area_sqm') else None,
@@ -508,14 +470,8 @@ def extract_building_features(
             "mesh_date": building.mesh_date if hasattr(building, 'mesh_date') else None,
             "geometry": building.geometry
         }
-        
-        # Add building flags if available
-        if hasattr(building, 'building_small'):
-            building_record["building_small"] = building.building_small
-        if hasattr(building, 'multiparcel_feature'):
-            building_record["building_multiparcel"] = building.multiparcel_feature
-        if hasattr(building, 'fidelity'):
-            building_record["fidelity"] = building.fidelity
+        if hasattr(building, "parent_id"):
+            building_record["parent_id"] = building.parent_id
             
         # Flatten attributes based on the class type
         try:

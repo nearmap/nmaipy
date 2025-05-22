@@ -447,11 +447,6 @@ class AOIExporter:
                     errors_df.to_parquet(outfile_errors)
                     return
 
-                # Filter features
-                len_all_features = len(features_gdf)
-                features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=aoi_gdf, region=self.country)
-                len_filtered_features = len(features_gdf)
-
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
@@ -834,43 +829,41 @@ class AOIExporter:
                 features_gdf = pd.concat(data_features)
                 features_gdf.to_parquet(outpath_features)
                 
-                # If buildings export is enabled, process building features
-                if self.save_buildings:
-                    self.logger.info(f"Saving building-level data as {self.rollup_format} to {outpath_buildings}")
-                    # Define geoparquet path for buildings
-                    outpath_buildings_geoparquet = final_path / f"{Path(aoi_path).stem}_building_features.parquet"
-                    
-                    buildings_gdf = parcels.extract_building_features(
-                        parcels_gdf=aoi_gdf,
-                        features_gdf=features_gdf,
-                        country=self.country
-                    )
-                    if len(buildings_gdf) > 0:
-                        # First, save the geoparquet version with intact geometries
-                        self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
-                        try:
-                            buildings_gdf.to_parquet(outpath_buildings_geoparquet)
-                        except Exception as e:
-                            self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
-                            
-                        # Then convert geodataframe to plain dataframe for tabular output
-                        # Keep geometry as WKT representation if needed
-                        buildings_df = pd.DataFrame(buildings_gdf)
-                        if "geometry" in buildings_df.columns:
-                            buildings_df["geometry"] = buildings_df.geometry.apply(lambda geom: geom.wkt if geom else None)
+            # If buildings export is enabled, process building features
+            if self.save_buildings:
+                self.logger.info(f"Saving building-level data as {self.rollup_format} to {outpath_buildings}")
+                # Define geoparquet path for buildings
+                outpath_buildings_geoparquet = final_path / f"{Path(aoi_path).stem}_building_features.parquet"
+                
+                buildings_gdf = parcels.extract_building_features(
+                    parcels_gdf=aoi_gdf,
+                    features_gdf=features_gdf,
+                    country=self.country
+                )
+                if len(buildings_gdf) > 0:
+                    # First, save the geoparquet version with intact geometries
+                    self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
+                    try:
+                        buildings_gdf.to_parquet(outpath_buildings_geoparquet)
+                    except Exception as e:
+                        self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
                         
-                        # Save in the same format as rollup
-                        if self.rollup_format == "parquet":
-                            buildings_df.to_parquet(outpath_buildings, index=True)
-                        elif self.rollup_format == "csv":
-                            buildings_df.to_csv(outpath_buildings, index=True)
-                        else:
-                            self.logger.info("Invalid output format specified for buildings - reverting to csv")
-                            buildings_df.to_csv(outpath_buildings, index=True)
+                    # Then convert geodataframe to plain dataframe for tabular output
+                    # Keep geometry as WKT representation if needed
+                    buildings_df = pd.DataFrame(buildings_gdf)
+                    if "geometry" in buildings_df.columns:
+                        buildings_df["geometry"] = buildings_df.geometry.apply(lambda geom: geom.wkt if geom else None)
+                    
+                    # Save in the same format as rollup
+                    if self.rollup_format == "parquet":
+                        buildings_df.to_parquet(outpath_buildings, index=True)
+                    elif self.rollup_format == "csv":
+                        buildings_df.to_csv(outpath_buildings, index=True)
                     else:
-                        self.logger.info(f"No building features found for {Path(aoi_path).stem}")
-            elif self.save_buildings:
-                self.logger.info(f"No features data available for buildings export in {Path(aoi_path).stem}")
+                        self.logger.info("Invalid output format specified for buildings - reverting to csv")
+                        buildings_df.to_csv(outpath_buildings, index=True)
+                else:
+                    self.logger.info(f"No building features found for {Path(aoi_path).stem}")
 
 
 def main():
