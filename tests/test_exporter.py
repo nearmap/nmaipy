@@ -60,6 +60,7 @@ class TestExporter:
             alpha=False,
             beta=False,
             endpoint="rollup",
+            save_buildings=True,
         )
         my_exporter.process_chunk(
             chunk_id=chunk_id,
@@ -111,6 +112,7 @@ class TestExporter:
             parcel_mode=True,
             system_version_prefix="gen6-",
             processes=8,
+            save_buildings=True,
         )
         my_exporter.process_chunk(
             chunk_id=chunk_id,
@@ -151,7 +153,6 @@ class TestExporter:
         assert outpath_features.exists()
 
         assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.
-        # TODO: Add asserts for presence of roof and building classes, and check for calculated columns.
         print(data.T)
 
     @pytest.mark.skip(reason="Rollup API not yet updated to be compatible with output.")

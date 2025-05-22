@@ -35,7 +35,7 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     from nmaipy.feature_api import FeatureApi
 
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
-    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, alpha=True, beta=True).get_features_gdf_bulk(
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, parcel_mode=True).get_features_gdf_bulk(
         parcels_gdf, packs=packs, region="au", since_bulk="2025-04-03", until_bulk="2025-04-03"
     )
     features_gdf.to_csv(outfname)
@@ -57,19 +57,6 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
 
 
 class TestParcels:
-    def test_filter(self, features_2_gdf, parcels_2_gdf):
-        f_gdf = features_2_gdf[features_2_gdf.class_id == ROOF_ID]
-        assert len(f_gdf) == 130 # Already filtered by API with parcel mode
-        country = "us"
-        filtered_gdf = parcels.filter_features_in_parcels(f_gdf, region=country, aoi_gdf=parcels_2_gdf)
-        assert len(filtered_gdf) == 130 # Filtering shouldn't remove any after parcel mode is used
-        assert not (filtered_gdf.confidence < 0.58).any()
-        assert not (filtered_gdf.unclipped_area_sqm < 4).any()
-        assert not (filtered_gdf.fidelity < 0.15).any()
-
-        # Check calculated columns for building status are present
-        for col in ["building_small", "building_multiparcel"]:
-            assert col in filtered_gdf
 
     def test_flatten_building(self):
         country = "au"
@@ -303,17 +290,14 @@ class TestParcels:
 
     def test_rollup(self, parcels_2_gdf, features_2_gdf, parcels_gdf, features_gdf):
         classes_df = pd.DataFrame(
-            {"id": BUILDING_ID, "description": "building"},
+            {"id": ROOF_ID, "description": "building"},
             {"id": POOL_ID, "description": "pool"},
             {"id": LAWN_GRASS_ID, "description": "lawn"},
         ).set_index("id")
         country = "au"
-        features_2_gdf_filtered = parcels.filter_features_in_parcels(
-            features_2_gdf, aoi_gdf=parcels_2_gdf, region=country
-        )
         df = parcels.parcel_rollup(
             parcels_2_gdf,
-            features_2_gdf_filtered,
+            features_2_gdf,
             classes_df,
             country=country,
             calc_buffers=False,
@@ -325,12 +309,9 @@ class TestParcels:
         )  # Expected ground truth results
         pd.testing.assert_frame_equal(df, expected, rtol=0.8)
 
-        features_gdf_filtered = parcels.filter_features_in_parcels(
-            features_gdf, aoi_gdf=parcels_gdf, region=country
-        )
         df = parcels.parcel_rollup(
             parcels_gdf,
-            features_gdf_filtered,
+            features_gdf,
             classes_df,
             country=country,
             calc_buffers=False,
@@ -419,8 +400,6 @@ class TestParcels:
 
         classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
 
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
-
         rollup_df = parcels.parcel_rollup(
             parcels_gdf, features_gdf, classes_df, country=country, calc_buffers=False, primary_decision="nearest"
         )
@@ -443,7 +422,7 @@ class TestParcels:
         ).set_index(AOI_ID_COLUMN_NAME)
         pd.testing.assert_frame_equal(rollup_df, expected, atol=1e-3)
 
-    def test_filter_and_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
+    def test_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
         packs = ["building", "vegetation"]
         country = "au"
         parcel_gdf = parcel_gdf_au_tests
@@ -463,16 +442,10 @@ class TestParcels:
         # We get results in all AOIs
         assert len(features_gdf.index.unique()) == len(parcel_gdf)
 
-        features_gdf_filtered = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcel_gdf, region=country)
-        assert (
-            len(features_gdf) > len(features_gdf_filtered) * 0.95
-        )  # Very little should have been filtered out in these examples.
-        assert len(features_gdf_filtered.index.unique()) == len(parcel_gdf)
-
         # Check rollup matches what's expected
         rollup_df = parcels.parcel_rollup(
             parcel_gdf,
-            features_gdf_filtered,
+            features_gdf,
             classes_df,
             country=country,
             calc_buffers=False,
@@ -499,7 +472,6 @@ class TestParcels:
             {"id": VEG_MEDHIGH_ID, "description": "tree"},
         ).set_index("id")
         country = "au"
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
         df = parcels.parcel_rollup(
             parcels_gdf,
             features_gdf,
@@ -546,12 +518,9 @@ class TestParcels:
             ]
         ).set_index("id")
         country = "us"
-        features_2_gdf_filtered = parcels.filter_features_in_parcels(
-            features_2_gdf, aoi_gdf=parcels_2_gdf, region=country
-        )
         df = parcels.parcel_rollup(
             parcels_2_gdf,
-            features_2_gdf_filtered,
+            features_2_gdf,
             classes_df,
             country=country,
             calc_buffers=True,
@@ -580,40 +549,6 @@ class TestParcels:
         )  # Same as tree overhang
         assert tree_zone_example.loc["primary_roof_buffer_5ft_tree_sqm"] == pytest.approx(21.5, abs=0.5)
         assert tree_zone_example.loc["primary_roof_buffer_10ft_tree_sqm"] == pytest.approx(47.6, abs=0.5)
-
-    def test_building_fidelity_filter_scenario(self, cache_directory: Path):
-        """
-        Test a particular area of water in New York, which had a false positive building with large area, high
-        confidence, and fidelity of 0.16 in Gen 4.
-
-        Returns:
-
-        """
-        aoi = loads(
-            "Polygon ((-74.06416616471615555 40.65346976328397233, -74.06416616471615555 40.6752980952800911, -74.02222033693037417 40.6752980952800911, -74.02222033693037417 40.65346976328397233, -74.06416616471615555 40.65346976328397233))"
-        )
-        country = "us"
-        date_1 = "2025-03-11"
-        date_2 = "2025-03-11"
-        classes = [ROOF_ID, WATER_BODY_ID]
-        aoi_id = 42
-
-        parcels_gdf = gpd.GeoDataFrame(
-            [{"geometry": aoi, AOI_ID_COLUMN_NAME: aoi_id, "since": date_1, "until": date_2}], crs=API_CRS
-        ).set_index(AOI_ID_COLUMN_NAME)
-
-        classes_df = pd.DataFrame(
-            {"id": ROOF_ID, "description": "roof"}, {"id": WATER_BODY_ID, "description": "water_body"}
-        ).set_index("id")
-
-        feature_api = FeatureApi(cache_dir=cache_directory, aoi_grid_min_pct=80)
-
-        features_gdf, metadata, errors = feature_api.get_features_gdf(
-            aoi, country, packs=None, classes=classes, aoi_id=aoi_id, since=date_1, until=date_2
-        )
-        print(metadata)
-        assert errors is None
-        assert len(features_gdf.query("class_id == @ROOF_ID")) == 0 # No features returned after filtering
 
     def test_rollup_snake_geometry(self, cache_directory: Path):
         """
@@ -648,8 +583,6 @@ class TestParcels:
         features_gdf, metadata, error = feature_api.get_features_gdf(
             aoi, country, packs, None, aoi_id, #survey_resource_id=survey_resource_id
         )
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
-
         df = parcels.parcel_rollup(
             parcels_gdf,
             features_gdf,
@@ -698,7 +631,6 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
-        features_gdf = parcels.filter_features_in_parcels(features_gdf, aoi_gdf=parcels_gdf, region=country)
 
         df = parcels.parcel_rollup(
             parcels_gdf,
