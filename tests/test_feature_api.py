@@ -326,7 +326,9 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        assert error is None
+        assert metadata is not None
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
         # No error
@@ -351,7 +353,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
 
         print(metadata)
@@ -383,7 +385,7 @@ class TestFeatureAPI:
         aoi_id = "3"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
@@ -415,7 +417,7 @@ class TestFeatureAPI:
         aoi_id = 11
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
@@ -441,7 +443,7 @@ class TestFeatureAPI:
         aoi_id = 12
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -496,6 +498,42 @@ class TestFeatureAPI:
             "trampoline",
         }
         assert not expected_subset.difference(packs.keys())
+
+    def test_include_parameter_api_call(self, cache_directory: Path, sydney_aoi: Polygon):
+        """Test that include parameter is correctly passed to API and doesn't cause errors"""
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
+        country = "au"
+        packs = ["roof_char", "roof_cond"]
+        aoi_id = "123"
+        
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        
+        # Test that including RSI and confidence stats doesn't break the API call
+        features_gdf, metadata, error = feature_api.get_features_gdf(
+            geometry=sydney_aoi, 
+            region=country, 
+            packs=packs, 
+            include=["roofSpotlightIndex", "roofConditionConfidenceStats"],
+            aoi_id=aoi_id, 
+            since=date_1, 
+            until=date_2
+        )
+        
+        # Should not error out
+        assert error is None
+        assert metadata is not None
+        assert date_1 <= metadata["date"] <= date_2
+        
+        # Should still get roof features
+        if features_gdf is not None and len(features_gdf) > 0:
+            roof_features = features_gdf[features_gdf.description == "Roof"]
+            # If we have roof features, check attributes exist
+            if len(roof_features) > 0:
+                first_roof = roof_features.iloc[0]
+                assert hasattr(first_roof, 'attributes')
+                # Note: The actual RSI data might not be present in test data,
+                # but the API call should succeed
 
 
 if __name__ == "__main__":
