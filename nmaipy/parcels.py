@@ -6,7 +6,6 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import MultiPolygon, Point, Polygon
 
-import nmaipy.reference_code
 from nmaipy import log
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME, 
@@ -166,12 +165,17 @@ def read_from_file(
     return parcels_gdf
 
 
-def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
+def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     """
     Flatten building attributes
+
+    Args:
+        buildings: List of building features with attributes
+        country: Country code for units (e.g. "US" for imperial, "EU" for metric)
     """
     flattened = {}
-    for attribute in attributes:
+    for building in buildings:
+        attribute = building["attributes"]
         if "has3dAttributes" in attribute:
             flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
@@ -182,43 +186,69 @@ def flatten_building_attributes(attributes: List[dict], country: str) -> dict:
                 for k, v in attribute["numStories"].items():
                     flattened[f"num_storeys_{k}_confidence"] = v
         if "fidelity" in attribute:
-            flattened["fidelity"] = attributes["fidelity"]
+            flattened["fidelity"] = attribute["fidelity"]
     return flattened
 
 
-def flatten_roof_attributes(attributes: List[dict], country: str) -> dict:
+def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
     """
     Flatten roof attributes
+
+    Args:
+        roofs: List of roof features with attributes
+        country: Country code for units (e.g. "US" for imperial, "EU" for metric)
     """
     flattened = {}
-    for attribute in attributes:
-        if "components" in attribute:
-            for component in attribute["components"]:
-                name = component["description"].lower().replace(" ", "_")
-                if "Low confidence" in attribute["description"]:
-                    name = f"low_conf_{name}"
-                flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                if country in IMPERIAL_COUNTRIES:
-                    flattened[f"{name}_area_sqft"] = component["areaSqft"]
-                else:
-                    flattened[f"{name}_area_sqm"] = component["areaSqm"]
-                flattened[f"{name}_confidence"] = component["confidence"]
-                if "dominant" in component:
-                    flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
-        elif "has3dAttributes" in attribute:
-            flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-            if attribute["has3dAttributes"]:
-                flattened["pitch_degrees"] = attribute["pitch"]
+    
+    # Handle components and other attributes
+    for roof in roofs:
+        # Handle roofSpotlightIndex if present
+        if "roof_spotlight_index" in roof:
+            rsi_data = roof["roof_spotlight_index"]
+            # Extract value and confidence
+            if "value" in rsi_data:
+                flattened["roof_spotlight_index"] = rsi_data["value"]
+            if "confidence" in rsi_data:
+                flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
+            # Extract modelVersion if present
+            if "modelVersion" in rsi_data:
+                flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
+        
+        for attribute in roof["attributes"]:
+            if "components" in attribute:
+                for component in attribute["components"]:
+                    name = component["description"].lower().replace(" ", "_")
+                    if "Low confidence" in attribute["description"]:
+                        name = f"low_conf_{name}"
+                    flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+                    if country in IMPERIAL_COUNTRIES:
+                        flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                    else:
+                        flattened[f"{name}_area_sqm"] = component["areaSqm"]
+                    flattened[f"{name}_confidence"] = component["confidence"]
+                    if "dominant" in component:
+                        flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
+                    # Handle ratio field if present
+                    if "ratio" in component:
+                        flattened[f"{name}_ratio"] = component["ratio"]
+            elif "has3dAttributes" in attribute:
+                flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
+                if attribute["has3dAttributes"]:
+                    flattened["pitch_degrees"] = attribute["pitch"]
     return flattened
 
 
-def flatten_building_lifecycle_damage_attributes(attributes: List[dict]) -> dict:
+def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]) -> dict:
     """
     Flatten building lifecycle damage attributes
+
+    Args:
+        building_lifecycles: List of building lifecycle features with attributes
     """
 
     flattened = {}
-    for attribute in attributes:
+    for building_lifecycle in building_lifecycles:
+        attribute = building_lifecycle["attributes"]
         if "damage" in attribute:
             damage_dic = attribute["damage"]["femaCategoryConfidences"]
             x = pd.Series(damage_dic)
@@ -341,10 +371,10 @@ def feature_attributes(
                 if col in primary_feature:
                     parcel[f"primary_{name}_{col}"] = primary_feature[col]
                 if class_id == ROOF_ID:
-                    primary_attributes = flatten_roof_attributes(primary_feature.attributes, country=country)
+                    primary_attributes = flatten_roof_attributes([primary_feature], country=country)
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
-                    primary_attributes = flatten_building_attributes(primary_feature.attributes, country=country)
+                    primary_attributes = flatten_building_attributes([primary_feature], country=country)
                 else:
                     primary_attributes = {}
 
@@ -352,7 +382,7 @@ def feature_attributes(
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Provide the confidence values for each damage rating class for the primary building lifecycle feature
-                primary_attributes = flatten_building_lifecycle_damage_attributes(primary_feature.attributes)
+                primary_attributes = flatten_building_lifecycle_damage_attributes(primary_feature)
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
 
@@ -425,7 +455,7 @@ def extract_building_features(
     country: str,
 ) -> gpd.GeoDataFrame:
     """
-    Extract building-related features and their attributes to create a building-level export.
+    Extract building-related features and their attributes to create a building-level export. Note that this gets all building like features, not strictly buildings.
     
     Args:
         parcels_gdf: GeoDataFrame with AOI information
@@ -433,7 +463,7 @@ def extract_building_features(
         country: Country code for units
             
     Returns:
-        GeoDataFrame with one row per building feature, including geometry and attributes
+        GeoDataFrame with one row per building style feature, including geometry and attributes
     """
     if features_gdf is None or len(features_gdf) == 0:
         return gpd.GeoDataFrame()
@@ -475,31 +505,22 @@ def extract_building_features(
             
         # Flatten attributes based on the class type
         try:
-            # Handle attributes - might be string or dict/list
-            attributes = building.attributes
-            if isinstance(attributes, str):
-                try:
-                    import json
-                    attributes = json.loads(attributes)
-                except (json.JSONDecodeError, TypeError):
-                    attributes = {}
-            
             if building.class_id == ROOF_ID:
                 # For roof attributes, don't wrap in a list if it's already a list
                 # This is the key fix - roof attributes should be processed as they are
-                if isinstance(attributes, list):
-                    flat_attrs = flatten_roof_attributes(attributes, country=country)
+                if isinstance(building, list):
+                    flat_attrs = flatten_roof_attributes(building, country=country)
                 else:
-                    flat_attrs = flatten_roof_attributes([attributes], country=country)
+                    flat_attrs = flatten_roof_attributes([building], country=country)
                 
                 for k, v in flat_attrs.items():
                     building_record[k] = v
             elif building.class_id in [BUILDING_ID, BUILDING_NEW_ID]:
-                flat_attrs = flatten_building_attributes([attributes], country=country)
+                flat_attrs = flatten_building_attributes([building], country=country)
                 for k, v in flat_attrs.items():
                     building_record[k] = v
             elif building.class_id == BUILDING_LIFECYCLE_ID:
-                flat_attrs = flatten_building_lifecycle_damage_attributes([attributes])
+                flat_attrs = flatten_building_lifecycle_damage_attributes([building])
                 for k, v in flat_attrs.items():
                     building_record[k] = v
         except Exception as e:

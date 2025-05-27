@@ -75,6 +75,14 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument(
+        "--include",
+        help="List of additional data to include (e.g. roofSpotlightIndex, roofConditionConfidenceStats)",
+        type=str,
+        nargs="+",
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
         "--primary-decision",
         help="Primary feature decision method: largest_intersection|nearest",
         type=str,
@@ -273,6 +281,7 @@ class AOIExporter:
         output_dir='default_output_dir',
         packs=None,
         classes=None,
+        include=None,
         primary_decision='largest_intersection',
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
@@ -308,6 +317,7 @@ class AOIExporter:
         self.output_dir = output_dir
         self.packs = packs
         self.classes = classes
+        self.include = include
         self.primary_decision = primary_decision
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
@@ -431,6 +441,7 @@ class AOIExporter:
                     until_bulk=self.until,
                     packs=self.packs,
                     classes=self.classes,
+                    include=self.include,
                     max_allowed_error_pct=100,
                 )
                 mem = psutil.virtual_memory()
@@ -893,6 +904,7 @@ def main():
         output_dir=args.output_dir,
         packs=args.packs,
         classes=args.classes,
+        include=args.include,
         primary_decision=args.primary_decision,
         aoi_grid_min_pct=args.aoi_grid_min_pct,
         aoi_grid_inexact=args.aoi_grid_inexact,

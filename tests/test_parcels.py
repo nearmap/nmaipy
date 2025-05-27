@@ -76,10 +76,11 @@ class TestParcels:
             "num_storeys_2_confidence": 0.8145058300927666,
             "num_storeys_3+_confidence": 0.1278751981569811,
         }
-        assert expected == parcels.flatten_building_attributes(attributes, country)
+        building = {"attributes": attributes}
+        assert expected == parcels.flatten_building_attributes([building], country)
 
     def test_flatten_roof(self):
-        attributes = [
+        roof = {"attributes": [
             {
                 "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
                 "description": "Roof 3d attributes",
@@ -233,60 +234,85 @@ class TestParcels:
                 ],
                 "description": "Roof tree overhang",
             },
-        ]
+        ]}
+
         expected = {
             "has_3d_attributes": "Y",
             "pitch_degrees": 26.21,
             "structurally_damaged_roof_present": "N",
             "structurally_damaged_roof_area_sqm": 0,
+            "structurally_damaged_roof_ratio": 0,
             "structurally_damaged_roof_confidence": 1,
             "roof_with_temporary_repair_present": "N",
             "roof_with_temporary_repair_area_sqm": 0,
+            "roof_with_temporary_repair_ratio": 0,
             "roof_with_temporary_repair_confidence": 1,
             "roof_ponding_present": "N",
             "roof_ponding_area_sqm": 0,
+            "roof_ponding_ratio": 0,
             "roof_ponding_confidence": 1,
             "roof_rusting_present": "N",
             "roof_rusting_area_sqm": 0,
+            "roof_rusting_ratio": 0,
             "roof_rusting_confidence": 1,
             "roof_tile/shingle_discolouration_present": "N",
             "roof_tile/shingle_discolouration_area_sqm": 0,
+            "roof_tile/shingle_discolouration_ratio": 0,
             "roof_tile/shingle_discolouration_confidence": 1,
             "tile_roof_present": "Y",
             "tile_roof_area_sqm": 284.2,
+            "tile_roof_ratio": 0.91,
             "tile_roof_confidence": 0.9904731109239588,
             "tile_roof_dominant": "Y",
             "shingle_roof_present": "N",
             "shingle_roof_area_sqm": 0,
+            "shingle_roof_ratio": 0,
             "shingle_roof_confidence": 1,
             "shingle_roof_dominant": "N",
             "metal_roof_present": "N",
             "metal_roof_area_sqm": 0,
+            "metal_roof_ratio": 0,
             "metal_roof_confidence": 1,
             "metal_roof_dominant": "N",
             "hip_present": "Y",
             "hip_area_sqm": 48,
+            "hip_ratio": 0.154,
             "hip_confidence": 0.7464101831606086,
             "gable_present": "Y",
             "gable_area_sqm": 74.8,
+            "gable_ratio": 0.24,
             "gable_confidence": 0.7787800614990344,
             "dutch_gable_present": "N",
             "dutch_gable_area_sqm": 0,
+            "dutch_gable_ratio": 0,
             "dutch_gable_confidence": 1,
             "flat_present": "N",
             "flat_area_sqm": 0,
+            "flat_ratio": 0,
             "flat_confidence": 1,
             "turret_present": "N",
             "turret_area_sqm": 0,
+            "turret_ratio": 0,
             "turret_confidence": 1,
             "other_roof_shape_present": "Y",
             "other_roof_shape_area_sqm": 6.1,
+            "other_roof_shape_ratio": 0.0196,
             "other_roof_shape_confidence": 0.5372738248389376,
             "tree_overhang_present": "N",
             "tree_overhang_area_sqm": 0,
+            "tree_overhang_ratio": 0,
             "tree_overhang_confidence": 1,
         }
-        assert expected == parcels.flatten_roof_attributes(attributes, "au")
+        actual = parcels.flatten_roof_attributes([roof], "au")
+        for k in expected:
+            # Check approximately equal for floats
+            if isinstance(expected[k], float):
+                assert np.isclose(expected[k], actual[k], rtol=0.01), f"Expected {k} to be {expected[k]}, got {actual[k]}"
+            else:
+                assert expected[k] == actual[k], f"Expected {k} to be {expected[k]}, got {actual[k]}"
+        for k in actual:
+            if k not in expected:
+                assert False, f"Unexpected key {k} in actual result: {actual[k]}"
 
     def test_rollup(self, parcels_2_gdf, features_2_gdf, parcels_gdf, features_gdf):
         classes_df = pd.DataFrame(
@@ -581,7 +607,7 @@ class TestParcels:
 
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, threads=4)
         features_gdf, metadata, error = feature_api.get_features_gdf(
-            aoi, country, packs, None, aoi_id, #survey_resource_id=survey_resource_id
+            aoi, country, packs, None, None, aoi_id, #survey_resource_id=survey_resource_id
         )
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -630,7 +656,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
 
         df = parcels.parcel_rollup(
             parcels_gdf,

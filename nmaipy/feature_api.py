@@ -541,6 +541,7 @@ class FeatureApi:
         geometry: Union[Polygon, MultiPolygon],
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
@@ -612,6 +613,11 @@ class FeatureApi:
             class_param = classes if isinstance(classes, str) else ",".join(classes)
             url += f"&classes={class_param}"
 
+        # Add include as query parameters if given
+        if include:
+            include_param = include if isinstance(include, str) else ",".join(include)
+            url += f"&include={include_param}"
+
         # With POST requests, we always get the exact geometry processed
         exact = True
 
@@ -623,6 +629,7 @@ class FeatureApi:
         region: str,
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
@@ -649,6 +656,7 @@ class FeatureApi:
             region=region,
             packs=packs,
             classes=classes,
+            include=include,
             since=since,
             until=until,
             address_fields=address_fields,
@@ -703,6 +711,7 @@ class FeatureApi:
         region: str,
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
@@ -742,6 +751,7 @@ class FeatureApi:
                 geometry=geometry,
                 packs=packs,
                 classes=classes,
+                include=include,
                 since=since,
                 until=until,
                 survey_resource_id=survey_resource_id,
@@ -1091,6 +1101,7 @@ class FeatureApi:
         region: str,
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -1127,7 +1138,15 @@ class FeatureApi:
         try:
             features_gdf, metadata, error = None, None, None
             payload = self.get_features(
-                geometry, region, packs, classes, since, until, address_fields, survey_resource_id
+                geometry=geometry, 
+                region=region, 
+                packs=packs, 
+                classes=classes, 
+                include=include,
+                since=since, 
+                until=until, 
+                address_fields=address_fields, 
+                survey_resource_id=survey_resource_id
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
         except AIFeatureAPIRequestSizeError as e:
@@ -1149,14 +1168,15 @@ class FeatureApi:
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 try:
                     features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry,
-                        region,
-                        packs,
-                        classes,
-                        aoi_id,
-                        since,
-                        until,
-                        survey_resource_id,
+                        geometry=geometry,
+                        region=region,
+                        packs=packs,
+                        classes=classes,
+                        include=include,
+                        aoi_id=aoi_id,
+                        since=since,
+                        until=until,
+                        survey_resource_id=survey_resource_id,
                         aoi_grid_inexact=self.aoi_grid_inexact,
                     )
                     error = None  # Reset error if we got here without an exception
@@ -1249,6 +1269,7 @@ class FeatureApi:
         region: str,
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -1284,10 +1305,11 @@ class FeatureApi:
             # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
             # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
             features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
-                df_gridded,
+                gdf=df_gridded,
                 region=region,
                 packs=packs,
                 classes=classes,
+                include=include,
                 since_bulk=since,
                 until_bulk=until,
                 survey_resource_id_bulk=survey_resource_id,
@@ -1338,6 +1360,7 @@ class FeatureApi:
         region: str,
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
         since_bulk: Optional[str] = None,
         until_bulk: Optional[str] = None,
         survey_resource_id_bulk: Optional[str] = None,
@@ -1392,16 +1415,17 @@ class FeatureApi:
                         jobs.append(
                             executor.submit(
                                 self.get_features_gdf,
-                                row.geometry if has_geom else None,
-                                region,
-                                packs,
-                                classes,
-                                aoi_id,
-                                since,
-                                until,
-                                {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
-                                survey_resource_id,
-                                fail_hard_regrid,
+                                geometry=row.geometry if has_geom else None,
+                                region=region,
+                                packs=packs,
+                                classes=classes,
+                                include=include,
+                                aoi_id=aoi_id,
+                                since=since,
+                                until=until,
+                                address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                                survey_resource_id=survey_resource_id,
+                                fail_hard_regrid=fail_hard_regrid,
                             )
                         )
                     data = []
