@@ -168,6 +168,10 @@ def read_from_file(
 def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     """
     Flatten building attributes
+
+    Args:
+        buildings: List of building features with attributes
+        country: Country code for units (e.g. "US" for imperial, "EU" for metric)
     """
     flattened = {}
     for building in buildings:
@@ -189,6 +193,10 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
 def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
     """
     Flatten roof attributes
+
+    Args:
+        roofs: List of roof features with attributes
+        country: Country code for units (e.g. "US" for imperial, "EU" for metric)
     """
     flattened = {}
     
@@ -197,7 +205,6 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
         # Handle roofSpotlightIndex if present
         if "roof_spotlight_index" in roof:
             rsi_data = roof["roof_spotlight_index"]
-            logger.warning(rsi_data)
             # Extract value and confidence
             if "value" in rsi_data:
                 flattened["roof_spotlight_index"] = rsi_data["value"]
@@ -234,6 +241,9 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
 def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]) -> dict:
     """
     Flatten building lifecycle damage attributes
+
+    Args:
+        building_lifecycles: List of building lifecycle features with attributes
     """
 
     flattened = {}
