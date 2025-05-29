@@ -352,6 +352,74 @@ class TestExporter:
             #     data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ident_col], check_names=False
             # )
 
+    def test_full_export_with_incremental_features(
+        self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path, tmp_path: Path
+    ):
+        """
+        Test the full export workflow with save_features=True to validate the new incremental
+        parquet writing works correctly in the actual run() method.
+        """
+        # Create a temporary AOI file
+        aoi_file = tmp_path / "test_aoi.geojson"
+        parcel_gdf_au_tests.to_file(aoi_file, driver="GeoJSON")
+        
+        output_dir = processed_output_directory / "test_full_incremental"
+        
+        # Run the full export with features enabled
+        exporter = AOIExporter(
+            aoi_file=str(aoi_file),
+            output_dir=str(output_dir),
+            country="au",
+            packs=["building"],
+            save_features=True,
+            chunk_size=2,  # Small chunks to ensure multiple feature files
+            no_cache=True,
+            system_version_prefix="gen6-",
+            processes=1,  # Single process for testing
+        )
+        
+        exporter.run()
+        
+        # Verify outputs exist
+        final_path = output_dir / "final"
+        chunk_path = output_dir / "chunks"
+        
+        expected_rollup_file = final_path / "test_aoi.csv"
+        expected_features_file = final_path / "test_aoi_features.parquet"
+        
+        assert expected_rollup_file.exists(), "Rollup CSV file was not created"
+        assert expected_features_file.exists(), "Features parquet file was not created"
+        
+        # Verify chunk files were created
+        feature_chunk_files = list(chunk_path.glob("features_test_aoi_*.parquet"))
+        assert len(feature_chunk_files) >= 1, f"Expected at least one feature chunk, got {len(feature_chunk_files)}"
+        
+        # Load and validate the consolidated features file
+        consolidated_features = gpd.read_parquet(expected_features_file)
+        
+        # Load individual chunks for comparison
+        chunk_data = []
+        for chunk_file in feature_chunk_files:
+            chunk_gdf = gpd.read_parquet(chunk_file)
+            if len(chunk_gdf) > 0:
+                chunk_data.append(chunk_gdf)
+        
+        if chunk_data:
+            manual_concat = pd.concat(chunk_data, ignore_index=True)
+            
+            # Verify same number of features
+            assert len(consolidated_features) == len(manual_concat), \
+                f"Feature count mismatch: consolidated={len(consolidated_features)}, manual_concat={len(manual_concat)}"
+            
+            # Verify CRS preservation
+            if hasattr(manual_concat, 'crs') and manual_concat.crs:
+                assert consolidated_features.crs == manual_concat.crs, "CRS not preserved"
+            
+            # Verify essential columns exist
+            assert 'geometry' in consolidated_features.columns, "Missing geometry column"
+            # Features data uses 'index' column (from the original parcel index) instead of 'aoi_id'
+            assert 'index' in consolidated_features.columns, "Missing index column"
+
 
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
