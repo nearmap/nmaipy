@@ -419,8 +419,6 @@ class TestExporter:
             assert 'geometry' in consolidated_features.columns, "Missing geometry column"
             # Features data uses 'index' column (from the original parcel index) instead of 'aoi_id'
             assert 'index' in consolidated_features.columns, "Missing index column"
-            
-            print(f"✓ Incremental writing test passed: {len(consolidated_features)} features from {len(feature_chunk_files)} chunks")
 
 
 if __name__ == "__main__":
