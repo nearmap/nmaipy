@@ -828,17 +828,89 @@ class AOIExporter:
             errors = pd.DataFrame(errors)
         errors.to_csv(outpath_errors, index=True)
         if self.save_features:
-            self.logger.info(f"Saving feature data as geoparquet to {outpath_features}")
             feature_paths = [p for p in chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")]
-            for cp in tqdm(feature_paths, total=len(feature_paths)):
+            self.logger.info(f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}")
+            
+            # Stream to regular parquet first, then convert to geoparquet
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+            
+            # Temporary regular parquet file (no geo metadata)
+            temp_parquet = outpath_features.with_suffix('.tmp.parquet')
+            
+            pqwriter = None
+            first_chunk_crs = None
+            
+            # Stream chunks to regular parquet
+            for cp in tqdm(feature_paths, desc="Streaming chunks"):
                 try:
                     df_feature_chunk = gpd.read_parquet(cp)
+                    if len(df_feature_chunk) > 0:
+                        # Store CRS from first chunk
+                        if first_chunk_crs is None and hasattr(df_feature_chunk, 'crs'):
+                            first_chunk_crs = df_feature_chunk.crs
+                        
+                        # Convert to regular pandas DataFrame for pyarrow
+                        df_regular = pd.DataFrame(df_feature_chunk)
+                        if 'geometry' in df_regular.columns:
+                            # Convert geometry to WKB for regular parquet (more efficient than WKT)
+                            df_regular['geometry'] = df_feature_chunk['geometry'].apply(
+                                lambda geom: geom.wkb if geom else None
+                            )
+                        
+                        # Convert to pyarrow table and stream
+                        table = pa.Table.from_pandas(df_regular, preserve_index=False)
+                        
+                        if pqwriter is None:
+                            pqwriter = pq.ParquetWriter(temp_parquet, table.schema)
+                        
+                        pqwriter.write_table(table)
+                        
                 except Exception as e:
-                    self.logger.error(f"Failed to read {cp}.")
-                data_features.append(df_feature_chunk)
-            if len(data_features) > 0:
-                features_gdf = pd.concat(data_features)
-                features_gdf.to_parquet(outpath_features)
+                    self.logger.error(f"Failed to read {cp}: {e}")
+            
+            # Close the regular parquet writer
+            if pqwriter is not None:
+                pqwriter.close()
+                
+                # Log memory usage and temp file size after streaming
+                mem = psutil.virtual_memory()
+                temp_file_size_gb = temp_parquet.stat().st_size / (1024**3)
+                self.logger.info(
+                    f"Finished streaming to temporary parquet. "
+                    f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%). "
+                    f"Temp file size: {temp_file_size_gb:.2f}GB"
+                )
+                
+                # Now read back as pandas, convert to geoparquet
+                self.logger.info("Converting streamed parquet to geoparquet")
+                df_combined = pd.read_parquet(temp_parquet)
+                
+                # Log memory usage after reading back temporary file
+                mem = psutil.virtual_memory()
+                self.logger.info(
+                    f"Loaded temporary parquet into memory. "
+                    f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%)"
+                )
+                
+                if len(df_combined) > 0 and 'geometry' in df_combined.columns:
+                    # Convert WKB back to geometry
+                    from shapely import wkb
+                    df_combined['geometry'] = df_combined['geometry'].apply(
+                        lambda x: wkb.loads(x) if x and pd.notna(x) else None
+                    )
+                    
+                    # Create GeoDataFrame with original CRS
+                    features_gdf = gpd.GeoDataFrame(df_combined, geometry='geometry', crs=first_chunk_crs)
+                    
+                    # Write as geoparquet
+                    features_gdf.to_parquet(outpath_features)
+                    self.logger.info(f"Successfully saved feature data as geoparquet to {outpath_features}")
+                
+                # Clean up temp file
+                temp_parquet.unlink()
+            else:
+                features_gdf = None
                 
             # If buildings export is enabled, process building features
             if self.save_buildings:
