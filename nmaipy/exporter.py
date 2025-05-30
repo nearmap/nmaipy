@@ -377,7 +377,7 @@ class AOIExporter:
         temp_parquet = outpath_features.with_suffix('.tmp.parquet')
         
         pqwriter = None
-        first_chunk_crs = None
+        reference_crs = None
         reference_columns = None  # Store column order from first chunk
         reference_schema = None   # Store PyArrow schema from first chunk
         
@@ -389,52 +389,43 @@ class AOIExporter:
                 self.logger.error(f"Failed to read {cp}: {e}")
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
-                if first_chunk_crs is None and hasattr(df_feature_chunk, 'crs'):
-                    first_chunk_crs = df_feature_chunk.crs
-                    # Store reference column order (excluding geometry for now)
-                    reference_columns = [col for col in df_feature_chunk.columns if col != 'geometry']
-                    if 'geometry' in df_feature_chunk.columns:
-                        reference_columns.append('geometry')  # Add geometry at the end
-                    self.logger.debug(f"Reference schema from first chunk: {len(reference_columns)} columns")
-                
+                if reference_crs is None and hasattr(df_feature_chunk, 'crs'):
+                    reference_crs = df_feature_chunk.crs
+                    reference_columns = df_feature_chunk.columns
+
                 # Validate and reorder columns for subsequent chunks
-                if reference_columns is not None and i > 0:
-                    current_columns = list(df_feature_chunk.columns)
-                    
-                    # Check for column mismatches
-                    missing_cols = set(reference_columns) - set(current_columns)
-                    extra_cols = set(current_columns) - set(reference_columns)
-                    
-                    # Only warn for missing/extra columns (more significant issues)
-                    if missing_cols or extra_cols:
-                        self.logger.warning(f"Chunk {i} schema mismatch detected:")
-                        if missing_cols:
-                            self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
-                        if extra_cols:
-                            self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
-                    
-                    # Log column order differences at debug level only
-                    if set(current_columns) == set(reference_columns) and current_columns != reference_columns:
-                        self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
-                    
-                    # Add missing columns with null values
-                    for col in missing_cols:
-                        if col == 'geometry':
-                            df_feature_chunk[col] = None  # Will be handled as geometry
-                        else:
-                            df_feature_chunk[col] = pd.NA
-                    
-                    # Reorder columns and drop extras (automatic with column selection)
-                    df_feature_chunk = df_feature_chunk[reference_columns]
+                current_columns = list(df_feature_chunk.columns)
+                
+                # Check for column mismatches
+                missing_cols = set(reference_columns) - set(current_columns)
+                extra_cols = set(current_columns) - set(reference_columns)
+                
+                # Only warn for missing/extra columns (more significant issues)
+                if missing_cols or extra_cols:
+                    self.logger.warning(f"Chunk {i} schema mismatch detected:")
+                    if missing_cols:
+                        self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
+                    if extra_cols:
+                        self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
+                
+                # Log column order differences at debug level only
+                if set(current_columns) == set(reference_columns) and current_columns != reference_columns:
+                    self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
+                
+                # Add missing columns with null values
+                for col in missing_cols:
+                    df_feature_chunk[col] = None  # Will be handled as geometry
+                
+                # Reorder columns and drop extras (automatic with column selection)
+                df_feature_chunk = df_feature_chunk[reference_columns]
                 
                 # Convert to regular pandas DataFrame for pyarrow
-                df_regular = pd.DataFrame(df_feature_chunk)
-                if 'geometry' in df_regular.columns:
-                    # Convert geometry to WKB for regular parquet using vectorized operation
-                    df_regular['geometry'] = df_feature_chunk['geometry'].to_wkb()
+                df_feature_chunk = pd.DataFrame(df_feature_chunk)
+                # Convert geometry to WKB for regular parquet using vectorized operation
+                df_feature_chunk['geometry'] = df_feature_chunk['geometry'].to_wkb()
                 
                 # Convert to pyarrow table and stream (preserve index to maintain original indices)
-                table = pa.Table.from_pandas(df_regular, preserve_index=True)
+                table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
                 
                 if pqwriter is None:
                     reference_schema = table.schema
