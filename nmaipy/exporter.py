@@ -407,8 +407,8 @@ class AOIExporter:
                     if extra_cols:
                         self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
                 
-                # Log column order differences at debug level only
-                if not (current_columns == reference_columns).all():
+                # Ensure column order matches reference for all chunks
+                if list(current_columns) != list(reference_columns):
                     self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
                     df_feature_chunk = df_feature_chunk[reference_columns]
                 
