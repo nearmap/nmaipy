@@ -377,35 +377,63 @@ class AOIExporter:
         temp_parquet = outpath_features.with_suffix('.tmp.parquet')
         
         pqwriter = None
-        first_chunk_crs = None
+        reference_crs = None
+        reference_columns = None  # Store column order from first chunk
+        reference_schema = None   # Store PyArrow schema from first chunk
         
         # Stream chunks to regular parquet
-        for cp in tqdm(feature_paths, desc="Streaming chunks"):
+        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks")):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
-                if len(df_feature_chunk) > 0:
-                    # Store CRS from first chunk
-                    if first_chunk_crs is None and hasattr(df_feature_chunk, 'crs'):
-                        first_chunk_crs = df_feature_chunk.crs
-                    
-                    # Convert to regular pandas DataFrame for pyarrow
-                    df_regular = pd.DataFrame(df_feature_chunk)
-                    if 'geometry' in df_regular.columns:
-                        # Convert geometry to WKB for regular parquet (more efficient than WKT)
-                        df_regular['geometry'] = df_feature_chunk['geometry'].apply(
-                            lambda geom: geom.wkb if geom else None
-                        )
-                    
-                    # Convert to pyarrow table and stream (preserve index to maintain original indices)
-                    table = pa.Table.from_pandas(df_regular, preserve_index=True)
-                    
-                    if pqwriter is None:
-                        pqwriter = pq.ParquetWriter(temp_parquet, table.schema)
-                    
-                    pqwriter.write_table(table)
-                    
             except Exception as e:
                 self.logger.error(f"Failed to read {cp}: {e}")
+            if len(df_feature_chunk) > 0:
+                # Store CRS and column schema from first chunk
+                if reference_crs is None:
+                    reference_crs = df_feature_chunk.crs
+                    reference_columns = df_feature_chunk.columns
+
+                # Validate and reorder columns for subsequent chunks
+                current_columns = list(df_feature_chunk.columns)
+                missing_cols = set(reference_columns) - set(current_columns)
+                extra_cols = set(current_columns) - set(reference_columns)
+                if missing_cols or extra_cols:
+                    self.logger.warning(f"Chunk {i} schema mismatch detected:")
+                    if missing_cols:
+                        self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
+                        # Add missing columns with null values
+                        for col in missing_cols:
+                            df_feature_chunk[col] = None  # Will be handled as geometry
+                    if extra_cols:
+                        self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
+                
+                # Log column order differences at debug level only
+                if not (current_columns == reference_columns).all():
+                    self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
+                    df_feature_chunk = df_feature_chunk[reference_columns]
+                
+                # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB for regular parquet using vectorized operation
+                geom_col = df_feature_chunk.geometry.to_wkb()
+                df_feature_chunk = pd.DataFrame(df_feature_chunk)
+                df_feature_chunk['geometry'] = geom_col
+
+                # Convert to pyarrow table and stream (preserve index to maintain original indices)
+                table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
+                
+                if pqwriter is None:
+                    reference_schema = table.schema
+                    pqwriter = pq.ParquetWriter(temp_parquet, reference_schema)
+                else:
+                    # Cast to reference schema - if this fails, we want to know about it
+                    if table.schema != reference_schema:
+                        try:
+                            table = table.cast(reference_schema)
+                        except Exception as e:
+                            self.logger.error(f"Chunk {i}: Schema casting failed.")
+                            self.logger.error(f"Error: {e}")
+                            self.logger.error(f"Reference schema: {reference_schema}")
+                            self.logger.error(f"Current schema: {table.schema}")
+                pqwriter.write_table(table)
         
         # Close the regular parquet writer and convert to geoparquet
         if pqwriter is not None:
@@ -422,7 +450,14 @@ class AOIExporter:
             
             # Now read back as pandas, convert to geoparquet
             self.logger.info("Converting streamed parquet to geoparquet")
-            df_combined = pd.read_parquet(temp_parquet)
+            try:
+                df_combined = pd.read_parquet(temp_parquet)
+            except Exception as read_error:
+                self.logger.error(f"Failed to read temporary parquet file: {read_error}")
+                # Clean up temp file if it exists
+                if temp_parquet.exists():
+                    temp_parquet.unlink()
+                return None
             
             # Log memory usage after reading back temporary file
             mem = psutil.virtual_memory()
@@ -431,17 +466,14 @@ class AOIExporter:
                 f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%)"
             )
             
-            if len(df_combined) > 0 and 'geometry' in df_combined.columns:
-                # Convert WKB back to geometry
-                from shapely import wkb
-                df_combined['geometry'] = df_combined['geometry'].apply(
-                    lambda x: wkb.loads(x) if x and pd.notna(x) else None
+            if len(df_combined) > 0:
+                # Convert WKB back to geometry using vectorized GeoSeries operation
+                df_combined['geometry'] = gpd.GeoSeries.from_wkb(
+                    df_combined['geometry'], 
+                    crs=reference_crs
                 )
-                
                 # Create GeoDataFrame with original CRS
-                features_gdf = gpd.GeoDataFrame(df_combined, geometry='geometry', crs=first_chunk_crs)
-                
-                # Write as geoparquet
+                features_gdf = gpd.GeoDataFrame(df_combined, geometry='geometry', crs=reference_crs)
                 features_gdf.to_parquet(outpath_features)
                 self.logger.info(f"Successfully saved feature data as geoparquet to {outpath_features}")
                 
@@ -451,8 +483,6 @@ class AOIExporter:
             
             # Clean up temp file
             temp_parquet.unlink()
-        
-        return None
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
         """
