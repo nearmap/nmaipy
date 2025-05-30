@@ -360,7 +360,7 @@ class AOIExporter:
 
     def _stream_and_convert_features(self, feature_paths: List[Path], outpath_features: Path) -> Optional[gpd.GeoDataFrame]:
         """
-        Stream feature chunks to a temporary parquet file, then convert to geoparquet.
+        Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
         
         Args:
@@ -368,25 +368,25 @@ class AOIExporter:
             outpath_features: Output path for final geoparquet file
             
         Returns:
-            GeoDataFrame with combined features, or None if no features found
+            None since we don't need the GeoDataFrame in memory
         """
         import pyarrow as pa
         import pyarrow.parquet as pq
-        
-        # Temporary regular parquet file (no geo metadata)
-        temp_parquet = outpath_features.with_suffix('.tmp.parquet')
+        import json
         
         pqwriter = None
         reference_crs = None
         reference_columns = None  # Store column order from first chunk
         reference_schema = None   # Store PyArrow schema from first chunk
         
-        # Stream chunks to regular parquet
+        # Stream chunks directly to geoparquet
         for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks")):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
                 self.logger.error(f"Failed to read {cp}: {e}")
+                continue
+                
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
                 if reference_crs is None:
@@ -403,7 +403,7 @@ class AOIExporter:
                         self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
                         # Add missing columns with null values
                         for col in missing_cols:
-                            df_feature_chunk[col] = None  # Will be handled as geometry
+                            df_feature_chunk[col] = None
                     if extra_cols:
                         self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
                 
@@ -412,19 +412,41 @@ class AOIExporter:
                     self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
                     df_feature_chunk = df_feature_chunk[reference_columns]
                 
-                # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB for regular parquet using vectorized operation
+                # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
                 geom_col = df_feature_chunk.geometry.to_wkb()
                 df_feature_chunk = pd.DataFrame(df_feature_chunk)
                 df_feature_chunk['geometry'] = geom_col
 
-                # Convert to pyarrow table and stream (preserve index to maintain original indices)
+                # Convert to pyarrow table and stream
                 table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
                 
                 if pqwriter is None:
                     reference_schema = table.schema
-                    pqwriter = pq.ParquetWriter(temp_parquet, reference_schema)
+                    
+                    # Create geoparquet metadata from the start
+                    geo_metadata = {
+                        "version": "1.0.0",
+                        "primary_column": "geometry",
+                        "columns": {
+                            "geometry": {
+                                "encoding": "WKB",
+                                "geometry_types": [],
+                                "crs": reference_crs.to_json() if reference_crs else None,
+                                "edges": "planar",
+                                "orientation": "counterclockwise",
+                                "bbox": None
+                            }
+                        }
+                    }
+                    
+                    # Add geoparquet metadata to schema
+                    schema_with_geo = reference_schema.with_metadata({
+                        b'geo': json.dumps(geo_metadata).encode('utf-8')
+                    })
+                    
+                    pqwriter = pq.ParquetWriter(outpath_features, schema_with_geo)
                 else:
-                    # Cast to reference schema - if this fails, we want to know about it
+                    # Cast to reference schema if needed
                     if table.schema != reference_schema:
                         try:
                             table = table.cast(reference_schema)
@@ -435,54 +457,23 @@ class AOIExporter:
                             self.logger.error(f"Current schema: {table.schema}")
                 pqwriter.write_table(table)
         
-        # Close the regular parquet writer and convert to geoparquet
+        # Close the writer
         if pqwriter is not None:
             pqwriter.close()
             
-            # Log memory usage and temp file size after streaming
+            # Log final status
             mem = psutil.virtual_memory()
-            temp_file_size_gb = temp_parquet.stat().st_size / (1024**3)
+            final_file_size_gb = outpath_features.stat().st_size / (1024**3)
             self.logger.info(
-                f"Finished streaming to temporary parquet. "
+                f"Successfully streamed to geoparquet without temporary files. "
                 f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%). "
-                f"Temp file size: {temp_file_size_gb:.2f}GB"
+                f"Final file size: {final_file_size_gb:.2f}GB"
             )
             
-            # Now read back as pandas, convert to geoparquet
-            self.logger.info("Converting streamed parquet to geoparquet")
-            try:
-                df_combined = pd.read_parquet(temp_parquet)
-            except Exception as read_error:
-                self.logger.error(f"Failed to read temporary parquet file: {read_error}")
-                # Clean up temp file if it exists
-                if temp_parquet.exists():
-                    temp_parquet.unlink()
-                return None
-            
-            # Log memory usage after reading back temporary file
-            mem = psutil.virtual_memory()
-            self.logger.info(
-                f"Loaded temporary parquet into memory. "
-                f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%)"
-            )
-            
-            if len(df_combined) > 0:
-                # Convert WKB back to geometry using vectorized GeoSeries operation
-                df_combined['geometry'] = gpd.GeoSeries.from_wkb(
-                    df_combined['geometry'], 
-                    crs=reference_crs
-                )
-                # Create GeoDataFrame with original CRS
-                features_gdf = gpd.GeoDataFrame(df_combined, geometry='geometry', crs=reference_crs)
-                features_gdf.to_parquet(outpath_features)
-                self.logger.info(f"Successfully saved feature data as geoparquet to {outpath_features}")
-                
-                # Clean up temp file
-                temp_parquet.unlink()
-                return features_gdf
-            
-            # Clean up temp file
-            temp_parquet.unlink()
+            return None
+        else:
+            self.logger.warning("No feature data found to write")
+            return None
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
         """
