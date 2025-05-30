@@ -389,41 +389,34 @@ class AOIExporter:
                 self.logger.error(f"Failed to read {cp}: {e}")
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
-                if reference_crs is None and hasattr(df_feature_chunk, 'crs'):
+                if reference_crs is None:
                     reference_crs = df_feature_chunk.crs
                     reference_columns = df_feature_chunk.columns
 
                 # Validate and reorder columns for subsequent chunks
                 current_columns = list(df_feature_chunk.columns)
-                
-                # Check for column mismatches
                 missing_cols = set(reference_columns) - set(current_columns)
                 extra_cols = set(current_columns) - set(reference_columns)
-                
-                # Only warn for missing/extra columns (more significant issues)
                 if missing_cols or extra_cols:
                     self.logger.warning(f"Chunk {i} schema mismatch detected:")
                     if missing_cols:
                         self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
+                        # Add missing columns with null values
+                        for col in missing_cols:
+                            df_feature_chunk[col] = None  # Will be handled as geometry
                     if extra_cols:
                         self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
                 
                 # Log column order differences at debug level only
-                if set(current_columns) == set(reference_columns) and current_columns != reference_columns:
+                if not (current_columns == reference_columns).all():
                     self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
+                    df_feature_chunk = df_feature_chunk[reference_columns]
                 
-                # Add missing columns with null values
-                for col in missing_cols:
-                    df_feature_chunk[col] = None  # Will be handled as geometry
-                
-                # Reorder columns and drop extras (automatic with column selection)
-                df_feature_chunk = df_feature_chunk[reference_columns]
-                
-                # Convert to regular pandas DataFrame for pyarrow
+                # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB for regular parquet using vectorized operation
+                geom_col = df_feature_chunk.geometry.to_wkb()
                 df_feature_chunk = pd.DataFrame(df_feature_chunk)
-                # Convert geometry to WKB for regular parquet using vectorized operation
-                df_feature_chunk['geometry'] = df_feature_chunk['geometry'].to_wkb()
-                
+                df_feature_chunk['geometry'] = geom_col
+
                 # Convert to pyarrow table and stream (preserve index to maintain original indices)
                 table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
                 
@@ -435,12 +428,11 @@ class AOIExporter:
                     if table.schema != reference_schema:
                         try:
                             table = table.cast(reference_schema)
-                        except pa.ArrowInvalid as e:
-                            self.logger.error(f"Chunk {i}: Schema cast failed after column normalization: {e}")
+                        except Exception as e:
+                            self.logger.error(f"Chunk {i}: Schema casting failed.")
+                            self.logger.error(f"Error: {e}")
                             self.logger.error(f"Reference schema: {reference_schema}")
                             self.logger.error(f"Current schema: {table.schema}")
-                            raise  # Re-raise to fail fast and identify the root cause
-                
                 pqwriter.write_table(table)
         
         # Close the regular parquet writer and convert to geoparquet
@@ -474,17 +466,14 @@ class AOIExporter:
                 f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%)"
             )
             
-            if len(df_combined) > 0 and 'geometry' in df_combined.columns:
+            if len(df_combined) > 0:
                 # Convert WKB back to geometry using vectorized GeoSeries operation
                 df_combined['geometry'] = gpd.GeoSeries.from_wkb(
                     df_combined['geometry'], 
-                    crs=first_chunk_crs
+                    crs=reference_crs
                 )
-                
                 # Create GeoDataFrame with original CRS
-                features_gdf = gpd.GeoDataFrame(df_combined, geometry='geometry', crs=first_chunk_crs)
-                
-                # Write as geoparquet
+                features_gdf = gpd.GeoDataFrame(df_combined, geometry='geometry', crs=reference_crs)
                 features_gdf.to_parquet(outpath_features)
                 self.logger.info(f"Successfully saved feature data as geoparquet to {outpath_features}")
                 
@@ -494,8 +483,6 @@ class AOIExporter:
             
             # Clean up temp file
             temp_parquet.unlink()
-        
-        return None
 
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
         """
