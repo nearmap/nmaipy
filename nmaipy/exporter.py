@@ -422,20 +422,14 @@ class AOIExporter:
                             else:
                                 df_feature_chunk[col] = pd.NA
                         
-                        # Drop extra columns
-                        if extra_cols:
-                            df_feature_chunk = df_feature_chunk.drop(columns=list(extra_cols))
-                        
-                        # Reorder columns to match reference
+                        # Reorder columns and drop extras (automatic with column selection)
                         df_feature_chunk = df_feature_chunk[reference_columns]
                     
                     # Convert to regular pandas DataFrame for pyarrow
                     df_regular = pd.DataFrame(df_feature_chunk)
                     if 'geometry' in df_regular.columns:
-                        # Convert geometry to WKB for regular parquet (more efficient than WKT)
-                        df_regular['geometry'] = df_feature_chunk['geometry'].apply(
-                            lambda geom: geom.wkb if geom else None
-                        )
+                        # Convert geometry to WKB for regular parquet using vectorized operation
+                        df_regular['geometry'] = df_feature_chunk['geometry'].to_wkb()
                     
                     # Convert to pyarrow table and stream (preserve index to maintain original indices)
                     table = pa.Table.from_pandas(df_regular, preserve_index=True)
@@ -444,24 +438,15 @@ class AOIExporter:
                         reference_schema = table.schema
                         pqwriter = pq.ParquetWriter(temp_parquet, reference_schema)
                     else:
-                        # Ensure schema compatibility by casting to reference schema
-                        try:
-                            table = table.cast(reference_schema)
-                        except pa.ArrowInvalid as e:
-                            # If casting fails, log and try to handle gracefully
-                            self.logger.warning(f"Chunk {i}: Schema cast failed, attempting schema unification")
-                            # Try to unify schemas
+                        # Cast to reference schema - if this fails, we want to know about it
+                        if table.schema != reference_schema:
                             try:
-                                unified_schema = pa.unify_schemas([reference_schema, table.schema])
-                                table = table.cast(unified_schema)
-                                # Update writer if schema changed
-                                if unified_schema != reference_schema:
-                                    pqwriter.close()
-                                    pqwriter = pq.ParquetWriter(temp_parquet, unified_schema)
-                                    reference_schema = unified_schema
-                            except Exception as unify_error:
-                                self.logger.error(f"Chunk {i}: Could not unify schemas, skipping chunk: {unify_error}")
-                                continue
+                                table = table.cast(reference_schema)
+                            except pa.ArrowInvalid as e:
+                                self.logger.error(f"Chunk {i}: Schema cast failed after column normalization: {e}")
+                                self.logger.error(f"Reference schema: {reference_schema}")
+                                self.logger.error(f"Current schema: {table.schema}")
+                                raise  # Re-raise to fail fast and identify the root cause
                     
                     pqwriter.write_table(table)
                     
@@ -483,7 +468,14 @@ class AOIExporter:
             
             # Now read back as pandas, convert to geoparquet
             self.logger.info("Converting streamed parquet to geoparquet")
-            df_combined = pd.read_parquet(temp_parquet)
+            try:
+                df_combined = pd.read_parquet(temp_parquet)
+            except Exception as read_error:
+                self.logger.error(f"Failed to read temporary parquet file: {read_error}")
+                # Clean up temp file if it exists
+                if temp_parquet.exists():
+                    temp_parquet.unlink()
+                return None
             
             # Log memory usage after reading back temporary file
             mem = psutil.virtual_memory()
