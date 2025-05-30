@@ -378,15 +378,56 @@ class AOIExporter:
         
         pqwriter = None
         first_chunk_crs = None
+        reference_columns = None  # Store column order from first chunk
+        reference_schema = None   # Store PyArrow schema from first chunk
         
         # Stream chunks to regular parquet
-        for cp in tqdm(feature_paths, desc="Streaming chunks"):
+        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks")):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
                 if len(df_feature_chunk) > 0:
-                    # Store CRS from first chunk
+                    # Store CRS and column schema from first chunk
                     if first_chunk_crs is None and hasattr(df_feature_chunk, 'crs'):
                         first_chunk_crs = df_feature_chunk.crs
+                        # Store reference column order (excluding geometry for now)
+                        reference_columns = [col for col in df_feature_chunk.columns if col != 'geometry']
+                        if 'geometry' in df_feature_chunk.columns:
+                            reference_columns.append('geometry')  # Add geometry at the end
+                        self.logger.debug(f"Reference schema from first chunk: {len(reference_columns)} columns")
+                    
+                    # Validate and reorder columns for subsequent chunks
+                    if reference_columns is not None and i > 0:
+                        current_columns = list(df_feature_chunk.columns)
+                        
+                        # Check for column mismatches
+                        missing_cols = set(reference_columns) - set(current_columns)
+                        extra_cols = set(current_columns) - set(reference_columns)
+                        
+                        # Only warn for missing/extra columns (more significant issues)
+                        if missing_cols or extra_cols:
+                            self.logger.warning(f"Chunk {i} schema mismatch detected:")
+                            if missing_cols:
+                                self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
+                            if extra_cols:
+                                self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
+                        
+                        # Log column order differences at debug level only
+                        if set(current_columns) == set(reference_columns) and current_columns != reference_columns:
+                            self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
+                        
+                        # Add missing columns with null values
+                        for col in missing_cols:
+                            if col == 'geometry':
+                                df_feature_chunk[col] = None  # Will be handled as geometry
+                            else:
+                                df_feature_chunk[col] = pd.NA
+                        
+                        # Drop extra columns
+                        if extra_cols:
+                            df_feature_chunk = df_feature_chunk.drop(columns=list(extra_cols))
+                        
+                        # Reorder columns to match reference
+                        df_feature_chunk = df_feature_chunk[reference_columns]
                     
                     # Convert to regular pandas DataFrame for pyarrow
                     df_regular = pd.DataFrame(df_feature_chunk)
@@ -400,7 +441,27 @@ class AOIExporter:
                     table = pa.Table.from_pandas(df_regular, preserve_index=True)
                     
                     if pqwriter is None:
-                        pqwriter = pq.ParquetWriter(temp_parquet, table.schema)
+                        reference_schema = table.schema
+                        pqwriter = pq.ParquetWriter(temp_parquet, reference_schema)
+                    else:
+                        # Ensure schema compatibility by casting to reference schema
+                        try:
+                            table = table.cast(reference_schema)
+                        except pa.ArrowInvalid as e:
+                            # If casting fails, log and try to handle gracefully
+                            self.logger.warning(f"Chunk {i}: Schema cast failed, attempting schema unification")
+                            # Try to unify schemas
+                            try:
+                                unified_schema = pa.unify_schemas([reference_schema, table.schema])
+                                table = table.cast(unified_schema)
+                                # Update writer if schema changed
+                                if unified_schema != reference_schema:
+                                    pqwriter.close()
+                                    pqwriter = pq.ParquetWriter(temp_parquet, unified_schema)
+                                    reference_schema = unified_schema
+                            except Exception as unify_error:
+                                self.logger.error(f"Chunk {i}: Could not unify schemas, skipping chunk: {unify_error}")
+                                continue
                     
                     pqwriter.write_table(table)
                     
@@ -432,10 +493,10 @@ class AOIExporter:
             )
             
             if len(df_combined) > 0 and 'geometry' in df_combined.columns:
-                # Convert WKB back to geometry
-                from shapely import wkb
-                df_combined['geometry'] = df_combined['geometry'].apply(
-                    lambda x: wkb.loads(x) if x and pd.notna(x) else None
+                # Convert WKB back to geometry using vectorized GeoSeries operation
+                df_combined['geometry'] = gpd.GeoSeries.from_wkb(
+                    df_combined['geometry'], 
+                    crs=first_chunk_crs
                 )
                 
                 # Create GeoDataFrame with original CRS
