@@ -60,15 +60,14 @@ class TestParcels:
 
     def test_flatten_building(self):
         country = "au"
-        attributes = [
-            {
+        attributes = {
                 "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
                 "description": "Building 3d attributes",
                 "has3dAttributes": True,
                 "height": 8.887635612487793,
                 "numStories": {"1": 0.057618971750252275, "2": 0.8145058300927666, "3+": 0.1278751981569811},
             }
-        ]
+        
         expected = {
             "has_3d_attributes": "Y",
             "height_m": 8.9,
