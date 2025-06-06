@@ -937,7 +937,13 @@ class AOIExporter:
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
-            self.logger.info(f"Processing completed with {len(errors)} total failures across all chunks")
+            
+            # Count error types by status code
+            if 'status_code' in errors.columns:
+                status_counts = errors['status_code'].value_counts()
+                self.logger.info(f"Processing completed with {len(errors)} total failures: {status_counts.to_dict()}")
+            else:
+                self.logger.info(f"Processing completed with {len(errors)} total failures")
         else:
             errors = pd.DataFrame(errors)
             self.logger.info("Processing completed with no failures")
