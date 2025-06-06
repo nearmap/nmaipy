@@ -665,8 +665,9 @@ def parcel_rollup(
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
             try:
-                rollup_df[col] = rollup_df[col].round(2)
-            except TypeError as e:
+                # Convert to float first to handle integer columns
+                rollup_df[col] = rollup_df[col].astype(float).round(2)
+            except (TypeError, ValueError) as e:
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
