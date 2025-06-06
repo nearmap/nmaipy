@@ -464,7 +464,7 @@ class AOIExporter:
             # Log final status
             mem = psutil.virtual_memory()
             final_file_size_gb = outpath_features.stat().st_size / (1024**3)
-            self.logger.info(
+            self.logger.debug(
                 f"Successfully streamed to geoparquet without temporary files. "
                 f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%). "
                 f"Final file size: {final_file_size_gb:.2f}GB"
@@ -536,7 +536,7 @@ class AOIExporter:
                 )
                 rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
                 mem = psutil.virtual_memory()
-                self.logger.info(
+                self.logger.debug(
                     f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
                     f"{len(rollup_df)} rollups returned on {len(rollup_df.index.unique())} unique {rollup_df.index.name}s. "
                     f"Memory: {(mem.total - mem.available)/1024**3:.1f}GB / {mem.total/1024**3:.1f}GB ({mem.percent}%)"
@@ -562,7 +562,7 @@ class AOIExporter:
                     max_allowed_error_pct=100,
                 )
                 mem = psutil.virtual_memory()
-                self.logger.info(
+                self.logger.debug(
                     f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
                     f"Memory: {(mem.total - mem.available)/1024**3:.1f}GB / {mem.total/1024**3:.1f}GB ({mem.percent}%)"
                 )
@@ -722,10 +722,6 @@ class AOIExporter:
             # Force garbage collection
             gc.collect()
             
-            # Log memory change
-            end_mem = get_memory_usage()
-            self.logger.info(f"Chunk {chunk_id} memory delta: {end_mem - start_mem:.1f}GB (now at {end_mem:.1f}GB)")
-            
         except Exception as e:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
@@ -864,7 +860,7 @@ class AOIExporter:
                                     classes_df,
                                 )
                             )
-                        for j in jobs:
+                        for j in tqdm(jobs, desc="Processing chunks"):
                             try:
                                 j.result()
                             except Exception as e:
@@ -941,8 +937,16 @@ class AOIExporter:
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
+            
+            # Count error types by status code
+            if 'status_code' in errors.columns:
+                status_counts = errors['status_code'].value_counts()
+                self.logger.info(f"Processing completed with {len(errors)} total failures: {status_counts.to_dict()}")
+            else:
+                self.logger.info(f"Processing completed with {len(errors)} total failures")
         else:
             errors = pd.DataFrame(errors)
+            self.logger.info("Processing completed with no failures")
         errors.to_csv(outpath_errors, index=True)
         if self.save_features:
             feature_paths = [p for p in chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")]

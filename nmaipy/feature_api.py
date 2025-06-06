@@ -773,15 +773,22 @@ class FeatureApi:
                         with open(cache_path, "r") as f:
                             return json.load(f)
 
-            # Request data
-            t1 = time.monotonic()
-            try:
-                headers = {'Content-Type': 'application/json'}
-                response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
-                request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
-            except requests.exceptions.ChunkedEncodingError:
-                logger.info(f"ChunkedEncodingError for request")
-                self._handle_response_errors(None, url)
+            # Request data with retry logic
+            response = None
+            for attempt in range(5):
+                t1 = time.monotonic()
+                try:
+                    headers = {'Content-Type': 'application/json'}
+                    response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                    request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
+                    break  # Success, exit retry loop
+                except (requests.exceptions.ChunkedEncodingError, Exception) as e:
+                    if attempt < 4:  # 0-3, so attempt 4 is the last one
+                        logger.debug(f"Request failed on attempt {attempt + 1}: {e}, retrying after 2s...")
+                        time.sleep(2)
+                    else:
+                        logger.error(f"Request failed after 5 attempts: {e}")
+                        self._handle_response_errors(None, url)
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
