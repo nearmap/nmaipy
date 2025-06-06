@@ -664,5 +664,10 @@ def parcel_rollup(
     # Round any columns ending in _confidence to two decimal places (nearest percent)
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
-            rollup_df[col] = rollup_df[col].round(2)
+            try:
+                rollup_df[col] = rollup_df[col].round(2)
+            except TypeError as e:
+                logger.error(f"Failed to round column '{col}' - column description:")
+                logger.error(rollup_df[col].describe())
+                raise
     return rollup_df
