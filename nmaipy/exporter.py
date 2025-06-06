@@ -938,10 +938,19 @@ class AOIExporter:
         if len(errors) > 0:
             errors = pd.concat(errors)
             
-            # Count error types by status code
-            status_counts = errors['status_code'].value_counts()
-            messages_counts = errors['message'].value_counts()
-            self.logger.info(f"Processing completed with {len(errors)} total failures: {status_counts.to_dict()}, {messages_counts.to_dict()}")
+            # Count error types by status code and message
+            error_summary = []
+            if 'status_code' in errors.columns:
+                status_counts = errors['status_code'].value_counts()
+                error_summary.append(f"status codes: {status_counts.to_dict()}")
+            if 'message' in errors.columns:
+                message_counts = errors['message'].value_counts()
+                error_summary.append(f"messages: {message_counts.to_dict()}")
+            
+            if error_summary:
+                self.logger.info(f"Processing completed with {len(errors)} total failures - {', '.join(error_summary)}")
+            else:
+                self.logger.info(f"Processing completed with {len(errors)} total failures")
         else:
             errors = pd.DataFrame(errors)
             self.logger.info("Processing completed with no failures")
