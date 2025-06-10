@@ -375,7 +375,6 @@ class AOIExporter:
         import json
         
         pqwriter = None
-        reference_crs = None
         reference_columns = None  # Store column order from first chunk
         reference_schema = None   # Store PyArrow schema from first chunk
         
@@ -389,8 +388,7 @@ class AOIExporter:
                 
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
-                if reference_crs is None:
-                    reference_crs = API_CRS  # Always use API_CRS for consistency
+                if reference_columns is None:
                     reference_columns = df_feature_chunk.columns
 
                 # Validate and reorder columns for subsequent chunks
@@ -431,7 +429,7 @@ class AOIExporter:
                             "geometry": {
                                 "encoding": "WKB",
                                 "geometry_types": [],
-                                "crs": reference_crs.to_json() if reference_crs else None,
+                                "crs": API_CRS,
                                 "edges": "planar",
                                 "orientation": "counterclockwise",
                                 "bbox": None
