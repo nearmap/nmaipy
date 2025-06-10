@@ -693,6 +693,8 @@ class AOIExporter:
                         # Ensure it's a proper GeoDataFrame before saving to parquet
                         if not isinstance(final_features_df, gpd.GeoDataFrame):
                             final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
+                        else:
+                            final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
                         final_features_df.to_parquet(outfile_features)
                     except Exception as e:
                         self.logger.error(
