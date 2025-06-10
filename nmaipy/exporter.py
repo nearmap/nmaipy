@@ -380,7 +380,7 @@ class AOIExporter:
         reference_schema = None   # Store PyArrow schema from first chunk
         
         # Stream chunks directly to geoparquet
-        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks")):
+        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout)):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
@@ -390,7 +390,7 @@ class AOIExporter:
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
                 if reference_crs is None:
-                    reference_crs = df_feature_chunk.crs
+                    reference_crs = API_CRS  # Always use API_CRS for consistency
                     reference_columns = df_feature_chunk.columns
 
                 # Validate and reorder columns for subsequent chunks
@@ -862,7 +862,7 @@ class AOIExporter:
                                     classes_df,
                                 )
                             )
-                        for j in tqdm(jobs, desc="Processing chunks"):
+                        for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout):
                             try:
                                 j.result()
                             except Exception as e:
