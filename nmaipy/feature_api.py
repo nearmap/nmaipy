@@ -780,7 +780,9 @@ class FeatureApi:
                 response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
                 request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
             except requests.exceptions.ChunkedEncodingError:
-                self._handle_response_errors(None, url)
+                # Treat ChunkedEncodingError as a size error to trigger gridding
+                logger.debug(f"ChunkedEncodingError - treat as size error to try again with a gridded approach")
+                raise AIFeatureAPIRequestSizeError(None, url)
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
@@ -792,8 +794,9 @@ class FeatureApi:
                     try:
                         data = response.json()
                     except Exception as e:
-                        logging.warning(f"Error parsing JSON response from API: {e}")
-                        raise AIFeatureAPIError(response, url)
+                        # Treat JSON parsing errors as size errors to trigger gridding
+                        logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")
+                        raise AIFeatureAPIRequestSizeError(response, url)
 
                 # Save to cache if configured
                 if self.cache_dir is not None:
