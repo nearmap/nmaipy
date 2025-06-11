@@ -375,12 +375,11 @@ class AOIExporter:
         import json
         
         pqwriter = None
-        reference_crs = None
         reference_columns = None  # Store column order from first chunk
         reference_schema = None   # Store PyArrow schema from first chunk
         
         # Stream chunks directly to geoparquet
-        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks")):
+        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout)):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
@@ -389,8 +388,7 @@ class AOIExporter:
                 
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
-                if reference_crs is None:
-                    reference_crs = df_feature_chunk.crs
+                if reference_columns is None:
                     reference_columns = df_feature_chunk.columns
 
                 # Validate and reorder columns for subsequent chunks
@@ -431,7 +429,7 @@ class AOIExporter:
                             "geometry": {
                                 "encoding": "WKB",
                                 "geometry_types": [],
-                                "crs": reference_crs.to_json() if reference_crs else None,
+                                "crs": API_CRS,
                                 "edges": "planar",
                                 "orientation": "counterclockwise",
                                 "bbox": None
@@ -693,6 +691,8 @@ class AOIExporter:
                         # Ensure it's a proper GeoDataFrame before saving to parquet
                         if not isinstance(final_features_df, gpd.GeoDataFrame):
                             final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
+                        else:
+                            final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
                         final_features_df.to_parquet(outfile_features)
                     except Exception as e:
                         self.logger.error(
@@ -860,7 +860,7 @@ class AOIExporter:
                                     classes_df,
                                 )
                             )
-                        for j in tqdm(jobs, desc="Processing chunks"):
+                        for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout):
                             try:
                                 j.result()
                             except Exception as e:

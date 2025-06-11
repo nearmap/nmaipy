@@ -780,7 +780,9 @@ class FeatureApi:
                 response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
                 request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
             except requests.exceptions.ChunkedEncodingError:
-                self._handle_response_errors(None, url)
+                # Treat ChunkedEncodingError as a size error to trigger gridding
+                logger.debug(f"ChunkedEncodingError - treat as size error to try again with a gridded approach")
+                raise AIFeatureAPIRequestSizeError(None, url)
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
@@ -792,8 +794,9 @@ class FeatureApi:
                     try:
                         data = response.json()
                     except Exception as e:
-                        logging.warning(f"Error parsing JSON response from API: {e}")
-                        raise AIFeatureAPIError(response, url)
+                        # Treat JSON parsing errors as size errors to trigger gridding
+                        logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")
+                        raise AIFeatureAPIRequestSizeError(response, url)
 
                 # Save to cache if configured
                 if self.cache_dir is not None:
@@ -1274,7 +1277,7 @@ class FeatureApi:
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = False,
-        grid_size: Optional[float] = 0.005,  # Approx 500m at the equator
+        grid_size: Optional[float] = 0.003,  # Approx 300m at the equator
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
