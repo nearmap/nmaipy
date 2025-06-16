@@ -572,6 +572,14 @@ def parcel_rollup(
     mu = MeasurementUnits(country)
     area_units = mu.area_units()
     assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
+    
+    # Handle case where features_gdf index name is not set properly
+    if features_gdf.index.name != AOI_ID_COLUMN_NAME:
+        if AOI_ID_COLUMN_NAME in features_gdf.columns:
+            features_gdf = features_gdf.set_index(AOI_ID_COLUMN_NAME)
+        else:
+            raise ValueError(f"features_gdf index name is '{features_gdf.index.name}' but should be '{AOI_ID_COLUMN_NAME}', and column '{AOI_ID_COLUMN_NAME}' not found in dataframe columns: {list(features_gdf.columns)}")
+    
     assert features_gdf.index.name == AOI_ID_COLUMN_NAME
 
     if len(parcels_gdf.index.unique()) != len(parcels_gdf):
