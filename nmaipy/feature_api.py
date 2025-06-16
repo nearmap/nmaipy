@@ -332,10 +332,10 @@ class FeatureApi:
                 total=self.maxretry,
                 backoff_factor=0.2,
                 status_forcelist=[
-                    HTTPStatus.TOO_MANY_REQUESTS,
-                    HTTPStatus.BAD_GATEWAY,
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    HTTPStatus.INTERNAL_SERVER_ERROR, # 500
+                    HTTPStatus.TOO_MANY_REQUESTS,      # 429
+                    HTTPStatus.BAD_GATEWAY,            # 502
+                    HTTPStatus.SERVICE_UNAVAILABLE,    # 503
+                    HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
                 ],
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
@@ -773,16 +773,27 @@ class FeatureApi:
                         with open(cache_path, "r") as f:
                             return json.load(f)
 
-            # Request data
+            # Request data with retry loop for ChunkedEncodingError
             t1 = time.monotonic()
-            try:
-                headers = {'Content-Type': 'application/json'}
-                response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
-                request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
-            except requests.exceptions.ChunkedEncodingError:
-                # Treat ChunkedEncodingError as a size error to trigger gridding
-                logger.debug(f"ChunkedEncodingError - treat as size error to try again with a gridded approach")
-                raise AIFeatureAPIRequestSizeError(None, url)
+            response = None
+            request_info = None
+            
+            for retry_attempt in range(MAX_RETRIES):
+                try:
+                    headers = {'Content-Type': 'application/json'}
+                    response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                    request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
+                    break  # Success, exit retry loop
+                except requests.exceptions.ChunkedEncodingError as e:
+                    if retry_attempt < MAX_RETRIES - 1:
+                        # Log debug message for retry attempts
+                        logger.debug(f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}")
+                        time.sleep(1)  # Brief pause before retry
+                        continue
+                    else:
+                        # Exhausted all retries, log error and fall back to size error
+                        logger.error(f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}")
+                        raise AIFeatureAPIRequestSizeError(None, url)
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
@@ -1345,9 +1356,19 @@ class FeatureApi:
             # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
-            logger.debug(
-                f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
-            )
+            # Check if we have any non-404 errors (which indicate retriable failures)
+            non_404_errors = errors_df[errors_df['status_code'] != 404]
+            
+            if len(non_404_errors) > 0:
+                # Log warning for non-404 errors that create holes in the grid
+                logger.warning(
+                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                )
+            else:
+                # Only 404s - use debug level as before
+                logger.debug(
+                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                )
 
             # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
 
@@ -1455,7 +1476,13 @@ class FeatureApi:
                 self.cleanup()  # Clean up sessions after bulk operation
 
         features_gdf = pd.concat([df for df in data if len(df) > 0]) if len(data) > 0 else gpd.GeoDataFrame([])
+        if len(data) == 0:
+            features_gdf.index.name = AOI_ID_COLUMN_NAME
+        
         metadata_df = pd.DataFrame(metadata).set_index(AOI_ID_COLUMN_NAME) if len(metadata) > 0 else pd.DataFrame([])
+        if len(metadata) == 0:
+            metadata_df.index.name = AOI_ID_COLUMN_NAME
+            
         errors_df = pd.DataFrame(errors) if len(errors) > 0 else pd.DataFrame([])
         return features_gdf, metadata_df, errors_df
 
