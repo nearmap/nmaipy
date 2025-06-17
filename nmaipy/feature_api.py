@@ -49,6 +49,7 @@ from nmaipy.constants import (
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
+    GRID_SIZE_DEGREES,
 )
 
 TIMEOUT_SECONDS = 120  # Max time to wait for a server response.
@@ -1288,7 +1289,7 @@ class FeatureApi:
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = False,
-        grid_size: Optional[float] = 0.003,  # Approx 300m at the equator
+        grid_size: Optional[float] = GRID_SIZE_DEGREES
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.

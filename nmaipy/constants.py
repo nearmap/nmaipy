@@ -10,6 +10,7 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
 
 MAX_RETRIES = 50
+GRID_SIZE_DEGREES = 0.0015,  # Approx 150m at the equator
 
 # Projections
 LAT_LONG_CRS = "WGS 84"
