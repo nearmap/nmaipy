@@ -806,7 +806,7 @@ class AOIExporter:
             elif self.since is not None:
                 logger.debug(f"The since date of {self.since} will limit the earliest returned date for all Query AOIs")
             else:
-                logger.debug("No earliest date will used")
+                logger.debug("No earliest date will be used")
             if UNTIL_COL_NAME in aoi_gdf:
                 logger.info(
                     f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
