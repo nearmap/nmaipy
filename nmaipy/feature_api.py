@@ -324,21 +324,26 @@ class FeatureApi:
                 self._sessions.clear()
 
     @contextlib.contextmanager
-    def _session_scope(self):
+    def _session_scope(self, in_gridding_mode=False):
         """Thread-safe context manager for session lifecycle"""
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
+            # Configure retries based on context: skip 504 retries initially, retry within gridding
+            status_forcelist = [
+                HTTPStatus.TOO_MANY_REQUESTS,      # 429
+                HTTPStatus.BAD_GATEWAY,            # 502
+                HTTPStatus.SERVICE_UNAVAILABLE,    # 503
+                HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
+            ]
+            if in_gridding_mode:
+                # When gridding, retry 504s to avoid losing small grid squares
+                status_forcelist.append(HTTPStatus.GATEWAY_TIMEOUT)  # 504
+            
             retries = RetryRequest(
                 total=self.maxretry,
                 backoff_factor=0.2,
-                status_forcelist=[
-                    HTTPStatus.TOO_MANY_REQUESTS,      # 429
-                    HTTPStatus.BAD_GATEWAY,            # 502
-                    HTTPStatus.SERVICE_UNAVAILABLE,    # 503
-                    HTTPStatus.GATEWAY_TIMEOUT,        # 504
-                    HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
-                ],
+                status_forcelist=status_forcelist,
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
                 connect=self.maxretry,
@@ -636,6 +641,7 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
+        in_gridding_mode: bool = False,
     ):
         """
         Get features for the provided geometry.
@@ -664,6 +670,7 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_FEATURES,
+            in_gridding_mode=in_gridding_mode,
         )
         return data
 
@@ -719,6 +726,7 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         result_type: str = API_TYPE_FEATURES,
+        in_gridding_mode: bool = False,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -737,7 +745,7 @@ class FeatureApi:
         Returns:
             API response as a Dictionary
         """
-        with self._session_scope() as session:
+        with self._session_scope(in_gridding_mode) as session:
             # Determine the base URL based on the result type and packs
             if result_type == self.API_TYPE_FEATURES:
                 base_url = self.FEATURES_URL
@@ -1123,6 +1131,7 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         fail_hard_regrid: Optional[bool] = False,
+        in_gridding_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1161,7 +1170,8 @@ class FeatureApi:
                 since=since, 
                 until=until, 
                 address_fields=address_fields, 
-                survey_resource_id=survey_resource_id
+                survey_resource_id=survey_resource_id,
+                in_gridding_mode=in_gridding_mode
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
         except AIFeatureAPIRequestSizeError as e:
@@ -1330,6 +1340,7 @@ class FeatureApi:
                 survey_resource_id_bulk=survey_resource_id,
                 max_allowed_error_pct=100 - self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
+                in_gridding_mode=True,
             )
         except AIFeatureAPIError as e:
             logger.debug(
@@ -1392,6 +1403,7 @@ class FeatureApi:
         survey_resource_id_bulk: Optional[str] = None,
         max_allowed_error_pct: Optional[int] = 100,
         fail_hard_regrid: Optional[bool] = False,
+        in_gridding_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -1452,6 +1464,7 @@ class FeatureApi:
                                 address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
                                 survey_resource_id=survey_resource_id,
                                 fail_hard_regrid=fail_hard_regrid,
+                                in_gridding_mode=in_gridding_mode,
                             )
                         )
                     data = []
