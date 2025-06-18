@@ -336,6 +336,7 @@ class FeatureApi:
                     HTTPStatus.TOO_MANY_REQUESTS,      # 429
                     HTTPStatus.BAD_GATEWAY,            # 502
                     HTTPStatus.SERVICE_UNAVAILABLE,    # 503
+                    HTTPStatus.GATEWAY_TIMEOUT,        # 504
                     HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
                 ],
                 allowed_methods=["GET", "POST"],
