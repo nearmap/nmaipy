@@ -798,28 +798,28 @@ class AOIExporter:
                 f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
             )
         else:
-            logger.info(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
+            logger.debug(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
             if SINCE_COL_NAME in aoi_gdf:
                 logger.info(
                     f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
             elif self.since is not None:
-                logger.info(f"The since date of {self.since} will limit the earliest returned date for all Query AOIs")
+                logger.debug(f"The since date of {self.since} will limit the earliest returned date for all Query AOIs")
             else:
-                logger.info("No earliest date will used")
+                logger.debug("No earliest date will be used")
             if UNTIL_COL_NAME in aoi_gdf:
                 logger.info(
                     f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
             elif self.until is not None:
-                logger.info(f"The until date of {self.until} will limit the latest returned date for all Query AOIs")
+                logger.debug(f"The until date of {self.until} will limit the latest returned date for all Query AOIs")
             else:
-                logger.info("No latest date will used")
+                logger.debug("No latest date will used")
 
         jobs = []
         num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
         self.logger.info(f"Exporting {len(aoi_gdf)} AOIs as {num_chunks} chunk files.")
-        self.logger.info(f"Using endpoint '{self.endpoint}' for rollups.")
+        self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
 
         # Split the parcels into chunks
         with warnings.catch_warnings():
@@ -888,7 +888,7 @@ class AOIExporter:
         data = []
         data_features = []
         errors = []
-        self.logger.info(f"Saving rollup data as {self.rollup_format} file to {outpath}")
+        self.logger.debug(f"Saving rollup data as {self.rollup_format} file to {outpath}")
         for i in range(num_chunks):
             chunk_filename = f"rollup_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
@@ -932,7 +932,7 @@ class AOIExporter:
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
         outpath_errors = final_path / f"{Path(aoi_path).stem}_errors.csv"
-        self.logger.info(f"Saving error data as .csv to {outpath_errors}")
+        self.logger.debug(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{Path(aoi_path).stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:

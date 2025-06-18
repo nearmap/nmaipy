@@ -49,6 +49,7 @@ from nmaipy.constants import (
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
+    GRID_SIZE_DEGREES,
 )
 
 TIMEOUT_SECONDS = 120  # Max time to wait for a server response.
@@ -323,20 +324,26 @@ class FeatureApi:
                 self._sessions.clear()
 
     @contextlib.contextmanager
-    def _session_scope(self):
+    def _session_scope(self, in_gridding_mode=False):
         """Thread-safe context manager for session lifecycle"""
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
+            # Configure retries based on context: skip 504 retries initially, retry within gridding
+            status_forcelist = [
+                HTTPStatus.TOO_MANY_REQUESTS,      # 429
+                HTTPStatus.BAD_GATEWAY,            # 502
+                HTTPStatus.SERVICE_UNAVAILABLE,    # 503
+                HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
+            ]
+            if in_gridding_mode:
+                # When gridding, retry 504s to avoid losing small grid squares
+                status_forcelist.append(HTTPStatus.GATEWAY_TIMEOUT)  # 504
+            
             retries = RetryRequest(
                 total=self.maxretry,
                 backoff_factor=0.2,
-                status_forcelist=[
-                    HTTPStatus.TOO_MANY_REQUESTS,
-                    HTTPStatus.BAD_GATEWAY,
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    HTTPStatus.INTERNAL_SERVER_ERROR, # 500
-                ],
+                status_forcelist=status_forcelist,
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
                 connect=self.maxretry,
@@ -634,6 +641,7 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
+        in_gridding_mode: bool = False,
     ):
         """
         Get features for the provided geometry.
@@ -662,6 +670,7 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_FEATURES,
+            in_gridding_mode=in_gridding_mode,
         )
         return data
 
@@ -717,6 +726,7 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         result_type: str = API_TYPE_FEATURES,
+        in_gridding_mode: bool = False,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -735,7 +745,7 @@ class FeatureApi:
         Returns:
             API response as a Dictionary
         """
-        with self._session_scope() as session:
+        with self._session_scope(in_gridding_mode) as session:
             # Determine the base URL based on the result type and packs
             if result_type == self.API_TYPE_FEATURES:
                 base_url = self.FEATURES_URL
@@ -773,16 +783,27 @@ class FeatureApi:
                         with open(cache_path, "r") as f:
                             return json.load(f)
 
-            # Request data
+            # Request data with retry loop for ChunkedEncodingError
             t1 = time.monotonic()
-            try:
-                headers = {'Content-Type': 'application/json'}
-                response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
-                request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
-            except requests.exceptions.ChunkedEncodingError:
-                # Treat ChunkedEncodingError as a size error to trigger gridding
-                logger.debug(f"ChunkedEncodingError - treat as size error to try again with a gridded approach")
-                raise AIFeatureAPIRequestSizeError(None, url)
+            response = None
+            request_info = None
+            
+            for retry_attempt in range(MAX_RETRIES):
+                try:
+                    headers = {'Content-Type': 'application/json'}
+                    response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                    request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
+                    break  # Success, exit retry loop
+                except requests.exceptions.ChunkedEncodingError as e:
+                    if retry_attempt < MAX_RETRIES - 1:
+                        # Log debug message for retry attempts
+                        logger.debug(f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}")
+                        time.sleep(1)  # Brief pause before retry
+                        continue
+                    else:
+                        # Exhausted all retries, log error and fall back to size error
+                        logger.error(f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}")
+                        raise AIFeatureAPIRequestSizeError(None, url)
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
@@ -1110,6 +1131,7 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         fail_hard_regrid: Optional[bool] = False,
+        in_gridding_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1148,7 +1170,8 @@ class FeatureApi:
                 since=since, 
                 until=until, 
                 address_fields=address_fields, 
-                survey_resource_id=survey_resource_id
+                survey_resource_id=survey_resource_id,
+                in_gridding_mode=in_gridding_mode
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
         except AIFeatureAPIRequestSizeError as e:
@@ -1277,7 +1300,7 @@ class FeatureApi:
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = False,
-        grid_size: Optional[float] = 0.003,  # Approx 300m at the equator
+        grid_size: Optional[float] = GRID_SIZE_DEGREES
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1317,6 +1340,7 @@ class FeatureApi:
                 survey_resource_id_bulk=survey_resource_id,
                 max_allowed_error_pct=100 - self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
+                in_gridding_mode=True,
             )
         except AIFeatureAPIError as e:
             logger.debug(
@@ -1345,9 +1369,20 @@ class FeatureApi:
             # TODO: We should change query to guarantee same survey id is used somehow.
 
         if len(errors_df) > 0:
-            logger.debug(
-                f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
-            )
+            # Check if we have any non-404 errors (which indicate retriable failures)
+            non_404_errors = errors_df[errors_df['status_code'] != 404]
+            
+            if len(non_404_errors) > 0:
+                # Log warning for non-404 errors that create holes in the grid
+                logger.warning(
+                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                )
+                logger.warning("errors_df: \n" + errors_df.to_string())
+            else:
+                # Only 404s - use debug level as before
+                logger.debug(
+                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                )
 
             # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
 
@@ -1368,6 +1403,7 @@ class FeatureApi:
         survey_resource_id_bulk: Optional[str] = None,
         max_allowed_error_pct: Optional[int] = 100,
         fail_hard_regrid: Optional[bool] = False,
+        in_gridding_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -1428,6 +1464,7 @@ class FeatureApi:
                                 address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
                                 survey_resource_id=survey_resource_id,
                                 fail_hard_regrid=fail_hard_regrid,
+                                in_gridding_mode=in_gridding_mode,
                             )
                         )
                     data = []
@@ -1455,7 +1492,13 @@ class FeatureApi:
                 self.cleanup()  # Clean up sessions after bulk operation
 
         features_gdf = pd.concat([df for df in data if len(df) > 0]) if len(data) > 0 else gpd.GeoDataFrame([])
+        if len(data) == 0:
+            features_gdf.index.name = AOI_ID_COLUMN_NAME
+        
         metadata_df = pd.DataFrame(metadata).set_index(AOI_ID_COLUMN_NAME) if len(metadata) > 0 else pd.DataFrame([])
+        if len(metadata) == 0:
+            metadata_df.index.name = AOI_ID_COLUMN_NAME
+            
         errors_df = pd.DataFrame(errors) if len(errors) > 0 else pd.DataFrame([])
         return features_gdf, metadata_df, errors_df
 
