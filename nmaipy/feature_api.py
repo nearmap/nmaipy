@@ -1365,6 +1365,7 @@ class FeatureApi:
                 logger.warning(
                     f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
                 )
+                logger.warning("errors_df: \n" + errors_df.to_string())
             else:
                 # Only 404s - use debug level as before
                 logger.debug(
