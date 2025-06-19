@@ -134,6 +134,10 @@ class AIFeatureAPIError(Exception):
             except AttributeError:
                 self.message = ""
         self.request_string = request_string
+    
+    def __str__(self):
+        """Return a concise error message without the full response body"""
+        return f"AIFeatureAPIError: {self.status_code} - {self.message}"
 
 
 class AIFeatureAPIGridError(Exception):
@@ -146,6 +150,10 @@ class AIFeatureAPIGridError(Exception):
         self.text = "Gridding and re-requesting failed on one or more grid cell queries."
         self.request_string = ""
         self.message = message
+    
+    def __str__(self):
+        """Return a concise error message"""
+        return f"AIFeatureAPIGridError: {self.status_code} - {self.message}"
 
 
 class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
@@ -160,7 +168,10 @@ class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
     """
     Use to indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
     """
-    pass
+    
+    def __str__(self):
+        """Return a concise error message without the full response body"""
+        return f"AIFeatureAPIRequestSizeError: {self.status_code} - Request too large, should grid"
 
 
 # Add these helper functions at the top of ai_offline_parcel.py

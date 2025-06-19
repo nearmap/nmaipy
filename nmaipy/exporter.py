@@ -836,6 +836,11 @@ class AOIExporter:
                         for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout):
                             try:
                                 j.result()
+                            except BrokenProcessPool:
+                                # Do cleanup before re-raising to outer handler
+                                cleanup_thread_sessions(executor)
+                                executor.shutdown(wait=False)
+                                raise
                             except Exception as e:
                                 self.logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
                                 self.logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
