@@ -46,7 +46,7 @@ class Endpoint(Enum):
 
 CHUNK_SIZE = 500
 PROCESSES = 4
-THREADS = 20
+THREADS = 10  # Reduced from 20 to prevent resource exhaustion
 
 logger = log.get_logger()
 
@@ -254,7 +254,8 @@ def cleanup_process_resources():
     import gc
     gc.collect()
     # Force cleanup of any remaining ProcessPoolExecutor threads
-    concurrent.futures.process._threads_wakeups.clear()
+    if hasattr(concurrent.futures.process, '_threads_wakeups'):
+        concurrent.futures.process._threads_wakeups.clear()
 
 def cleanup_thread_sessions(executor):
     """Helper to ensure thread sessions are properly closed"""
@@ -267,11 +268,6 @@ def cleanup_thread_sessions(executor):
                     except:
                         pass
 
-def get_memory_usage():
-    """Get current memory usage of the process"""
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info().rss / 1024**3  # Convert to GB
-    return mem
 
 
 class AOIExporter:
@@ -478,7 +474,6 @@ class AOIExporter:
         Create a parcel rollup for a chunk of parcels.
         """
         feature_api = None
-        start_mem = get_memory_usage()
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
@@ -702,38 +697,16 @@ class AOIExporter:
                         self.logger.error(e)
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             
-            # Force cleanup
-            if feature_api:
-                feature_api.cleanup()
-                del feature_api
-            if "rollup_df" in locals():
-                del rollup_df
-            if "features_gdf" in locals():
-                del features_gdf
-            if "metadata_df" in locals():
-                del metadata_df
-            if "errors_df" in locals():
-                del errors_df
-            if "final_df" in locals():
-                del final_df
-            if 'final_features_df' in locals():
-                del final_features_df
-            
-            # Force garbage collection
-            gc.collect()
-            
         except Exception as e:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Only cleanup if feature_api has been declared as a variable
-            if "feature_api" in locals():
+            # Clean up feature API to close network connections
+            if feature_api:
                 try:
                     feature_api.cleanup()
                 except:
                     pass
-                del feature_api
-            gc.collect()
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
@@ -842,10 +815,10 @@ class AOIExporter:
         processes = int(self.processes)
         max_retries = 3
         retry_delay = 5  # seconds
-
+        
         for attempt in range(max_retries):
             try:
-                with ProcessPoolExecutor(processes) as executor:
+                with ProcessPoolExecutor(max_workers=processes) as executor:
                     try:
                         for i, batch in enumerate(chunks):
                             chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
@@ -875,6 +848,33 @@ class AOIExporter:
                         executor.shutdown(wait=True)
                         cleanup_process_resources()
             except BrokenProcessPool as e:
+                # Gather diagnostic information when process pool fails
+                import resource
+                mem = psutil.virtual_memory()
+                swap = psutil.swap_memory()
+                
+                # Get resource limits
+                soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+                
+                # Count open file descriptors (Linux/Mac)
+                try:
+                    import os
+                    pid = os.getpid()
+                    if os.path.exists(f'/proc/{pid}/fd'):
+                        fd_count = len(os.listdir(f'/proc/{pid}/fd'))
+                    else:
+                        fd_count = "unknown"
+                except:
+                    fd_count = "unknown"
+                
+                self.logger.error(f"BrokenProcessPool diagnostic info:")
+                self.logger.error(f"  Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)")
+                self.logger.error(f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)")
+                self.logger.error(f"  File descriptors: {fd_count} open (limit: {soft_limit})")
+                self.logger.error(f"  Active processes: {processes}")
+                self.logger.error(f"  Threads per process: {self.threads}")
+                self.logger.error(f"  Total potential connections: {processes * self.threads}")
+                
                 if attempt < max_retries - 1:
                     self.logger.warning(f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {retry_delay}s delay...")
                     cleanup_process_resources()
@@ -1059,7 +1059,8 @@ def main():
     exporter.run()
 
 if __name__ == "__main__":
+    # Register cleanup handlers
+    atexit.register(cleanup_process_resources)
+    signal.signal(signal.SIGTERM, lambda *args: cleanup_process_resources())
+    
     main()
-
-atexit.register(cleanup_process_resources)
-signal.signal(signal.SIGTERM, lambda *args: cleanup_process_resources())
