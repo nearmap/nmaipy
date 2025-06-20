@@ -1388,8 +1388,11 @@ class FeatureApi:
                 logger.warning(
                     f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
                 )
-                # Only log first few errors to avoid massive output
-                logger.warning(f"First 5 errors: {errors_df[['status_code', 'message']].head(5).to_dict('records')}")
+                # Log a random sample of non-404 errors to avoid massive output
+                if len(non_404_errors) > 0:
+                    sample_size = min(5, len(non_404_errors))
+                    error_sample = non_404_errors[['status_code', 'message']].sample(n=sample_size, random_state=42)
+                    logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
             else:
                 # Only 404s - use debug level as before
                 logger.debug(
