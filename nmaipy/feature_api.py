@@ -1196,8 +1196,8 @@ class FeatureApi:
                     AOI_ID_COLUMN_NAME: aoi_id,
                     "status_code": e.status_code,
                     "message": e.message,
-                    "text": e.text,
-                    "request": e.request_string,
+                    "text": e.text[:200] if e.text else "",  # Truncate long text
+                    "request": "Size error - request too large",
                 }
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
@@ -1241,8 +1241,8 @@ class FeatureApi:
                         AOI_ID_COLUMN_NAME: aoi_id,
                         "status_code": e.status_code,
                         "message": e.message,
-                        "text": e.text,
-                        "request": e.request_string,
+                        "text": e.text[:200] + "..." if len(e.text) > 200 else e.text,
+                        "request": self._clean_api_key(e.request_string)[:100] + "..." if len(e.request_string) > 100 else self._clean_api_key(e.request_string),
                     }
         except AIFeatureAPIError as e:
             # Catch acceptable errors
@@ -1280,7 +1280,7 @@ class FeatureApi:
                 "status_code": status_code,
                 "message": "RETRY_ERROR",
                 "text": "Retry Error",
-                "request": str(geometry),
+                "request": f"Geometry with {len(str(geometry))} chars",
             }
         except requests.exceptions.Timeout as e:
             logger.warning(f"Timeout Exception on aoi_id: {aoi_id} near {geometry.representative_point()}")
@@ -1291,7 +1291,7 @@ class FeatureApi:
                 "status_code": DUMMY_STATUS_CODE,
                 "message": "TIMEOUT_ERROR",
                 "text": str(e),
-                "request": str(geometry),
+                "request": f"Geometry with {len(str(geometry))} chars",
             }
 
         # Round the confidence column to two decimal places (nearest percent)
@@ -1388,7 +1388,8 @@ class FeatureApi:
                 logger.warning(
                     f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
                 )
-                logger.warning("errors_df: \n" + errors_df.to_string())
+                # Only log first few errors to avoid massive output
+                logger.warning(f"First 5 errors: {errors_df[['status_code', 'message']].head(5).to_dict('records')}")
             else:
                 # Only 404s - use debug level as before
                 logger.debug(
@@ -1579,7 +1580,7 @@ class FeatureApi:
                 "status_code": DUMMY_STATUS_CODE,
                 "message": "RETRY_ERROR",
                 "text": str(e),
-                "request": "",
+                "request": "No request info",
             }
         return rollup_df, metadata, error
 

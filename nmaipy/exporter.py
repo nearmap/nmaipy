@@ -6,6 +6,7 @@ from typing import List, Optional
 import json
 import sys
 from enum import Enum
+import logging
 
 import geopandas as gpd
 import numpy as np
@@ -375,7 +376,7 @@ class AOIExporter:
         reference_schema = None   # Store PyArrow schema from first chunk
         
         # Stream chunks directly to geoparquet
-        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout)):
+        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout, position=0, leave=True)):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
@@ -473,6 +474,25 @@ class AOIExporter:
         """
         Create a parcel rollup for a chunk of parcels.
         """
+        # Configure logging for worker process to avoid tqdm conflicts
+        # In worker processes, we'll buffer log messages and reduce verbosity
+        import multiprocessing
+        if multiprocessing.current_process().name != 'MainProcess':
+            # Remove existing handlers to prevent output conflicts
+            logger = log.get_logger()
+            logger.handlers.clear()
+            # Create a buffered handler that writes to stderr
+            handler = logging.StreamHandler(sys.stderr)
+            handler.setFormatter(logging.Formatter(
+                "[%(levelname)s] Chunk %(message)s"  # Simplified format for worker processes
+            ))
+            logger.addHandler(handler)
+            # Set log level from parent but increase threshold for workers
+            # to reduce output during normal operations
+            worker_log_level = max(getattr(logging, self.log_level) if isinstance(self.log_level, str) else self.log_level, 
+                                   logging.WARNING)
+            logger.setLevel(worker_log_level)
+        
         feature_api = None
         try:
             if self.cache_dir is None and not self.no_cache:
@@ -536,7 +556,8 @@ class AOIExporter:
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
-                        self.logger.debug(errors_df.value_counts("message"))
+                        error_counts = errors_df["message"].value_counts().to_dict()
+                        self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
@@ -561,7 +582,8 @@ class AOIExporter:
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
-                        self.logger.debug(errors_df.value_counts("message"))
+                        error_counts = errors_df["message"].value_counts().to_dict()
+                        self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
@@ -621,8 +643,7 @@ class AOIExporter:
                 errors_df.to_parquet(outfile_errors)
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
-                self.logger.error(errors_df.shape)
-                self.logger.error(errors_df)
+                self.logger.error(f"Error: {type(e).__name__}: {str(e)}")
             try:
                 # Handle the geometry column separately to avoid conversion issues
                 has_geometry = "geometry" in final_df.columns
@@ -646,10 +667,6 @@ class AOIExporter:
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
-                self.logger.error(final_df.shape)
-                self.logger.error(final_df.dtypes)
-                self.logger.error(final_df.head())
-                self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
                 logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
                 # Check for column name collisions between any two dataframes
@@ -833,7 +850,8 @@ class AOIExporter:
                                     classes_df,
                                 )
                             )
-                        for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout):
+                        # Use position=0 and leave=True to ensure tqdm handles multiprocess output properly
+                        for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout, position=0, leave=True):
                             try:
                                 j.result()
                             except BrokenProcessPool:
@@ -842,8 +860,10 @@ class AOIExporter:
                                 executor.shutdown(wait=False)
                                 raise
                             except Exception as e:
-                                self.logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
-                                self.logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
+                                # Write errors to stderr to avoid tqdm conflicts
+                                sys.stderr.write(f"\nERROR: FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}\n")
+                                sys.stderr.write(f"Traceback: {traceback.format_exc()}\n")
+                                sys.stderr.flush()
                                 cleanup_thread_sessions(executor)
                                 executor.shutdown(wait=False)
                                 raise
