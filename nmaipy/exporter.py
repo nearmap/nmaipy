@@ -807,6 +807,7 @@ class AOIExporter:
                 logger.debug("No latest date will used")
 
         jobs = []
+        job_to_chunk = {}  # Track which chunk each job corresponds to
         num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
         self.logger.info(f"Exporting {len(aoi_gdf)} AOIs as {num_chunks} chunk files.")
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
@@ -842,28 +843,38 @@ class AOIExporter:
                             self.logger.debug(
                                 f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
                             )
-                            jobs.append(
-                                executor.submit(
-                                    self.process_chunk,
-                                    chunk_id,
-                                    batch,
-                                    classes_df,
-                                )
+                            job = executor.submit(
+                                self.process_chunk,
+                                chunk_id,
+                                batch,
+                                classes_df,
                             )
+                            jobs.append(job)
+                            job_to_chunk[job] = (chunk_id, i, batch.index.min(), batch.index.max())
                         # Use position=0 and leave=True to ensure tqdm handles multiprocess output properly
                         for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout, position=0, leave=True):
                             try:
-                                j.result()
+                                # Add timeout to prevent indefinite hanging
+                                # 60 minutes should be enough for even large chunks
+                                j.result(timeout=3600)
+                            except concurrent.futures.TimeoutError:
+                                chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                logger.error(f"Job timed out after 60 minutes - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}")
+                                # Cancel the job and continue with others
+                                j.cancel()
+                                continue
                             except BrokenProcessPool:
                                 # Do cleanup before re-raising to outer handler
                                 cleanup_thread_sessions(executor)
                                 executor.shutdown(wait=False)
                                 raise
                             except Exception as e:
-                                # Write errors to stderr to avoid tqdm conflicts
-                                sys.stderr.write(f"\nERROR: FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}\n")
-                                sys.stderr.write(f"Traceback: {traceback.format_exc()}\n")
-                                sys.stderr.flush()
+                                chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                # Log error with chunk information
+                                logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
+                                logger.error(f"Traceback: {traceback.format_exc()}")
                                 cleanup_thread_sessions(executor)
                                 executor.shutdown(wait=False)
                                 raise
@@ -905,6 +916,7 @@ class AOIExporter:
                     cleanup_process_resources()
                     time.sleep(retry_delay)
                     jobs = []  # Reset jobs list for retry
+                    job_to_chunk = {}  # Reset job tracking for retry
                 else:
                     self.logger.error(f"Process pool broken after {max_retries} attempts, giving up")
                     cleanup_process_resources()
