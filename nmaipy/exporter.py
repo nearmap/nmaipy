@@ -851,33 +851,35 @@ class AOIExporter:
                             )
                             jobs.append(job)
                             job_to_chunk[job] = (chunk_id, i, batch.index.min(), batch.index.max())
-                        # Use position=0 and leave=True to ensure tqdm handles multiprocess output properly
-                        for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout, position=0, leave=True):
-                            try:
-                                # Add timeout to prevent indefinite hanging
-                                # 60 minutes should be enough for even large chunks
-                                j.result(timeout=3600)
-                            except concurrent.futures.TimeoutError:
-                                chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
-                                chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
-                                logger.error(f"Job timed out after 60 minutes - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}")
-                                # Cancel the job and continue with others
-                                j.cancel()
-                                continue
-                            except BrokenProcessPool:
-                                # Do cleanup before re-raising to outer handler
-                                cleanup_thread_sessions(executor)
-                                executor.shutdown(wait=False)
-                                raise
-                            except Exception as e:
-                                chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
-                                chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
-                                # Log error with chunk information
-                                logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
-                                logger.error(f"Traceback: {traceback.format_exc()}")
-                                cleanup_thread_sessions(executor)
-                                executor.shutdown(wait=False)
-                                raise
+                        # Use as_completed to show progress even when individual jobs hang
+                        completed_jobs = 0
+                        with tqdm(total=len(jobs), desc="Processing chunks", file=sys.stdout, position=0, leave=True) as pbar:
+                            for j in concurrent.futures.as_completed(jobs, timeout=3600):
+                                try:
+                                    j.result()  # This should return immediately since job is already completed
+                                    completed_jobs += 1
+                                    pbar.update(1)
+                                except concurrent.futures.TimeoutError:
+                                    chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                    chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                    logger.error(f"Job timed out after 60 minutes - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}")
+                                    completed_jobs += 1
+                                    pbar.update(1)
+                                    continue
+                                except BrokenProcessPool:
+                                    # Do cleanup before re-raising to outer handler
+                                    cleanup_thread_sessions(executor)
+                                    executor.shutdown(wait=False)
+                                    raise
+                                except Exception as e:
+                                    chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                    chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                    # Log error with chunk information
+                                    logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
+                                    logger.error(f"Traceback: {traceback.format_exc()}")
+                                    cleanup_thread_sessions(executor)
+                                    executor.shutdown(wait=False)
+                                    raise
                         break  # Success - exit retry loop
                     finally:
                         cleanup_thread_sessions(executor)

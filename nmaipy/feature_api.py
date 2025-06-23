@@ -42,6 +42,7 @@ from nmaipy.constants import (
     AREA_CRS,
     CONNECTED_CLASS_IDS,
     LAT_LONG_CRS,
+    POLYGON_TOO_COMPLEX,
     MAX_RETRIES,
     ROLLUP_SURVEY_DATE_ID,
     ROLLUP_SYSTEM_VERSION_ID,
@@ -164,7 +165,7 @@ class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
     """
 
     status_codes = (HTTPStatus.GATEWAY_TIMEOUT,)
-    codes = (AOI_EXCEEDS_MAX_SIZE,)
+    codes = (AOI_EXCEEDS_MAX_SIZE, POLYGON_TOO_COMPLEX)
     """
     Use to indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
     """
@@ -1191,14 +1192,44 @@ class FeatureApi:
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             # Do not get stuck in an infinite loop of re-gridding and timing out
             if fail_hard_regrid or geometry is None:
-                logger.debug("Failing hard and NOT re-gridding....")
-                error = {
-                    AOI_ID_COLUMN_NAME: aoi_id,
-                    "status_code": e.status_code,
-                    "message": e.message,
-                    "text": e.text[:200] if e.text else "",  # Truncate long text
-                    "request": "Size error - request too large",
-                }
+                # If we're in gridding mode and this is a 400 (polygon complexity) error, try simplification
+                if fail_hard_regrid and e.status_code == HTTPStatus.BAD_REQUEST and geometry is not None:
+                    logger.warning(f"Grid cell still too complex for aoi_id {aoi_id}, applying minimal geometry simplification")
+                    try:
+                        simplified_geometry = geometry.simplify(tolerance=0.000001)  # ~5-11cm accuracy in EPSG:4326
+                        # Retry with simplified geometry
+                        payload = self.feature_request_payload(
+                            geojson=simplified_geometry.__geo_interface__,
+                            region=region,
+                            packs=packs,
+                            classes=classes,
+                            include=include,
+                            since=since,
+                            until=until,
+                            survey_resource_id=survey_resource_id,
+                            in_gridding_mode=in_gridding_mode
+                        )
+                        features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
+                        error = None
+                        logger.info(f"Geometry simplification successful for aoi_id {aoi_id}")
+                    except Exception as simplify_error:
+                        logger.error(f"Geometry simplification failed for aoi_id {aoi_id}: {simplify_error}")
+                        error = {
+                            AOI_ID_COLUMN_NAME: aoi_id,
+                            "status_code": e.status_code,
+                            "message": e.message,
+                            "text": e.text[:200] if e.text else "",  # Truncate long text
+                            "request": "Size error - geometry simplification failed",
+                        }
+                else:
+                    logger.debug("Failing hard and NOT re-gridding....")
+                    error = {
+                        AOI_ID_COLUMN_NAME: aoi_id,
+                        "status_code": e.status_code,
+                        "message": e.message,
+                        "text": e.text[:200] if e.text else "",  # Truncate long text
+                        "request": "Size error - request too large",
+                    }
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
@@ -1486,7 +1517,8 @@ class FeatureApi:
                     metadata = []
                     errors = []
                     for job in jobs:
-                        aoi_data, aoi_metadata, aoi_error = job.result()
+                        # Add timeout to prevent indefinite hanging
+                        aoi_data, aoi_metadata, aoi_error = job.result(timeout=1800)  # 30 minutes
                         if aoi_data is not None:
                             if len(aoi_data) > 0:
                                 data.append(aoi_data)
@@ -1685,7 +1717,8 @@ class FeatureApi:
                 metadata = []
                 errors = []
                 for job in jobs:
-                    aoi_data, aoi_metadata, aoi_error = job.result()
+                    # Add timeout to prevent indefinite hanging
+                    aoi_data, aoi_metadata, aoi_error = job.result(timeout=1800)  # 30 minutes
                     if aoi_data is not None:
                         data.append(aoi_data)
                     if aoi_metadata is not None:
