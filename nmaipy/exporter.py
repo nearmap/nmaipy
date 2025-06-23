@@ -477,9 +477,9 @@ class AOIExporter:
         # Configure logging for worker process to avoid tqdm conflicts
         # In worker processes, we'll buffer log messages and reduce verbosity
         import multiprocessing
+        logger = log.get_logger()  # Always get logger
         if multiprocessing.current_process().name != 'MainProcess':
             # Remove existing handlers to prevent output conflicts
-            logger = log.get_logger()
             logger.handlers.clear()
             # Create a buffered handler that writes to stderr
             handler = logging.StreamHandler(sys.stderr)
