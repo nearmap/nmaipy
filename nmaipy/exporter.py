@@ -854,18 +854,16 @@ class AOIExporter:
                         # Use as_completed to show progress even when individual jobs hang
                         completed_jobs = 0
                         with tqdm(total=len(jobs), desc="Processing chunks", file=sys.stdout, position=0, leave=True) as pbar:
-                            for j in concurrent.futures.as_completed(jobs, timeout=3600):
+                            for j in concurrent.futures.as_completed(jobs):
                                 try:
                                     j.result()  # This should return immediately since job is already completed
                                     completed_jobs += 1
+                                    # Update progress bar with current memory usage
+                                    mem = psutil.virtual_memory()
+                                    used_gb = (mem.total - mem.available) / (1024**3)
+                                    total_gb = mem.total / (1024**3)
+                                    pbar.set_description(f"Processing chunks - {used_gb:.1f}GB / {total_gb:.1f}GB memory used")
                                     pbar.update(1)
-                                except concurrent.futures.TimeoutError:
-                                    chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
-                                    chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
-                                    logger.error(f"Job timed out after 60 minutes - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}")
-                                    completed_jobs += 1
-                                    pbar.update(1)
-                                    continue
                                 except BrokenProcessPool:
                                     # Do cleanup before re-raising to outer handler
                                     cleanup_thread_sessions(executor)
@@ -874,6 +872,13 @@ class AOIExporter:
                                 except Exception as e:
                                     chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
                                     chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                    # Update progress bar with current memory usage even on error
+                                    completed_jobs += 1
+                                    mem = psutil.virtual_memory()
+                                    used_gb = (mem.total - mem.available) / (1024**3)
+                                    total_gb = mem.total / (1024**3)
+                                    pbar.set_description(f"Processing chunks - {used_gb:.1f}GB / {total_gb:.1f}GB used (ERROR)")
+                                    pbar.update(1)
                                     # Log error with chunk information
                                     logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
                                     logger.error(f"Traceback: {traceback.format_exc()}")
