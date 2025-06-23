@@ -6,6 +6,7 @@ from typing import List, Optional
 import json
 import sys
 from enum import Enum
+import logging
 
 import geopandas as gpd
 import numpy as np
@@ -46,7 +47,7 @@ class Endpoint(Enum):
 
 CHUNK_SIZE = 500
 PROCESSES = 4
-THREADS = 20
+THREADS = 10  # Reduced from 20 to prevent resource exhaustion
 
 logger = log.get_logger()
 
@@ -254,7 +255,8 @@ def cleanup_process_resources():
     import gc
     gc.collect()
     # Force cleanup of any remaining ProcessPoolExecutor threads
-    concurrent.futures.process._threads_wakeups.clear()
+    if hasattr(concurrent.futures.process, '_threads_wakeups'):
+        concurrent.futures.process._threads_wakeups.clear()
 
 def cleanup_thread_sessions(executor):
     """Helper to ensure thread sessions are properly closed"""
@@ -267,11 +269,6 @@ def cleanup_thread_sessions(executor):
                     except:
                         pass
 
-def get_memory_usage():
-    """Get current memory usage of the process"""
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info().rss / 1024**3  # Convert to GB
-    return mem
 
 
 class AOIExporter:
@@ -379,7 +376,7 @@ class AOIExporter:
         reference_schema = None   # Store PyArrow schema from first chunk
         
         # Stream chunks directly to geoparquet
-        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout)):
+        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout, position=0, leave=True)):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
@@ -477,8 +474,26 @@ class AOIExporter:
         """
         Create a parcel rollup for a chunk of parcels.
         """
+        # Configure logging for worker process to avoid tqdm conflicts
+        # In worker processes, we'll buffer log messages and reduce verbosity
+        import multiprocessing
+        logger = log.get_logger()  # Always get logger
+        if multiprocessing.current_process().name != 'MainProcess':
+            # Remove existing handlers to prevent output conflicts
+            logger.handlers.clear()
+            # Create a buffered handler that writes to stderr
+            handler = logging.StreamHandler(sys.stderr)
+            handler.setFormatter(logging.Formatter(
+                "[%(levelname)s] Chunk %(message)s"  # Simplified format for worker processes
+            ))
+            logger.addHandler(handler)
+            # Set log level from parent but increase threshold for workers
+            # to reduce output during normal operations
+            worker_log_level = max(getattr(logging, self.log_level) if isinstance(self.log_level, str) else self.log_level, 
+                                   logging.WARNING)
+            logger.setLevel(worker_log_level)
+        
         feature_api = None
-        start_mem = get_memory_usage()
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
@@ -541,7 +556,8 @@ class AOIExporter:
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
-                        self.logger.debug(errors_df.value_counts("message"))
+                        error_counts = errors_df["message"].value_counts().to_dict()
+                        self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
@@ -566,7 +582,8 @@ class AOIExporter:
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
-                        self.logger.debug(errors_df.value_counts("message"))
+                        error_counts = errors_df["message"].value_counts().to_dict()
+                        self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
@@ -626,8 +643,7 @@ class AOIExporter:
                 errors_df.to_parquet(outfile_errors)
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
-                self.logger.error(errors_df.shape)
-                self.logger.error(errors_df)
+                self.logger.error(f"Error: {type(e).__name__}: {str(e)}")
             try:
                 # Handle the geometry column separately to avoid conversion issues
                 has_geometry = "geometry" in final_df.columns
@@ -651,10 +667,6 @@ class AOIExporter:
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
-                self.logger.error(final_df.shape)
-                self.logger.error(final_df.dtypes)
-                self.logger.error(final_df.head())
-                self.logger.error(e)
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
                 logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
                 # Check for column name collisions between any two dataframes
@@ -702,38 +714,16 @@ class AOIExporter:
                         self.logger.error(e)
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             
-            # Force cleanup
-            if feature_api:
-                feature_api.cleanup()
-                del feature_api
-            if "rollup_df" in locals():
-                del rollup_df
-            if "features_gdf" in locals():
-                del features_gdf
-            if "metadata_df" in locals():
-                del metadata_df
-            if "errors_df" in locals():
-                del errors_df
-            if "final_df" in locals():
-                del final_df
-            if 'final_features_df' in locals():
-                del final_features_df
-            
-            # Force garbage collection
-            gc.collect()
-            
         except Exception as e:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Only cleanup if feature_api has been declared as a variable
-            if "feature_api" in locals():
+            # Clean up feature API to close network connections
+            if feature_api:
                 try:
                     feature_api.cleanup()
                 except:
                     pass
-                del feature_api
-            gc.collect()
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
@@ -817,6 +807,7 @@ class AOIExporter:
                 logger.debug("No latest date will used")
 
         jobs = []
+        job_to_chunk = {}  # Track which chunk each job corresponds to
         num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
         self.logger.info(f"Exporting {len(aoi_gdf)} AOIs as {num_chunks} chunk files.")
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
@@ -842,44 +833,92 @@ class AOIExporter:
         processes = int(self.processes)
         max_retries = 3
         retry_delay = 5  # seconds
-
+        
         for attempt in range(max_retries):
             try:
-                with ProcessPoolExecutor(processes) as executor:
+                with ProcessPoolExecutor(max_workers=processes) as executor:
                     try:
                         for i, batch in enumerate(chunks):
                             chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
                             self.logger.debug(
                                 f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
                             )
-                            jobs.append(
-                                executor.submit(
-                                    self.process_chunk,
-                                    chunk_id,
-                                    batch,
-                                    classes_df,
-                                )
+                            job = executor.submit(
+                                self.process_chunk,
+                                chunk_id,
+                                batch,
+                                classes_df,
                             )
-                        for j in tqdm(jobs, desc="Processing chunks", file=sys.stdout):
-                            try:
-                                j.result()
-                            except Exception as e:
-                                self.logger.error(f"FAILURE TO COMPLETE JOB {j}, DROPPING DUE TO ERROR {e}")
-                                self.logger.error(f"{sys.exc_info()}\t{traceback.format_exc()}")
-                                cleanup_thread_sessions(executor)
-                                executor.shutdown(wait=False)
-                                raise
+                            jobs.append(job)
+                            job_to_chunk[job] = (chunk_id, i, batch.index.min(), batch.index.max())
+                        # Use as_completed to show progress even when individual jobs hang
+                        completed_jobs = 0
+                        with tqdm(total=len(jobs), desc="Processing chunks", file=sys.stdout, position=0, leave=True) as pbar:
+                            for j in concurrent.futures.as_completed(jobs, timeout=3600):
+                                try:
+                                    j.result()  # This should return immediately since job is already completed
+                                    completed_jobs += 1
+                                    pbar.update(1)
+                                except concurrent.futures.TimeoutError:
+                                    chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                    chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                    logger.error(f"Job timed out after 60 minutes - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}")
+                                    completed_jobs += 1
+                                    pbar.update(1)
+                                    continue
+                                except BrokenProcessPool:
+                                    # Do cleanup before re-raising to outer handler
+                                    cleanup_thread_sessions(executor)
+                                    executor.shutdown(wait=False)
+                                    raise
+                                except Exception as e:
+                                    chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                    chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                    # Log error with chunk information
+                                    logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
+                                    logger.error(f"Traceback: {traceback.format_exc()}")
+                                    cleanup_thread_sessions(executor)
+                                    executor.shutdown(wait=False)
+                                    raise
                         break  # Success - exit retry loop
                     finally:
                         cleanup_thread_sessions(executor)
                         executor.shutdown(wait=True)
                         cleanup_process_resources()
             except BrokenProcessPool as e:
+                # Gather diagnostic information when process pool fails
+                import resource
+                mem = psutil.virtual_memory()
+                swap = psutil.swap_memory()
+                
+                # Get resource limits
+                soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+                
+                # Count open file descriptors (Linux/Mac)
+                try:
+                    import os
+                    pid = os.getpid()
+                    if os.path.exists(f'/proc/{pid}/fd'):
+                        fd_count = len(os.listdir(f'/proc/{pid}/fd'))
+                    else:
+                        fd_count = "unknown"
+                except:
+                    fd_count = "unknown"
+                
+                self.logger.error(f"BrokenProcessPool diagnostic info:")
+                self.logger.error(f"  Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)")
+                self.logger.error(f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)")
+                self.logger.error(f"  File descriptors: {fd_count} open (limit: {soft_limit})")
+                self.logger.error(f"  Active processes: {processes}")
+                self.logger.error(f"  Threads per process: {self.threads}")
+                self.logger.error(f"  Total potential connections: {processes * self.threads}")
+                
                 if attempt < max_retries - 1:
                     self.logger.warning(f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {retry_delay}s delay...")
                     cleanup_process_resources()
                     time.sleep(retry_delay)
                     jobs = []  # Reset jobs list for retry
+                    job_to_chunk = {}  # Reset job tracking for retry
                 else:
                     self.logger.error(f"Process pool broken after {max_retries} attempts, giving up")
                     cleanup_process_resources()
@@ -1059,7 +1098,8 @@ def main():
     exporter.run()
 
 if __name__ == "__main__":
+    # Register cleanup handlers
+    atexit.register(cleanup_process_resources)
+    signal.signal(signal.SIGTERM, lambda *args: cleanup_process_resources())
+    
     main()
-
-atexit.register(cleanup_process_resources)
-signal.signal(signal.SIGTERM, lambda *args: cleanup_process_resources())
