@@ -53,7 +53,10 @@ from nmaipy.constants import (
     GRID_SIZE_DEGREES,
 )
 
-TIMEOUT_SECONDS = 120  # Max time to wait for a server response.
+TIMEOUT_SECONDS = 120  # Max time to wait for a server response
+READ_TIMEOUT_SECONDS = 1200  # Max time to wait for reading server response (10 minutes)
+CHUNKED_ENCODING_RETRY_DELAY = 1.0  # Delay between ChunkedEncodingError retries
+BACKOFF_FACTOR = 0.2  # Exponential backoff multiplier
 DUMMY_STATUS_CODE = -1
 
 
@@ -65,7 +68,8 @@ class RetryRequest(Retry):
     Inherited retry request to limit back-off to 5 seconds.
     """
 
-    BACKOFF_MAX = 5  # Maximum backoff time in seconds
+    BACKOFF_MIN = 0.2  # Minimum backoff time in seconds
+    BACKOFF_MAX = 5    # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -94,14 +98,14 @@ class RetryRequest(Retry):
         })
 
     def new_timeout(self, *args, **kwargs):
-        """Override to set a minimum backoff time"""
+        """Override to enforce backoff time between 1-5 seconds"""
         timeout = super().new_timeout(*args, **kwargs)
-        return max(timeout, 1.0)  # At least 1 second between retries
+        return min(max(timeout, self.BACKOFF_MIN), self.BACKOFF_MAX)  # Clamp between 1-5 seconds
 
     @classmethod
     def from_int(cls, retries, **kwargs):
         """Helper to create retry config with better defaults"""
-        kwargs.setdefault('backoff_factor', 1.0)
+        kwargs.setdefault('backoff_factor', BACKOFF_FACTOR)
         kwargs.setdefault('status_forcelist', [429, 500, 502, 503, 504])
         kwargs.setdefault('respect_retry_after_header', True)
         return super().from_int(retries, **kwargs)
@@ -354,7 +358,7 @@ class FeatureApi:
             
             retries = RetryRequest(
                 total=self.maxretry,
-                backoff_factor=0.2,
+                backoff_factor=BACKOFF_FACTOR,
                 status_forcelist=status_forcelist,
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
@@ -370,8 +374,8 @@ class FeatureApi:
             )
             session.mount("https://", adapter)
 
-            # Set longer timeouts
-            session.timeout = (30, 600)  # (connect timeout, read timeout)
+            # Set timeouts (connect timeout, read timeout)
+            session.timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
             
             self._thread_local.session = session
             with self._lock:
@@ -803,14 +807,14 @@ class FeatureApi:
             for retry_attempt in range(MAX_RETRIES):
                 try:
                     headers = {'Content-Type': 'application/json'}
-                    response = session.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                    response = session.post(url, json=body, headers=headers)
                     request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
                     break  # Success, exit retry loop
                 except requests.exceptions.ChunkedEncodingError as e:
                     if retry_attempt < MAX_RETRIES - 1:
                         # Log debug message for retry attempts
                         logger.debug(f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}")
-                        time.sleep(1)  # Brief pause before retry
+                        time.sleep(CHUNKED_ENCODING_RETRY_DELAY)  # Brief pause before retry
                         continue
                     else:
                         # Exhausted all retries, log error and fall back to size error
@@ -1517,8 +1521,7 @@ class FeatureApi:
                     metadata = []
                     errors = []
                     for job in jobs:
-                        # Add timeout to prevent indefinite hanging
-                        aoi_data, aoi_metadata, aoi_error = job.result(timeout=1800)  # 30 minutes
+                        aoi_data, aoi_metadata, aoi_error = job.result()
                         if aoi_data is not None:
                             if len(aoi_data) > 0:
                                 data.append(aoi_data)
@@ -1717,8 +1720,7 @@ class FeatureApi:
                 metadata = []
                 errors = []
                 for job in jobs:
-                    # Add timeout to prevent indefinite hanging
-                    aoi_data, aoi_metadata, aoi_error = job.result(timeout=1800)  # 30 minutes
+                    aoi_data, aoi_metadata, aoi_error = job.result()
                     if aoi_data is not None:
                         data.append(aoi_data)
                     if aoi_metadata is not None:

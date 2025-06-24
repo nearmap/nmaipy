@@ -832,7 +832,7 @@ class AOIExporter:
             chunks = np.array_split(aoi_gdf, num_chunks)
         processes = int(self.processes)
         max_retries = 3
-        retry_delay = 5  # seconds
+        PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
         
         for attempt in range(max_retries):
             try:
@@ -919,9 +919,9 @@ class AOIExporter:
                 self.logger.error(f"  Total potential connections: {processes * self.threads}")
                 
                 if attempt < max_retries - 1:
-                    self.logger.warning(f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {retry_delay}s delay...")
+                    self.logger.warning(f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {PROCESS_POOL_RETRY_DELAY}s delay...")
                     cleanup_process_resources()
-                    time.sleep(retry_delay)
+                    time.sleep(PROCESS_POOL_RETRY_DELAY)
                     jobs = []  # Reset jobs list for retry
                     job_to_chunk = {}  # Reset job tracking for retry
                 else:
