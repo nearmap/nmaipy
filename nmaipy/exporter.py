@@ -39,6 +39,68 @@ import gc
 import atexit
 import signal
 
+# Global process-level FeatureApi instance to reduce memory leaks
+_process_feature_api = None
+
+
+def get_or_create_process_feature_api(
+    api_key: str,
+    cache_dir=None,
+    overwrite_cache: bool = False,
+    compress_cache: bool = False,
+    threads: int = 10,
+    alpha: bool = False,
+    beta: bool = False,
+    prerelease: bool = False,
+    only3d: bool = False,
+    url_root: str = None,
+    system_version_prefix: str = None,
+    system_version: str = None,
+    aoi_grid_min_pct: int = 100,
+    aoi_grid_inexact: bool = False,
+    parcel_mode: bool = True,
+) -> FeatureApi:
+    """
+    Get or create a process-level FeatureApi instance to reduce memory leaks from
+    repeated creation/destruction of FeatureApi instances per chunk.
+    
+    Returns:
+        Shared FeatureApi instance for this process
+    """
+    global _process_feature_api
+    if _process_feature_api is None:
+        _process_feature_api = FeatureApi(
+            api_key=api_key,
+            cache_dir=cache_dir,
+            overwrite_cache=overwrite_cache,
+            compress_cache=compress_cache,
+            threads=threads,
+            alpha=alpha,
+            beta=beta,
+            prerelease=prerelease,
+            only3d=only3d,
+            url_root=url_root,
+            system_version_prefix=system_version_prefix,
+            system_version=system_version,
+            aoi_grid_min_pct=aoi_grid_min_pct,
+            aoi_grid_inexact=aoi_grid_inexact,
+            parcel_mode=parcel_mode,
+        )
+    return _process_feature_api
+
+
+def cleanup_process_feature_api():
+    """
+    Clean up the process-level FeatureApi instance
+    """
+    global _process_feature_api
+    if _process_feature_api is not None:
+        try:
+            _process_feature_api.cleanup()
+        except:
+            pass
+        _process_feature_api = None
+
 
 class Endpoint(Enum):
     FEATURE = "feature"
@@ -253,6 +315,10 @@ def parse_arguments():
 def cleanup_process_resources():
     """Helper to ensure processes are cleaned up"""
     import gc
+    
+    # Clean up the process-level FeatureApi instance
+    cleanup_process_feature_api()
+    
     gc.collect()
     # Force cleanup of any remaining ProcessPoolExecutor threads
     if hasattr(concurrent.futures.process, '_threads_wakeups'):
@@ -518,8 +584,8 @@ class AOIExporter:
                 aoi_gdf["query_aoi_lat"] = rep_point.y
                 aoi_gdf["query_aoi_lon"] = rep_point.x
 
-            # Get features
-            feature_api = FeatureApi(
+            # Get shared process-level FeatureApi to reduce memory leaks
+            feature_api = get_or_create_process_feature_api(
                 api_key=self.api_key(),
                 cache_dir=cache_path,
                 overwrite_cache=self.overwrite_cache,
@@ -718,19 +784,8 @@ class AOIExporter:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Clean up feature API to close network connections
-            if feature_api:
-                try:
-                    feature_api.cleanup()
-                    # Ensure connection pools are fully closed
-                    if hasattr(feature_api, '_sessions'):
-                        for session in feature_api._sessions:
-                            if hasattr(session, 'adapters'):
-                                for adapter in session.adapters.values():
-                                    if hasattr(adapter, 'poolmanager'):
-                                        adapter.poolmanager.clear()
-                except:
-                    pass
+            # Note: We no longer clean up the feature_api here since it's shared across chunks
+            # The process-level FeatureApi will be cleaned up when the process shuts down
             
             # Clear GDAL/PROJ caches that accumulate during geometric operations
             try:
@@ -739,6 +794,7 @@ class AOIExporter:
                 # Clear GDAL's internal caches
                 gdal.GDALDestroyDriverManager()
                 osr.CleanupESRIDictionary()
+                gdal.GDALCleanupCache()
             except:
                 pass
 
@@ -756,7 +812,7 @@ class AOIExporter:
         chunk_path.mkdir(parents=True, exist_ok=True)
         final_path.mkdir(parents=True, exist_ok=True)
 
-        # Get classes
+        # Get classes - create a simple FeatureApi just for class lookup
         feature_api = FeatureApi(
                 api_key=self.api_key(),
                 alpha=self.alpha,
@@ -765,12 +821,16 @@ class AOIExporter:
                 only3d=self.only3d,
                 parcel_mode=self.parcel_mode
             )
-        if self.packs is not None:
-            classes_df = feature_api.get_feature_classes(self.packs)
-        else:
-            classes_df = feature_api.get_feature_classes() # All classes
-            if self.classes is not None:
-                classes_df = classes_df[classes_df.index.isin(self.classes)]
+        try:
+            if self.packs is not None:
+                classes_df = feature_api.get_feature_classes(self.packs)
+            else:
+                classes_df = feature_api.get_feature_classes() # All classes
+                if self.classes is not None:
+                    classes_df = classes_df[classes_df.index.isin(self.classes)]
+        finally:
+            # Clean up the temporary FeatureApi
+            feature_api.cleanup()
 
         # Modify output file paths using the AOI file name
         outpath = final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
