@@ -722,8 +722,25 @@ class AOIExporter:
             if feature_api:
                 try:
                     feature_api.cleanup()
+                    # Ensure connection pools are fully closed
+                    if hasattr(feature_api, '_sessions'):
+                        for session in feature_api._sessions:
+                            if hasattr(session, 'adapters'):
+                                for adapter in session.adapters.values():
+                                    if hasattr(adapter, 'poolmanager'):
+                                        adapter.poolmanager.clear()
                 except:
                     pass
+            
+            # Clear GDAL/PROJ caches that accumulate during geometric operations
+            try:
+                from osgeo import gdal, osr
+                gdal.DontUseExceptions()  # Prevent exceptions if already disabled
+                # Clear GDAL's internal caches
+                gdal.GDALDestroyDriverManager()
+                osr.CleanupESRIDictionary()
+            except:
+                pass
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
