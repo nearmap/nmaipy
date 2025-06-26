@@ -1478,72 +1478,71 @@ class FeatureApi:
         Returns:
             API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
-        with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
-            try:
-                max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
+        try:
+            max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
 
-                # are address fields present?
-                has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
-                # is a geometry field present?
-                has_geom = "geometry" in gdf.columns
+            # are address fields present?
+            has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
+            # is a geometry field present?
+            has_geom = "geometry" in gdf.columns
 
-                # Run in thread pool
-                with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
-                    jobs = []
-                    for aoi_id, row in gdf.iterrows():
-                        # Overwrite blanket since/until dates with per request since/until if columns are present
-                        since = since_bulk
-                        if SINCE_COL_NAME in row:
-                            if isinstance(row[SINCE_COL_NAME], str):
-                                since = row[SINCE_COL_NAME]
-                        until = until_bulk
-                        if UNTIL_COL_NAME in row:
-                            if isinstance(row[UNTIL_COL_NAME], str):
-                                until = row[UNTIL_COL_NAME]
-                        survey_resource_id = survey_resource_id_bulk
-                        if SURVEY_RESOURCE_ID_COL_NAME in row:
-                            if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                                survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-                        jobs.append(
-                            executor.submit(
-                                self.get_features_gdf,
-                                geometry=row.geometry if has_geom else None,
-                                region=region,
-                                packs=packs,
-                                classes=classes,
-                                include=include,
-                                aoi_id=aoi_id,
-                                since=since,
-                                until=until,
-                                address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
-                                survey_resource_id=survey_resource_id,
-                                fail_hard_regrid=fail_hard_regrid,
-                                in_gridding_mode=in_gridding_mode,
-                            )
+            # Run in thread pool
+            with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
+                jobs = []
+                for aoi_id, row in gdf.iterrows():
+                    # Overwrite blanket since/until dates with per request since/until if columns are present
+                    since = since_bulk
+                    if SINCE_COL_NAME in row:
+                        if isinstance(row[SINCE_COL_NAME], str):
+                            since = row[SINCE_COL_NAME]
+                    until = until_bulk
+                    if UNTIL_COL_NAME in row:
+                        if isinstance(row[UNTIL_COL_NAME], str):
+                            until = row[UNTIL_COL_NAME]
+                    survey_resource_id = survey_resource_id_bulk
+                    if SURVEY_RESOURCE_ID_COL_NAME in row:
+                        if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                            survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+                    jobs.append(
+                        executor.submit(
+                            self.get_features_gdf,
+                            geometry=row.geometry if has_geom else None,
+                            region=region,
+                            packs=packs,
+                            classes=classes,
+                            include=include,
+                            aoi_id=aoi_id,
+                            since=since,
+                            until=until,
+                            address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                            survey_resource_id=survey_resource_id,
+                            fail_hard_regrid=fail_hard_regrid,
+                            in_gridding_mode=in_gridding_mode,
                         )
-                    data = []
-                    metadata = []
-                    errors = []
-                    for job in jobs:
-                        aoi_data, aoi_metadata, aoi_error = job.result()
-                        if aoi_data is not None:
-                            if len(aoi_data) > 0:
-                                data.append(aoi_data)
-                        if aoi_metadata is not None:
-                            if len(aoi_metadata) > 0:
-                                metadata.append(aoi_metadata)
-                        if aoi_error is not None:
-                            if len(errors) > max_allowed_error_count:
-                                cleanup_executor(executor)
-                                logger.debug(
-                                    f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
-                                )
-                                raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                            else:
-                                errors.append(aoi_error)
-            finally:
-                executor.shutdown(wait=True)  # Ensure executor shuts down
-                self.cleanup()  # Clean up sessions after bulk operation
+                    )
+                data = []
+                metadata = []
+                errors = []
+                for job in jobs:
+                    aoi_data, aoi_metadata, aoi_error = job.result()
+                    if aoi_data is not None:
+                        if len(aoi_data) > 0:
+                            data.append(aoi_data)
+                    if aoi_metadata is not None:
+                        if len(aoi_metadata) > 0:
+                            metadata.append(aoi_metadata)
+                    if aoi_error is not None:
+                        if len(errors) > max_allowed_error_count:
+                            cleanup_executor(executor)
+                            logger.debug(
+                                f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
+                            )
+                            raise AIFeatureAPIError(aoi_error, aoi_error["request"])
+                        else:
+                            errors.append(aoi_error)
+        finally:
+            # Cleanup is handled by the 'with' statement for the executor
+            self.cleanup()  # Clean up sessions after bulk operation
 
         features_gdf = pd.concat([df for df in data if len(df) > 0]) if len(data) > 0 else gpd.GeoDataFrame([])
         if len(data) == 0:
