@@ -398,7 +398,8 @@ class FeatureApi:
         try:
             yield session
         finally:
-            pass  # Don't close here - keep session alive for thread reuse
+            # Sessions will be managed by the cleanup() method, not closed per-request
+            pass
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """

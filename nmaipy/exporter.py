@@ -784,8 +784,13 @@ class AOIExporter:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Note: We no longer clean up the feature_api here since it's shared across chunks
-            # The process-level FeatureApi will be cleaned up when the process shuts down
+            # Clean up accumulated sessions in the shared FeatureApi after each chunk
+            # This prevents session accumulation that causes memory leaks
+            if 'feature_api' in locals():
+                try:
+                    feature_api.cleanup()
+                except:
+                    pass
             
             # Clear GDAL/PROJ caches that accumulate during geometric operations
             try:
@@ -798,10 +803,6 @@ class AOIExporter:
             except:
                 pass
             
-            # Force garbage collection to clean up large DataFrames from chunk processing
-            # This is especially important for --save-features which creates large temporary DataFrames
-            import gc
-            gc.collect()
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
@@ -968,6 +969,16 @@ class AOIExporter:
                                     executor.shutdown(wait=False)
                                     raise
                         break  # Success - exit retry loop
+                    except KeyboardInterrupt:
+                        self.logger.warning("Interrupted by user (Ctrl+C) - shutting down processes...")
+                        # Cancel all pending jobs
+                        for job in jobs:
+                            job.cancel()
+                        # Force immediate shutdown
+                        cleanup_thread_sessions(executor)
+                        executor.shutdown(wait=False)
+                        cleanup_process_resources()
+                        raise
                     finally:
                         cleanup_thread_sessions(executor)
                         executor.shutdown(wait=True)
