@@ -8,7 +8,6 @@ import sys
 from enum import Enum
 import logging
 import gc
-import pygeos
 import shapely
 import pyproj
 
@@ -748,30 +747,12 @@ class AOIExporter:
                 except:
                     pass
             
-            # Clear GDAL/PROJ caches that accumulate during geometric operations
-            try:
-                from osgeo import gdal, osr
-                gdal.DontUseExceptions()  # Prevent exceptions if already disabled
-                # Clear GDAL's internal caches
-                gdal.GDALDestroyDriverManager()
-                osr.CleanupESRIDictionary() 
-                gdal.GDALCleanupCache()
-            except:
-                pass
-            
             # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
             try:
                 # Clear Shapely's thread-local GEOS handles which can accumulate
                 if hasattr(shapely, '_geos'):
                     shapely._geos.clear_all_thread_local()
                 
-                # Clear any PyGEOS caches if present (older versions)
-                try:
-                    if hasattr(pygeos, '_geos_c_api'):
-                        pygeos._geos_c_api.clear_thread_local()
-                except ImportError:
-                    pass
-                    
                 # Clear PROJ context caches which can accumulate coordinate system data
                 try:
                     if hasattr(pyproj, 'proj'):
