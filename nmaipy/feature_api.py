@@ -395,6 +395,29 @@ class FeatureApi:
                 with self._lock:
                     # Only add newly created sessions to prevent unlimited accumulation
                     self._sessions.append(session)
+        else:
+            # Session already exists - we need to reconfigure the retry adapter for the current context
+            # This is critical: reused sessions might have wrong retry configuration for gridding vs non-gridding
+            status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
+            
+            retries = RetryRequest(
+                total=self.maxretry,
+                backoff_factor=BACKOFF_FACTOR,
+                status_forcelist=status_forcelist,
+                allowed_methods=["GET", "POST"],
+                raise_on_status=False,
+                connect=self.maxretry,
+                read=self.maxretry,
+                redirect=self.maxretry,
+            )
+            adapter = HTTPAdapter(
+                max_retries=retries,
+                pool_maxsize=self.POOL_SIZE,
+                pool_connections=self.POOL_SIZE,
+                pool_block=True
+            )
+            session.mount("https://", adapter)
+            
         try:
             yield session
         finally:
