@@ -7,6 +7,10 @@ import json
 import sys
 from enum import Enum
 import logging
+import gc
+import pygeos
+import shapely
+import pyproj
 
 import geopandas as gpd
 import numpy as np
@@ -39,7 +43,7 @@ import gc
 import atexit
 import signal
 
-# Global process-level FeatureApi instance to reduce memory leaks
+
 _process_feature_api = None
 
 
@@ -267,9 +271,7 @@ def parse_arguments():
 
 
 def cleanup_process_resources():
-    """Helper to ensure processes are cleaned up"""
-    import gc
-    
+    """Helper to ensure processes are cleaned up"""   
     # Clean up the process-level FeatureApi instance
     cleanup_process_feature_api()
     
@@ -471,7 +473,7 @@ class AOIExporter:
                             self.logger.error(f"Reference schema: {reference_schema}")
                             self.logger.error(f"Current schema: {table.schema}")
                 pqwriter.write_table(table)
-         
+        
         # Close the writer
         if pqwriter is not None:
             pqwriter.close()
@@ -538,7 +540,7 @@ class AOIExporter:
                 aoi_gdf["query_aoi_lat"] = rep_point.y
                 aoi_gdf["query_aoi_lon"] = rep_point.x
 
-            # Create fresh FeatureApi for each chunk to prevent memory accumulation
+            # Get features
             feature_api = FeatureApi(
                 api_key=self.api_key(),
                 cache_dir=cache_path,
@@ -738,11 +740,11 @@ class AOIExporter:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Clean up FeatureApi instance after each chunk to prevent memory leaks
+            # Clean up feature API to close network connections
             if 'feature_api' in locals():
                 try:
                     feature_api.cleanup()
-                    del feature_api  # Explicit deletion to help garbage collection
+                    del feature_api
                 except:
                     pass
             
@@ -760,13 +762,11 @@ class AOIExporter:
             # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
             try:
                 # Clear Shapely's thread-local GEOS handles which can accumulate
-                import shapely
                 if hasattr(shapely, '_geos'):
                     shapely._geos.clear_all_thread_local()
                 
                 # Clear any PyGEOS caches if present (older versions)
                 try:
-                    import pygeos
                     if hasattr(pygeos, '_geos_c_api'):
                         pygeos._geos_c_api.clear_thread_local()
                 except ImportError:
@@ -774,7 +774,6 @@ class AOIExporter:
                     
                 # Clear PROJ context caches which can accumulate coordinate system data
                 try:
-                    import pyproj
                     if hasattr(pyproj, 'proj'):
                         # Clear the global CRS cache
                         pyproj.crs.CRS.clear_cache()
@@ -786,7 +785,6 @@ class AOIExporter:
                     
             except:
                 pass
-            
             
 
     def run(self):
@@ -803,7 +801,7 @@ class AOIExporter:
         chunk_path.mkdir(parents=True, exist_ok=True)
         final_path.mkdir(parents=True, exist_ok=True)
 
-        # Get classes - create a simple FeatureApi just for class lookup
+        # Get classes
         feature_api = FeatureApi(
                 api_key=self.api_key(),
                 alpha=self.alpha,
@@ -820,7 +818,6 @@ class AOIExporter:
                 if self.classes is not None:
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
-            # Clean up the temporary FeatureApi
             feature_api.cleanup()
 
         # Modify output file paths using the AOI file name
