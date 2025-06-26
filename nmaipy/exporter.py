@@ -517,7 +517,7 @@ class AOIExporter:
                             self.logger.error(f"Reference schema: {reference_schema}")
                             self.logger.error(f"Current schema: {table.schema}")
                 pqwriter.write_table(table)
-        
+         
         # Close the writer
         if pqwriter is not None:
             pqwriter.close()
@@ -797,6 +797,11 @@ class AOIExporter:
                 gdal.GDALCleanupCache()
             except:
                 pass
+            
+            # Force garbage collection to clean up large DataFrames from chunk processing
+            # This is especially important for --save-features which creates large temporary DataFrames
+            import gc
+            gc.collect()
 
     def run(self):
         self.logger.debug("Starting parcel rollup")

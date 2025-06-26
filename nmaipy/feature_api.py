@@ -226,6 +226,17 @@ class FeatureApi:
     API_TYPE_FEATURES = "features"
     API_TYPE_ROLLUPS = "rollups"
     POOL_SIZE = 10
+    
+    # HTTP status codes for retry logic
+    RETRY_STATUS_CODES_BASE = [
+        HTTPStatus.TOO_MANY_REQUESTS,      # 429
+        HTTPStatus.BAD_GATEWAY,            # 502
+        HTTPStatus.SERVICE_UNAVAILABLE,    # 503
+        HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
+    ]
+    RETRY_STATUS_CODES_WITH_TIMEOUT = RETRY_STATUS_CODES_BASE + [
+        HTTPStatus.GATEWAY_TIMEOUT,        # 504
+    ]
 
     def __init__(
         self,
@@ -344,42 +355,46 @@ class FeatureApi:
         """Thread-safe context manager for session lifecycle"""
         session = getattr(self._thread_local, "session", None)
         if session is None:
-            session = requests.Session()
-            # Configure retries based on context: skip 504 retries initially, retry within gridding
-            status_forcelist = [
-                HTTPStatus.TOO_MANY_REQUESTS,      # 429
-                HTTPStatus.BAD_GATEWAY,            # 502
-                HTTPStatus.SERVICE_UNAVAILABLE,    # 503
-                HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
-            ]
-            if in_gridding_mode:
-                # When gridding, retry 504s to avoid losing small grid squares
-                status_forcelist.append(HTTPStatus.GATEWAY_TIMEOUT)  # 504
-            
-            retries = RetryRequest(
-                total=self.maxretry,
-                backoff_factor=BACKOFF_FACTOR,
-                status_forcelist=status_forcelist,
-                allowed_methods=["GET", "POST"],
-                raise_on_status=False,
-                connect=self.maxretry,
-                read=self.maxretry,
-                redirect=self.maxretry,
-            )
-            adapter = HTTPAdapter(
-                max_retries=retries,
-                pool_maxsize=self.POOL_SIZE,  # Double the pool size
-                pool_connections=self.POOL_SIZE,
-                pool_block=True
-            )
-            session.mount("https://", adapter)
-
-            # Set timeouts (connect timeout, read timeout)
-            session.timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
-            
-            self._thread_local.session = session
+            # Check if we already have enough sessions - if so, reuse one instead of creating unlimited new ones
             with self._lock:
-                self._sessions.append(session)
+                if len(self._sessions) >= self.threads:
+                    # Reuse an existing session to prevent unlimited accumulation
+                    session = self._sessions[len(self._sessions) % self.threads]
+                    self._thread_local.session = session
+                else:
+                    # Only create new session if we haven't reached the thread limit
+                    create_new_session = True
+            
+            if session is None:  # Need to create a new session
+                session = requests.Session()
+                # Configure retries based on context: skip 504 retries initially, retry within gridding
+                status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
+                
+                retries = RetryRequest(
+                    total=self.maxretry,
+                    backoff_factor=BACKOFF_FACTOR,
+                    status_forcelist=status_forcelist,
+                    allowed_methods=["GET", "POST"],
+                    raise_on_status=False,
+                    connect=self.maxretry,
+                    read=self.maxretry,
+                    redirect=self.maxretry,
+                )
+                adapter = HTTPAdapter(
+                    max_retries=retries,
+                    pool_maxsize=self.POOL_SIZE,
+                    pool_connections=self.POOL_SIZE,
+                    pool_block=True
+                )
+                session.mount("https://", adapter)
+
+                # Set timeouts (connect timeout, read timeout)
+                session.timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
+                
+                self._thread_local.session = session
+                with self._lock:
+                    # Only add newly created sessions to prevent unlimited accumulation
+                    self._sessions.append(session)
         try:
             yield session
         finally:
