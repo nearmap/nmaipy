@@ -43,52 +43,6 @@ import signal
 _process_feature_api = None
 
 
-def get_or_create_process_feature_api(
-    api_key: str,
-    cache_dir=None,
-    overwrite_cache: bool = False,
-    compress_cache: bool = False,
-    threads: int = 10,
-    alpha: bool = False,
-    beta: bool = False,
-    prerelease: bool = False,
-    only3d: bool = False,
-    url_root: str = None,
-    system_version_prefix: str = None,
-    system_version: str = None,
-    aoi_grid_min_pct: int = 100,
-    aoi_grid_inexact: bool = False,
-    parcel_mode: bool = True,
-) -> FeatureApi:
-    """
-    Get or create a process-level FeatureApi instance to reduce memory leaks from
-    repeated creation/destruction of FeatureApi instances per chunk.
-    
-    Returns:
-        Shared FeatureApi instance for this process
-    """
-    global _process_feature_api
-    if _process_feature_api is None:
-        _process_feature_api = FeatureApi(
-            api_key=api_key,
-            cache_dir=cache_dir,
-            overwrite_cache=overwrite_cache,
-            compress_cache=compress_cache,
-            threads=threads,
-            alpha=alpha,
-            beta=beta,
-            prerelease=prerelease,
-            only3d=only3d,
-            url_root=url_root,
-            system_version_prefix=system_version_prefix,
-            system_version=system_version,
-            aoi_grid_min_pct=aoi_grid_min_pct,
-            aoi_grid_inexact=aoi_grid_inexact,
-            parcel_mode=parcel_mode,
-        )
-    return _process_feature_api
-
-
 def cleanup_process_feature_api():
     """
     Clean up the process-level FeatureApi instance
@@ -584,8 +538,8 @@ class AOIExporter:
                 aoi_gdf["query_aoi_lat"] = rep_point.y
                 aoi_gdf["query_aoi_lon"] = rep_point.x
 
-            # Get shared process-level FeatureApi to reduce memory leaks
-            feature_api = get_or_create_process_feature_api(
+            # Create fresh FeatureApi for each chunk to prevent memory accumulation
+            feature_api = FeatureApi(
                 api_key=self.api_key(),
                 cache_dir=cache_path,
                 overwrite_cache=self.overwrite_cache,
@@ -784,11 +738,11 @@ class AOIExporter:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Clean up accumulated sessions in the shared FeatureApi after each chunk
-            # This prevents session accumulation that causes memory leaks
+            # Clean up FeatureApi instance after each chunk to prevent memory leaks
             if 'feature_api' in locals():
                 try:
                     feature_api.cleanup()
+                    del feature_api  # Explicit deletion to help garbage collection
                 except:
                     pass
             
@@ -798,10 +752,41 @@ class AOIExporter:
                 gdal.DontUseExceptions()  # Prevent exceptions if already disabled
                 # Clear GDAL's internal caches
                 gdal.GDALDestroyDriverManager()
-                osr.CleanupESRIDictionary()
+                osr.CleanupESRIDictionary() 
                 gdal.GDALCleanupCache()
             except:
                 pass
+            
+            # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
+            try:
+                # Clear Shapely's thread-local GEOS handles which can accumulate
+                import shapely
+                if hasattr(shapely, '_geos'):
+                    shapely._geos.clear_all_thread_local()
+                
+                # Clear any PyGEOS caches if present (older versions)
+                try:
+                    import pygeos
+                    if hasattr(pygeos, '_geos_c_api'):
+                        pygeos._geos_c_api.clear_thread_local()
+                except ImportError:
+                    pass
+                    
+                # Clear PROJ context caches which can accumulate coordinate system data
+                try:
+                    import pyproj
+                    if hasattr(pyproj, 'proj'):
+                        # Clear the global CRS cache
+                        pyproj.crs.CRS.clear_cache()
+                    if hasattr(pyproj, '_datadir'):
+                        # Clear proj data directory cache
+                        pyproj._datadir.clear_data_dir()
+                except:
+                    pass
+                    
+            except:
+                pass
+            
             
 
     def run(self):
