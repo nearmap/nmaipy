@@ -7,6 +7,9 @@ import json
 import sys
 from enum import Enum
 import logging
+import gc
+import shapely
+import pyproj
 
 import geopandas as gpd
 import numpy as np
@@ -38,6 +41,22 @@ from concurrent.futures.process import BrokenProcessPool
 import gc
 import atexit
 import signal
+
+
+_process_feature_api = None
+
+
+def cleanup_process_feature_api():
+    """
+    Clean up the process-level FeatureApi instance
+    """
+    global _process_feature_api
+    if _process_feature_api is not None:
+        try:
+            _process_feature_api.cleanup()
+        except:
+            pass
+        _process_feature_api = None
 
 
 class Endpoint(Enum):
@@ -251,8 +270,10 @@ def parse_arguments():
 
 
 def cleanup_process_resources():
-    """Helper to ensure processes are cleaned up"""
-    import gc
+    """Helper to ensure processes are cleaned up"""   
+    # Clean up the process-level FeatureApi instance
+    cleanup_process_feature_api()
+    
     gc.collect()
     # Force cleanup of any remaining ProcessPoolExecutor threads
     if hasattr(concurrent.futures.process, '_threads_wakeups'):
@@ -719,28 +740,33 @@ class AOIExporter:
             raise
         finally:
             # Clean up feature API to close network connections
-            if feature_api:
+            if 'feature_api' in locals():
                 try:
                     feature_api.cleanup()
-                    # Ensure connection pools are fully closed
-                    if hasattr(feature_api, '_sessions'):
-                        for session in feature_api._sessions:
-                            if hasattr(session, 'adapters'):
-                                for adapter in session.adapters.values():
-                                    if hasattr(adapter, 'poolmanager'):
-                                        adapter.poolmanager.clear()
+                    del feature_api
                 except:
                     pass
             
-            # Clear GDAL/PROJ caches that accumulate during geometric operations
+            # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
             try:
-                from osgeo import gdal, osr
-                gdal.DontUseExceptions()  # Prevent exceptions if already disabled
-                # Clear GDAL's internal caches
-                gdal.GDALDestroyDriverManager()
-                osr.CleanupESRIDictionary()
+                # Clear Shapely's thread-local GEOS handles which can accumulate
+                if hasattr(shapely, '_geos'):
+                    shapely._geos.clear_all_thread_local()
+                
+                # Clear PROJ context caches which can accumulate coordinate system data
+                try:
+                    if hasattr(pyproj, 'proj'):
+                        # Clear the global CRS cache
+                        pyproj.crs.CRS.clear_cache()
+                    if hasattr(pyproj, '_datadir'):
+                        # Clear proj data directory cache
+                        pyproj._datadir.clear_data_dir()
+                except:
+                    pass
+                    
             except:
                 pass
+            
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
@@ -765,12 +791,15 @@ class AOIExporter:
                 only3d=self.only3d,
                 parcel_mode=self.parcel_mode
             )
-        if self.packs is not None:
-            classes_df = feature_api.get_feature_classes(self.packs)
-        else:
-            classes_df = feature_api.get_feature_classes() # All classes
-            if self.classes is not None:
-                classes_df = classes_df[classes_df.index.isin(self.classes)]
+        try:
+            if self.packs is not None:
+                classes_df = feature_api.get_feature_classes(self.packs)
+            else:
+                classes_df = feature_api.get_feature_classes() # All classes
+                if self.classes is not None:
+                    classes_df = classes_df[classes_df.index.isin(self.classes)]
+        finally:
+            feature_api.cleanup()
 
         # Modify output file paths using the AOI file name
         outpath = final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
@@ -903,6 +932,16 @@ class AOIExporter:
                                     executor.shutdown(wait=False)
                                     raise
                         break  # Success - exit retry loop
+                    except KeyboardInterrupt:
+                        self.logger.warning("Interrupted by user (Ctrl+C) - shutting down processes...")
+                        # Cancel all pending jobs
+                        for job in jobs:
+                            job.cancel()
+                        # Force immediate shutdown
+                        cleanup_thread_sessions(executor)
+                        executor.shutdown(wait=False)
+                        cleanup_process_resources()
+                        raise
                     finally:
                         cleanup_thread_sessions(executor)
                         executor.shutdown(wait=True)
