@@ -352,79 +352,42 @@ class FeatureApi:
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
-        """Thread-safe context manager for session lifecycle"""
-        session = getattr(self._thread_local, "session", None)
-        if session is None:
-            # Check if we already have enough sessions - if so, reuse one instead of creating unlimited new ones
-            with self._lock:
-                if len(self._sessions) >= self.threads:
-                    # Reuse an existing session to prevent unlimited accumulation
-                    session = self._sessions[len(self._sessions) % self.threads]
-                    self._thread_local.session = session
-                else:
-                    # Only create new session if we haven't reached the thread limit
-                    create_new_session = True
-            
-            if session is None:  # Need to create a new session
-                session = requests.Session()
-                # Configure retries based on context: skip 504 retries initially, retry within gridding
-                status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
-                
-                retries = RetryRequest(
-                    total=self.maxretry,
-                    backoff_factor=BACKOFF_FACTOR,
-                    status_forcelist=status_forcelist,
-                    allowed_methods=["GET", "POST"],
-                    raise_on_status=False,
-                    connect=self.maxretry,
-                    read=self.maxretry,
-                    redirect=self.maxretry,
-                )
-                adapter = HTTPAdapter(
-                    max_retries=retries,
-                    pool_maxsize=self.POOL_SIZE,
-                    pool_connections=self.POOL_SIZE,
-                    pool_block=True
-                )
-                session.mount("https://", adapter)
+        """Context manager for session lifecycle - creates fresh session each time to prevent accumulation"""
+        # Always create a fresh session to prevent resource accumulation
+        session = requests.Session()
+        
+        # Configure retries based on context: skip 504 retries initially, retry within gridding
+        status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
+        
+        retries = RetryRequest(
+            total=self.maxretry,
+            backoff_factor=BACKOFF_FACTOR,
+            status_forcelist=status_forcelist,
+            allowed_methods=["GET", "POST"],
+            raise_on_status=False,
+            connect=self.maxretry,
+            read=self.maxretry,
+            redirect=self.maxretry,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retries,
+            pool_maxsize=self.POOL_SIZE,
+            pool_connections=self.POOL_SIZE,
+            pool_block=True
+        )
+        session.mount("https://", adapter)
 
-                # Set timeouts (connect timeout, read timeout)
-                session.timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
-                
-                self._thread_local.session = session
-                with self._lock:
-                    # Only add newly created sessions to prevent unlimited accumulation
-                    self._sessions.append(session)
-        else:
-            # Session already exists - we need to reconfigure the retry adapter for the current context
-            # This is critical: reused sessions might have wrong retry configuration for gridding vs non-gridding
-            # Use lock to prevent concurrent modification of session.adapters OrderedDict
-            with self._lock:
-                status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
-                
-                retries = RetryRequest(
-                    total=self.maxretry,
-                    backoff_factor=BACKOFF_FACTOR,
-                    status_forcelist=status_forcelist,
-                    allowed_methods=["GET", "POST"],
-                    raise_on_status=False,
-                    connect=self.maxretry,
-                    read=self.maxretry,
-                    redirect=self.maxretry,
-                )
-                adapter = HTTPAdapter(
-                    max_retries=retries,
-                    pool_maxsize=self.POOL_SIZE,
-                    pool_connections=self.POOL_SIZE,
-                    pool_block=True
-                )
-                session.mount("https://", adapter)
-            
+        # Set timeouts (connect timeout, read timeout)
+        session.timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
+        
         try:
             yield session
         finally:
-            # Sessions will be managed by the cleanup() method, not closed per-request
-            pass
+            # Always close the session to prevent resource leaks
+            try:
+                session.close()
+            except:
+                pass
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
