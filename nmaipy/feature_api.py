@@ -1150,6 +1150,7 @@ class FeatureApi:
         since: Optional[str] = None,
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
+        aoi_grid_inexact: Optional[bool] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Helper method to attempt gridding and handle the common pattern of gridding, 
@@ -1159,6 +1160,8 @@ class FeatureApi:
             features_gdf, metadata, error
         """
         try:
+            # Use the provided aoi_grid_inexact parameter, or fall back to the instance default
+            grid_inexact = aoi_grid_inexact if aoi_grid_inexact is not None else self.aoi_grid_inexact
             features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
                 geometry=geometry,
                 region=region,
@@ -1169,7 +1172,7 @@ class FeatureApi:
                 since=since,
                 until=until,
                 survey_resource_id=survey_resource_id,
-                aoi_grid_inexact=self.aoi_grid_inexact
+                aoi_grid_inexact=grid_inexact
             )
             error = None  # Reset error if we got here without an exception
 
@@ -1274,7 +1277,8 @@ class FeatureApi:
                     aoi_id=aoi_id,
                     since=since,
                     until=until,
-                    survey_resource_id=survey_resource_id
+                    survey_resource_id=survey_resource_id,
+                    aoi_grid_inexact=self.aoi_grid_inexact
                 )
         
         try:
@@ -1348,7 +1352,8 @@ class FeatureApi:
                     aoi_id=aoi_id,
                     since=since,
                     until=until,
-                    survey_resource_id=survey_resource_id
+                    survey_resource_id=survey_resource_id,
+                    aoi_grid_inexact=self.aoi_grid_inexact
                 )
         except AIFeatureAPIError as e:
             # Catch acceptable errors
