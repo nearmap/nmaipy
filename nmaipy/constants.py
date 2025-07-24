@@ -12,6 +12,9 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 MAX_RETRIES = 50
 GRID_SIZE_DEGREES = 0.002  # Approx 200m at the equator
 
+# Maximum AOI area in square meters before forcing gridding
+MAX_AOI_AREA_SQM_BEFORE_GRIDDING = 1_000_000  # 1 square kilometer
+
 # Projections
 LAT_LONG_CRS = "WGS 84"
 AREA_CRS = {
