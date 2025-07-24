@@ -42,8 +42,9 @@ from nmaipy.constants import (
     AREA_CRS,
     CONNECTED_CLASS_IDS,
     LAT_LONG_CRS,
-    POLYGON_TOO_COMPLEX,
+    MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     MAX_RETRIES,
+    POLYGON_TOO_COMPLEX,
     ROLLUP_SURVEY_DATE_ID,
     ROLLUP_SYSTEM_VERSION_ID,
     SINCE_COL_NAME,
@@ -1138,6 +1139,85 @@ class FeatureApi:
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         return df, metadata
 
+    def _attempt_gridding(
+        self,
+        geometry: Union[Polygon, MultiPolygon],
+        region: str,
+        packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
+        aoi_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
+        survey_resource_id: Optional[str] = None,
+        in_gridding_mode: bool = False,
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+        """
+        Helper method to attempt gridding and handle the common pattern of gridding, 
+        combining results, and creating metadata.
+        
+        Returns:
+            features_gdf, metadata, error
+        """
+        try:
+            features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
+                geometry=geometry,
+                region=region,
+                packs=packs,
+                classes=classes,
+                include=include,
+                aoi_id=aoi_id,
+                since=since,
+                until=until,
+                address_fields=address_fields,
+                survey_resource_id=survey_resource_id,
+                aoi_grid_inexact=self.aoi_grid_inexact,
+                in_gridding_mode=in_gridding_mode
+            )
+            error = None  # Reset error if we got here without an exception
+
+            # Recombine gridded features
+            features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
+
+            # Create metadata
+            metadata_df = metadata_df.drop_duplicates().iloc[0]
+            metadata = {
+                AOI_ID_COLUMN_NAME: metadata_df[AOI_ID_COLUMN_NAME],
+                "system_version": metadata_df["system_version"],
+                "link": metadata_df["link"],
+                "date": metadata_df["date"],
+                "survey_id": metadata_df["survey_id"],
+                "survey_resource_id": metadata_df["survey_resource_id"],
+                "perspective": metadata_df["perspective"],
+                "postcat": metadata_df["postcat"],
+            }
+            
+            return features_gdf, metadata, error
+
+        except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
+            # Catch acceptable errors
+            features_gdf = None
+            metadata = None
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": e.status_code,
+                "message": e.message,
+                "text": e.text[:200] if e.text else "",
+                "request": "Grid error",
+            }
+            return features_gdf, metadata, error
+        except Exception as grid_error:
+            logger.error(f"Gridding failed for AOI (id {aoi_id}): {grid_error}")
+            error = {
+                AOI_ID_COLUMN_NAME: aoi_id,
+                "status_code": None,
+                "message": f"Gridding failed: {str(grid_error)}",
+                "text": str(grid_error)[:200],
+                "request": "Gridding failed",
+            }
+            return None, None, error
+
     def get_features_gdf(
         self,
         geometry: Union[Polygon, MultiPolygon],
@@ -1179,6 +1259,30 @@ class FeatureApi:
             raise Exception(
                 f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
+        
+        # Check if AOI is too large and should be gridded directly
+        if geometry is not None and not fail_hard_regrid and not in_gridding_mode:
+            # Convert geometry to appropriate CRS for area calculation
+            geometry_gdf = gpd.GeoSeries([geometry], crs=API_CRS)
+            geometry_projected = geometry_gdf.to_crs(AREA_CRS[region])
+            area_sqm = geometry_projected.area.iloc[0]
+            
+            if area_sqm > MAX_AOI_AREA_SQM_BEFORE_GRIDDING:
+                logger.info(f"AOI (id {aoi_id}) area ({area_sqm:.0f} sqm) exceeds client threshold ({MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm). Forcing gridding...")
+                return self._attempt_gridding(
+                    geometry=geometry,
+                    region=region,
+                    packs=packs,
+                    classes=classes,
+                    include=include,
+                    aoi_id=aoi_id,
+                    since=since,
+                    until=until,
+                    address_fields=address_fields,
+                    survey_resource_id=survey_resource_id,
+                    in_gridding_mode=in_gridding_mode
+                )
+        
         try:
             features_gdf, metadata, error = None, None, None
             payload = self.get_features(
@@ -1241,48 +1345,19 @@ class FeatureApi:
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
-                try:
-                    features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
-                        geometry=geometry,
-                        region=region,
-                        packs=packs,
-                        classes=classes,
-                        include=include,
-                        aoi_id=aoi_id,
-                        since=since,
-                        until=until,
-                        survey_resource_id=survey_resource_id,
-                        aoi_grid_inexact=self.aoi_grid_inexact,
-                    )
-                    error = None  # Reset error if we got here without an exception
-
-                    # Recombine gridded features
-                    features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
-
-                    # Creat metadata
-                    metadata_df = metadata_df.drop_duplicates().iloc[0]
-                    metadata = {
-                        AOI_ID_COLUMN_NAME: metadata_df[AOI_ID_COLUMN_NAME],
-                        "system_version": metadata_df["system_version"],
-                        "link": metadata_df["link"],
-                        "date": metadata_df["date"],
-                        "survey_id": metadata_df["survey_id"],
-                        "survey_resource_id": metadata_df["survey_resource_id"],
-                        "perspective": metadata_df["perspective"],
-                        "postcat": metadata_df["postcat"],
-                    }
-
-                except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
-                    # Catch acceptable errors
-                    features_gdf = None
-                    metadata = None
-                    error = {
-                        AOI_ID_COLUMN_NAME: aoi_id,
-                        "status_code": e.status_code,
-                        "message": e.message,
-                        "text": e.text[:200] + "..." if len(e.text) > 200 else e.text,
-                        "request": self._clean_api_key(e.request_string)[:100] + "..." if len(e.request_string) > 100 else self._clean_api_key(e.request_string),
-                    }
+                features_gdf, metadata, error = self._attempt_gridding(
+                    geometry=geometry,
+                    region=region,
+                    packs=packs,
+                    classes=classes,
+                    include=include,
+                    aoi_id=aoi_id,
+                    since=since,
+                    until=until,
+                    address_fields=address_fields,
+                    survey_resource_id=survey_resource_id,
+                    in_gridding_mode=in_gridding_mode
+                )
         except AIFeatureAPIError as e:
             # Catch acceptable errors
             features_gdf = None

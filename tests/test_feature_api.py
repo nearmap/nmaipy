@@ -17,6 +17,7 @@ from nmaipy.constants import (
     ASPHALT_ID,
     BUILDING_ID,
     BUILDING_NEW_ID,
+    MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     ROLLUP_BUILDING_COUNT_ID,
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
     ROOF_ID,
@@ -152,6 +153,139 @@ class TestFeatureAPI:
 
         # The AOI ID has been assigned to all features
         assert len(features_gdf.loc[[aoi_id]]) == len(features_gdf)
+
+    def test_proactive_gridding_for_large_aoi(self, cache_directory: Path, monkeypatch):
+        """Test that AOIs larger than MAX_AOI_AREA_SQM_BEFORE_GRIDDING trigger gridding directly without hitting the API first"""
+        # Create a test polygon that's definitely larger than the threshold
+        # This is roughly 3km x 3km = 9 sqkm, well above the 1 sqkm threshold
+        test_coords = [
+            [144.9, -37.8],
+            [144.9 + 0.027, -37.8],  # ~3km wide
+            [144.9 + 0.027, -37.8 + 0.027],  # ~3km tall
+            [144.9, -37.8 + 0.027],
+            [144.9, -37.8]
+        ]
+        test_polygon = Polygon(test_coords)
+        
+        # Calculate actual area to verify it's above threshold
+        geometry_gdf = gpd.GeoSeries([test_polygon], crs=API_CRS)
+        geometry_projected = geometry_gdf.to_crs(AREA_CRS["au"])
+        actual_area = geometry_projected.area.iloc[0]
+        
+        # Verify the test polygon is actually larger than the threshold
+        assert actual_area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING, f"Test polygon area ({actual_area:.0f}) should be > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        
+        # Track method calls
+        gridding_called = False
+        api_called = False
+        
+        def mock_attempt_gridding(*args, **kwargs):
+            nonlocal gridding_called
+            gridding_called = True
+            return (
+                gpd.GeoDataFrame({"test": ["data"]}, geometry=[test_polygon]),
+                {"test": "metadata"},
+                None
+            )
+        
+        def mock_get_features(*args, **kwargs):
+            nonlocal api_called
+            api_called = True
+            return {}
+        
+        # Apply monkeypatch
+        monkeypatch.setattr(feature_api, '_attempt_gridding', mock_attempt_gridding)
+        monkeypatch.setattr(feature_api, 'get_features', mock_get_features)
+        
+        # Call get_features_gdf with the large AOI
+        result = feature_api.get_features_gdf(
+            geometry=test_polygon,
+            region="au",
+            packs=["building"],
+            aoi_id="test_large_aoi"
+        )
+        
+        # Verify that gridding was called directly
+        assert gridding_called, "Expected _attempt_gridding to be called for large AOI"
+        
+        # Verify that the regular API was NOT called
+        assert not api_called, "Expected get_features to NOT be called for large AOI"
+        
+        # Verify the result structure
+        features_gdf, metadata, error = result
+        assert features_gdf is not None
+        assert metadata is not None
+        assert error is None
+
+    def test_small_aoi_no_proactive_gridding(self, cache_directory: Path, monkeypatch):
+        """Test that AOIs smaller than MAX_AOI_AREA_SQM_BEFORE_GRIDDING do NOT trigger gridding directly"""
+        # Create a test polygon that's definitely smaller than the threshold
+        # This is roughly 500m x 500m = 0.25 sqkm, well below the 1 sqkm threshold
+        test_coords = [
+            [144.9, -37.8],
+            [144.9 + 0.0045, -37.8],  # ~500m wide
+            [144.9 + 0.0045, -37.8 + 0.0045],  # ~500m tall
+            [144.9, -37.8 + 0.0045],
+            [144.9, -37.8]
+        ]
+        test_polygon = Polygon(test_coords)
+        
+        # Calculate actual area to verify it's below threshold
+        geometry_gdf = gpd.GeoSeries([test_polygon], crs=API_CRS)
+        geometry_projected = geometry_gdf.to_crs(AREA_CRS["au"])
+        actual_area = geometry_projected.area.iloc[0]
+        
+        # Verify the test polygon is actually smaller than the threshold
+        assert actual_area < MAX_AOI_AREA_SQM_BEFORE_GRIDDING, f"Test polygon area ({actual_area:.0f}) should be < {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        
+        feature_api = FeatureApi(cache_dir=cache_directory)
+        
+        # Track method calls
+        gridding_called = False
+        api_called = False
+        
+        def mock_attempt_gridding(*args, **kwargs):
+            nonlocal gridding_called
+            gridding_called = True
+            return (None, None, None)
+        
+        def mock_get_features(*args, **kwargs):
+            nonlocal api_called
+            api_called = True
+            return {}
+        
+        def mock_payload_gdf(*args, **kwargs):
+            return (
+                gpd.GeoDataFrame({"test": ["data"]}, geometry=[test_polygon]),
+                {"test": "metadata"}
+            )
+        
+        # Apply monkeypatch
+        monkeypatch.setattr(feature_api, '_attempt_gridding', mock_attempt_gridding)
+        monkeypatch.setattr(feature_api, 'get_features', mock_get_features)
+        monkeypatch.setattr(feature_api, 'payload_gdf', mock_payload_gdf)
+        
+        # Call get_features_gdf with the small AOI
+        result = feature_api.get_features_gdf(
+            geometry=test_polygon,
+            region="au",
+            packs=["building"],
+            aoi_id="test_small_aoi"
+        )
+        
+        # Verify that the regular API was called
+        assert api_called, "Expected get_features to be called for small AOI"
+        
+        # Verify that gridding was NOT called
+        assert not gridding_called, "Expected _attempt_gridding to NOT be called for small AOI"
+        
+        # Verify the result structure
+        features_gdf, metadata, error = result
+        assert features_gdf is not None
+        assert metadata is not None
+        assert error is None
 
     def test_not_found(self, cache_directory: Path):
         # Somewhere in the Pacific
