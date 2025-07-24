@@ -1149,9 +1149,7 @@ class FeatureApi:
         aoi_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
-        in_gridding_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Helper method to attempt gridding and handle the common pattern of gridding, 
@@ -1170,10 +1168,8 @@ class FeatureApi:
                 aoi_id=aoi_id,
                 since=since,
                 until=until,
-                address_fields=address_fields,
                 survey_resource_id=survey_resource_id,
-                aoi_grid_inexact=self.aoi_grid_inexact,
-                in_gridding_mode=in_gridding_mode
+                aoi_grid_inexact=self.aoi_grid_inexact
             )
             error = None  # Reset error if we got here without an exception
 
@@ -1278,9 +1274,7 @@ class FeatureApi:
                     aoi_id=aoi_id,
                     since=since,
                     until=until,
-                    address_fields=address_fields,
-                    survey_resource_id=survey_resource_id,
-                    in_gridding_mode=in_gridding_mode
+                    survey_resource_id=survey_resource_id
                 )
         
         try:
@@ -1354,9 +1348,7 @@ class FeatureApi:
                     aoi_id=aoi_id,
                     since=since,
                     until=until,
-                    address_fields=address_fields,
-                    survey_resource_id=survey_resource_id,
-                    in_gridding_mode=in_gridding_mode
+                    survey_resource_id=survey_resource_id
                 )
         except AIFeatureAPIError as e:
             # Catch acceptable errors

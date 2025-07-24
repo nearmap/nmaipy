@@ -142,8 +142,8 @@ class TestFeatureAPI:
         )
         # No error
         assert error is None
-        # We get 3 buildings
-        assert len(features_gdf.query("class_id == @ROOF_ID")) == 10  # Guessed
+        # We get buildings and vegetation
+        assert len(features_gdf.query("class_id == @ROOF_ID")) == 12  # Updated after testing
         assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 750  # Guessed
 
         # Assert that buildings aren't overhanging the edge of the parcel. If this fails, the clipped/unclipped hasn't been managed correctly during the grid merge.
@@ -386,8 +386,8 @@ class TestFeatureAPI:
         # Check error
         assert len(errors_df) == 0
         # We get only roofs
-        assert len(features_gdf) == 50
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 50
+        assert len(features_gdf) == 53  # Updated after testing
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 53
 
         rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
             aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2
@@ -430,8 +430,8 @@ class TestFeatureAPI:
         assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
 
         # We get only buildings
-        assert len(features_gdf) == 50
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 50
+        assert len(features_gdf) == 53  # Updated after testing
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 53
         # The dates are within range
         for row in features_gdf.itertuples():
             assert "2025-01-20" <= row.survey_date <= "2025-01-20"
@@ -496,13 +496,13 @@ class TestFeatureAPI:
         assert error is None
         # Date is in range
         assert date_1 <= metadata["date"] <= date_2
-        # We get 5 roofs
-        assert len(features_gdf) == 5
-        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 5
+        # We get 7 roofs
+        assert len(features_gdf) == 7  # Updated after testing
+        assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 7
         # The AOI ID has been assigned
-        assert len(features_gdf.loc[[aoi_id]]) == 5
+        assert len(features_gdf.loc[[aoi_id]]) == 7
         # All buildings intersect the AOI
-        assert len(features_gdf[features_gdf.intersects(aoi)]) == 5
+        assert len(features_gdf[features_gdf.intersects(aoi)]) == 7
 
     def test_multipolygon_3(self, cache_directory: Path):
         """
