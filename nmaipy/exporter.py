@@ -260,6 +260,24 @@ def parse_arguments():
         default=None,
     )
     parser.add_argument(
+        "--rapid",
+        help="Enable rapid mode for damage classification (requires gen6 system version)",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--order",
+        help="Order for date-based requests: 'earliest' or 'latest' (default: latest)",
+        type=str,
+        choices=["earliest", "latest"],
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--exclude-tiles-with-occlusion",
+        help="Exclude survey resources with occluded tiles",
+        action="store_true",
+    )
+    parser.add_argument(
         "--api-key",
         help="API key to use (overrides API_KEY environment variable)",
         type=str,
@@ -329,6 +347,9 @@ class AOIExporter:
         log_level='INFO',
         api_key=None,  # Add API key parameter
         parcel_mode=True,  # Add parcel mode parameter with default True
+        rapid=False,
+        order=None,
+        exclude_tiles_with_occlusion=False
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -365,6 +386,9 @@ class AOIExporter:
         self.log_level = log_level
         self.api_key_param = api_key  # Store the API key parameter
         self.parcel_mode = parcel_mode  # Store the parcel mode parameter
+        self.rapid = rapid
+        self.order = order
+        self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
 
         # Configure logger
         log.configure_logger(self.log_level)
@@ -1155,6 +1179,9 @@ def main():
         log_level=args.log_level,
         api_key=args.api_key,  # Pass API key argument
         parcel_mode=not args.no_parcel_mode,  # Default to True unless --no-parcel-mode is set
+        rapid=args.rapid,
+        order=args.order,
+        exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion
     )
     exporter.run()
 
