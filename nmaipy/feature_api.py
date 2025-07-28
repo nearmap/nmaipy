@@ -574,12 +574,13 @@ class FeatureApi:
     def _create_post_request(
         self,
         base_url: str,
-        geometry: Union[Polygon, MultiPolygon],
+        geometry: Optional[Union[Polygon, MultiPolygon]] = None,
         packs: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
         include: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
     ) -> Tuple[str, dict, bool]:
         """
@@ -659,6 +660,14 @@ class FeatureApi:
         if include:
             include_param = include if isinstance(include, str) else ",".join(include)
             url += f"&include={include_param}"
+
+        # Add address fields as query parameters if given
+        if address_fields:
+            import urllib.parse
+            for field, value in address_fields.items():
+                if value:  # Only add non-empty values
+                    encoded_value = urllib.parse.quote(str(value))
+                    url += f"&{field}={encoded_value}"
 
         # With POST requests, we always get the exact geometry processed
         exact = True
@@ -796,6 +805,7 @@ class FeatureApi:
                 include=include,
                 since=since,
                 until=until,
+                address_fields=address_fields,
                 survey_resource_id=survey_resource_id,
             )
             cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
