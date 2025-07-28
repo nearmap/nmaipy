@@ -9,11 +9,15 @@ SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
 
-MAX_RETRIES = 50
+MAX_RETRIES = 200
 GRID_SIZE_DEGREES = 0.002  # Approx 200m at the equator
 
 # Maximum AOI area in square meters before forcing gridding
 MAX_AOI_AREA_SQM_BEFORE_GRIDDING = 1_000_000  # 1 square kilometer
+
+# Damage classification packs
+DAMAGE_PACK = "damage"  # Post-cat damage pack
+DAMAGE_NON_POSTCAT_PACK = "damage_non_postcat"  # Non-post-cat damage pack
 
 # Projections
 LAT_LONG_CRS = "WGS 84"

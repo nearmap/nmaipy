@@ -258,6 +258,9 @@ class FeatureApi:
         aoi_grid_inexact: Optional[bool] = False,
         parcel_mode: Optional[bool] = True,
         maxretry: int = MAX_RETRIES,
+        rapid: Optional[bool] = False,
+        order: Optional[str] = None,
+        exclude_tiles_with_occlusion: Optional[bool] = False,
     ):
         """
         Initialize FeatureApi class
@@ -279,6 +282,9 @@ class FeatureApi:
             aoi_grid_inexact: Accept grids combined from multiple dates/survey IDs.
             parcel_mode: When set to True, uses the API's parcel mode which filters features based on parcel boundaries.
             maxretry: Number of retries to attempt on a failed request
+            rapid: When True, rapid survey resources will be considered (for damage classification)
+            order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
+            exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
         """
         # Initialize thread-safety attributes first
         self._sessions = []
@@ -290,7 +296,6 @@ class FeatureApi:
 
         URL_ROOT = f"https://{url_root}"
         self.FEATURES_URL = URL_ROOT + "/features.json"
-        self.FEATURES_DAMAGE_URL = URL_ROOT + "/internal/pipelines/foo_fighters/features.json"
         self.ROLLUPS_CSV_URL = URL_ROOT + "/rollups.csv"
         self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
         self.CLASSES_URL = URL_ROOT + "/classes.json"
@@ -327,6 +332,9 @@ class FeatureApi:
         self.aoi_grid_inexact = aoi_grid_inexact
         self.parcel_mode = parcel_mode
         self.maxretry = maxretry
+        self.rapid = rapid
+        self.order = order
+        self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
 
     def __del__(self):
         """Cleanup when instance is destroyed"""
@@ -615,6 +623,12 @@ class FeatureApi:
             url += f"&systemVersion={self.system_version}"
         if self.bulk_mode:
             url += "&bulk=true"
+        if self.rapid:
+            url += "&rapid=true"
+        if self.order is not None:
+            url += f"&order={self.order}"
+        if self.exclude_tiles_with_occlusion:
+            url += "&excludeTilesWithOcclusion=true"
 
         # Add dates as query parameters if given
         if ((since is not None) or (until is not None)) and (survey_resource_id is not None):
@@ -770,9 +784,6 @@ class FeatureApi:
             # Determine the base URL based on the result type and packs
             if result_type == self.API_TYPE_FEATURES:
                 base_url = self.FEATURES_URL
-                if packs is not None:
-                    if "damage" in packs or "damage_non_postcat" in packs:
-                        base_url = self.FEATURES_DAMAGE_URL
             elif result_type == self.API_TYPE_ROLLUPS:
                 base_url = self.ROLLUPS_CSV_URL
                 
