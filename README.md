@@ -67,7 +67,7 @@ exporter = AOIExporter(
     processes=4                       # Parallel processing
 )
 
-exporter.export()
+exporter.run()
 ```
 
 That's it! Your results will be saved as CSV or Parquet files in the output directory.

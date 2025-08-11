@@ -228,9 +228,23 @@ def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]
 
     flattened = {}
     for building_lifecycle in building_lifecycles:
-        attribute = building_lifecycle["attributes"]
-        if "damage" in attribute:
-            damage_dic = attribute["damage"]["femaCategoryConfidences"]
+        attribute = building_lifecycle.get("attributes", {})
+        if "damage" in attribute and attribute["damage"] is not None:
+            # Check if damage is a dictionary (expected) vs scalar or other type
+            damage_data = attribute["damage"]
+            if not isinstance(damage_data, dict):
+                # Damage is scalar or unexpected type - skip processing
+                continue
+                
+            # Check if femaCategoryConfidences exists and is valid
+            if "femaCategoryConfidences" not in damage_data:
+                continue
+                
+            damage_dic = damage_data["femaCategoryConfidences"]
+            if damage_dic is None or not isinstance(damage_dic, dict) or len(damage_dic) == 0:
+                # No valid damage categories - skip processing
+                continue
+                
             x = pd.Series(damage_dic)
             flattened["damage_class"] = x.idxmax()
             flattened["damage_class_confidence"] = x.max()
@@ -360,7 +374,7 @@ def feature_attributes(
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Provide the confidence values for each damage rating class for the primary building lifecycle feature
-                primary_attributes = flatten_building_lifecycle_damage_attributes(primary_feature)
+                primary_attributes = flatten_building_lifecycle_damage_attributes([primary_feature])
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
 

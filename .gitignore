@@ -9,3 +9,13 @@ __pycache__
 .env
 .coverage
 tests/data/cache/*
+
+# Build artifacts
+/conda-packages/
+/dist/
+/build/
+*.whl
+*.tar.gz
+
+# Test artifacts
+test_pip_install.py

@@ -1,0 +1,39 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "US_001",
+        "address": "123 Main St, Austin TX 78701"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-97.7431, 30.2672],
+          [-97.7429, 30.2672],
+          [-97.7429, 30.2670],
+          [-97.7431, 30.2670],
+          [-97.7431, 30.2672]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "US_002",
+        "address": "456 Oak Ave, Austin TX 78701"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-97.7429, 30.2672],
+          [-97.7427, 30.2672],
+          [-97.7427, 30.2670],
+          [-97.7429, 30.2670],
+          [-97.7429, 30.2672]
+        ]]
+      }
+    }
+  ]
+}

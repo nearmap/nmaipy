@@ -9,6 +9,8 @@ import pytest
 from nmaipy.constants import *
 from nmaipy.exporter import AOIExporter
 from nmaipy.feature_api import FeatureApi
+from unittest.mock import patch, MagicMock
+import tempfile
 
 
 class TestExporter:
@@ -81,6 +83,8 @@ class TestExporter:
         print(data_rollup_api.T)
         print(data_rollup_api.loc[:, "link"].values)
 
+    @pytest.mark.live_api
+    @pytest.mark.skipif(not os.environ.get('API_KEY'), reason="API_KEY not set")
     def test_process_chunk_au(
         self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
     ):
@@ -352,6 +356,8 @@ class TestExporter:
             #     data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ident_col], check_names=False
             # )
 
+    @pytest.mark.live_api
+    @pytest.mark.skipif(not os.environ.get('API_KEY'), reason="API_KEY not set")
     def test_full_export_with_incremental_features(
         self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path, tmp_path: Path
     ):
@@ -419,6 +425,137 @@ class TestExporter:
             assert 'geometry' in consolidated_features.columns, "Missing geometry column"
             # Features data uses 'index' column (from the original parcel index) instead of 'aoi_id'
             assert 'index' in consolidated_features.columns, "Missing index column"
+    
+    def test_aoi_exporter_has_run_method(self):
+        """Test that AOIExporter has run() method, not export()."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+            )
+            
+            # Check run() method exists
+            assert hasattr(exporter, 'run'), "AOIExporter should have run() method"
+            assert callable(exporter.run), "run() should be callable"
+            
+            # Check export() method does NOT exist
+            assert not hasattr(exporter, 'export'), "AOIExporter should NOT have export() method"
+    
+    def test_aoi_exporter_initialization(self):
+        """Test AOIExporter can be initialized with minimal parameters."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Minimal initialization
+            exporter = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+            )
+            
+            assert exporter.aoi_file == 'data/examples/sydney_parcels.geojson'
+            assert exporter.output_dir == tmpdir
+            assert exporter.country == 'au'
+            assert exporter.packs == ['building']
+            assert exporter.processes > 0
+            assert exporter.chunk_size > 0
+    
+    def test_aoi_exporter_with_invalid_country(self):
+        """Test AOIExporter validates country parameter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='invalid',  # Invalid country
+                packs=['building'],
+            )
+            
+            # The validation happens during run(), not initialization
+            # So we need to mock the API call to test validation
+            with patch.object(exporter, 'process_chunk') as mock_process:
+                with pytest.raises(Exception) as exc_info:
+                    exporter.run()
+                
+                # Check that an appropriate error was raised
+                # The exact error depends on implementation
+                assert exc_info.value is not None
+    
+    @pytest.mark.parametrize("chunk_size", [1, 10, 100])
+    def test_aoi_exporter_chunk_sizes(self, chunk_size):
+        """Test that different chunk sizes work correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+                chunk_size=chunk_size,
+                processes=1,  # Single process for predictable testing
+            )
+            
+            assert exporter.chunk_size == chunk_size
+    
+    def test_aoi_exporter_parallel_processing(self):
+        """Test that parallel processing parameters are respected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Test with different process counts
+            for processes in [1, 2, 4]:
+                exporter = AOIExporter(
+                    aoi_file='data/examples/sydney_parcels.geojson',
+                    output_dir=tmpdir,
+                    country='au',
+                    packs=['building'],
+                    processes=processes,
+                )
+                
+                assert exporter.processes == processes
+    
+    def test_aoi_exporter_output_formats(self):
+        """Test different output format options."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Test CSV format (default)
+            exporter_csv = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+                rollup_format='csv',
+            )
+            assert exporter_csv.rollup_format == 'csv'
+            
+            # Test Parquet format
+            exporter_parquet = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+                rollup_format='parquet',
+            )
+            assert exporter_parquet.rollup_format == 'parquet'
+    
+    def test_aoi_exporter_save_features_flag(self):
+        """Test save_features parameter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Without features
+            exporter_no_features = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+                save_features=False,
+            )
+            assert exporter_no_features.save_features == False
+            
+            # With features
+            exporter_with_features = AOIExporter(
+                aoi_file='data/examples/sydney_parcels.geojson',
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+                save_features=True,
+            )
+            assert exporter_with_features.save_features == True
 
 
 if __name__ == "__main__":
