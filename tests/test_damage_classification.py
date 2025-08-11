@@ -103,16 +103,43 @@ class TestDamageClassification:
         TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_file = TEST_OUTPUT_DIR / "beryl_damage_classification_test.gpkg"
         
-        # Prepare the GeoDataFrame for output
-        output_gdf = features_gdf.copy()
+        # Prepare the GeoDataFrame for output with enhanced damage fields
+        enriched_gdf = features_gdf.copy()
         
         # Extract damage classification from the damage column if it exists
-        if 'damage' in output_gdf.columns:
+        if 'damage' in enriched_gdf.columns:
             # Extract key damage attributes for easier viewing in QGIS
             def extract_damage_info(damage_dict):
+                """
+                Extract damage classification information from the API's damage dictionary.
+                
+                Args:
+                    damage_dict: Dictionary containing damage assessment data with structure:
+                        {
+                            'confidences': {
+                                'raw': {
+                                    'Undamaged': float,
+                                    'Affected': float,
+                                    'Minor': float,
+                                    'Major': float,
+                                    'Destroyed': float
+                                }
+                            },
+                            'ratios': [...]  # List of specific damage indicators
+                        }
+                
+                Returns:
+                    Dictionary with extracted damage fields:
+                        - damage_class: Highest confidence damage classification
+                        - damage_confidence: Confidence value for the primary class
+                        - Individual confidence values for each damage class
+                """
                 if damage_dict and isinstance(damage_dict, dict):
                     # Extract the main damage classification
                     confidences = damage_dict.get('confidences', {}).get('raw', {})
+                    # Validate expected damage classes are present
+                    expected_classes = ['Undamaged', 'Affected', 'Minor', 'Major', 'Destroyed']
+                    
                     # Find the highest confidence class
                     if confidences:
                         max_class = max(confidences.items(), key=lambda x: x[1])
@@ -125,6 +152,7 @@ class TestDamageClassification:
                             'major_conf': confidences.get('Major', 0),
                             'destroyed_conf': confidences.get('Destroyed', 0)
                         }
+                # Return default values for missing or invalid damage data
                 return {
                     'damage_class': None,
                     'damage_confidence': None,
@@ -135,17 +163,20 @@ class TestDamageClassification:
                     'destroyed_conf': None
                 }
             
-            damage_info = output_gdf['damage'].apply(extract_damage_info)
-            for key in ['damage_class', 'damage_confidence', 'undamaged_conf', 
-                       'affected_conf', 'minor_conf', 'major_conf', 'destroyed_conf']:
-                output_gdf[key] = damage_info.apply(lambda x: x[key])
+            # Apply extraction to all damage data
+            damage_info_series = enriched_gdf['damage'].apply(extract_damage_info)
+            
+            # Add extracted fields as new columns
+            for field_name in ['damage_class', 'damage_confidence', 'undamaged_conf', 
+                              'affected_conf', 'minor_conf', 'major_conf', 'destroyed_conf']:
+                enriched_gdf[field_name] = damage_info_series.apply(lambda x: x[field_name])
         
         # Add metadata to the output
-        output_gdf['survey_date'] = metadata.get('date', metadata.get('survey_date'))
-        output_gdf['postcat'] = metadata.get('postcat', False)
+        enriched_gdf['survey_date'] = metadata.get('date', metadata.get('survey_date'))
+        enriched_gdf['postcat'] = metadata.get('postcat', False)
         
         # Save to GeoPackage
-        output_gdf.to_file(output_file, driver='GPKG', layer='damage_features')
+        enriched_gdf.to_file(output_file, driver='GPKG', layer='damage_features')
         print(f"\nSaved damage classification results to: {output_file}")
         print(f"This file can be opened in QGIS for visual inspection and comparison")
     
