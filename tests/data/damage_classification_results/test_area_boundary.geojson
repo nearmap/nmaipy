@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Beryl damage test area",
+        "description": "900x900m area from Houston affected by Hurricane Beryl (July 2024)",
+        "area_sqm": 810000,
+        "center_lon": -95.786018,
+        "center_lat": 29.554317
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-95.78126757509912, 29.55035811820608],
+            [-95.78148993878693, 29.55847120996382],
+            [-95.79076953781752, 29.558276436626358],
+            [-95.79054643462453, 29.55016340881871],
+            [-95.78126757509912, 29.55035811820608]
+          ]
+        ]
+      }
+    }
+  ]
+}

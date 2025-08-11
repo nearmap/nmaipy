@@ -11,6 +11,9 @@ from nmaipy.constants import API_CRS
 # Test data - 900x900m area from Houston affected by Hurricane Beryl
 TEST_AREA_WKT = "POLYGON ((-95.78126757509912 29.55035811820608, -95.78148993878693 29.55847120996382, -95.79076953781752 29.558276436626358, -95.79054643462453 29.55016340881871, -95.78126757509912 29.55035811820608))"
 
+# Output directory for test results - this will be checked into git for comparison
+TEST_OUTPUT_DIR = Path(__file__).parent / "data" / "damage_classification_results"
+
 
 class TestDamageClassification:
     """Test damage classification API functionality."""
@@ -95,6 +98,56 @@ class TestDamageClassification:
         print(f"Found {len(damage_features)} damage-related features")
         if 'description' in features_gdf.columns:
             print(f"Feature types: {features_gdf['description'].value_counts().to_dict()}")
+        
+        # Save results to GeoPackage for visual inspection and comparison
+        TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        output_file = TEST_OUTPUT_DIR / "beryl_damage_classification_test.gpkg"
+        
+        # Prepare the GeoDataFrame for output
+        output_gdf = features_gdf.copy()
+        
+        # Extract damage classification from the damage column if it exists
+        if 'damage' in output_gdf.columns:
+            # Extract key damage attributes for easier viewing in QGIS
+            def extract_damage_info(damage_dict):
+                if damage_dict and isinstance(damage_dict, dict):
+                    # Extract the main damage classification
+                    confidences = damage_dict.get('confidences', {}).get('raw', {})
+                    # Find the highest confidence class
+                    if confidences:
+                        max_class = max(confidences.items(), key=lambda x: x[1])
+                        return {
+                            'damage_class': max_class[0],
+                            'damage_confidence': max_class[1],
+                            'undamaged_conf': confidences.get('Undamaged', 0),
+                            'affected_conf': confidences.get('Affected', 0),
+                            'minor_conf': confidences.get('Minor', 0),
+                            'major_conf': confidences.get('Major', 0),
+                            'destroyed_conf': confidences.get('Destroyed', 0)
+                        }
+                return {
+                    'damage_class': None,
+                    'damage_confidence': None,
+                    'undamaged_conf': None,
+                    'affected_conf': None,
+                    'minor_conf': None,
+                    'major_conf': None,
+                    'destroyed_conf': None
+                }
+            
+            damage_info = output_gdf['damage'].apply(extract_damage_info)
+            for key in ['damage_class', 'damage_confidence', 'undamaged_conf', 
+                       'affected_conf', 'minor_conf', 'major_conf', 'destroyed_conf']:
+                output_gdf[key] = damage_info.apply(lambda x: x[key])
+        
+        # Add metadata to the output
+        output_gdf['survey_date'] = metadata.get('date', metadata.get('survey_date'))
+        output_gdf['postcat'] = metadata.get('postcat', False)
+        
+        # Save to GeoPackage
+        output_gdf.to_file(output_file, driver='GPKG', layer='damage_features')
+        print(f"\nSaved damage classification results to: {output_file}")
+        print(f"This file can be opened in QGIS for visual inspection and comparison")
     
     def test_damage_classification_rapid_mode(self, test_area_geometry, cache_directory):
         """Test damage classification with rapid mode enabled."""
