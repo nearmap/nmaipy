@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools wheel twine
+        pip install -e .
+    
+    - name: Get version
+      id: get_version
+      run: |
+        echo "VERSION=$(python -c 'from nmaipy import __version__; print(__version__)')" >> $GITHUB_OUTPUT
+    
+    - name: Verify tag matches version
+      run: |
+        TAG_VERSION=${GITHUB_REF#refs/tags/v}
+        PACKAGE_VERSION=${{ steps.get_version.outputs.VERSION }}
+        if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+          echo "Error: Tag version ($TAG_VERSION) doesn't match package version ($PACKAGE_VERSION)"
+          exit 1
+        fi
+    
+    - name: Build package
+      run: |
+        python setup.py sdist bdist_wheel
+    
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ steps.get_version.outputs.VERSION }}
+        body: |
+          Release of nmaipy version ${{ steps.get_version.outputs.VERSION }}
+          
+          ## Installation
+          
+          ```bash
+          pip install -e .
+          ```
+          
+          Or with conda:
+          ```bash
+          conda env create -f environment.yaml
+          conda activate nmaipy
+          ```
+          
+          See [INSTALL.md](https://github.com/nearmap/nmaipy/blob/main/INSTALL.md) for more options.
+        draft: false
+        prerelease: false
+    
+    # Optional: Upload to PyPI (uncomment if you have PyPI configured)
+    # - name: Publish to PyPI
+    #   env:
+    #     TWINE_USERNAME: __token__
+    #     TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+    #   run: |
+    #     twine upload dist/*
