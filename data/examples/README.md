@@ -22,7 +22,7 @@ exporter = AOIExporter(
     packs=['building', 'vegetation'],
     processes=4
 )
-exporter.export()
+exporter.run()
 ```
 
 ## Note
