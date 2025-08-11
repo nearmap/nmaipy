@@ -1,0 +1,59 @@
+{% set name = "nmaipy" %}
+{% set version = "0.0.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv
+  number: 0
+
+requirements:
+  host:
+    - python >=3.11
+    - pip
+    - setuptools
+  run:
+    - python >=3.11
+    - geopandas >=1.0.1
+    - numpy
+    - pandas
+    - psutil
+    - pyarrow
+    - pyproj
+    - python-dotenv
+    - requests
+    - rtree
+    - shapely
+    - stringcase
+    - tqdm
+
+test:
+  imports:
+    - nmaipy
+    - nmaipy.exporter
+    - nmaipy.feature_api
+    - nmaipy.parcels
+  commands:
+    - python -c "from nmaipy.exporter import AOIExporter; print('nmaipy imported successfully')"
+
+about:
+  home: https://github.com/nearmap/nmaipy
+  summary: 'Nearmap AI Python Library for extracting AI features from aerial imagery'
+  description: |
+    nmaipy is a Python library that makes it easy for data scientists to access 
+    Nearmap's AI-powered geospatial data. Extract building footprints, vegetation, 
+    damage assessments, and other AI features from Nearmap's aerial imagery.
+  license: MIT
+  license_file: LICENSE
+  doc_url: https://github.com/nearmap/nmaipy
+  dev_url: https://github.com/nearmap/nmaipy
+
+extra:
+  recipe-maintainers:
+    - nearmap

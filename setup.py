@@ -14,15 +14,18 @@ dev_packages = [
     "pytest",
 ]
 
-required_packages = [
-    "click",
-    "descartes",
-    "geopandas",
+notebooks_packages = [
     "ipykernel",
     "matplotlib",
+]
+
+required_packages = [
+    "geopandas",
     "numpy",
     "pandas",
+    "psutil",
     "pyarrow",
+    "pyproj",
     "python-dotenv",
     "requests",
     "rtree",
@@ -45,6 +48,7 @@ setup(
     install_requires=required_packages,
     extras_require={
         "dev": dev_packages,
+        "notebooks": notebooks_packages,
     },
     zip_safe=False,
 )

@@ -10,14 +10,41 @@ nmaipy (pronounced "en-my-pie") is a Python library that makes it easy for data 
 
 ### 1. Install
 
+#### Option A: Using pip (simplest)
 ```bash
 pip install -e .
 ```
 
-Or with conda:
+#### Option B: Using conda (recommended for data scientists)
+
+Minimal installation (core features only):
+```bash
+conda env create -f environment-minimal.yaml
+conda activate nmaipy
+```
+
+Full installation (includes development and notebook tools):
 ```bash
 conda env create -f environment.yaml
 conda activate nmaipy
+```
+
+#### Option C: Install into existing conda environment
+```bash
+conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm
+pip install -e .
+```
+
+#### Additional options
+
+For running notebooks with pip:
+```bash
+pip install -e ".[notebooks]"
+```
+
+For development with pip:
+```bash
+pip install -e ".[dev]"
 ```
 
 ### 2. Set your API key
@@ -178,9 +205,20 @@ For detailed API documentation and advanced options, see the [API Reference](doc
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.11+
 - Nearmap API key (contact Nearmap for access)
 - 4GB+ RAM recommended for large extractions
+
+## Advanced: Building a Conda Package
+
+For system administrators who want to create a local conda package:
+
+```bash
+conda build conda.recipe
+conda install --use-local nmaipy
+```
+
+This will create a conda package that can be shared internally or uploaded to a conda channel.
 
 ## License
 
