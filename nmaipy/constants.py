@@ -13,6 +13,8 @@ MAX_RETRIES = 200
 GRID_SIZE_DEGREES = 0.002  # Approx 200m at the equator
 
 # Maximum AOI area in square meters before forcing gridding
+# This threshold (1 sq km) prevents backend API issues that occurred when the limit 
+# was raised from 1 to 25 sq km. The conservative value ensures stable API responses.
 MAX_AOI_AREA_SQM_BEFORE_GRIDDING = 1_000_000  # 1 square kilometer
 
 # Projections

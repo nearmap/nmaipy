@@ -410,7 +410,7 @@ class FeatureApi:
                 request_string += "&beta=true"
             response = session.get(request_string)
             if not response.ok:
-                raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
+                raise RuntimeError(f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n")
             return response, response.json()
 
     def get_packs(self) -> Dict[str, List[str]]:
@@ -1164,15 +1164,35 @@ class FeatureApi:
         aoi_grid_inexact: Optional[bool] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
-        Helper method to attempt gridding and handle the common pattern of gridding, 
+        Helper method to attempt gridding large AOIs and handle the common pattern of gridding, 
         combining results, and creating metadata.
         
+        This method is called when an AOI is too large for a single API request, either
+        proactively (when area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING) or reactively
+        (after receiving AIFeatureAPIRequestSizeError).
+        
+        Args:
+            geometry: AOI geometry in EPSG:4326 (WGS84)
+            region: Country/region code (e.g., 'us', 'au') used for CRS selection
+            packs: List of AI packs to query (e.g., ['building', 'vegetation', 'damage'])
+            classes: List of specific feature class IDs to include
+            include: List of feature types to include in results
+            aoi_id: Unique identifier for the AOI (used in output and caching)
+            since: Start date for temporal filtering (ISO format: YYYY-MM-DD)
+            until: End date for temporal filtering (ISO format: YYYY-MM-DD)
+            survey_resource_id: Specific survey resource ID to query
+            aoi_grid_inexact: If True, allows combining results from different survey dates
+                             across grid cells. If None, uses instance default.
+        
         Returns:
-            features_gdf, metadata, error
+            Tuple containing:
+            - features_gdf: GeoDataFrame with combined features from all grid cells, or None if error
+            - metadata: Dictionary with survey metadata, or None if error
+            - error: Dictionary with error details if gridding failed, None if successful
         """
         try:
             # Use the provided aoi_grid_inexact parameter, or fall back to the instance default
-            grid_inexact = aoi_grid_inexact if aoi_grid_inexact is not None else self.aoi_grid_inexact
+            allow_inexact_gridding = aoi_grid_inexact if aoi_grid_inexact is not None else self.aoi_grid_inexact
             features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
                 geometry=geometry,
                 region=region,
@@ -1183,7 +1203,7 @@ class FeatureApi:
                 since=since,
                 until=until,
                 survey_resource_id=survey_resource_id,
-                aoi_grid_inexact=grid_inexact
+                aoi_grid_inexact=allow_inexact_gridding
             )
             error = None  # Reset error if we got here without an exception
 
@@ -1272,6 +1292,10 @@ class FeatureApi:
         
         # Check if AOI is too large and should be gridded directly
         if geometry is not None and not fail_hard_regrid and not in_gridding_mode:
+            # Validate region parameter
+            if region not in AREA_CRS:
+                raise ValueError(f"Invalid region '{region}'. Valid regions are: {list(AREA_CRS.keys())}")
+            
             # Convert geometry to appropriate CRS for area calculation
             geometry_gdf = gpd.GeoSeries([geometry], crs=API_CRS)
             geometry_projected = geometry_gdf.to_crs(AREA_CRS[region])
@@ -1394,7 +1418,7 @@ class FeatureApi:
                     address_fields=address_fields,
                     survey_resource_id=survey_resource_id,
                 )[0]
-                logger.debug(f"Probable original request string was: {request_string}")
+                logger.debug(f"Probable original request string was: {self._clean_api_key(request_string)}")
             features_gdf = None
             metadata = None
             error = {

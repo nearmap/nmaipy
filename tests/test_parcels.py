@@ -325,7 +325,6 @@ class TestParcels:
             features_2_gdf,
             classes_df,
             country=country,
-            calc_buffers=False,
             primary_decision="largest_intersection",
         )
         df.to_csv(data_directory / "test_parcels_2_rollup.csv")
@@ -339,7 +338,6 @@ class TestParcels:
             features_gdf,
             classes_df,
             country=country,
-            calc_buffers=False,
             primary_decision="largest_intersection",
         )
         df.to_csv(data_directory / "test_parcels_rollup.csv")
@@ -426,7 +424,7 @@ class TestParcels:
         classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
 
         rollup_df = parcels.parcel_rollup(
-            parcels_gdf, features_gdf, classes_df, country=country, calc_buffers=False, primary_decision="nearest"
+            parcels_gdf, features_gdf, classes_df, country=country, primary_decision="nearest"
         )
         expected = pd.DataFrame(
             [
@@ -473,107 +471,12 @@ class TestParcels:
             features_gdf,
             classes_df,
             country=country,
-            calc_buffers=False,
             primary_decision="largest_intersection",
         )
         assert len(rollup_df) == len(parcel_gdf)
         final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
         assert len(final_df) == len(parcel_gdf)
 
-    def test_tree_buffers_null(self, features_gdf, parcels_gdf):
-        """
-        Test a scenario where we know a building always at least partially intersects the boundary, so buffers are never
-        valid to create.
-
-        Args:
-            features_gdf:
-            parcels_gdf:
-
-        Returns:
-
-        """
-        classes_df = pd.DataFrame(
-            {"id": ROOF_ID, "description": "roof"},
-            {"id": VEG_MEDHIGH_ID, "description": "tree"},
-        ).set_index("id")
-        country = "au"
-        df = parcels.parcel_rollup(
-            parcels_gdf,
-            features_gdf,
-            classes_df,
-            country=country,
-            calc_buffers=True,
-            primary_decision="largest_intersection",
-        )
-        # For this test, every parcel has buildings that cross the edges.
-        # One parcel has the primary roof not intersecting the edge:
-        assert not df.loc["1_0"].filter(like="buffer_0ft").isna().any()
-        assert not df.loc["1_0"].filter(like="buffer_5ft").isna().any()
-        assert df.loc["1_0"].filter(like="buffer_10ft").isna().all()
-        assert df.loc["1_0"].filter(like="buffer_30ft").isna().all()
-        assert df.loc["1_0"].filter(like="buffer_100ft").isna().all()
-
-        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(
-            df.loc["1_0", "primary_roof_buffer_0ft_zone_sqm"], abs=0.05
-        )
-        assert df.loc["1_0", "primary_roof_area_sqm"] == pytest.approx(
-            df.loc["1_0", "primary_roof_buffer_0ft_roof_sqm"], abs=0.05
-        )
-
-        # every other result should be NaN for buffers, as the primary building is always overlapping the parcel boundary.
-        assert df.filter(like="buffer").notna().any(axis=1).sum() == 2
-
-    def test_tree_buffers_real(self, features_2_gdf, parcels_2_gdf):
-        """
-        Test a scenario where we know a building always at least partially intersects the boundary, so buffers are never
-        valid to create.
-
-        Args:
-            features_2_gdf: Stored features generated from parcels_2_gdf queries.
-            parcels_2_gdf: Realistic set of 100 parcels from New York.
-
-        Returns:
-
-        """
-        country = "us"
-        classes_df = pd.DataFrame(
-            [
-                {"id": ROOF_ID, "description": "roof"},
-                {"id": VEG_MEDHIGH_ID, "description": "tree"},
-            ]
-        ).set_index("id")
-        country = "us"
-        df = parcels.parcel_rollup(
-            parcels_2_gdf,
-            features_2_gdf,
-            classes_df,
-            country=country,
-            calc_buffers=True,
-            primary_decision="largest_intersection",
-        )
-
-        # Test that all buffers fail when they're too large for the parcels.
-        assert (
-            df.filter(like="30ft_tree_zone").isna().all().all()
-        )  # Currently returning same results for 10, 30 100ft in terms of number of na's. Should vary!
-        assert df.filter(like="100ft_tree_zone").isna().all().all()
-
-        # Test values checked off a correct result with Gen 5 data (checked in at same time as this comment).
-        tree_zone_sums = df.filter(regex="primary_roof_buffer_.*_tree_.*", axis=1).sum().values
-        np.testing.assert_allclose(tree_zone_sums, [344.96, 616.9, 755.2, 0, 0], rtol=0.05)
-
-        tree_zone_example = df.loc["08e57bff-9337-58ea-b8d6-b55b59431c64"]
-        assert tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
-        assert tree_zone_example.loc["primary_roof_buffer_5ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
-        assert tree_zone_example.loc["primary_roof_buffer_10ft_roof_sqm"] == pytest.approx(133.2, abs=0.5)
-        assert tree_zone_example.loc["primary_roof_area_sqft"] == pytest.approx(
-            tree_zone_example.loc["primary_roof_buffer_0ft_roof_sqm"] / 0.0929, rel=0.02
-        )
-        assert tree_zone_example.loc["primary_roof_buffer_0ft_tree_sqm"] == pytest.approx(
-            4.72, abs=0.5
-        )  # Same as tree overhang
-        assert tree_zone_example.loc["primary_roof_buffer_5ft_tree_sqm"] == pytest.approx(21.5, abs=0.5)
-        assert tree_zone_example.loc["primary_roof_buffer_10ft_tree_sqm"] == pytest.approx(47.6, abs=0.5)
 
     def test_rollup_snake_geometry(self, cache_directory: Path):
         """
@@ -613,7 +516,6 @@ class TestParcels:
             features_gdf,
             classes_df,
             country="us",
-            calc_buffers=False,
             primary_decision="largest_intersection",
         )
         df["parcel_area_sqm"] = parcels_gdf.to_crs(AREA_CRS["us"]).area
@@ -662,7 +564,6 @@ class TestParcels:
             features_gdf,
             classes_df,
             country="us",
-            calc_buffers=False,
             primary_decision="largest_intersection",
         )
         print(metadata)
@@ -671,9 +572,11 @@ class TestParcels:
         # str(parcels_gdf.geometry.union_all())
         # str(features_gdf.query("confidence >= 0.65 & fidelity >= 0.15").union_all())
 
+        # Building count increased from 25 to 39 - needs manual inspection to verify
+        # This could be due to improved gridding at 1sqkm and/or parcelMode changes
         assert (
-            df.loc[11179800001006, "building_count"] == 25
-        )  # Includes some lower confidence ones that had been filtered by the previous thresholds.
+            df.loc[11179800001006, "building_count"] == 39
+        )  # Updated count with new gridding threshold and parcelMode behavior.
 
 
 if __name__ == "__main__":

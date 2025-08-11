@@ -143,11 +143,6 @@ def parse_arguments():
         default=CHUNK_SIZE,
     )
     parser.add_argument(
-        "--calc-buffers",
-        help="Calculate buffered features of trees around buildings (compute expensive) within the query AOI (null otherwise).",
-        action="store_true",
-    )
-    parser.add_argument(
         "--include-parcel-geometry",
         help="If set, parcel geometries will be in the output",
         action="store_true",
@@ -324,7 +319,6 @@ class AOIExporter:
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
-        calc_buffers=False,
         include_parcel_geometry=False,
         save_features=False,
         save_buildings=False,
@@ -363,7 +357,6 @@ class AOIExporter:
         self.processes = processes
         self.threads = threads
         self.chunk_size = chunk_size
-        self.calc_buffers = calc_buffers
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
         self.save_buildings = save_buildings
@@ -641,7 +634,6 @@ class AOIExporter:
                     features_gdf,
                     classes_df,
                     country=self.country,
-                    calc_buffers=self.calc_buffers,
                     primary_decision=self.primary_decision,
                 )
             else:
@@ -1156,7 +1148,6 @@ def main():
         processes=args.processes,
         threads=args.threads,
         chunk_size=args.chunk_size,
-        calc_buffers=args.calc_buffers,
         include_parcel_geometry=args.include_parcel_geometry,
         save_features=args.save_features,
         save_buildings=args.save_buildings,
