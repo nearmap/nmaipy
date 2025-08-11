@@ -1,27 +1,41 @@
 """Test damage classification functionality."""
 
 import pytest
-import json
-from pathlib import Path
+import pandas as pd
 import geopandas as gpd
-from shapely.wkt import loads
-from nmaipy.feature_api import FeatureApi
-from nmaipy.constants import API_CRS
+from shapely.geometry import Polygon
+from nmaipy.parcels import (
+    flatten_building_lifecycle_damage_attributes,
+    feature_attributes
+)
+from nmaipy.constants import BUILDING_LIFECYCLE_ID, AOI_ID_COLUMN_NAME
 
-# Test data - 900x900m area from Houston affected by Hurricane Beryl
-TEST_AREA_WKT = "POLYGON ((-95.78126757509912 29.55035811820608, -95.78148993878693 29.55847120996382, -95.79076953781752 29.558276436626358, -95.79054643462453 29.55016340881871, -95.78126757509912 29.55035811820608))"
-
-# Output directory for test results - this will be checked into git for comparison
-TEST_OUTPUT_DIR = Path(__file__).parent / "data" / "damage_classification_results"
 
 
 class TestDamageClassification:
-    """Test damage classification API functionality."""
+    """Test damage classification processing to prevent regression of the scalar damage bug."""
     
-    @pytest.fixture
-    def test_area_geometry(self):
-        """Get test area geometry from WKT."""
-        return loads(TEST_AREA_WKT)
+    def test_flatten_damage_with_valid_data(self):
+        """Test normal damage data processing."""
+        building_lifecycles = [{
+            "attributes": {
+                "damage": {
+                    "femaCategoryConfidences": {
+                        "Affected": 0.1,
+                        "Minor": 0.2,
+                        "Major": 0.6,
+                        "Destroyed": 0.1
+                    }
+                }
+            }
+        }]
+        
+        result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
+        
+        assert result["damage_class"] == "Major"
+        assert result["damage_class_confidence"] == 0.6
+        assert result["damage_class_Major_confidence"] == 0.6
+        assert result["damage_class_Minor_confidence"] == 0.2
     
     @pytest.fixture
     def cache_directory(self, tmp_path):
