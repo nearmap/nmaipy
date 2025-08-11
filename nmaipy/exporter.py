@@ -22,6 +22,7 @@ import shapely.geometry  # Add this import for checking geometry types
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
 from nmaipy import log, parcels
+from nmaipy.__version__ import __version__
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     SINCE_COL_NAME,
@@ -75,7 +76,11 @@ def parse_arguments():
     """
     Get command line arguments
     """
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        prog='nmaipy',
+        description='Nearmap AI Python Library - Extract AI features from aerial imagery'
+    )
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument("--aoi-file", help="Input AOI file path or S3 URL", type=str, required=True)
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(

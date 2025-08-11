@@ -1,5 +1,5 @@
 {% set name = "nmaipy" %}
-{% set version = "0.0.0" %}
+{% set version = "3.2.1" %}
 
 package:
   name: {{ name|lower }}

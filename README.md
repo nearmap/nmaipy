@@ -10,12 +10,12 @@ nmaipy (pronounced "en-my-pie") is a Python library that makes it easy for data 
 
 ### 1. Install
 
-#### Option A: Using pip (simplest)
+#### Option A: Using pip
 ```bash
 pip install -e .
 ```
 
-#### Option B: Using conda (recommended for data scientists)
+#### Option B: Using conda
 
 Minimal installation (core features only):
 ```bash
@@ -131,6 +131,8 @@ exporter = AOIExporter(
 ```
 
 ## Available AI Features
+
+Some of the more common AI packs are below - there are more and growing, available via API request or on the Nearmap help.nearmap.com page.
 
 | Pack | Description | Example Use Cases |
 |------|-------------|-------------------|

@@ -1,9 +1,15 @@
 from setuptools import find_packages, setup
+import os
 
 name = "nmaipy"
 pysrc_dir = "."
 packages = [p for p in find_packages(pysrc_dir) if not p.startswith("tests")]
 package_dir = {"": pysrc_dir}
+
+# Read version from __version__.py
+version_file = os.path.join(os.path.dirname(__file__), "nmaipy", "__version__.py")
+with open(version_file) as f:
+    exec(f.read())
 
 with open("LICENSE") as f:
     _license = f.read()
@@ -36,8 +42,8 @@ required_packages = [
 
 setup(
     name=name,
-    version="0.0.0",
-    description="Nearmap AI examples and utilities",
+    version=__version__,
+    description="Nearmap AI Python Library for extracting AI features from aerial imagery",
     url=f"https://github.com/nearmap/{name}",
     author="Nearmap AI Systems",
     author_email="ai.systems@nearmap.com",
