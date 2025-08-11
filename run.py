@@ -14,7 +14,7 @@ from nmaipy.exporter import AOIExporter
 # Create an exporter with your parameters
 exporter = AOIExporter(
     # Input file with your areas of interest
-    aoi_file='data/example_parcels.geojson',  # Can be GeoJSON, Parquet, or CSV
+    aoi_file='data/examples/sydney_parcels.geojson',  # Can be GeoJSON, Parquet, or CSV
     
     # Where to save the results
     output_dir='data/outputs',
@@ -38,5 +38,5 @@ exporter = AOIExporter(
 # Run the extraction
 if __name__ == "__main__":
     print("Extracting Nearmap AI features...")
-    exporter.export()
+    exporter.run()
     print("Done! Check the output directory for results.")

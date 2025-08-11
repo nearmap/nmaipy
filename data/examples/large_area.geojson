@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "LARGE_001",
+        "description": "2km x 2km area in Melbourne",
+        "area_sqkm": 4
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [144.9631, -37.8136],
+          [144.9831, -37.8136],
+          [144.9831, -37.7956],
+          [144.9631, -37.7956],
+          [144.9631, -37.8136]
+        ]]
+      }
+    }
+  ]
+}

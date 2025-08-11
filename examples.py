@@ -22,13 +22,13 @@ def example_basic_extraction():
     Basic example: Extract building and vegetation data for parcels.
     """
     exporter = AOIExporter(
-        aoi_file='data/parcels.geojson',
+        aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/basic',
         country='au',
         packs=['building', 'vegetation'],
         processes=4
     )
-    exporter.export()
+    exporter.run()
 
 
 def example_damage_assessment():
@@ -37,7 +37,7 @@ def example_damage_assessment():
     Perfect for insurance and emergency response analysis.
     """
     exporter = AOIExporter(
-        aoi_file='data/affected_areas.geojson',
+        aoi_file='data/examples/us_parcels.geojson',
         output_dir='data/outputs/damage',
         country='us',
         packs=['damage'],
@@ -56,7 +56,7 @@ def example_damage_assessment():
         save_features=True,
         processes=8
     )
-    exporter.export()
+    exporter.run()
 
 
 def example_urban_planning():
@@ -65,7 +65,7 @@ def example_urban_planning():
     Includes buildings, vegetation, surfaces, and solar panels.
     """
     exporter = AOIExporter(
-        aoi_file='data/city_blocks.geojson',
+        aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/urban',
         country='au',
         
@@ -84,7 +84,7 @@ def example_urban_planning():
         
         processes=8
     )
-    exporter.export()
+    exporter.run()
 
 
 def example_vegetation_analysis():
@@ -92,7 +92,7 @@ def example_vegetation_analysis():
     Focused vegetation analysis for environmental studies.
     """
     exporter = AOIExporter(
-        aoi_file='data/study_area.geojson',
+        aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/vegetation',
         country='au',
         
@@ -106,7 +106,7 @@ def example_vegetation_analysis():
         chunk_size=50,
         processes=4
     )
-    exporter.export()
+    exporter.run()
 
 
 def example_pool_detection():
@@ -114,7 +114,7 @@ def example_pool_detection():
     Detect swimming pools for compliance or market analysis.
     """
     exporter = AOIExporter(
-        aoi_file='data/suburbs.geojson',
+        aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/pools',
         country='au',
         
@@ -126,7 +126,7 @@ def example_pool_detection():
         
         processes=4
     )
-    exporter.export()
+    exporter.run()
 
 
 def example_large_area_extraction():
@@ -134,9 +134,9 @@ def example_large_area_extraction():
     Handle large areas efficiently with gridding.
     """
     exporter = AOIExporter(
-        aoi_file='data/large_region.geojson',
+        aoi_file='data/examples/large_area.geojson',
         output_dir='data/outputs/large',
-        country='us',
+        country='au',
         
         packs=['building', 'vegetation'],
         
@@ -152,7 +152,7 @@ def example_large_area_extraction():
         # Use more processes for speed
         processes=16
     )
-    exporter.export()
+    exporter.run()
 
 
 def example_time_series():
@@ -160,7 +160,7 @@ def example_time_series():
     Extract data for a specific time period for change detection.
     """
     exporter = AOIExporter(
-        aoi_file='data/monitoring_sites.geojson',
+        aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/timeseries',
         country='au',
         
@@ -176,7 +176,7 @@ def example_time_series():
         save_features=True,
         processes=4
     )
-    exporter.export()
+    exporter.run()
 
 
 if __name__ == "__main__":

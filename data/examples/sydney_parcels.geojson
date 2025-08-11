@@ -1,0 +1,56 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "SYDNEY_001",
+        "address": "1 Example St, Sydney NSW 2000"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [151.2093, -33.8688],
+          [151.2095, -33.8688],
+          [151.2095, -33.8686],
+          [151.2093, -33.8686],
+          [151.2093, -33.8688]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "SYDNEY_002",
+        "address": "2 Example St, Sydney NSW 2000"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [151.2095, -33.8688],
+          [151.2097, -33.8688],
+          [151.2097, -33.8686],
+          [151.2095, -33.8686],
+          [151.2095, -33.8688]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "SYDNEY_003",
+        "address": "3 Example St, Sydney NSW 2000"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [151.2093, -33.8686],
+          [151.2095, -33.8686],
+          [151.2095, -33.8684],
+          [151.2093, -33.8684],
+          [151.2093, -33.8686]
+        ]]
+      }
+    }
+  ]
+}
