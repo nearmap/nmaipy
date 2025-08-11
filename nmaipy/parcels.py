@@ -42,26 +42,6 @@ BUILDING_STYLE_CLASSE_IDS = [
         ROOF_ID
 ]
 
-BUFFER_ZONES_M = dict(
-    buffer_0ft=0.0,
-    buffer_5ft=1.524,
-    buffer_10ft=3.048,
-    buffer_30ft=9.144,
-    buffer_100ft=30.48,
-)
-
-BUFFER_CLASSES = {
-    "tree": VEG_MEDHIGH_ID,
-    "woody_veg": VEG_WOODY_COMPOSITE_ID,
-    "roof": ROOF_ID,
-    "yard_debris": CLASS_1111_YARD_DEBRIS,
-}
-
-BUFFER_UNION_CLASSES = {
-    "woody_veg": VEG_WOODY_COMPOSITE_ID,
-    "roof": ROOF_ID,
-    "yard_debris": CLASS_1111_YARD_DEBRIS,
-}
 
 logger = log.get_logger()
 
@@ -267,7 +247,6 @@ def feature_attributes(
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
-    calc_buffers: bool = False,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -280,7 +259,6 @@ def feature_attributes(
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
-        calc_buffers: Whether to calculate and include buffers
 
     Returns: Flat dictionary
 
@@ -386,63 +364,7 @@ def feature_attributes(
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
 
-            if class_id == ROOF_ID:
-                if not calc_buffers:
-                    continue
-
-                assert parcel_geom is not None, "Parcel geometry must be provided for buffer calculations"
-
-                # Convert everything to area-based CRS upfront
-                area_crs = AREA_CRS[country]
-                parcel_geom_area = gpd.GeoSeries([parcel_geom], crs=LAT_LONG_CRS).to_crs(area_crs)[0]
-                primary_roof_geom_area = gpd.GeoSeries([primary_feature.geometry_feature], crs=LAT_LONG_CRS).to_crs(
-                    area_crs
-                )[0]
-
-                # Get geodataframe of only the relevant features for buffering, and convert to area projection
-                buffer_features_gdf = gpd.GeoDataFrame(
-                    features_gdf[features_gdf.class_id.isin(BUFFER_CLASSES.values())],
-                    geometry="geometry_feature",
-                    crs=LAT_LONG_CRS,
-                )
-                buffer_features_gdf = buffer_features_gdf.to_crs(area_crs)
-
-                # Calculate buffers for each distance
-                for buffer_name, buffer_dist in BUFFER_ZONES_M.items():
-                    # Create column names
-                    parcel[f"primary_roof_{buffer_name}_zone_sqm"] = None
-                    parcel[f"primary_roof_{buffer_name}_buffer_union_classes_sqm"] = None
-                    for bc_name in BUFFER_CLASSES.keys():
-                        parcel[f"primary_roof_{buffer_name}_{bc_name}_sqm"] = None
-
-                for buffer_name, buffer_dist in BUFFER_ZONES_M.items():
-                    # Create buffered regions around roofs
-                    buffered_primary_roof_geom_area = primary_roof_geom_area.buffer(buffer_dist)
-
-                    if not buffered_primary_roof_geom_area.within(parcel_geom_area):
-                        # Skip if the buffer protrudes outside the parcel
-                        continue
-
-                    # Proceed calculating intersections etc. with the buffered primary roof
-                    parcel[f"primary_roof_{buffer_name}_zone_sqm"] = buffered_primary_roof_geom_area.area
-
-                    # Trim buffer features to only the buffer zone, and drop any that are empty
-                    bf_trimmed_gdf = buffer_features_gdf.copy()
-                    bf_trimmed_gdf["geometry_feature"] = bf_trimmed_gdf.intersection(buffered_primary_roof_geom_area)
-                    bf_trimmed_gdf = bf_trimmed_gdf[~bf_trimmed_gdf.is_empty]
-
-                    # Calculate total area of union of all buffer features from the BUFFER_UNION_CLASSES dictionary
-                    buffer_union = bf_trimmed_gdf.query("class_id in @BUFFER_UNION_CLASSES.values()").union_all()
-                    parcel[f"primary_roof_{buffer_name}_buffer_union_classes_sqm"] = buffer_union.area
-
-                    for bc_name, bc_id in BUFFER_CLASSES.items():
-                        bc_gdf = bf_trimmed_gdf[bf_trimmed_gdf.class_id == bc_id]
-
-                        # Calculate union of all features of this class before getting area
-                        bc_union = bc_gdf.union_all()
-                        parcel[f"primary_roof_{buffer_name}_{bc_name}_sqm"] = bc_union.area
-
-            elif class_id == BUILDING_LIFECYCLE_ID:
+            if class_id == BUILDING_LIFECYCLE_ID:
                 # Add aggregated damage across whole parcel, weighted by building lifecycle area
                 # TODO: Finish this.
                 pass
@@ -552,7 +474,6 @@ def parcel_rollup(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
-    calc_buffers: bool,
     primary_decision: str,
 ):
     """
@@ -563,7 +484,6 @@ def parcel_rollup(
         features_gdf: Features GeoDataFrame
         classes_df: Class name and ID lookup
         country: Country code for units.
-        calc_buffers: Calculate buffered features
         primary_decision: The basis on which the primary features are chosen
 
     Returns:
@@ -632,7 +552,6 @@ def parcel_rollup(
             primary_decision=primary_decision,
             primary_lat=primary_lat,
             primary_lon=primary_lon,
-            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]
@@ -659,7 +578,6 @@ def parcel_rollup(
             country=country,
             parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
-            calc_buffers=calc_buffers,
         )
         parcel[AOI_ID_COLUMN_NAME] = row._asdict()["Index"]
         rollups.append(parcel)

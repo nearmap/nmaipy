@@ -410,7 +410,7 @@ class FeatureApi:
                 request_string += "&beta=true"
             response = session.get(request_string)
             if not response.ok:
-                raise RuntimeError(f"\n{request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
+                raise RuntimeError(f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n")
             return response, response.json()
 
     def get_packs(self) -> Dict[str, List[str]]:
@@ -1394,7 +1394,7 @@ class FeatureApi:
                     address_fields=address_fields,
                     survey_resource_id=survey_resource_id,
                 )[0]
-                logger.debug(f"Probable original request string was: {request_string}")
+                logger.debug(f"Probable original request string was: {self._clean_api_key(request_string)}")
             features_gdf = None
             metadata = None
             error = {
