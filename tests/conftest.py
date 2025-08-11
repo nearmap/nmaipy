@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+import os
 
 import geopandas as gpd
 import pandas as pd
@@ -12,9 +13,38 @@ from nmaipy import parcels
 from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME, API_CRS
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_artifacts():
+    """
+    Session-level cleanup to ensure no test artifacts remain.
+    Runs at the start and end of the test session.
+    """
+    # Directories to clean
+    test_dir = Path(__file__).parent.absolute() / "data"
+    cache_dir = test_dir / "cache"
+    processed_dir = test_dir / "processed"
+    
+    # Clean at start of session
+    shutil.rmtree(cache_dir, ignore_errors=True)
+    shutil.rmtree(processed_dir, ignore_errors=True)
+    
+    yield
+    
+    # Clean at end of session
+    shutil.rmtree(cache_dir, ignore_errors=True)
+    shutil.rmtree(processed_dir, ignore_errors=True)
+
+
+@pytest.fixture(scope="function")
 def cache_directory() -> Path:
+    """
+    Provides a cache directory for each test function.
+    Cleaned up after each test to ensure no stale cache data.
+    """
     output_dir = Path(__file__).parent.absolute() / "data" / "cache"
+    # Clean before test (in case of previous failures)
+    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     yield output_dir
     # Cleanup code: remove the directory and its contents
     shutil.rmtree(output_dir, ignore_errors=True)
@@ -22,7 +52,14 @@ def cache_directory() -> Path:
 
 @pytest.fixture(scope="function")
 def processed_output_directory() -> Path:
+    """
+    Provides a processed output directory for each test function.
+    Cleaned up before and after each test to ensure no stale data.
+    """
     output_dir = Path(__file__).parent.absolute() / "data" / "processed"
+    # Clean before test (in case of previous failures)
+    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     yield output_dir
     # Cleanup code: remove the directory and its contents
     shutil.rmtree(output_dir, ignore_errors=True)

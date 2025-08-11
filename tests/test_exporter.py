@@ -83,6 +83,8 @@ class TestExporter:
         print(data_rollup_api.T)
         print(data_rollup_api.loc[:, "link"].values)
 
+    @pytest.mark.live_api
+    @pytest.mark.skipif(not os.environ.get('API_KEY'), reason="API_KEY not set")
     def test_process_chunk_au(
         self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
     ):
@@ -354,6 +356,8 @@ class TestExporter:
             #     data_feature_api.loc[:, ident_col], data_rollup_api.loc[:, ident_col], check_names=False
             # )
 
+    @pytest.mark.live_api
+    @pytest.mark.skipif(not os.environ.get('API_KEY'), reason="API_KEY not set")
     def test_full_export_with_incremental_features(
         self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path, tmp_path: Path
     ):

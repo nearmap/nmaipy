@@ -32,5 +32,5 @@ class TestVersion:
     def test_current_version(self):
         """Test that we're on the expected version."""
         # This will need updating when version changes
-        assert __version__ == "3.2.2", f"Unexpected version: {__version__}"
-        assert __version_info__ == (3, 2, 2), f"Unexpected version info: {__version_info__}"
+        assert __version__ == "3.2.3", f"Unexpected version: {__version__}"
+        assert __version_info__ == (3, 2, 3), f"Unexpected version info: {__version_info__}"
