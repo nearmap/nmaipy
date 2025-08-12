@@ -229,6 +229,8 @@ def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]
     flattened = {}
     for building_lifecycle in building_lifecycles:
         attribute = building_lifecycle.get("attributes", {})
+        
+        # Check if damage exists and is not None
         if "damage" in attribute and attribute["damage"] is not None:
             # Check if damage is a dictionary (expected) vs scalar or other type
             damage_data = attribute["damage"]
@@ -245,6 +247,7 @@ def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]
                 # No valid damage categories - skip processing
                 continue
                 
+            # Process valid damage data
             x = pd.Series(damage_dic)
             flattened["damage_class"] = x.idxmax()
             flattened["damage_class_confidence"] = x.max()
