@@ -17,7 +17,7 @@ import pandas as pd
 from tqdm import tqdm
 import warnings
 import traceback
-import shapely.geometry  # Add this import for checking geometry types
+import shapely.geometry
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
@@ -45,6 +45,83 @@ import signal
 
 
 _process_feature_api = None
+
+
+def _flatten_attribute_list(attr_list):
+    """
+    Flatten a list of attribute dictionaries into a single flat dictionary with dot notation.
+    
+    This function processes the 'attributes' field from Nearmap AI Feature API responses,
+    which contains a list of attribute objects with nested structures. It flattens these
+    into a single dictionary suitable for columnar storage in GeoParquet files.
+    
+    Args:
+        attr_list: List of attribute dictionaries from the API response. Each dictionary
+                  typically contains:
+                  - 'description': Human-readable name (e.g., "Building 3d attributes")
+                  - 'classId': UUID identifier for the attribute type
+                  - 'internalClassId': Internal ID (skipped for security)
+                  - Various data fields specific to the attribute type
+                  - 'components': Optional list of sub-components (e.g., roof materials)
+    
+    Returns:
+        dict: Flattened dictionary with dot-notation keys. For example:
+              {
+                  "Building 3d attributes.height": 8.5,
+                  "Building 3d attributes.numStories.1": 0.8,
+                  "Roof material.components": "[{...}]"  # JSON string
+              }
+              
+    Notes:
+        - 'internalClassId' fields are always skipped (internal use only)
+        - 'description' fields are used as prefixes but not included as values
+        - 'components' arrays are JSON-serialized for QGIS compatibility
+        - Nested dictionaries are flattened with dot notation
+        - Returns empty dict if attr_list is None or not a list
+    """
+    if not attr_list or not isinstance(attr_list, list):
+        return {}
+    
+    flat_dict = {}
+    for i, attr_obj in enumerate(attr_list):
+        if not isinstance(attr_obj, dict):
+            continue
+        
+        # Get the description to use as a prefix
+        desc = attr_obj.get('description', f'attr_{i}')
+        
+        # Process each field in the attribute object
+        for key, value in attr_obj.items():
+            # Skip internal fields and redundant description
+            if key in ['description', 'internalClassId']:
+                continue
+            
+            # Special handling for components - serialize as JSON
+            if key == 'components' and isinstance(value, (list, dict)):
+                # Clean components to remove internalClassId
+                if isinstance(value, list):
+                    cleaned_components = []
+                    for comp in value:
+                        if isinstance(comp, dict):
+                            # Remove internalClassId from each component
+                            cleaned_comp = {k: v for k, v in comp.items() if k != 'internalClassId'}
+                            cleaned_components.append(cleaned_comp)
+                        else:
+                            cleaned_components.append(comp)
+                    flat_dict[f"{desc}.components"] = json.dumps(cleaned_components)
+                else:
+                    # If it's a dict (shouldn't be, but just in case)
+                    flat_dict[f"{desc}.components"] = json.dumps(value)
+            # Handle nested dictionaries
+            elif isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    if sub_value is not None:
+                        flat_dict[f"{desc}.{key}.{sub_key}"] = sub_value
+            # Direct attributes
+            elif value is not None:
+                flat_dict[f"{desc}.{key}"] = value
+    
+    return flat_dict
 
 
 def cleanup_process_feature_api():
@@ -711,8 +788,24 @@ class AOIExporter:
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
                 logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
+                # Debug: Check if attributes column exists in features_gdf
+                if 'attributes' in features_gdf.columns:
+                    logger.debug(f"Chunk {chunk_id}: 'attributes' column found in features_gdf before merge")
+                    # Check if attributes have actual data
+                    non_null_attrs = features_gdf['attributes'].notna().sum()
+                    logger.debug(f"Chunk {chunk_id}: {non_null_attrs}/{len(features_gdf)} features have non-null attributes")
+                else:
+                    logger.debug(f"Chunk {chunk_id}: No 'attributes' column in features_gdf. Columns: {list(features_gdf.columns)}")
+                
                 # Check for column name collisions between any two dataframes
                 final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
+
+                # Debug: Check if attributes column exists in features_gdf before merge
+                if 'attributes' in features_gdf.columns:
+                    logger.debug(f"Chunk {chunk_id}: 'attributes' column exists in features_gdf before merge")
+                    logger.debug(f"Chunk {chunk_id}: features_gdf columns: {list(features_gdf.columns)}")
+                else:
+                    logger.debug(f"Chunk {chunk_id}: NO 'attributes' column in features_gdf! Columns: {list(features_gdf.columns)}")
 
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
@@ -726,15 +819,45 @@ class AOIExporter:
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-                final_features_df = gpd.GeoDataFrame(
-                    metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME).merge(
-                        final_features_df, on=AOI_ID_COLUMN_NAME
-                    ),
-                    crs=API_CRS,
-                )
+                # Debug: Check what we're merging
+                logger.debug(f"Chunk {chunk_id}: Before merge - metadata_df has {len(metadata_df)} rows, features_gdf has {len(features_gdf)} rows")
+                logger.debug(f"Chunk {chunk_id}: metadata_df columns: {list(metadata_df.columns)}")
+                logger.debug(f"Chunk {chunk_id}: features_gdf has 'attributes': {'attributes' in features_gdf.columns}")
+                
+                # First merge
+                merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
+                logger.debug(f"Chunk {chunk_id}: After first merge - {len(merged1)} rows, has 'attributes': {'attributes' in merged1.columns}")
+                
+                # Second merge
+                merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
+                logger.debug(f"Chunk {chunk_id}: After second merge - {len(merged2)} rows, has 'attributes': {'attributes' in merged2.columns}")
+                
+                final_features_df = gpd.GeoDataFrame(merged2, crs=API_CRS)
+                # Debug: Check if attributes survived the merge
+                if 'attributes' in final_features_df.columns:
+                    logger.debug(f"Chunk {chunk_id}: 'attributes' column survived merge. Checking for data...")
+                    non_null = final_features_df['attributes'].notna().sum()
+                    logger.debug(f"Chunk {chunk_id}: {non_null}/{len(final_features_df)} features have non-null attributes after merge")
+                else:
+                    logger.debug(f"Chunk {chunk_id}: 'attributes' column lost in merge! Columns: {list(final_features_df.columns)[:10]}...")
+                
                 if "aoi_geometry" in final_features_df.columns:
                     final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
-                final_features_df["attributes"] = final_features_df.attributes.apply(json.dumps)
+                
+                # Apply flattening to attributes if present
+                if 'attributes' in final_features_df.columns:
+                    # Apply flattening and create DataFrame - simpler approach that avoids index issues
+                    flattened_attrs = final_features_df['attributes'].apply(_flatten_attribute_list).apply(pd.Series)
+                    if not flattened_attrs.empty:
+                        # Drop the attributes column
+                        final_features_df = final_features_df.drop(columns=['attributes'])
+                        # Add the flattened columns
+                        for col in flattened_attrs.columns:
+                            if col not in final_features_df.columns:
+                                final_features_df[col] = flattened_attrs[col]
+                    else:
+                        # No attributes to flatten, just drop the column
+                        final_features_df = final_features_df.drop(columns=['attributes'])
                 if len(final_features_df) > 0:
                     try:
                         if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:

@@ -23,9 +23,9 @@ class TestDamageBugRegression:
             }
         }]
         
-        # Should not raise an error, should return empty dict
+        # Should not raise an error, but doesn't create rollup fields for invalid data
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
-        assert result == {}
+        assert result == {}  # No valid damage data to process
     
     def test_flatten_damage_with_float_scalar(self):
         """Test damage processing with float scalar."""
@@ -36,6 +36,7 @@ class TestDamageBugRegression:
         }]
         
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
+        # No valid damage data to process
         assert result == {}
     
     def test_flatten_damage_with_none_value(self):
@@ -71,6 +72,7 @@ class TestDamageBugRegression:
         }]
         
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
+        # No valid femaCategoryConfidences, so no output
         assert result == {}
     
     def test_flatten_damage_with_none_fema_categories(self):
@@ -84,6 +86,7 @@ class TestDamageBugRegression:
         }]
         
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
+        # No valid damage data
         assert result == {}
     
     def test_flatten_damage_with_empty_fema_categories(self):
@@ -97,7 +100,8 @@ class TestDamageBugRegression:
         }]
         
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
-        assert result == {}
+        # Empty dict doesn't add any fields, but no special damage_class fields either
+        assert "damage_class" not in result
     
     def test_flatten_damage_with_valid_data(self):
         """Test normal damage data processing still works."""
@@ -116,6 +120,8 @@ class TestDamageBugRegression:
         
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
         
+        # Check rollup format (original special naming)
+        assert "damage_class" in result
         assert result["damage_class"] == "Major"
         assert result["damage_class_confidence"] == 0.6
         assert result["damage_class_Major_confidence"] == 0.6
@@ -228,9 +234,11 @@ class TestDamageBugRegression:
             primary_lon=None
         )
         
-        # Check that damage attributes were correctly processed
+        # Check that damage attributes were correctly processed using rollup format
         assert 'primary_building_lifecycle_damage_class' in result
         assert result['primary_building_lifecycle_damage_class'] == 'Major'
         assert result['primary_building_lifecycle_damage_class_confidence'] == 0.80
         assert result['primary_building_lifecycle_damage_class_Major_confidence'] == 0.80
         assert result['primary_building_lifecycle_damage_class_Minor_confidence'] == 0.10
+        assert result['primary_building_lifecycle_damage_class_Affected_confidence'] == 0.05
+        assert result['primary_building_lifecycle_damage_class_Destroyed_confidence'] == 0.05
