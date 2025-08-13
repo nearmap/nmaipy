@@ -48,7 +48,37 @@ _process_feature_api = None
 
 
 def _flatten_attribute_list(attr_list):
-    """Flatten a list of attribute dictionaries into a single flat dictionary."""
+    """
+    Flatten a list of attribute dictionaries into a single flat dictionary with dot notation.
+    
+    This function processes the 'attributes' field from Nearmap AI Feature API responses,
+    which contains a list of attribute objects with nested structures. It flattens these
+    into a single dictionary suitable for columnar storage in GeoParquet files.
+    
+    Args:
+        attr_list: List of attribute dictionaries from the API response. Each dictionary
+                  typically contains:
+                  - 'description': Human-readable name (e.g., "Building 3d attributes")
+                  - 'classId': UUID identifier for the attribute type
+                  - 'internalClassId': Internal ID (skipped for security)
+                  - Various data fields specific to the attribute type
+                  - 'components': Optional list of sub-components (e.g., roof materials)
+    
+    Returns:
+        dict: Flattened dictionary with dot-notation keys. For example:
+              {
+                  "Building 3d attributes.height": 8.5,
+                  "Building 3d attributes.numStories.1": 0.8,
+                  "Roof material.components": "[{...}]"  # JSON string
+              }
+              
+    Notes:
+        - 'internalClassId' fields are always skipped (internal use only)
+        - 'description' fields are used as prefixes but not included as values
+        - 'components' arrays are JSON-serialized for QGIS compatibility
+        - Nested dictionaries are flattened with dot notation
+        - Returns empty dict if attr_list is None or not a list
+    """
     if not attr_list or not isinstance(attr_list, list):
         return {}
     
@@ -68,7 +98,20 @@ def _flatten_attribute_list(attr_list):
             
             # Special handling for components - serialize as JSON
             if key == 'components' and isinstance(value, (list, dict)):
-                flat_dict[f"{desc}.components"] = json.dumps(value)
+                # Clean components to remove internalClassId
+                if isinstance(value, list):
+                    cleaned_components = []
+                    for comp in value:
+                        if isinstance(comp, dict):
+                            # Remove internalClassId from each component
+                            cleaned_comp = {k: v for k, v in comp.items() if k != 'internalClassId'}
+                            cleaned_components.append(cleaned_comp)
+                        else:
+                            cleaned_components.append(comp)
+                    flat_dict[f"{desc}.components"] = json.dumps(cleaned_components)
+                else:
+                    # If it's a dict (shouldn't be, but just in case)
+                    flat_dict[f"{desc}.components"] = json.dumps(value)
             # Handle nested dictionaries
             elif isinstance(value, dict):
                 for sub_key, sub_value in value.items():
@@ -803,13 +846,18 @@ class AOIExporter:
                 
                 # Apply flattening to attributes if present
                 if 'attributes' in final_features_df.columns:
+                    # Apply flattening and create DataFrame - simpler approach that avoids index issues
                     flattened_attrs = final_features_df['attributes'].apply(_flatten_attribute_list).apply(pd.Series)
                     if not flattened_attrs.empty:
-                        # Add the flattened columns to the dataframe
+                        # Drop the attributes column
+                        final_features_df = final_features_df.drop(columns=['attributes'])
+                        # Add the flattened columns
                         for col in flattened_attrs.columns:
-                            final_features_df[col] = flattened_attrs[col]
-                    # Drop the original attributes column since we've flattened it
-                    final_features_df = final_features_df.drop(columns=['attributes'])
+                            if col not in final_features_df.columns:
+                                final_features_df[col] = flattened_attrs[col]
+                    else:
+                        # No attributes to flatten, just drop the column
+                        final_features_df = final_features_df.drop(columns=['attributes'])
                 if len(final_features_df) > 0:
                     try:
                         if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
