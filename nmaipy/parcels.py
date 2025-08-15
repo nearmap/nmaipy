@@ -182,15 +182,13 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
     
     # Handle components and other attributes
     for roof in roofs:
-        # Handle roofSpotlightIndex if present
-        if "roof_spotlight_index" in roof:
-            rsi_data = roof["roof_spotlight_index"]
-            # Extract value and confidence
+        # Handle roofSpotlightIndex - check both camelCase and snake_case versions
+        rsi_data = roof.get("roofSpotlightIndex") or roof.get("roof_spotlight_index")
+        if rsi_data and isinstance(rsi_data, dict):
             if "value" in rsi_data:
                 flattened["roof_spotlight_index"] = rsi_data["value"]
             if "confidence" in rsi_data:
                 flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
-            # Extract modelVersion if present
             if "modelVersion" in rsi_data:
                 flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
         

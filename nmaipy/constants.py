@@ -140,6 +140,7 @@ CONNECTED_CLASS_IDS = (
 )
 
 CLASS_1111_YARD_DEBRIS = "405efaad-4b79-585d-88d8-43ae5fbb6f05"
+CLASS_1054_POLE = "46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"
 
 # Roof Condition / Malady Classes
 CLASS_1050_TARP = "abb1f304-ce01-527b-b799-cbfd07551b2c"  # "temporary repair",

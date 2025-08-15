@@ -782,7 +782,14 @@ class AOIExporter:
                     # Create a proper GeoDataFrame
                     final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
                 
-                final_df.to_parquet(outfile)
+                # Save with explicit schema version for better QGIS compatibility
+                # Requires geopandas >= 1.1.0
+                try:
+                    final_df.to_parquet(outfile, schema_version='1.0.0')
+                except (TypeError, ValueError) as e:
+                    # Fallback for older geopandas or pyarrow versions
+                    self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                    final_df.to_parquet(outfile)
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
@@ -832,7 +839,26 @@ class AOIExporter:
                 merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
                 logger.debug(f"Chunk {chunk_id}: After second merge - {len(merged2)} rows, has 'attributes': {'attributes' in merged2.columns}")
                 
-                final_features_df = gpd.GeoDataFrame(merged2, crs=API_CRS)
+                # Check what geometry columns we have after the merge
+                geom_cols = [col for col in merged2.columns if 'geometry' in col.lower()]
+                logger.debug(f"Chunk {chunk_id}: Geometry columns after merge: {geom_cols}")
+                
+                # Create GeoDataFrame with the appropriate geometry column
+                if 'geometry' in merged2.columns:
+                    final_features_df = gpd.GeoDataFrame(merged2, crs=API_CRS)
+                elif 'geometry_y' in merged2.columns:
+                    # Features geometry (from poles)
+                    final_features_df = gpd.GeoDataFrame(merged2, geometry='geometry_y', crs=API_CRS)
+                elif 'geometry_x' in merged2.columns:
+                    # AOI geometry
+                    final_features_df = gpd.GeoDataFrame(merged2, geometry='geometry_x', crs=API_CRS)
+                else:
+                    error_msg = (f"Chunk {chunk_id}: No valid geometry column found after merge. "
+                                f"Expected 'geometry', 'geometry_x', or 'geometry_y'. "
+                                f"Found columns: {geom_cols if geom_cols else 'none'}. "
+                                f"All columns: {list(merged2.columns)[:20]}")
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
                 # Debug: Check if attributes survived the merge
                 if 'attributes' in final_features_df.columns:
                     logger.debug(f"Chunk {chunk_id}: 'attributes' column survived merge. Checking for data...")
@@ -870,7 +896,14 @@ class AOIExporter:
                             final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
                         else:
                             final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
-                        final_features_df.to_parquet(outfile_features)
+                        # Save with explicit schema version for better QGIS compatibility
+                        # Requires geopandas >= 1.1.0
+                        try:
+                            final_features_df.to_parquet(outfile_features, schema_version='1.0.0')
+                        except (TypeError, ValueError) as e:
+                            # Fallback for older geopandas or pyarrow versions
+                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                            final_features_df.to_parquet(outfile_features)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
@@ -1220,7 +1253,14 @@ class AOIExporter:
                     # First, save the geoparquet version with intact geometries
                     self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
                     try:
-                        buildings_gdf.to_parquet(outpath_buildings_geoparquet)
+                        # Save with explicit schema version for better QGIS compatibility
+                        # Requires geopandas >= 1.1.0
+                        try:
+                            buildings_gdf.to_parquet(outpath_buildings_geoparquet, schema_version='1.0.0')
+                        except (TypeError, ValueError) as e:
+                            # Fallback for older geopandas or pyarrow versions
+                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                            buildings_gdf.to_parquet(outpath_buildings_geoparquet)
                     except Exception as e:
                         self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
                         
