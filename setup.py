@@ -26,7 +26,7 @@ notebooks_packages = [
 ]
 
 required_packages = [
-    "geopandas",
+    "geopandas>=1.1.0",
     "numpy",
     "pandas",
     "psutil",

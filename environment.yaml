@@ -7,7 +7,7 @@ dependencies:
   - python>=3.11
   
   # Core dependencies (matching setup.py)
-  - geopandas>=1.0.1
+  - geopandas>=1.1.0
   - numpy
   - pandas
   - psutil
