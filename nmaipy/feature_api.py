@@ -1649,7 +1649,12 @@ class FeatureApi:
             # Cleanup is handled by the 'with' statement for the executor
             self.cleanup()  # Clean up sessions after bulk operation
 
-        features_gdf = gpd.GeoDataFrame(pd.concat([df for df in data if len(df) > 0])) if len(data) > 0 else gpd.GeoDataFrame([])
+        if len(data) > 0:
+            features_gdf = pd.concat([df for df in data if len(df) > 0])
+            # Ensure we have a proper GeoDataFrame with geometry column and CRS
+            features_gdf = gpd.GeoDataFrame(features_gdf, geometry='geometry', crs=API_CRS)
+        else:
+            features_gdf = gpd.GeoDataFrame([], crs=API_CRS)
         if len(data) == 0:
             features_gdf.index.name = AOI_ID_COLUMN_NAME
         

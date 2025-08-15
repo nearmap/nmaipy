@@ -853,8 +853,12 @@ class AOIExporter:
                     # AOI geometry
                     final_features_df = gpd.GeoDataFrame(merged2, geometry='geometry_x', crs=API_CRS)
                 else:
-                    logger.warning(f"Chunk {chunk_id}: No geometry column found after merge. Available columns: {list(merged2.columns)[:20]}")
-                    final_features_df = gpd.GeoDataFrame()
+                    error_msg = (f"Chunk {chunk_id}: No valid geometry column found after merge. "
+                                f"Expected 'geometry', 'geometry_x', or 'geometry_y'. "
+                                f"Found columns: {geom_cols if geom_cols else 'none'}. "
+                                f"All columns: {list(merged2.columns)[:20]}")
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
                 # Debug: Check if attributes survived the merge
                 if 'attributes' in final_features_df.columns:
                     logger.debug(f"Chunk {chunk_id}: 'attributes' column survived merge. Checking for data...")

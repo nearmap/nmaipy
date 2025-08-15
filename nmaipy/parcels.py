@@ -182,27 +182,15 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
     
     # Handle components and other attributes
     for roof in roofs:
-        # Handle roofSpotlightIndex if it's at the root level of the feature
-        if "roofSpotlightIndex" in roof:
-            rsi_data = roof["roofSpotlightIndex"]
-            if isinstance(rsi_data, dict):
-                if "value" in rsi_data:
-                    flattened["roof_spotlight_index"] = rsi_data["value"]
-                if "confidence" in rsi_data:
-                    flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
-                if "modelVersion" in rsi_data:
-                    flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
-        
-        # Also check for it in the snake_case version
-        elif "roof_spotlight_index" in roof:
-            rsi_data = roof["roof_spotlight_index"]
-            if isinstance(rsi_data, dict):
-                if "value" in rsi_data:
-                    flattened["roof_spotlight_index"] = rsi_data["value"]
-                if "confidence" in rsi_data:
-                    flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
-                if "modelVersion" in rsi_data:
-                    flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
+        # Handle roofSpotlightIndex - check both camelCase and snake_case versions
+        rsi_data = roof.get("roofSpotlightIndex") or roof.get("roof_spotlight_index")
+        if rsi_data and isinstance(rsi_data, dict):
+            if "value" in rsi_data:
+                flattened["roof_spotlight_index"] = rsi_data["value"]
+            if "confidence" in rsi_data:
+                flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
+            if "modelVersion" in rsi_data:
+                flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
         
         for attribute in roof["attributes"]:
             if "components" in attribute:
