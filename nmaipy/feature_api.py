@@ -621,8 +621,6 @@ class FeatureApi:
             url += f"&systemVersionPrefix={self.system_version_prefix}"
         if self.system_version is not None:
             url += f"&systemVersion={self.system_version}"
-        if self.bulk_mode:
-            url += "&bulk=true"
         if self.rapid:
             url += "&rapid=true"
         if self.order is not None:
@@ -1651,7 +1649,7 @@ class FeatureApi:
             # Cleanup is handled by the 'with' statement for the executor
             self.cleanup()  # Clean up sessions after bulk operation
 
-        features_gdf = pd.concat([df for df in data if len(df) > 0]) if len(data) > 0 else gpd.GeoDataFrame([])
+        features_gdf = gpd.GeoDataFrame(pd.concat([df for df in data if len(df) > 0])) if len(data) > 0 else gpd.GeoDataFrame([])
         if len(data) == 0:
             features_gdf.index.name = AOI_ID_COLUMN_NAME
         
