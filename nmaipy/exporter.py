@@ -784,7 +784,12 @@ class AOIExporter:
                 
                 # Save with explicit schema version for better QGIS compatibility
                 # Requires geopandas >= 1.1.0
-                final_df.to_parquet(outfile, schema_version='1.0.0')
+                try:
+                    final_df.to_parquet(outfile, schema_version='1.0.0')
+                except (TypeError, ValueError) as e:
+                    # Fallback for older geopandas or pyarrow versions
+                    self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                    final_df.to_parquet(outfile)
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
@@ -889,7 +894,12 @@ class AOIExporter:
                             final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
-                        final_features_df.to_parquet(outfile_features, schema_version='1.0.0')
+                        try:
+                            final_features_df.to_parquet(outfile_features, schema_version='1.0.0')
+                        except (TypeError, ValueError) as e:
+                            # Fallback for older geopandas or pyarrow versions
+                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                            final_features_df.to_parquet(outfile_features)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
@@ -1241,7 +1251,12 @@ class AOIExporter:
                     try:
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
-                        buildings_gdf.to_parquet(outpath_buildings_geoparquet, schema_version='1.0.0')
+                        try:
+                            buildings_gdf.to_parquet(outpath_buildings_geoparquet, schema_version='1.0.0')
+                        except (TypeError, ValueError) as e:
+                            # Fallback for older geopandas or pyarrow versions
+                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                            buildings_gdf.to_parquet(outpath_buildings_geoparquet)
                     except Exception as e:
                         self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
                         
