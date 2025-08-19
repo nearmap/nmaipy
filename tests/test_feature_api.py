@@ -1,6 +1,10 @@
 import os
 import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
 import pandas as pd
@@ -668,6 +672,109 @@ class TestFeatureAPI:
                 assert hasattr(first_roof, 'attributes')
                 # Note: The actual RSI data might not be present in test data,
                 # but the API call should succeed
+
+    def test_gridding_semaphore_limits_concurrent_operations(self):
+        """Test that semaphore correctly limits concurrent gridding operations to 1/5th of thread count"""
+        thread_count = 20
+        expected_max_concurrent = max(1, thread_count // 5)  # Should be 4
+        
+        with tempfile.TemporaryDirectory() as cache_dir:
+            api = FeatureApi(cache_dir=Path(cache_dir), threads=thread_count)
+            
+            # Verify semaphore was initialized with correct value
+            assert api._gridding_semaphore._value == expected_max_concurrent
+            
+            # Track concurrent executions
+            concurrent_count = 0
+            max_concurrent_seen = 0
+            lock = threading.Lock()
+            
+            def simulate_gridding():
+                nonlocal concurrent_count, max_concurrent_seen
+                with api._gridding_semaphore:
+                    with lock:
+                        concurrent_count += 1
+                        max_concurrent_seen = max(max_concurrent_seen, concurrent_count)
+                    time.sleep(0.01)  # Simulate work
+                    with lock:
+                        concurrent_count -= 1
+            
+            # Start many threads to test semaphore limiting
+            threads = []
+            for _ in range(20):
+                t = threading.Thread(target=simulate_gridding)
+                threads.append(t)
+                t.start()
+            
+            for t in threads:
+                t.join()
+            
+            # Verify we never exceeded the limit
+            assert max_concurrent_seen <= expected_max_concurrent
+            assert max_concurrent_seen > 0  # Ensure test actually ran
+    
+    def test_pool_size_capped_at_50(self):
+        """Test that HTTP adapter pool size is capped at 50 even with high thread counts"""
+        with tempfile.TemporaryDirectory() as cache_dir:
+            # Test with thread count > 50
+            api = FeatureApi(cache_dir=Path(cache_dir), threads=100)
+            with api._session_scope() as session:
+                # Check the adapter's pool settings (stored as private attributes)
+                adapter = session.get_adapter("https://")
+                assert adapter._pool_maxsize == 50
+                assert adapter._pool_connections == 50
+            
+            # Test with thread count < 50 but > 10
+            api2 = FeatureApi(cache_dir=Path(cache_dir), threads=30)
+            with api2._session_scope() as session2:
+                adapter2 = session2.get_adapter("https://")
+                assert adapter2._pool_maxsize == 30
+                assert adapter2._pool_connections == 30
+            
+            # Test with thread count < 10
+            api3 = FeatureApi(cache_dir=Path(cache_dir), threads=5)
+            with api3._session_scope() as session3:
+                adapter3 = session3.get_adapter("https://")
+                assert adapter3._pool_maxsize == 10  # Minimum of 10
+                assert adapter3._pool_connections == 10
+    
+    def test_cache_write_cleans_up_temp_files(self):
+        """Test that cache write properly cleans up temp files even on failure"""
+        with tempfile.TemporaryDirectory() as cache_dir:
+            cache_path = Path(cache_dir)
+            api = FeatureApi(cache_dir=cache_path)
+            
+            # Test successful write - temp file should be cleaned up
+            test_payload = {"test": "data"}
+            target_path = cache_path / "test_cache.json"
+            api._write_to_cache(target_path, test_payload)
+            
+            # Check no temp files remain
+            temp_files = list(cache_path.glob("*.tmp*"))
+            assert len(temp_files) == 0
+            assert target_path.exists()
+            
+            # Test with compressed cache
+            api.compress_cache = True
+            target_path2 = cache_path / "test_cache2.json.gz"
+            api._write_to_cache(target_path2, test_payload)
+            
+            # Check no temp files remain
+            temp_files = list(cache_path.glob("*.tmp*"))
+            assert len(temp_files) == 0
+            assert target_path2.exists()
+            
+            # Test failure scenario - mock replace to fail
+            with patch.object(Path, 'replace', side_effect=Exception("Mock failure")):
+                target_path3 = cache_path / "test_cache3.json"
+                try:
+                    api._write_to_cache(target_path3, test_payload)
+                except Exception:
+                    pass  # Expected to fail
+                
+                # Check no temp files remain even after failure
+                temp_files = list(cache_path.glob("*.tmp*"))
+                assert len(temp_files) == 0
 
 
 if __name__ == "__main__":
