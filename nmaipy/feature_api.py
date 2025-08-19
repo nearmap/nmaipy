@@ -339,6 +339,13 @@ class FeatureApi:
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
+        
+        # Semaphore to limit concurrent gridding operations
+        # This prevents too many file handles being opened when many large AOIs grid simultaneously
+        # Limit to 1/5th of thread count (with minimum of 1)
+        max_concurrent_gridding = max(1, self.threads // 5)
+        self._gridding_semaphore = threading.Semaphore(max_concurrent_gridding)
+        logger.debug(f"Initialized gridding semaphore with limit of {max_concurrent_gridding} concurrent AOIs")
 
     def __del__(self):
         """Cleanup when instance is destroyed"""
@@ -1498,18 +1505,23 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
-        df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
-        
-        logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells")
+        # Acquire semaphore to limit concurrent gridding operations
+        # This prevents too many file handles being opened simultaneously
+        with self._gridding_semaphore:
+            logger.info(f"Gridding AOI {aoi_id}: acquiring gridding slot")
+            
+            df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
+            
+            logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells")
 
-        # Retrieve the features for every one of the cells in the gridded AOIs
-        aoi_id_tmp = range(len(df_gridded))
-        df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
+            # Retrieve the features for every one of the cells in the gridded AOIs
+            aoi_id_tmp = range(len(df_gridded))
+            df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
 
-        try:
-            # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
-            # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
-            features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
+            try:
+                # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
+                # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
+                features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
                 gdf=df_gridded,
                 region=region,
                 packs=packs,
@@ -1521,59 +1533,59 @@ class FeatureApi:
                 max_allowed_error_pct=100 - self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
                 in_gridding_mode=True,
-            )
-        except AIFeatureAPIError as e:
-            logger.debug(
-                f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
-            )
-            raise AIFeatureAPIGridError(e.status_code)
-        if len(features_gdf) == 0:
-            # Got no data back from any grid square in the AOI.
-            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
-        elif len(features_gdf["survey_date"].unique()) > 1:
-            if aoi_grid_inexact:
-                logger.info(
-                    f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
                 )
-            else:
-                logger.warning(
-                    f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
-                )
-                raise AIFeatureAPIGridError(
-                    DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query."
-                )
-        elif survey_resource_id is None:
-            logger.debug(
-                f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
-            )
-            # TODO: We should change query to guarantee same survey id is used somehow.
-
-        if len(errors_df) > 0:
-            # Check if we have any non-404 errors (which indicate retriable failures)
-            non_404_errors = errors_df[errors_df['status_code'] != 404]
-            
-            if len(non_404_errors) > 0:
-                # Log warning for non-404 errors that create holes in the grid
-                logger.warning(
-                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
-                )
-                # Log a random sample of non-404 errors to avoid massive output
-                if len(non_404_errors) > 0:
-                    sample_size = min(5, len(non_404_errors))
-                    error_sample = non_404_errors[['status_code', 'message']].sample(n=sample_size, random_state=42)
-                    logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
-            else:
-                # Only 404s - use debug level as before
+            except AIFeatureAPIError as e:
                 logger.debug(
-                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                    f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
                 )
+                raise AIFeatureAPIGridError(e.status_code)
+            if len(features_gdf) == 0:
+                # Got no data back from any grid square in the AOI.
+                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
+            elif len(features_gdf["survey_date"].unique()) > 1:
+                if aoi_grid_inexact:
+                    logger.info(
+                        f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
+                    )
+                else:
+                    logger.warning(
+                        f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+                    )
+                    raise AIFeatureAPIGridError(
+                        DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query."
+                    )
+            elif survey_resource_id is None:
+                logger.debug(
+                    f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
+                )
+                # TODO: We should change query to guarantee same survey id is used somehow.
 
-            # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+            if len(errors_df) > 0:
+                # Check if we have any non-404 errors (which indicate retriable failures)
+                non_404_errors = errors_df[errors_df['status_code'] != 404]
+                
+                if len(non_404_errors) > 0:
+                    # Log warning for non-404 errors that create holes in the grid
+                    logger.warning(
+                        f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                    )
+                    # Log a random sample of non-404 errors to avoid massive output
+                    if len(non_404_errors) > 0:
+                        sample_size = min(5, len(non_404_errors))
+                        error_sample = non_404_errors[['status_code', 'message']].sample(n=sample_size, random_state=42)
+                        logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
+                else:
+                    # Only 404s - use debug level as before
+                    logger.debug(
+                        f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                    )
 
-        # Reset the correct aoi_id for the gridded result
-        features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
-        metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
-        return features_gdf, metadata_df, errors_df
+                # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+
+            # Reset the correct aoi_id for the gridded result
+            features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
+            metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
+            return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
         self,
