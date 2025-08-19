@@ -378,10 +378,13 @@ class FeatureApi:
             read=self.maxretry,
             redirect=self.maxretry,
         )
+        # Dynamic pool sizing: match pool size to thread count to prevent blocking
+        # This is critical for gridding scenarios where many requests run in parallel
+        pool_size = max(self.threads, 10)
         adapter = HTTPAdapter(
             max_retries=retries,
-            pool_maxsize=self.POOL_SIZE,
-            pool_connections=self.POOL_SIZE,
+            pool_maxsize=pool_size,
+            pool_connections=pool_size,
             pool_block=True
         )
         session.mount("https://", adapter)
@@ -1644,7 +1647,8 @@ class FeatureApi:
                 data = []
                 metadata = []
                 errors = []
-                for job in jobs:
+                # Use as_completed to process results as they finish, preventing blocking on slow requests
+                for job in concurrent.futures.as_completed(jobs):
                     aoi_data, aoi_metadata, aoi_error = job.result()
                     if aoi_data is not None:
                         if len(aoi_data) > 0:
@@ -1848,7 +1852,8 @@ class FeatureApi:
                 data = []
                 metadata = []
                 errors = []
-                for job in jobs:
+                # Use as_completed to process results as they finish, preventing blocking on slow requests
+                for job in concurrent.futures.as_completed(jobs):
                     aoi_data, aoi_metadata, aoi_error = job.result()
                     if aoi_data is not None:
                         data.append(aoi_data)
