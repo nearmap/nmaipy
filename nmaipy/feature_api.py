@@ -212,6 +212,10 @@ class FeatureApi:
     """
     Class to connect to the AI Feature API
     """
+    
+    # Thread-local storage for executor reuse in gridding scenarios
+    # This prevents nested thread pool creation
+    _thread_local = threading.local()
 
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -379,7 +383,7 @@ class FeatureApi:
             redirect=self.maxretry,
         )
         # Dynamic pool sizing: match pool size to thread count to prevent blocking
-        # This is critical for gridding scenarios where many requests run in parallel
+        # This is critical for handling many concurrent requests
         pool_size = max(self.threads, 10)
         adapter = HTTPAdapter(
             max_retries=retries,
@@ -1495,6 +1499,8 @@ class FeatureApi:
             API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
         df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
+        
+        logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells")
 
         # Retrieve the features for every one of the cells in the gridded AOIs
         aoi_id_tmp = range(len(df_gridded))
@@ -1610,64 +1616,81 @@ class FeatureApi:
             # is a geometry field present?
             has_geom = "geometry" in gdf.columns
 
-            # Run in thread pool
-            with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
-                jobs = []
-                for aoi_id, row in gdf.iterrows():
-                    # Overwrite blanket since/until dates with per request since/until if columns are present
-                    since = since_bulk
-                    if SINCE_COL_NAME in row:
-                        if isinstance(row[SINCE_COL_NAME], str):
-                            since = row[SINCE_COL_NAME]
-                    until = until_bulk
-                    if UNTIL_COL_NAME in row:
-                        if isinstance(row[UNTIL_COL_NAME], str):
-                            until = row[UNTIL_COL_NAME]
-                    survey_resource_id = survey_resource_id_bulk
-                    if SURVEY_RESOURCE_ID_COL_NAME in row:
-                        if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                            survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-                    jobs.append(
-                        executor.submit(
-                            self.get_features_gdf,
-                            geometry=row.geometry if has_geom else None,
-                            region=region,
-                            packs=packs,
-                            classes=classes,
-                            include=include,
-                            aoi_id=aoi_id,
-                            since=since,
-                            until=until,
-                            address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
-                            survey_resource_id=survey_resource_id,
-                            fail_hard_regrid=fail_hard_regrid,
-                            in_gridding_mode=in_gridding_mode,
-                        )
+            # Check if we're already in an executor context (gridding scenario)
+            # This prevents nested thread pool creation
+            if hasattr(self._thread_local, 'executor') and self._thread_local.executor is not None:
+                # Reuse existing executor - we're in a gridding operation
+                executor = self._thread_local.executor
+                external_executor = True
+                logger.debug(f"Reusing parent executor for gridding {len(gdf)} cells")
+            else:
+                # Create new executor - we're at the top level
+                executor = concurrent.futures.ThreadPoolExecutor(self.threads)
+                self._thread_local.executor = executor
+                external_executor = False
+                logger.debug(f"Created new executor with {self.threads} threads for {len(gdf)} AOIs")
+            
+            # Submit jobs to executor
+            jobs = []
+            for aoi_id, row in gdf.iterrows():
+                # Overwrite blanket since/until dates with per request since/until if columns are present
+                since = since_bulk
+                if SINCE_COL_NAME in row:
+                    if isinstance(row[SINCE_COL_NAME], str):
+                        since = row[SINCE_COL_NAME]
+                until = until_bulk
+                if UNTIL_COL_NAME in row:
+                    if isinstance(row[UNTIL_COL_NAME], str):
+                        until = row[UNTIL_COL_NAME]
+                survey_resource_id = survey_resource_id_bulk
+                if SURVEY_RESOURCE_ID_COL_NAME in row:
+                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+                jobs.append(
+                    executor.submit(
+                        self.get_features_gdf,
+                        geometry=row.geometry if has_geom else None,
+                        region=region,
+                        packs=packs,
+                        classes=classes,
+                        include=include,
+                        aoi_id=aoi_id,
+                        since=since,
+                        until=until,
+                        address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                        survey_resource_id=survey_resource_id,
+                        fail_hard_regrid=fail_hard_regrid,
+                        in_gridding_mode=in_gridding_mode,
                     )
-                data = []
-                metadata = []
-                errors = []
-                # Use as_completed to process results as they finish, preventing blocking on slow requests
-                for job in concurrent.futures.as_completed(jobs):
-                    aoi_data, aoi_metadata, aoi_error = job.result()
-                    if aoi_data is not None:
-                        if len(aoi_data) > 0:
-                            data.append(aoi_data)
-                    if aoi_metadata is not None:
-                        if len(aoi_metadata) > 0:
-                            metadata.append(aoi_metadata)
-                    if aoi_error is not None:
-                        if len(errors) > max_allowed_error_count:
-                            cleanup_executor(executor)
-                            logger.debug(
-                                f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
-                            )
-                            raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                        else:
-                            errors.append(aoi_error)
+                )
+            
+            data = []
+            metadata = []
+            errors = []
+            # Use as_completed to process results as they finish, preventing blocking on slow requests
+            for job in concurrent.futures.as_completed(jobs):
+                aoi_data, aoi_metadata, aoi_error = job.result()
+                if aoi_data is not None:
+                    if len(aoi_data) > 0:
+                        data.append(aoi_data)
+                if aoi_metadata is not None:
+                    if len(aoi_metadata) > 0:
+                        metadata.append(aoi_metadata)
+                if aoi_error is not None:
+                    if len(errors) > max_allowed_error_count:
+                        cleanup_executor(executor)
+                        logger.debug(
+                            f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
+                        )
+                        raise AIFeatureAPIError(aoi_error, aoi_error["request"])
+                    else:
+                        errors.append(aoi_error)
         finally:
-            # Cleanup is handled by the 'with' statement for the executor
-            self.cleanup()  # Clean up sessions after bulk operation
+            # Only cleanup executor if we created it (not reusing from parent)
+            if not external_executor:
+                executor.shutdown(wait=True)
+                self._thread_local.executor = None
+                self.cleanup()  # Clean up sessions after bulk operation
 
         if len(data) > 0:
             features_gdf = pd.concat([df for df in data if len(df) > 0])
