@@ -212,6 +212,10 @@ class FeatureApi:
     """
     Class to connect to the AI Feature API
     """
+    
+    # Thread-local storage for executor reuse in gridding scenarios
+    # This prevents nested thread pool creation
+    _thread_local = threading.local()
 
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
@@ -335,6 +339,13 @@ class FeatureApi:
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
+        
+        # Semaphore to limit concurrent gridding operations
+        # This prevents too many file handles being opened when many large AOIs grid simultaneously
+        # 1/5th prevents file handle exhaustion while still allowing parallelism
+        max_concurrent_gridding = max(1, self.threads // 5)
+        self._gridding_semaphore = threading.Semaphore(max_concurrent_gridding)
+        logger.debug(f"Initialized gridding semaphore with limit of {max_concurrent_gridding} concurrent AOIs")
 
     def __del__(self):
         """Cleanup when instance is destroyed"""
@@ -378,10 +389,13 @@ class FeatureApi:
             read=self.maxretry,
             redirect=self.maxretry,
         )
+        # Dynamic pool sizing: match pool size to thread count to prevent blocking
+        # Min 10 for basic concurrency, max 50 to prevent file handle exhaustion
+        pool_size = min(max(self.threads, 10), 50)
         adapter = HTTPAdapter(
             max_retries=retries,
-            pool_maxsize=self.POOL_SIZE,
-            pool_connections=self.POOL_SIZE,
+            pool_maxsize=pool_size,
+            pool_connections=pool_size,
             pool_block=True
         )
         session.mount("https://", adapter)
@@ -551,24 +565,23 @@ class FeatureApi:
         Write a payload to the cache. To make the write atomic, data is first written to a temp file and then renamed.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
+        # Generate temp file name based on whether we're compressing
+        temp_filename = f"{str(uuid.uuid4())}.tmp"
+        if self.compress_cache:
+            temp_filename = f"{temp_filename}.gz"
+        temp_path = self.cache_dir / temp_filename
+        
         try:
             if self.compress_cache:
-                temp_path = temp_path.parent / f"{temp_path.name}.gz"
-                with gzip.open(temp_path, "w") as f:
-                    payload_bytes = json.dumps(payload).encode("utf-8")
-                    f.write(payload_bytes)
-                    f.flush()
-                    os.fsync(f.fileno())
+                with gzip.open(temp_path, "wb") as f:
+                    f.write(json.dumps(payload).encode("utf-8"))
             else:
                 with open(temp_path, "w") as f:
                     json.dump(payload, f)
-                    f.flush()
-                    os.fsync(f.fileno())
             temp_path.replace(path)
         finally:
             if temp_path.exists():
-                temp_path.unlink()
+                temp_path.unlink(missing_ok=True)
 
         
     def _create_post_request(
@@ -1475,16 +1488,23 @@ class FeatureApi:
         Returns:
             API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
-        df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
+        # Acquire semaphore to limit concurrent gridding operations
+        # This prevents too many file handles being opened simultaneously
+        with self._gridding_semaphore:
+            logger.info(f"Gridding AOI {aoi_id}: acquiring gridding slot")
+            
+            df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
+            
+            logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells")
 
-        # Retrieve the features for every one of the cells in the gridded AOIs
-        aoi_id_tmp = range(len(df_gridded))
-        df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
+            # Retrieve the features for every one of the cells in the gridded AOIs
+            aoi_id_tmp = range(len(df_gridded))
+            df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
 
-        try:
-            # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
-            # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
-            features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
+            try:
+                # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
+                # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
+                features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
                 gdf=df_gridded,
                 region=region,
                 packs=packs,
@@ -1496,59 +1516,59 @@ class FeatureApi:
                 max_allowed_error_pct=100 - self.aoi_grid_min_pct,
                 fail_hard_regrid=True,
                 in_gridding_mode=True,
-            )
-        except AIFeatureAPIError as e:
-            logger.debug(
-                f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
-            )
-            raise AIFeatureAPIGridError(e.status_code)
-        if len(features_gdf) == 0:
-            # Got no data back from any grid square in the AOI.
-            raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
-        elif len(features_gdf["survey_date"].unique()) > 1:
-            if aoi_grid_inexact:
-                logger.info(
-                    f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
                 )
-            else:
-                logger.warning(
-                    f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
-                )
-                raise AIFeatureAPIGridError(
-                    DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query."
-                )
-        elif survey_resource_id is None:
-            logger.debug(
-                f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
-            )
-            # TODO: We should change query to guarantee same survey id is used somehow.
-
-        if len(errors_df) > 0:
-            # Check if we have any non-404 errors (which indicate retriable failures)
-            non_404_errors = errors_df[errors_df['status_code'] != 404]
-            
-            if len(non_404_errors) > 0:
-                # Log warning for non-404 errors that create holes in the grid
-                logger.warning(
-                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
-                )
-                # Log a random sample of non-404 errors to avoid massive output
-                if len(non_404_errors) > 0:
-                    sample_size = min(5, len(non_404_errors))
-                    error_sample = non_404_errors[['status_code', 'message']].sample(n=sample_size, random_state=42)
-                    logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
-            else:
-                # Only 404s - use debug level as before
+            except AIFeatureAPIError as e:
                 logger.debug(
-                    f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                    f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
                 )
+                raise AIFeatureAPIGridError(e.status_code)
+            if len(features_gdf) == 0:
+                # Got no data back from any grid square in the AOI.
+                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
+            elif len(features_gdf["survey_date"].unique()) > 1:
+                if aoi_grid_inexact:
+                    logger.info(
+                        f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
+                    )
+                else:
+                    logger.warning(
+                        f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+                    )
+                    raise AIFeatureAPIGridError(
+                        DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query."
+                    )
+            elif survey_resource_id is None:
+                logger.debug(
+                    f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
+                )
+                # TODO: We should change query to guarantee same survey id is used somehow.
 
-            # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+            if len(errors_df) > 0:
+                # Check if we have any non-404 errors (which indicate retriable failures)
+                non_404_errors = errors_df[errors_df['status_code'] != 404]
+                
+                if len(non_404_errors) > 0:
+                    # Log warning for non-404 errors that create holes in the grid
+                    logger.warning(
+                        f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                    )
+                    # Log a random sample of non-404 errors to avoid massive output
+                    if len(non_404_errors) > 0:
+                        sample_size = min(5, len(non_404_errors))
+                        error_sample = non_404_errors[['status_code', 'message']].sample(n=sample_size, random_state=42)
+                        logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
+                else:
+                    # Only 404s - use debug level as before
+                    logger.debug(
+                        f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
+                    )
 
-        # Reset the correct aoi_id for the gridded result
-        features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
-        metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
-        return features_gdf, metadata_df, errors_df
+                # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+
+            # Reset the correct aoi_id for the gridded result
+            features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
+            metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
+            return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
         self,
@@ -1591,63 +1611,81 @@ class FeatureApi:
             # is a geometry field present?
             has_geom = "geometry" in gdf.columns
 
-            # Run in thread pool
-            with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
-                jobs = []
-                for aoi_id, row in gdf.iterrows():
-                    # Overwrite blanket since/until dates with per request since/until if columns are present
-                    since = since_bulk
-                    if SINCE_COL_NAME in row:
-                        if isinstance(row[SINCE_COL_NAME], str):
-                            since = row[SINCE_COL_NAME]
-                    until = until_bulk
-                    if UNTIL_COL_NAME in row:
-                        if isinstance(row[UNTIL_COL_NAME], str):
-                            until = row[UNTIL_COL_NAME]
-                    survey_resource_id = survey_resource_id_bulk
-                    if SURVEY_RESOURCE_ID_COL_NAME in row:
-                        if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                            survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-                    jobs.append(
-                        executor.submit(
-                            self.get_features_gdf,
-                            geometry=row.geometry if has_geom else None,
-                            region=region,
-                            packs=packs,
-                            classes=classes,
-                            include=include,
-                            aoi_id=aoi_id,
-                            since=since,
-                            until=until,
-                            address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
-                            survey_resource_id=survey_resource_id,
-                            fail_hard_regrid=fail_hard_regrid,
-                            in_gridding_mode=in_gridding_mode,
-                        )
+            # Check if we're already in an executor context (gridding scenario)
+            # This prevents nested thread pool creation
+            if hasattr(self._thread_local, 'executor') and self._thread_local.executor is not None:
+                # Reuse existing executor - we're in a gridding operation
+                executor = self._thread_local.executor
+                external_executor = True
+                logger.debug(f"Reusing parent executor for gridding {len(gdf)} cells")
+            else:
+                # Create new executor - we're at the top level
+                executor = concurrent.futures.ThreadPoolExecutor(self.threads)
+                self._thread_local.executor = executor
+                external_executor = False
+                logger.debug(f"Created new executor with {self.threads} threads for {len(gdf)} AOIs")
+            
+            # Submit jobs to executor
+            jobs = []
+            for aoi_id, row in gdf.iterrows():
+                # Overwrite blanket since/until dates with per request since/until if columns are present
+                since = since_bulk
+                if SINCE_COL_NAME in row:
+                    if isinstance(row[SINCE_COL_NAME], str):
+                        since = row[SINCE_COL_NAME]
+                until = until_bulk
+                if UNTIL_COL_NAME in row:
+                    if isinstance(row[UNTIL_COL_NAME], str):
+                        until = row[UNTIL_COL_NAME]
+                survey_resource_id = survey_resource_id_bulk
+                if SURVEY_RESOURCE_ID_COL_NAME in row:
+                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+                jobs.append(
+                    executor.submit(
+                        self.get_features_gdf,
+                        geometry=row.geometry if has_geom else None,
+                        region=region,
+                        packs=packs,
+                        classes=classes,
+                        include=include,
+                        aoi_id=aoi_id,
+                        since=since,
+                        until=until,
+                        address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                        survey_resource_id=survey_resource_id,
+                        fail_hard_regrid=fail_hard_regrid,
+                        in_gridding_mode=in_gridding_mode,
                     )
-                data = []
-                metadata = []
-                errors = []
-                for job in jobs:
-                    aoi_data, aoi_metadata, aoi_error = job.result()
-                    if aoi_data is not None:
-                        if len(aoi_data) > 0:
-                            data.append(aoi_data)
-                    if aoi_metadata is not None:
-                        if len(aoi_metadata) > 0:
-                            metadata.append(aoi_metadata)
-                    if aoi_error is not None:
-                        if len(errors) > max_allowed_error_count:
-                            cleanup_executor(executor)
-                            logger.debug(
-                                f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
-                            )
-                            raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                        else:
-                            errors.append(aoi_error)
+                )
+            
+            data = []
+            metadata = []
+            errors = []
+            # Use as_completed to process results as they finish, preventing blocking on slow requests
+            for job in concurrent.futures.as_completed(jobs):
+                aoi_data, aoi_metadata, aoi_error = job.result()
+                if aoi_data is not None:
+                    if len(aoi_data) > 0:
+                        data.append(aoi_data)
+                if aoi_metadata is not None:
+                    if len(aoi_metadata) > 0:
+                        metadata.append(aoi_metadata)
+                if aoi_error is not None:
+                    if len(errors) > max_allowed_error_count:
+                        cleanup_executor(executor)
+                        logger.debug(
+                            f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
+                        )
+                        raise AIFeatureAPIError(aoi_error, aoi_error["request"])
+                    else:
+                        errors.append(aoi_error)
         finally:
-            # Cleanup is handled by the 'with' statement for the executor
-            self.cleanup()  # Clean up sessions after bulk operation
+            # Only cleanup executor if we created it (not reusing from parent)
+            if not external_executor:
+                executor.shutdown(wait=True)
+                self._thread_local.executor = None
+                self.cleanup()  # Clean up sessions after bulk operation
 
         if len(data) > 0:
             features_gdf = pd.concat([df for df in data if len(df) > 0])
@@ -1832,7 +1870,8 @@ class FeatureApi:
                 data = []
                 metadata = []
                 errors = []
-                for job in jobs:
+                # Use as_completed to process results as they finish, preventing blocking on slow requests
+                for job in concurrent.futures.as_completed(jobs):
                     aoi_data, aoi_metadata, aoi_error = job.result()
                     if aoi_data is not None:
                         data.append(aoi_data)
