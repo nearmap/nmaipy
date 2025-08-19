@@ -342,7 +342,7 @@ class FeatureApi:
         
         # Semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened when many large AOIs grid simultaneously
-        # Limit to 1/5th of thread count (with minimum of 1)
+        # 1/5th prevents file handle exhaustion while still allowing parallelism
         max_concurrent_gridding = max(1, self.threads // 5)
         self._gridding_semaphore = threading.Semaphore(max_concurrent_gridding)
         logger.debug(f"Initialized gridding semaphore with limit of {max_concurrent_gridding} concurrent AOIs")
@@ -390,8 +390,8 @@ class FeatureApi:
             redirect=self.maxretry,
         )
         # Dynamic pool sizing: match pool size to thread count to prevent blocking
-        # This is critical for handling many concurrent requests
-        pool_size = max(self.threads, 10)
+        # Min 10 for basic concurrency, max 50 to prevent file handle exhaustion
+        pool_size = min(max(self.threads, 10), 50)
         adapter = HTTPAdapter(
             max_retries=retries,
             pool_maxsize=pool_size,
@@ -574,31 +574,14 @@ class FeatureApi:
         try:
             if self.compress_cache:
                 with gzip.open(temp_path, "wb") as f:
-                    payload_bytes = json.dumps(payload).encode("utf-8")
-                    f.write(payload_bytes)
-                    f.flush()
-                    os.fsync(f.fileno())
+                    f.write(json.dumps(payload).encode("utf-8"))
             else:
                 with open(temp_path, "w") as f:
                     json.dump(payload, f)
-                    f.flush()
-                    os.fsync(f.fileno())
             temp_path.replace(path)
-        except Exception as e:
-            # Clean up temp file on error
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except:
-                    pass
-            raise e
         finally:
-            # Final cleanup in case temp file still exists
             if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except:
-                    pass
+                temp_path.unlink(missing_ok=True)
 
         
     def _create_post_request(
