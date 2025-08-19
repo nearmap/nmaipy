@@ -551,11 +551,15 @@ class FeatureApi:
         Write a payload to the cache. To make the write atomic, data is first written to a temp file and then renamed.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self.cache_dir / f"{str(uuid.uuid4())}.tmp"
+        # Generate temp file name based on whether we're compressing
+        temp_filename = f"{str(uuid.uuid4())}.tmp"
+        if self.compress_cache:
+            temp_filename = f"{temp_filename}.gz"
+        temp_path = self.cache_dir / temp_filename
+        
         try:
             if self.compress_cache:
-                temp_path = temp_path.parent / f"{temp_path.name}.gz"
-                with gzip.open(temp_path, "w") as f:
+                with gzip.open(temp_path, "wb") as f:
                     payload_bytes = json.dumps(payload).encode("utf-8")
                     f.write(payload_bytes)
                     f.flush()
@@ -566,9 +570,21 @@ class FeatureApi:
                     f.flush()
                     os.fsync(f.fileno())
             temp_path.replace(path)
-        finally:
+        except Exception as e:
+            # Clean up temp file on error
             if temp_path.exists():
-                temp_path.unlink()
+                try:
+                    temp_path.unlink()
+                except:
+                    pass
+            raise e
+        finally:
+            # Final cleanup in case temp file still exists
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except:
+                    pass
 
         
     def _create_post_request(
