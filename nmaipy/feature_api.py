@@ -975,6 +975,13 @@ class FeatureApi:
         param features_gdf: Output from FeatureAPI.payload_gdf
         :return:
         """
+        
+        # Handle empty or None input (when no features returned from any grid cell)
+        if features_gdf is None or len(features_gdf) == 0:
+            # Return empty GeoDataFrame with proper structure
+            empty_gdf = gpd.GeoDataFrame(columns=['geometry'], crs=API_CRS)
+            empty_gdf.index.name = AOI_ID_COLUMN_NAME
+            return empty_gdf
 
         # Columns that don't require aggregation.
         agg_cols_first = [
@@ -999,11 +1006,15 @@ class FeatureApi:
             "clipped_area_sqft",
         ]
 
+        # Filter columns to only those that exist
+        existing_agg_cols_first = [col for col in agg_cols_first if col in features_gdf.columns]
+        existing_agg_cols_sum = [col for col in agg_cols_sum if col in features_gdf.columns]
+        
         features_gdf_dissolved = (
             features_gdf.drop_duplicates(
                 ["feature_id", "geometry"]
             )  # First, drop duplicate geometries rather than dissolving them together.
-            .filter(agg_cols_first + ["geometry", "feature_id"], axis=1)
+            .filter(existing_agg_cols_first + ["geometry", "feature_id"], axis=1)
             .dissolve(
                 by="feature_id", aggfunc="first"
             )  # Then dissolve any remaining features that represent a single feature_id that has been split.
@@ -1012,9 +1023,9 @@ class FeatureApi:
         )
 
         features_gdf_summed = (
-            features_gdf.filter(agg_cols_sum + ["feature_id"], axis=1)
+            features_gdf.filter(existing_agg_cols_sum + ["feature_id"], axis=1)
             .groupby("feature_id")
-            .aggregate(dict([c, "sum"] for c in agg_cols_sum))
+            .aggregate(dict([c, "sum"] for c in existing_agg_cols_sum))
         )
 
         # final output - same format, same set of feature_ids, but fewer rows due to dedup and merging.
@@ -1024,7 +1035,7 @@ class FeatureApi:
         return features_gdf_out
 
     @classmethod
-    def payload_gdf(cls, payload: dict, aoi_id: Optional = None, parcel_mode: Optional[bool] = False) -> Tuple[gpd.GeoDataFrame, dict]:
+    def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None, parcel_mode: Optional[bool] = False) -> Tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a feature API response dictionary.
 
@@ -1687,12 +1698,14 @@ class FeatureApi:
                 self._thread_local.executor = None
                 self.cleanup()  # Clean up sessions after bulk operation
 
-        if len(data) > 0:
-            features_gdf = pd.concat([df for df in data if len(df) > 0])
+        non_empty_data = [df for df in data if len(df) > 0]
+        if len(non_empty_data) > 0:
+            features_gdf = pd.concat(non_empty_data)
             # Ensure we have a proper GeoDataFrame with geometry column and CRS
             features_gdf = gpd.GeoDataFrame(features_gdf, geometry='geometry', crs=API_CRS)
         else:
-            features_gdf = gpd.GeoDataFrame([], crs=API_CRS)
+            # Create empty GeoDataFrame with geometry column to avoid CRS assignment error
+            features_gdf = gpd.GeoDataFrame(columns=['geometry'], crs=API_CRS)
         if len(data) == 0:
             features_gdf.index.name = AOI_ID_COLUMN_NAME
         

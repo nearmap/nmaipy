@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": "test_aoi",
-"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
-"features": [
-{ "type": "Feature", "properties": { "aoi_id": "salt_lake_3d_test" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -111.8905, 40.761 ], [ -111.8903, 40.761 ], [ -111.8903, 40.7612 ], [ -111.8905, 40.7612 ], [ -111.8905, 40.761 ] ] ] } }
-]
-}

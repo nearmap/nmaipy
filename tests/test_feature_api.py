@@ -131,8 +131,40 @@ class TestFeatureAPI:
     def test_combine_features_gdf_from_grid(
         self,
     ):
-        pass
-        # TODO: Write a bunch of tests here for different nuanced scenarios.
+        """Test combine_features_gdf_from_grid with empty DataFrames (the bug we fixed) and normal operation."""
+        
+        # Test 1: Empty GeoDataFrame (the main bug we fixed)
+        empty_gdf = gpd.GeoDataFrame(columns=['geometry', 'feature_id'], crs=API_CRS)
+        result = FeatureApi.combine_features_gdf_from_grid(empty_gdf)
+        assert isinstance(result, gpd.GeoDataFrame)
+        assert len(result) == 0
+        assert result.crs == API_CRS
+        
+        # Test 2: None input
+        result = FeatureApi.combine_features_gdf_from_grid(None)
+        assert isinstance(result, gpd.GeoDataFrame)
+        assert len(result) == 0
+        assert result.crs == API_CRS
+        
+        # Test 3: Normal case with features to combine
+        from shapely.geometry import Polygon
+        test_features = gpd.GeoDataFrame({
+            'feature_id': [1, 1, 2],  # Two features with same ID should be combined
+            'geometry': [
+                Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+                Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
+                Polygon([(0, 1), (1, 1), (1, 2), (0, 2)])
+            ],
+            AOI_ID_COLUMN_NAME: ['aoi1', 'aoi1', 'aoi1'],
+            'class_id': [100, 100, 200],
+            'area_sqm': [1.0, 1.0, 1.0],
+            'confidence': [0.9, 0.9, 0.8]
+        }, crs=API_CRS)
+        
+        result = FeatureApi.combine_features_gdf_from_grid(test_features)
+        assert isinstance(result, gpd.GeoDataFrame)
+        assert len(result) == 2  # Should have 2 features after combining duplicates
+        assert result.crs == API_CRS
 
     def test_large_aoi(self, cache_directory: Path, large_adelaide_aoi: Polygon):
         survey_resource_id = "68c1c4e7-9267-52a5-84e7-23b6ed43bceb"  # 2025-03-06, Gen 6 run
