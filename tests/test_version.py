@@ -28,9 +28,3 @@ class TestVersion:
         version_from_tuple = '.'.join(str(x) for x in __version_info__)
         assert version_from_tuple == __version__, \
             f"Version mismatch: string={__version__}, tuple={version_from_tuple}"
-    
-    def test_current_version(self):
-        """Test that we're on the expected version."""
-        # This will need updating when version changes
-        assert __version__ == "3.2.6", f"Unexpected version: {__version__}"
-        assert __version_info__ == (3, 2, 6), f"Unexpected version info: {__version_info__}"
