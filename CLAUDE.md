@@ -114,61 +114,10 @@ Alternatively, the API key can be provided as a command-line argument:
 python nmaipy/exporter.py --api-key your_api_key_here [other arguments]
 ```
 
-## Publishing to PyPI
+## Version Management & Deployment
 
-When preparing a new release of nmaipy for PyPI:
-
-### 1. Pre-release Checklist
-- Update version in `nmaipy/__version__.py`
-- Ensure all tests pass: `pytest`
-- Update CHANGELOG if one exists
-- Commit all changes
-
-### 2. Build and Test
-```bash
-# Clean previous builds
-rm -rf dist/ build/ *.egg-info
-
-# Build source distribution and wheel
-python -m build
-
-# Verify the build
-twine check dist/*
-```
-
-### 3. Test on TestPyPI (Optional but Recommended)
-```bash
-# Upload to TestPyPI
-twine upload --repository testpypi dist/*
-
-# Test installation
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ nmaipy
-```
-
-### 4. Publish to PyPI
-```bash
-# Upload to production PyPI
-twine upload dist/*
-
-# Verify installation works
-pip install nmaipy
-python -c "import nmaipy; print(f'nmaipy {nmaipy.__version__} installed successfully')"
-```
-
-### 5. Post-release Tasks
-```bash
-# Tag the release
-git tag -a v<VERSION> -m "Release version <VERSION>"
-git push origin v<VERSION>
-
-# Create GitHub release with changelog
-# Update README if needed
-```
-
-### Required Tools
-```bash
-pip install build twine
-```
-
-### Authentication
-Configure `~/.pypirc` with PyPI API tokens (see PUBLISHING.md for details).
+See `VERSIONING.md` for instructions on:
+- Updating version numbers
+- Building and testing packages
+- Deploying to PyPI
+- Creating releases
