@@ -6,30 +6,14 @@ dependencies:
   # Python version
   - python>=3.11
   
-  # Core dependencies (matching setup.py)
-  - geopandas>=1.1.0
-  - numpy
-  - pandas
-  - psutil
-  - pyarrow
-  - pyproj
-  - python-dotenv
-  - requests
-  - rtree
-  - shapely
-  - stringcase
-  - tqdm
-  
-  # Development dependencies (optional)
+  # Development tools (not in pyproject.toml)
+  - ipykernel
+  - matplotlib
   - black
   - isort
   - pytest
   
-  # Notebook dependencies (optional)
-  - ipykernel
-  - matplotlib
-  
-  # Install nmaipy package in editable mode
+  # Install nmaipy and its dependencies from pyproject.toml
   - pip
   - pip:
-    - -e .
+    - -e .[dev,notebooks]

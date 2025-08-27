@@ -113,3 +113,11 @@ Alternatively, the API key can be provided as a command-line argument:
 ```bash
 python nmaipy/exporter.py --api-key your_api_key_here [other arguments]
 ```
+
+## Version Management & Deployment
+
+See `VERSIONING.md` for instructions on:
+- Updating version numbers
+- Building and testing packages
+- Deploying to PyPI
+- Creating releases

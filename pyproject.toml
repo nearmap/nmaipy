@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nmaipy"
+dynamic = ["version"]
+description = "Nearmap AI Python Library for extracting AI features from aerial imagery"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Nearmap AI Systems", email = "ai.systems@nearmap.com"}
+]
+maintainers = [
+    {name = "Nearmap AI Systems", email = "ai.systems@nearmap.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["nearmap", "ai", "geospatial", "gis", "aerial", "imagery", "buildings", "vegetation"]
+requires-python = ">=3.11"
+dependencies = [
+    "geopandas>=1.1.0",
+    "numpy",
+    "pandas",
+    "psutil",
+    "pyarrow",
+    "pyproj",
+    "python-dotenv",
+    "requests",
+    "rtree",
+    "shapely",
+    "stringcase",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "pytest",
+    "build",
+    "twine",
+]
+notebooks = [
+    "ipykernel",
+    "matplotlib",
+]
+
+[project.urls]
+Homepage = "https://github.com/nearmap/nmaipy"
+Documentation = "https://github.com/nearmap/nmaipy#readme"
+Repository = "https://github.com/nearmap/nmaipy.git"
+"Bug Tracker" = "https://github.com/nearmap/nmaipy/issues"
+
+[tool.setuptools]
+packages = ["nmaipy"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.setuptools.dynamic]
+version = {attr = "nmaipy.__version__.__version__"}
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 88
