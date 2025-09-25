@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -55,13 +56,38 @@ from nmaipy.constants import (
 )
 
 TIMEOUT_SECONDS = 120  # Max time to wait for a server response
-READ_TIMEOUT_SECONDS = 1200  # Max time to wait for reading server response (10 minutes)
+READ_TIMEOUT_SECONDS = 90  # Max time to wait for reading server response (90 seconds)
 CHUNKED_ENCODING_RETRY_DELAY = 1.0  # Delay between ChunkedEncodingError retries
 BACKOFF_FACTOR = 0.2  # Exponential backoff multiplier
 DUMMY_STATUS_CODE = -1
 
 
 logger = log.get_logger()
+
+
+class APIKeyFilter(logging.Filter):
+    """Logging filter to remove API keys from log messages for security."""
+
+    def filter(self, record):
+        # Clean API key from the message if present
+        if hasattr(record, 'getMessage'):
+            msg = record.getMessage()
+            # Pattern to match API key in URLs
+            msg = re.sub(r'apikey=[^&\s]+', 'apikey=REMOVED', msg)
+            # Pattern to match API key in various formats (be aggressive about cleaning)
+            msg = re.sub(r'(["\']?api[_-]?key["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+', r'\1REMOVED', msg, flags=re.IGNORECASE)
+            record.msg = msg
+            record.args = ()  # Clear args to prevent formatting issues
+        return True
+
+
+# Apply the filter to urllib3 logger to prevent API key leakage
+urllib3_logger = logging.getLogger('urllib3.connectionpool')
+urllib3_logger.addFilter(APIKeyFilter())
+
+# Also apply to requests logger for completeness
+requests_logger = logging.getLogger('requests')
+requests_logger.addFilter(APIKeyFilter())
 
 
 class RetryRequest(Retry):
@@ -400,9 +426,10 @@ class FeatureApi:
         )
         session.mount("https://", adapter)
 
-        # Set timeouts (connect timeout, read timeout)
-        session.timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
-        
+        # Store timeout for use in requests (connect timeout, read timeout)
+        # Note: session.timeout is not a real attribute - we need to pass timeout to each request
+        session._timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
+
         try:
             yield session
         finally:
@@ -422,7 +449,7 @@ class FeatureApi:
                 request_string += "&alpha=true"
             if self.beta:
                 request_string += "&beta=true"
-            response = session.get(request_string)
+            response = session.get(request_string, timeout=session._timeout)
             if not response.ok:
                 raise RuntimeError(f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n")
             return response, response.json()
@@ -505,6 +532,50 @@ class FeatureApi:
         Remove the API key from a request string.
         """
         return request_string.replace(self.api_key, "APIKEYREMOVED")
+
+    def _generate_curl_command(self, url: str, body: dict = None, method: str = "POST") -> str:
+        """
+        Generate a curl command for debugging failed requests.
+        Provides all information needed to reproduce the request from command line.
+
+        Args:
+            url: The request URL (with API key already in query params)
+            body: The JSON body for POST requests
+            method: HTTP method (POST or GET)
+
+        Returns:
+            A curl command string with API key sanitized
+        """
+        # Clean the API key from the URL
+        clean_url = self._clean_api_key(url)
+
+        if method == "POST" and body:
+            # Format the JSON body nicely
+            json_body = json.dumps(body, indent=2)
+
+            # Build the curl command
+            curl_cmd = f"""curl -X POST '{clean_url}' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Accept: application/json' \\
+  --max-time {READ_TIMEOUT_SECONDS} \\
+  --data '{json_body}'
+
+# To use this command:
+# 1. Replace 'APIKEYREMOVED' with your actual API key
+# 2. Save the geometry to a file if it's too large for command line
+# 3. Use --data @filename.json for large payloads
+# 4. Add -v for verbose output to debug connection issues"""
+        else:
+            # GET request
+            curl_cmd = f"""curl -X GET '{clean_url}' \\
+  -H 'Accept: application/json' \\
+  --max-time {READ_TIMEOUT_SECONDS}
+
+# To use this command:
+# 1. Replace 'APIKEYREMOVED' with your actual API key
+# 2. Add -v for verbose output to debug connection issues"""
+
+        return curl_cmd
 
     def _request_cache_path(self, request_string: str) -> Path:
         """
@@ -834,9 +905,25 @@ class FeatureApi:
             for retry_attempt in range(MAX_RETRIES):
                 try:
                     headers = {'Content-Type': 'application/json'}
-                    response = session.post(url, json=body, headers=headers)
+                    response = session.post(url, json=body, headers=headers, timeout=session._timeout)
                     request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
                     break  # Success, exit retry loop
+                except requests.exceptions.ReadTimeout as e:
+                    # Treat read timeout exactly like a 504 Gateway Timeout from the server
+                    # This will trigger gridding for large requests that timeout
+                    logger.debug(f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504")
+
+                    # Create a mock 504 response object
+                    class TimeoutAs504Response:
+                        status_code = HTTPStatus.GATEWAY_TIMEOUT  # 504
+                        text = f"Client-side read timeout after {READ_TIMEOUT_SECONDS} seconds - treating as 504"
+                        ok = False
+                        def json(self):
+                            return {"error": "Read timeout treated as gateway timeout", "code": "READ_TIMEOUT_AS_504"}
+
+                    response = TimeoutAs504Response()
+                    request_info = f"{url} (timed out after {READ_TIMEOUT_SECONDS}s)"
+                    break  # Exit retry loop and handle as 504 below
                 except requests.exceptions.ChunkedEncodingError as e:
                     if retry_attempt < MAX_RETRIES - 1:
                         # Log debug message for retry attempts
@@ -1430,17 +1517,20 @@ class FeatureApi:
                 f"Retry Exception - gave up retrying on aoi_id: {aoi_id} near {geometry.representative_point()}. Status code: {status_code}"
             )
             if logger.level == logging.DEBUG:
-                request_string = self._create_post_request(
+                # Generate debug information including curl command
+                url, body, _ = self._create_post_request(
                     base_url=self.FEATURES_URL,
                     geometry=geometry,
                     packs=packs,
                     classes=classes,
+                    include=include,
                     since=since,
                     until=until,
-                    address_fields=address_fields,
                     survey_resource_id=survey_resource_id,
-                )[0]
-                logger.debug(f"Probable original request string was: {self._clean_api_key(request_string)}")
+                )
+                logger.debug(f"Failed request URL: {self._clean_api_key(url)}")
+                logger.debug("To reproduce this request, use the following curl command:")
+                logger.debug(self._generate_curl_command(url, body, method="POST"))
             features_gdf = None
             metadata = None
             error = {
@@ -1452,6 +1542,21 @@ class FeatureApi:
             }
         except requests.exceptions.Timeout as e:
             logger.warning(f"Timeout Exception on aoi_id: {aoi_id} near {geometry.representative_point()}")
+            if logger.level == logging.DEBUG and geometry is not None:
+                # Generate debug information including curl command
+                url, body, _ = self._create_post_request(
+                    base_url=self.FEATURES_URL,
+                    geometry=geometry,
+                    packs=packs,
+                    classes=classes,
+                    include=include,
+                    since=since,
+                    until=until,
+                    survey_resource_id=survey_resource_id,
+                )
+                logger.debug(f"Timeout on request URL: {self._clean_api_key(url)}")
+                logger.debug("To reproduce this request, use the following curl command:")
+                logger.debug(self._generate_curl_command(url, body, method="POST"))
             features_gdf = None
             metadata = None
             error = {
