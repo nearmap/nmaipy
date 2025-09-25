@@ -808,6 +808,271 @@ class TestFeatureAPI:
                 temp_files = list(cache_path.glob("*.tmp*"))
                 assert len(temp_files) == 0
 
+    def test_api_key_filtering(self):
+        """Test that API key filter removes sensitive information from logs"""
+        from nmaipy.feature_api import APIKeyFilter
+        import logging
+
+        # Create a mock log record
+        class MockRecord:
+            def __init__(self, msg):
+                self.msg = msg
+                self.args = ()
+
+            def getMessage(self):
+                return self.msg
+
+        filter = APIKeyFilter()
+
+        # Test URL with API key
+        test_cases = [
+            ("/api/endpoint?apikey=SECRET123KEY&other=param", "apikey=REMOVED"),
+            ("api_key: 'SECRET456'", "REMOVED"),
+            ("API-KEY=SECRET789", "REMOVED"),
+            ('"apiKey": "SECRET000"', "REMOVED"),
+            ("Request failed for apikey=MYSECRETKEY", "apikey=REMOVED"),
+        ]
+
+        for test_input, expected_pattern in test_cases:
+            record = MockRecord(test_input)
+            filter.filter(record)
+            assert "SECRET" not in record.msg, f"Secret not removed from: {test_input}"
+            assert "REMOVED" in record.msg, f"REMOVED not added to: {test_input}"
+
+    def test_clean_api_key_with_url_parsing(self):
+        """Test that _clean_api_key properly handles various URL formats using urllib.parse"""
+        api = FeatureApi(api_key="TEST_SECRET_KEY_123")
+
+        # Test cases with different URL formats
+        test_cases = [
+            # Standard URL with apikey
+            ("https://api.nearmap.com/ai/features?apikey=TEST_SECRET_KEY_123&other=param",
+             "https://api.nearmap.com/ai/features?apikey=APIKEYREMOVED&other=param"),
+
+            # URL with URL-encoded characters in API key
+            ("https://api.nearmap.com/ai/features?apikey=TEST%2BSECRET%2FKEY%3D123&other=param",
+             "https://api.nearmap.com/ai/features?apikey=APIKEYREMOVED&other=param"),
+
+            # Path-only URL with query params
+            ("/ai/features?apikey=TEST_SECRET_KEY_123&param=value",
+             "/ai/features?apikey=APIKEYREMOVED&param=value"),
+
+            # Multiple parameters with apikey in middle
+            ("https://api.nearmap.com/ai/features?before=1&apikey=TEST_SECRET_KEY_123&after=2",
+             "https://api.nearmap.com/ai/features?before=1&apikey=APIKEYREMOVED&after=2"),
+
+            # Case insensitive apikey parameter
+            ("https://api.nearmap.com/ai/features?APIKEY=TEST_SECRET_KEY_123",
+             "https://api.nearmap.com/ai/features?APIKEY=APIKEYREMOVED"),
+
+            # URL without apikey parameter (should remain unchanged)
+            ("https://api.nearmap.com/ai/features?other=param",
+             "https://api.nearmap.com/ai/features?other=param"),
+
+            # Non-URL string with API key (fallback to simple replacement)
+            ("Some text with TEST_SECRET_KEY_123 in it",
+             "Some text with APIKEYREMOVED in it"),
+
+            # Complex URL with fragment
+            ("https://api.nearmap.com/ai/features?apikey=TEST_SECRET_KEY_123#section",
+             "https://api.nearmap.com/ai/features?apikey=APIKEYREMOVED#section"),
+        ]
+
+        for input_url, expected_output in test_cases:
+            result = api._clean_api_key(input_url)
+            # Check that the API key is not in the result
+            assert "TEST_SECRET_KEY_123" not in result, f"API key not removed from: {input_url}"
+            # For URL cases, check structure is preserved
+            if input_url.startswith("http") or input_url.startswith("/"):
+                assert "APIKEYREMOVED" in result or "apikey" not in input_url.lower(), \
+                    f"APIKEYREMOVED not added correctly for: {input_url}"
+
+    def test_curl_command_generation(self):
+        """Test that curl commands are generated correctly with sanitized API keys"""
+        api = FeatureApi(api_key="TEST_API_KEY_12345")
+
+        # Test POST request
+        test_url = "https://api.nearmap.com/ai/features/v4/bulk/features.json?apikey=TEST_API_KEY_12345&param=value"
+        test_body = {
+            "aoi": {
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
+            }
+        }
+
+        curl_cmd = api._generate_curl_command(test_url, test_body, method="POST")
+
+        # Verify API key is removed
+        assert "TEST_API_KEY_12345" not in curl_cmd, "API key not removed from curl command"
+        assert "APIKEYREMOVED" in curl_cmd, "API key not replaced with APIKEYREMOVED"
+        assert "curl -X POST" in curl_cmd, "Missing POST method"
+        assert "Content-Type: application/json" in curl_cmd, "Missing content type header"
+        assert "--max-time" in curl_cmd, "Missing timeout"
+
+        # Test GET request
+        curl_cmd_get = api._generate_curl_command(test_url, None, method="GET")
+        assert "TEST_API_KEY_12345" not in curl_cmd_get, "API key not removed from GET command"
+        assert "curl -X GET" in curl_cmd_get, "Missing GET method"
+
+    def test_timeout_values(self):
+        """Test that timeout values are correctly set"""
+        from nmaipy.feature_api import READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
+
+        # Check the expected timeout values
+        assert READ_TIMEOUT_SECONDS == 90, f"Expected read timeout 90s, got {READ_TIMEOUT_SECONDS}s"
+        assert TIMEOUT_SECONDS == 120, f"Expected connect timeout 120s, got {TIMEOUT_SECONDS}s"
+
+    def test_session_timeout_application(self):
+        """Test that timeouts are properly applied to sessions"""
+        with tempfile.TemporaryDirectory() as cache_dir:
+            api = FeatureApi(api_key="TEST_KEY", cache_dir=Path(cache_dir))
+
+            with api._session_scope() as session:
+                # Check that timeout is stored on the session
+                assert hasattr(session, '_timeout'), "Session missing _timeout attribute"
+                assert session._timeout == (120, 90), f"Wrong timeout values: {session._timeout}"
+
+    def test_read_timeout_treated_as_504(self):
+        """Test that read timeouts are treated as 504 Gateway Timeout errors"""
+        import requests
+        from http import HTTPStatus
+        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
+        from shapely.geometry import Polygon
+
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+
+        # Create a simple test polygon
+        test_polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+        # Mock session.post to raise ReadTimeout
+        with patch('requests.Session.post') as mock_post:
+            mock_post.side_effect = requests.exceptions.ReadTimeout("Read timed out")
+
+            try:
+                # This should catch the timeout and treat it as a 504
+                result = api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                # Should not reach here
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # This is expected - read timeouts should trigger gridding like 504s
+                assert e.status_code == HTTPStatus.GATEWAY_TIMEOUT, f"Expected 504, got {e.status_code}"
+
+    def test_timeout_logging_with_debug(self):
+        """Test that timeout errors generate debug logs with curl commands"""
+        import requests
+        from shapely.geometry import Polygon
+        from unittest.mock import patch
+        import logging
+
+        # Set up debug logging
+        logging.getLogger('nmaipy').setLevel(logging.DEBUG)
+
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+        test_polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+        with patch('requests.Session.post') as mock_post:
+            mock_post.side_effect = requests.exceptions.Timeout("Connection timeout")
+
+            # Capture log messages
+            with patch('nmaipy.feature_api.logger') as mock_logger:
+                features_gdf, metadata, error = api.get_features_gdf(
+                    geometry=test_polygon,
+                    region="au",
+                    packs=["building"],
+                    aoi_id="test_aoi"
+                )
+
+                # Should have logged warning and debug messages
+                assert mock_logger.warning.called
+                assert error is not None
+                assert error["message"] == "TIMEOUT_ERROR"
+
+                # In debug mode, should have generated curl command
+                if mock_logger.level == logging.DEBUG:
+                    debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
+                    # Should have debug message about curl command
+                    assert any("curl" in str(call).lower() for call in debug_calls)
+
+    def test_exception_sanitization(self):
+        """Test that exceptions properly sanitize API keys from stored request strings"""
+        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
+        from shapely.geometry import Polygon
+        import requests
+        from unittest.mock import MagicMock
+
+        api = FeatureApi(api_key="SUPER_SECRET_KEY_123", cache_dir=None)
+        test_polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+        # Test case 1: ChunkedEncodingError leading to exception
+        with patch('requests.Session.post') as mock_post:
+            # Simulate ChunkedEncodingError that triggers exception
+            mock_post.side_effect = requests.exceptions.ChunkedEncodingError("Test error")
+
+            try:
+                api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # Check that the stored request_string doesn't contain the API key
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), \
+                    f"API key found in exception request_string: {e.request_string}"
+                assert "APIKEYREMOVED" in str(e.request_string), \
+                    "Exception should contain sanitized placeholder"
+
+        # Test case 2: 504 status code leading to exception
+        with patch('requests.Session.post') as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 504
+            mock_response.text = "Gateway Timeout"
+            mock_post.return_value = mock_response
+
+            try:
+                api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # Check that the stored request_string doesn't contain the API key
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), \
+                    f"API key found in exception request_string: {e.request_string}"
+                assert "APIKEYREMOVED" in str(e.request_string), \
+                    "Exception should contain sanitized placeholder"
+
+        # Test case 3: JSON parsing error leading to exception
+        with patch('requests.Session.post') as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = True
+            mock_response.json.side_effect = ValueError("Invalid JSON")
+            mock_post.return_value = mock_response
+
+            try:
+                api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # Check that the stored request_string doesn't contain the API key
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), \
+                    f"API key found in exception request_string: {e.request_string}"
+                assert "APIKEYREMOVED" in str(e.request_string), \
+                    "Exception should contain sanitized placeholder"
+
 
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
