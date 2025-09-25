@@ -950,6 +950,81 @@ class TestFeatureAPI:
                     # Should have debug message about curl command
                     assert any("curl" in str(call).lower() for call in debug_calls)
 
+    def test_exception_sanitization(self):
+        """Test that exceptions properly sanitize API keys from stored request strings"""
+        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
+        from shapely.geometry import Polygon
+        import requests
+        from unittest.mock import MagicMock
+
+        api = FeatureApi(api_key="SUPER_SECRET_KEY_123", cache_dir=None)
+        test_polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+        # Test case 1: ChunkedEncodingError leading to exception
+        with patch('requests.Session.post') as mock_post:
+            # Simulate ChunkedEncodingError that triggers exception
+            mock_post.side_effect = requests.exceptions.ChunkedEncodingError("Test error")
+
+            try:
+                api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # Check that the stored request_string doesn't contain the API key
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), \
+                    f"API key found in exception request_string: {e.request_string}"
+                assert "APIKEYREMOVED" in str(e.request_string), \
+                    "Exception should contain sanitized placeholder"
+
+        # Test case 2: 504 status code leading to exception
+        with patch('requests.Session.post') as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 504
+            mock_response.text = "Gateway Timeout"
+            mock_post.return_value = mock_response
+
+            try:
+                api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # Check that the stored request_string doesn't contain the API key
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), \
+                    f"API key found in exception request_string: {e.request_string}"
+                assert "APIKEYREMOVED" in str(e.request_string), \
+                    "Exception should contain sanitized placeholder"
+
+        # Test case 3: JSON parsing error leading to exception
+        with patch('requests.Session.post') as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = True
+            mock_response.json.side_effect = ValueError("Invalid JSON")
+            mock_post.return_value = mock_response
+
+            try:
+                api._get_results(
+                    geometry=test_polygon,
+                    region="au",
+                    result_type="features",
+                    in_gridding_mode=False
+                )
+                assert False, "Should have raised AIFeatureAPIRequestSizeError"
+            except AIFeatureAPIRequestSizeError as e:
+                # Check that the stored request_string doesn't contain the API key
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), \
+                    f"API key found in exception request_string: {e.request_string}"
+                assert "APIKEYREMOVED" in str(e.request_string), \
+                    "Exception should contain sanitized placeholder"
+
 
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)

@@ -89,6 +89,10 @@ urllib3_logger.addFilter(APIKeyFilter())
 requests_logger = logging.getLogger('requests')
 requests_logger.addFilter(APIKeyFilter())
 
+# Also apply to nmaipy logger for defense in depth
+nmaipy_logger = logging.getLogger('nmaipy')
+nmaipy_logger.addFilter(APIKeyFilter())
+
 
 class RetryRequest(Retry):
     """
@@ -933,7 +937,7 @@ class FeatureApi:
                     else:
                         # Exhausted all retries, log error and fall back to size error
                         logger.error(f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}")
-                        raise AIFeatureAPIRequestSizeError(None, url)
+                        raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
@@ -947,7 +951,7 @@ class FeatureApi:
                     except Exception as e:
                         # Treat JSON parsing errors as size errors to trigger gridding
                         logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")
-                        raise AIFeatureAPIRequestSizeError(response, url)
+                        raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
 
                 # Save to cache if configured
                 if self.cache_dir is not None:
@@ -972,14 +976,14 @@ class FeatureApi:
 
                 if status_code in AIFeatureAPIRequestSizeError.status_codes:
                     logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
-                    raise AIFeatureAPIRequestSizeError(response, request_info)
+                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
                 elif status_code == HTTPStatus.BAD_REQUEST:
                     try:
                         error_data = json.loads(text)
                         error_code = error_data.get("code", "")
                         if error_code in AIFeatureAPIRequestSizeError.codes:
                             logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
-                            raise AIFeatureAPIRequestSizeError(response, request_info)
+                            raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
                     except (json.JSONDecodeError, KeyError):
                         pass
 
