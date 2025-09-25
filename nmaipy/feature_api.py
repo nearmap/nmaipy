@@ -24,6 +24,7 @@ import stringcase
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from urllib3.util.retry import Retry
 import urllib3  # Add this with other imports
 import ssl  # Add this with other imports
@@ -533,9 +534,51 @@ class FeatureApi:
 
     def _clean_api_key(self, request_string: str) -> str:
         """
-        Remove the API key from a request string.
+        Remove the API key from a request string using proper URL parsing.
+        This ensures URL-encoded API keys are also properly redacted.
         """
-        return request_string.replace(self.api_key, "APIKEYREMOVED")
+        result = request_string
+
+        # First, try to parse as URL and clean any apikey parameters
+        try:
+            parsed = urlparse(request_string)
+
+            # If we have query parameters, clean them
+            if parsed.query or '?' in request_string:
+                # Handle case where there's no scheme (e.g., "/path?query")
+                if not parsed.scheme and '?' in request_string:
+                    path_part, query_part = request_string.split('?', 1)
+                    query_params = parse_qsl(query_part, keep_blank_values=True)
+                else:
+                    query_params = parse_qsl(parsed.query, keep_blank_values=True)
+
+                # Replace any apikey parameter value
+                cleaned_params = [
+                    ('apikey', 'APIKEYREMOVED') if k.lower() == 'apikey' else (k, v)
+                    for k, v in query_params
+                ]
+
+                # Reconstruct the URL
+                if not parsed.scheme and '?' in request_string:
+                    result = f"{path_part}?{urlencode(cleaned_params)}"
+                else:
+                    result = urlunparse((
+                        parsed.scheme,
+                        parsed.netloc,
+                        parsed.path,
+                        parsed.params,
+                        urlencode(cleaned_params),
+                        parsed.fragment
+                    ))
+        except:
+            pass  # If URL parsing fails, continue with simple replacement
+
+        # Always do simple replacement as a catch-all
+        # This handles API keys in non-URL contexts or different formats
+        if hasattr(self, 'api_key') and self.api_key:
+            result = result.replace(self.api_key, "APIKEYREMOVED")
+
+        return result
 
     def _generate_curl_command(self, url: str, body: dict = None, method: str = "POST") -> str:
         """

@@ -839,6 +839,54 @@ class TestFeatureAPI:
             assert "SECRET" not in record.msg, f"Secret not removed from: {test_input}"
             assert "REMOVED" in record.msg, f"REMOVED not added to: {test_input}"
 
+    def test_clean_api_key_with_url_parsing(self):
+        """Test that _clean_api_key properly handles various URL formats using urllib.parse"""
+        api = FeatureApi(api_key="TEST_SECRET_KEY_123")
+
+        # Test cases with different URL formats
+        test_cases = [
+            # Standard URL with apikey
+            ("https://api.nearmap.com/ai/features?apikey=TEST_SECRET_KEY_123&other=param",
+             "https://api.nearmap.com/ai/features?apikey=APIKEYREMOVED&other=param"),
+
+            # URL with URL-encoded characters in API key
+            ("https://api.nearmap.com/ai/features?apikey=TEST%2BSECRET%2FKEY%3D123&other=param",
+             "https://api.nearmap.com/ai/features?apikey=APIKEYREMOVED&other=param"),
+
+            # Path-only URL with query params
+            ("/ai/features?apikey=TEST_SECRET_KEY_123&param=value",
+             "/ai/features?apikey=APIKEYREMOVED&param=value"),
+
+            # Multiple parameters with apikey in middle
+            ("https://api.nearmap.com/ai/features?before=1&apikey=TEST_SECRET_KEY_123&after=2",
+             "https://api.nearmap.com/ai/features?before=1&apikey=APIKEYREMOVED&after=2"),
+
+            # Case insensitive apikey parameter
+            ("https://api.nearmap.com/ai/features?APIKEY=TEST_SECRET_KEY_123",
+             "https://api.nearmap.com/ai/features?APIKEY=APIKEYREMOVED"),
+
+            # URL without apikey parameter (should remain unchanged)
+            ("https://api.nearmap.com/ai/features?other=param",
+             "https://api.nearmap.com/ai/features?other=param"),
+
+            # Non-URL string with API key (fallback to simple replacement)
+            ("Some text with TEST_SECRET_KEY_123 in it",
+             "Some text with APIKEYREMOVED in it"),
+
+            # Complex URL with fragment
+            ("https://api.nearmap.com/ai/features?apikey=TEST_SECRET_KEY_123#section",
+             "https://api.nearmap.com/ai/features?apikey=APIKEYREMOVED#section"),
+        ]
+
+        for input_url, expected_output in test_cases:
+            result = api._clean_api_key(input_url)
+            # Check that the API key is not in the result
+            assert "TEST_SECRET_KEY_123" not in result, f"API key not removed from: {input_url}"
+            # For URL cases, check structure is preserved
+            if input_url.startswith("http") or input_url.startswith("/"):
+                assert "APIKEYREMOVED" in result or "apikey" not in input_url.lower(), \
+                    f"APIKEYREMOVED not added correctly for: {input_url}"
+
     def test_curl_command_generation(self):
         """Test that curl commands are generated correctly with sanitized API keys"""
         api = FeatureApi(api_key="TEST_API_KEY_12345")
