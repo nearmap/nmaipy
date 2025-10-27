@@ -203,6 +203,34 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                 flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
             # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
 
+        # Handle defensibleSpace - check both camelCase and snake_case versions
+        defensible_space_data = roof.get("defensibleSpace") or roof.get("defensible_space")
+        if defensible_space_data and isinstance(defensible_space_data, dict):
+            zones = defensible_space_data.get("zones", [])
+            for zone in zones:
+                zone_id = zone.get("zoneId")
+                if zone_id:
+                    # Flatten key metrics for each zone
+                    prefix = f"defensible_space_zone_{zone_id}"
+                    if country in IMPERIAL_COUNTRIES:
+                        if "zoneAreaSqft" in zone:
+                            flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+                        if "defensibleSpaceAreaSqft" in zone:
+                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+                        if "totalRiskObjectAreaSqft" in zone:
+                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+                    else:
+                        if "zoneAreaSqm" in zone:
+                            flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+                        if "defensibleSpaceAreaSqm" in zone:
+                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+                        if "totalRiskObjectAreaSqm" in zone:
+                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+
+                    if "defensibleSpaceCoverageRatio" in zone:
+                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                    # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
+
         for attribute in roof["attributes"]:
             if "components" in attribute:
                 for component in attribute["components"]:
