@@ -361,6 +361,11 @@ def parse_arguments():
         required=False,
     )
     parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
+    parser.add_argument(
+        "--enable-slow-request-log",
+        help="Enable logging of slow/failed API requests to output_dir/final/slow_api_requests.txt",
+        action="store_true",
+    )
     return parser.parse_args()
 
 
@@ -425,7 +430,8 @@ class AOIExporter:
         parcel_mode=True,  # Add parcel mode parameter with default True
         rapid=False,
         order=None,
-        exclude_tiles_with_occlusion=False
+        exclude_tiles_with_occlusion=False,
+        enable_slow_request_log=False
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -465,6 +471,12 @@ class AOIExporter:
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
 
+        # Configure slow request logging - save to final directory if enabled
+        if enable_slow_request_log:
+            self.slow_request_log = Path(self.output_dir) / "final" / "slow_api_requests.txt"
+        else:
+            self.slow_request_log = None
+
         # Configure logger
         log.configure_logger(self.log_level)
         self.logger = log.get_logger()
@@ -475,28 +487,81 @@ class AOIExporter:
             return self.api_key_param
         return os.getenv("API_KEY")
 
+    def _unify_schemas(self, schemas: List) -> 'pa.Schema':
+        """
+        Unify multiple PyArrow schemas by merging all fields.
+        Handles nested struct differences like damage.skipped.
+        """
+        import pyarrow as pa
+
+        if not schemas:
+            return None
+        if len(schemas) == 1:
+            return schemas[0]
+
+        # Use PyArrow's unify_schemas which handles nested structs
+        try:
+            return pa.unify_schemas(schemas)
+        except Exception as e:
+            self.logger.error(f"Failed to unify schemas: {e}")
+            # Fall back to first schema
+            return schemas[0]
+
     def _stream_and_convert_features(self, feature_paths: List[Path], outpath_features: Path) -> Optional[gpd.GeoDataFrame]:
         """
         Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
-        
+
+        Uses a two-pass approach:
+        1. First pass: Scan all chunk schemas to create a unified schema
+        2. Second pass: Write chunks using the unified schema
+
         Args:
             feature_paths: List of paths to feature chunk parquet files
             outpath_features: Output path for final geoparquet file
-            
+
         Returns:
             None since we don't need the GeoDataFrame in memory
         """
         import pyarrow as pa
         import pyarrow.parquet as pq
         import json
-        
+
+        # FIRST PASS: Scan all schemas to create unified schema
+        self.logger.info("Pass 1/2: Scanning chunk schemas to create unified schema...")
+        schemas = []
+        reference_columns = None
+
+        for cp in tqdm(feature_paths, desc="Scanning schemas", file=sys.stdout, position=0, leave=True):
+            try:
+                df_chunk = gpd.read_parquet(cp)
+                if len(df_chunk) > 0:
+                    if reference_columns is None:
+                        reference_columns = df_chunk.columns
+
+                    # Convert to pyarrow to get schema
+                    geom_col = df_chunk.geometry.to_wkb()
+                    df_chunk = pd.DataFrame(df_chunk)
+                    df_chunk['geometry'] = geom_col
+                    table = pa.Table.from_pandas(df_chunk, preserve_index=True)
+                    schemas.append(table.schema)
+            except Exception as e:
+                self.logger.error(f"Failed to read schema from {cp}: {e}")
+                continue
+
+        if not schemas:
+            self.logger.warning("No valid schemas found in chunks")
+            return None
+
+        # Unify all schemas
+        unified_schema = self._unify_schemas(schemas)
+        self.logger.info(f"Unified schema created with {len(unified_schema)} fields")
+
+        # SECOND PASS: Write chunks using unified schema
+        self.logger.info("Pass 2/2: Writing chunks with unified schema...")
         pqwriter = None
-        reference_columns = None  # Store column order from first chunk
-        reference_schema = None   # Store PyArrow schema from first chunk
-        
-        # Stream chunks directly to geoparquet
-        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout, position=0, leave=True)):
+
+        for i, cp in enumerate(tqdm(feature_paths, desc="Writing chunks", file=sys.stdout, position=0, leave=True)):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
@@ -504,41 +569,44 @@ class AOIExporter:
                 continue
                 
             if len(df_feature_chunk) > 0:
-                # Store CRS and column schema from first chunk
-                if reference_columns is None:
-                    reference_columns = df_feature_chunk.columns
+                # Ensure column order matches reference
+                df_feature_chunk = df_feature_chunk[reference_columns]
 
-                # Validate and reorder columns for subsequent chunks
-                current_columns = list(df_feature_chunk.columns)
-                missing_cols = set(reference_columns) - set(current_columns)
-                extra_cols = set(current_columns) - set(reference_columns)
-                if missing_cols or extra_cols:
-                    self.logger.warning(f"Chunk {i} schema mismatch detected:")
-                    if missing_cols:
-                        self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
-                        # Add missing columns with null values
-                        for col in missing_cols:
-                            df_feature_chunk[col] = None
-                    if extra_cols:
-                        self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
-                
-                # Ensure column order matches reference for all chunks
-                if list(current_columns) != list(reference_columns):
-                    self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
-                    df_feature_chunk = df_feature_chunk[reference_columns]
-                
+                # Handle nested struct schema differences (e.g., damage.skipped field)
+                # We need to add missing nested fields at the pandas level before converting to PyArrow
+                if 'damage' in df_feature_chunk.columns:
+                    def ensure_damage_schema(damage_val):
+                        """Ensure damage dict has all expected fields"""
+                        if damage_val is None or pd.isna(damage_val):
+                            return damage_val
+                        if isinstance(damage_val, dict):
+                            # Add 'skipped' field if missing (use False as default to get bool type, not null type)
+                            if 'skipped' not in damage_val:
+                                damage_val['skipped'] = False
+                        return damage_val
+
+                    df_feature_chunk['damage'] = df_feature_chunk['damage'].apply(ensure_damage_schema)
+
                 # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
                 geom_col = df_feature_chunk.geometry.to_wkb()
                 df_feature_chunk = pd.DataFrame(df_feature_chunk)
                 df_feature_chunk['geometry'] = geom_col
 
-                # Convert to pyarrow table and stream
+                # Convert to pyarrow table
                 table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
-                
+
+                # Cast to unified schema with safe=False to allow null->bool coercion
+                try:
+                    table = table.cast(unified_schema, safe=False)
+                except Exception as e:
+                    self.logger.error(f"Chunk {i}: Failed to cast to unified schema")
+                    self.logger.error(f"Error: {e}")
+                    self.logger.error(f"Table schema: {table.schema}")
+                    self.logger.error(f"Unified schema: {unified_schema}")
+                    raise
+
                 if pqwriter is None:
-                    reference_schema = table.schema
-                    
-                    # Create geoparquet metadata from the start
+                    # Create geoparquet metadata
                     geo_metadata = {
                         "version": "1.0.0",
                         "primary_column": "geometry",
@@ -553,23 +621,14 @@ class AOIExporter:
                             }
                         }
                     }
-                    
-                    # Add geoparquet metadata to schema
-                    schema_with_geo = reference_schema.with_metadata({
+
+                    # Add geoparquet metadata to unified schema
+                    schema_with_geo = unified_schema.with_metadata({
                         b'geo': json.dumps(geo_metadata).encode('utf-8')
                     })
-                    
+
                     pqwriter = pq.ParquetWriter(outpath_features, schema_with_geo)
-                else:
-                    # Cast to reference schema if needed
-                    if table.schema != reference_schema:
-                        try:
-                            table = table.cast(reference_schema)
-                        except Exception as e:
-                            self.logger.error(f"Chunk {i}: Schema casting failed.")
-                            self.logger.error(f"Error: {e}")
-                            self.logger.error(f"Reference schema: {reference_schema}")
-                            self.logger.error(f"Current schema: {table.schema}")
+
                 pqwriter.write_table(table)
         
         # Close the writer
@@ -655,6 +714,7 @@ class AOIExporter:
                 aoi_grid_min_pct=self.aoi_grid_min_pct,
                 aoi_grid_inexact=self.aoi_grid_inexact,
                 parcel_mode=self.parcel_mode,
+                slow_request_log=self.slow_request_log,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(aoi_gdf)} AOIs ({self.endpoint=})")
@@ -966,7 +1026,8 @@ class AOIExporter:
                 beta=self.beta,
                 prerelease=self.prerelease,
                 only3d=self.only3d,
-                parcel_mode=self.parcel_mode
+                parcel_mode=self.parcel_mode,
+                slow_request_log=self.slow_request_log,
             )
         try:
             if self.packs is not None:
@@ -1340,7 +1401,8 @@ def main():
         parcel_mode=not args.no_parcel_mode,  # Default to True unless --no-parcel-mode is set
         rapid=args.rapid,
         order=args.order,
-        exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion
+        exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
+        enable_slow_request_log=args.enable_slow_request_log
     )
     exporter.run()
 

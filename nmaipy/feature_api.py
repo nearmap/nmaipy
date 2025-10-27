@@ -61,6 +61,7 @@ READ_TIMEOUT_SECONDS = 90  # Max time to wait for reading server response (90 se
 CHUNKED_ENCODING_RETRY_DELAY = 1.0  # Delay between ChunkedEncodingError retries
 BACKOFF_FACTOR = 0.2  # Exponential backoff multiplier
 DUMMY_STATUS_CODE = -1
+SLOW_REQUEST_THRESHOLD_MS = 60000  # Log requests that take longer than 60 seconds (60000ms)
 
 
 logger = log.get_logger()
@@ -296,6 +297,7 @@ class FeatureApi:
         rapid: Optional[bool] = False,
         order: Optional[str] = None,
         exclude_tiles_with_occlusion: Optional[bool] = False,
+        slow_request_log: Optional[Path] = None,
     ):
         """
         Initialize FeatureApi class
@@ -320,6 +322,7 @@ class FeatureApi:
             rapid: When True, rapid survey resources will be considered (for damage classification)
             order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
+            slow_request_log: Path to file where slow/failed requests will be logged as curl commands (default: None, no logging)
         """
         # Initialize thread-safety attributes first
         self._sessions = []
@@ -370,7 +373,8 @@ class FeatureApi:
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
-        
+        self.slow_request_log = slow_request_log
+
         # Semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened when many large AOIs grid simultaneously
         # 1/5th prevents file handle exhaustion while still allowing parallelism
@@ -984,6 +988,39 @@ class FeatureApi:
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             logger.debug(f"{response_time_ms:.1f}ms response time")
+
+            # Log slow or failed requests if logging is enabled
+            if self.slow_request_log is not None:
+                is_slow = response_time_ms > SLOW_REQUEST_THRESHOLD_MS
+                # Only log actual failures (5xx server errors), not 404s which are expected when there's no coverage
+                is_failed = not response.ok and response.status_code >= 500
+
+                if is_slow or is_failed:
+                    try:
+                        # Generate curl command for debugging
+                        curl_cmd = self._generate_curl_command(url, body, method="POST")
+
+                        # Create a log entry with metadata
+                        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                        log_entry = f"\n{'='*80}\n"
+                        log_entry += f"Timestamp: {timestamp}\n"
+                        log_entry += f"Response Time: {response_time_ms:.1f}ms\n"
+                        log_entry += f"Status: {'FAILED' if is_failed else 'SLOW'} "
+                        if is_failed:
+                            log_entry += f"(HTTP {response.status_code})\n"
+                        else:
+                            log_entry += f"(> {SLOW_REQUEST_THRESHOLD_MS}ms threshold)\n"
+                        log_entry += f"\n{curl_cmd}\n"
+
+                        # Append to log file (thread-safe with lock)
+                        with self._lock:
+                            with open(self.slow_request_log, 'a') as f:
+                                f.write(log_entry)
+
+                        logger.info(f"{'Slow' if is_slow else 'Failed'} request logged to {self.slow_request_log}")
+                    except Exception as log_error:
+                        # Don't let logging errors break the main flow
+                        logger.debug(f"Error logging slow request: {log_error}")
 
             if response.ok:
                 if result_type == self.API_TYPE_ROLLUPS:
