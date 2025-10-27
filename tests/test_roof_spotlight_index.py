@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Test that roofSpotlightIndex is correctly handled in flatten_roof_attributes."""
 
+import ast
 import json
 import os
 from pathlib import Path
@@ -109,7 +110,7 @@ def test_gen_rsi_data(cache_directory: Path):
                 try:
                     attrs = json.loads(attrs.replace("'", '"'))
                 except:
-                    attrs = eval(attrs) if attrs else []
+                    attrs = ast.literal_eval(attrs) if attrs else []
             if isinstance(attrs, list) and len(attrs) > 0:
                 # Save sample of roof with attributes
                 roof_sample = {
@@ -215,7 +216,7 @@ def test_handles_missing_rsi_gracefully():
                 attrs = json.loads(attrs.replace("'", '"'))
             except:
                 try:
-                    attrs = eval(attrs)
+                    attrs = ast.literal_eval(attrs)
                 except:
                     attrs = []
         roof['attributes'] = attrs if isinstance(attrs, list) else []

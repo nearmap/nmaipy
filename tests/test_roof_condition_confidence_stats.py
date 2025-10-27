@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Test that roofConditionConfidenceStats is correctly handled in flatten_roof_attributes."""
 
+import ast
 import json
 import os
 from pathlib import Path
@@ -293,7 +294,7 @@ def test_handles_missing_rccs_gracefully():
                 attrs = json.loads(attrs.replace("'", '"'))
             except:
                 try:
-                    attrs = eval(attrs)
+                    attrs = ast.literal_eval(attrs)
                 except:
                     attrs = []
         roof['attributes'] = attrs if isinstance(attrs, list) else []
