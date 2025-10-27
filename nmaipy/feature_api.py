@@ -61,6 +61,7 @@ READ_TIMEOUT_SECONDS = 90  # Max time to wait for reading server response (90 se
 CHUNKED_ENCODING_RETRY_DELAY = 1.0  # Delay between ChunkedEncodingError retries
 BACKOFF_FACTOR = 0.2  # Exponential backoff multiplier
 DUMMY_STATUS_CODE = -1
+SLOW_REQUEST_THRESHOLD_SECONDS = 30  # Log requests that take longer than 30 seconds
 
 
 logger = log.get_logger()
@@ -985,7 +986,17 @@ class FeatureApi:
                         raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
             response_time_ms = (time.monotonic() - t1) * 1e3
+            response_time_seconds = response_time_ms / 1000
             logger.debug(f"{response_time_ms:.1f}ms response time")
+
+            # Log slow successful requests (failures go in errors CSV)
+            if response.ok and response_time_seconds > SLOW_REQUEST_THRESHOLD_SECONDS:
+                sanitized_url = self._clean_api_key(url)
+                # Add geometry as GeoJSON if available in body
+                geom_info = ""
+                if body and "aoi" in body:
+                    geom_info = f" | Geometry: {json.dumps(body['aoi'])}"
+                logger.info(f"Slow request: {response_time_seconds:.1f}s response time for {sanitized_url}{geom_info}")
 
             if response.ok:
                 if result_type == self.API_TYPE_ROLLUPS:
