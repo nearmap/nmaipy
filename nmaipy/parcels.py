@@ -248,6 +248,18 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                     # Handle ratio field if present
                     if "ratio" in component:
                         flattened[f"{name}_ratio"] = component["ratio"]
+
+                    # Handle confidenceStats if present (from roofConditionConfidenceStats include parameter)
+                    if "confidenceStats" in component:
+                        confidence_stats = component["confidenceStats"]
+                        # Flatten histogram bins
+                        histograms = confidence_stats.get("histograms", [])
+                        for histogram in histograms:
+                            bin_type = histogram.get("binType", "unknown")
+                            ratios = histogram.get("ratios", [])
+                            # Create a column for each bin in the histogram
+                            for bin_idx, ratio_value in enumerate(ratios):
+                                flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
             elif "has3dAttributes" in attribute:
                 flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
                 if attribute["has3dAttributes"]:

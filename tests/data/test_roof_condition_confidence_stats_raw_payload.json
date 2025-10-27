@@ -1,0 +1,6537 @@
+{
+  "credits": 0,
+  "resourceId": "4a9cea6f-8663-5a26-bfb0-6aa20bf2a219",
+  "surveyId": "2828dda9-1b79-5584-948b-a775bcecc248",
+  "surveyDate": "2025-07-04",
+  "3dDate": "2025-07-04",
+  "systemVersion": "gen6-glowing_moon-1.0",
+  "link": "https://apps.nearmap.com/maps/#/@33.4147000,-111.9255000,20.00z,0d/V/20250704?locationMarker",
+  "extentMinX": -111.92601078223171,
+  "extentMaxX": -111.92498921776829,
+  "extentMinY": 33.414191,
+  "extentMaxY": 33.415209,
+  "perspective": "Vert",
+  "postcat": false,
+  "features": [
+    {
+      "id": "002add8a-4752-5040-8f6b-cf8009a1270c",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5761719,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92487604916096,
+              33.415053951775064
+            ],
+            [
+              -111.92487470805645,
+              33.41505563091136
+            ],
+            [
+              -111.92487269639969,
+              33.41505563091136
+            ],
+            [
+              -111.92487068474293,
+              33.41505731004766
+            ],
+            [
+              -111.92486934363842,
+              33.41505731004766
+            ],
+            [
+              -111.92486464977264,
+              33.415053951775064
+            ],
+            [
+              -111.92486330866814,
+              33.41504947407803
+            ],
+            [
+              -111.92486934363842,
+              33.41504387695645
+            ],
+            [
+              -111.9248740375042,
+              33.41504387695645
+            ],
+            [
+              -111.92487604916096,
+              33.41504443666862
+            ],
+            [
+              -111.92487739026546,
+              33.41504611580513
+            ],
+            [
+              -111.92487739026546,
+              33.41505059350231
+            ],
+            [
+              -111.92487604916096,
+              33.415053951775064
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 1.4,
+      "areaSqft": 15,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 1.4,
+      "unclippedAreaSqft": 15,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "05eb5ffc-ebed-53c4-8b0c-61ec4b32cc14",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5644531,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92474596202374,
+              33.4150707431368
+            ],
+            [
+              -111.92475333809853,
+              33.415071862560794
+            ],
+            [
+              -111.92475266754627,
+              33.41507913881646
+            ],
+            [
+              -111.92475400865078,
+              33.415081937376165
+            ],
+            [
+              -111.92474596202374,
+              33.415081937376165
+            ],
+            [
+              -111.92474462091923,
+              33.415078579104495
+            ],
+            [
+              -111.92474462091923,
+              33.415072422272786
+            ],
+            [
+              -111.92474596202374,
+              33.4150707431368
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.9,
+      "areaSqft": 10,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.9,
+      "unclippedAreaSqft": 10,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "0abe3e6f-fe53-5203-be51-caed00283d59",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5292969,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92586041986942,
+              33.414482483828124
+            ],
+            [
+              -111.92585907876492,
+              33.41448304354393
+            ],
+            [
+              -111.92585773766041,
+              33.414485842122836
+            ],
+            [
+              -111.92585572600365,
+              33.414485842122836
+            ],
+            [
+              -111.92585572600365,
+              33.41448472269128
+            ],
+            [
+              -111.92585371434689,
+              33.41448304354393
+            ],
+            [
+              -111.92585304379463,
+              33.41447688667001
+            ],
+            [
+              -111.92585572600365,
+              33.41447576723832
+            ],
+            [
+              -111.92585974931717,
+              33.41447688667001
+            ],
+            [
+              -111.92586041986942,
+              33.414482483828124
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.6,
+      "areaSqft": 6,
+      "clippedAreaSqm": 0.6,
+      "clippedAreaSqft": 6,
+      "unclippedAreaSqm": 0.6,
+      "unclippedAreaSqft": 6,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "147d72aa-849d-5ad3-9512-44c5d82f7a64",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5559707,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92583091557026,
+              33.4142485223105
+            ],
+            [
+              -111.92583493888378,
+              33.41425132089696
+            ],
+            [
+              -111.92583963274956,
+              33.41425244033154
+            ],
+            [
+              -111.92585170269012,
+              33.41425244033154
+            ],
+            [
+              -111.92585840821266,
+              33.414250201462394
+            ],
+            [
+              -111.92585974931717,
+              33.4142485223105
+            ],
+            [
+              -111.92586041986942,
+              33.4142485223105
+            ],
+            [
+              -111.92585840821266,
+              33.414246843158566
+            ],
+            [
+              -111.9258550554514,
+              33.41424628344126
+            ],
+            [
+              -111.92585170269012,
+              33.41424292513727
+            ],
+            [
+              -111.92584834992886,
+              33.41424236541994
+            ],
+            [
+              -111.9258463382721,
+              33.41424068626789
+            ],
+            [
+              -111.92583493888378,
+              33.41424180570261
+            ],
+            [
+              -111.92583158612251,
+              33.41424348485463
+            ],
+            [
+              -111.92583225667477,
+              33.4142485223105
+            ],
+            [
+              -111.92583091557026,
+              33.4142485223105
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 2.5,
+      "areaSqft": 27,
+      "clippedAreaSqm": 2.5,
+      "clippedAreaSqft": 27,
+      "unclippedAreaSqm": 2.5,
+      "unclippedAreaSqft": 27,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "1e97c7b7-8466-5718-9f20-56e1c30edaf4",
+      "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+      "internalClassId": 1080,
+      "description": "Roof with Permanent Repair",
+      "confidence": 0.5644531,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9258926063776,
+              33.41441923592021
+            ],
+            [
+              -111.92588925361633,
+              33.414421474784994
+            ],
+            [
+              -111.92588657140732,
+              33.41442203450119
+            ],
+            [
+              -111.92588590085506,
+              33.41442315393355
+            ],
+            [
+              -111.92587718367577,
+              33.41442371364971
+            ],
+            [
+              -111.92587248980999,
+              33.414421474784994
+            ],
+            [
+              -111.92587181925774,
+              33.41441755677158
+            ],
+            [
+              -111.92587316036224,
+              33.414415877622936
+            ],
+            [
+              -111.92587718367577,
+              33.41441699705537
+            ],
+            [
+              -111.92588657140732,
+              33.414416437339156
+            ],
+            [
+              -111.9258926063776,
+              33.41441811648781
+            ],
+            [
+              -111.9258926063776,
+              33.41441923592021
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 1.2,
+      "areaSqft": 13,
+      "clippedAreaSqm": 1.2,
+      "clippedAreaSqft": 13,
+      "unclippedAreaSqm": 1.2,
+      "unclippedAreaSqft": 13,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "2470408f-1268-54d5-a63b-a71085c835ff",
+      "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+      "internalClassId": 1002,
+      "description": "Roof",
+      "confidence": 0.96624756,
+      "parentId": "af5927ce-6f1c-5c5f-a099-3cd6b3dc07a6",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92502088844776,
+              33.41440020556722
+            ],
+            [
+              -111.92503027617931,
+              33.41440020556722
+            ],
+            [
+              -111.92511275410652,
+              33.41440020556722
+            ],
+            [
+              -111.92511074244976,
+              33.414427631662846
+            ],
+            [
+              -111.92510202527046,
+              33.41442819137901
+            ],
+            [
+              -111.92510202527046,
+              33.41453733595878
+            ],
+            [
+              -111.92503027617931,
+              33.414538455389646
+            ],
+            [
+              -111.92502290010452,
+              33.41453789567421
+            ],
+            [
+              -111.92502088844776,
+              33.41440020556722
+            ]
+          ]
+        ]
+      },
+      "fidelity": 0.86092,
+      "areaSqm": 117.1,
+      "areaSqft": 1260,
+      "clippedAreaSqm": 116.7,
+      "clippedAreaSqft": 1256,
+      "unclippedAreaSqm": 117.1,
+      "unclippedAreaSqft": 1260,
+      "attributes": [
+        {
+          "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+          "internalClassId": 10,
+          "description": "Roof Condition",
+          "components": [
+            {
+              "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+              "internalClassId": 1049,
+              "description": "Structural Damage",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.884,
+                      0.116,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.116,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+              "internalClassId": 1050,
+              "description": "Roof with Temporary Repair",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.999,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.928,
+                      0.072,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.072,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+              "internalClassId": 1051,
+              "description": "Roof Ponding",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.213,
+                      0.262,
+                      0.252,
+                      0.148,
+                      0.08,
+                      0.043,
+                      0.002,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.025,
+                      0.975,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.975,
+                    "median": 0.096
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+              "internalClassId": 1052,
+              "description": "Roof Rusting",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.941,
+                      0.059,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.059,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+              "internalClassId": 1053,
+              "description": "Tile or Shingle Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.838,
+                      0.162,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.656,
+                      0.344,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.344,
+                    "median": 0.025
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+              "internalClassId": 1079,
+              "description": "Missing Roof Tile or Shingle",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+              "internalClassId": 1080,
+              "description": "Roof with Permanent Repair",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.493,
+                      0.481,
+                      0.026,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.244,
+                      0.756,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.756,
+                    "median": 0.037
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+              "internalClassId": 1081,
+              "description": "Zinc Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+              "internalClassId": 1139,
+              "description": "Roof Debris",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.978,
+                      0.02,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.893,
+                      0.107,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.107,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+              "internalClassId": 1140,
+              "description": "Exposed Roof Deck",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+              "internalClassId": 1141,
+              "description": "Missing Asphalt shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "94944057-968c-5df3-828b-285091b7e266",
+              "internalClassId": 1142,
+              "description": "Active Ponding",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.839,
+                      0.111,
+                      0.03,
+                      0.018,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.355,
+                      0.645,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.645,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+              "internalClassId": 1144,
+              "description": "Roof Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.208,
+                      0.366,
+                      0.284,
+                      0.111,
+                      0.029,
+                      0.003,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0,
+                      1,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 1,
+                    "median": 0.084
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+              "internalClassId": 1146,
+              "description": "Worn Shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+              "internalClassId": 1147,
+              "description": "Exposed Underlayment",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.94,
+                      0.06,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.06,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+              "internalClassId": 1149,
+              "description": "Roof Patching",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.978,
+                      0.022,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.531,
+                      0.469,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.469,
+                    "median": 0.014
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04",
+      "isFootprint": true
+    },
+    {
+      "id": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+      "internalClassId": 1002,
+      "description": "Roof",
+      "confidence": 0.997014,
+      "parentId": "3c49fa5b-5174-5515-a069-287336906619",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92601531744003,
+              33.41461513637035
+            ],
+            [
+              -111.92603006958961,
+              33.41462689038329
+            ],
+            [
+              -111.92604348063469,
+              33.41461513637035
+            ],
+            [
+              -111.92609779536724,
+              33.41456644115686
+            ],
+            [
+              -111.92607164382935,
+              33.41454349282839
+            ],
+            [
+              -111.92607030272484,
+              33.41452726108023
+            ],
+            [
+              -111.926054880023,
+              33.41452670136471
+            ],
+            [
+              -111.92605420947075,
+              33.414495357290484
+            ],
+            [
+              -111.92605555057526,
+              33.41449255871186
+            ],
+            [
+              -111.92606091499329,
+              33.41449255871186
+            ],
+            [
+              -111.92606091499329,
+              33.414360465699
+            ],
+            [
+              -111.926054880023,
+              33.414354868533025
+            ],
+            [
+              -111.92605555057526,
+              33.4142485223105
+            ],
+            [
+              -111.92605555057526,
+              33.41420094632668
+            ],
+            [
+              -111.92605085670948,
+              33.41420094632668
+            ],
+            [
+              -111.92605085670948,
+              33.41419255056213
+            ],
+            [
+              -111.92604683339596,
+              33.4141931102798
+            ],
+            [
+              -111.9260448217392,
+              33.414181356208125
+            ],
+            [
+              -111.92596435546875,
+              33.414181356208125
+            ],
+            [
+              -111.92596435546875,
+              33.41418191592586
+            ],
+            [
+              -111.92595899105072,
+              33.414181356208125
+            ],
+            [
+              -111.92595832049847,
+              33.41420094632668
+            ],
+            [
+              -111.92593686282635,
+              33.41420318519709
+            ],
+            [
+              -111.92585572600365,
+              33.414204304632285
+            ],
+            [
+              -111.92585371434689,
+              33.41418807282071
+            ],
+            [
+              -111.92573770880699,
+              33.41418863253839
+            ],
+            [
+              -111.92573770880699,
+              33.4142485223105
+            ],
+            [
+              -111.92573636770248,
+              33.4142485223105
+            ],
+            [
+              -111.92573636770248,
+              33.414323524396764
+            ],
+            [
+              -111.92573435604572,
+              33.41432576326401
+            ],
+            [
+              -111.9257115572691,
+              33.41432520354719
+            ],
+            [
+              -111.9257115572691,
+              33.41435822683265
+            ],
+            [
+              -111.92573435604572,
+              33.41435766711606
+            ],
+            [
+              -111.92573435604572,
+              33.414365503148105
+            ],
+            [
+              -111.9257128983736,
+              33.414364943431536
+            ],
+            [
+              -111.9257115572691,
+              33.414398526418225
+            ],
+            [
+              -111.92573502659798,
+              33.414398526418225
+            ],
+            [
+              -111.92573569715023,
+              33.414405802730315
+            ],
+            [
+              -111.9257115572691,
+              33.414405802730315
+            ],
+            [
+              -111.9257115572691,
+              33.41443938570119
+            ],
+            [
+              -111.92573301494122,
+              33.41443994541726
+            ],
+            [
+              -111.92573636770248,
+              33.41444386342966
+            ],
+            [
+              -111.9257289916277,
+              33.41445058002193
+            ],
+            [
+              -111.92572832107544,
+              33.414458975761534
+            ],
+            [
+              -111.92571893334389,
+              33.414458975761534
+            ],
+            [
+              -111.92570820450783,
+              33.41454069425134
+            ],
+            [
+              -111.92572362720966,
+              33.414553007989724
+            ],
+            [
+              -111.9257289916277,
+              33.414553007989724
+            ],
+            [
+              -111.92572966217995,
+              33.414571478594006
+            ],
+            [
+              -111.92573703825474,
+              33.414572038309224
+            ],
+            [
+              -111.92573636770248,
+              33.41458211318258
+            ],
+            [
+              -111.92578464746475,
+              33.41458211318258
+            ],
+            [
+              -111.92578800022602,
+              33.41458435204316
+            ],
+            [
+              -111.92580476403236,
+              33.414585471473416
+            ],
+            [
+              -111.92580476403236,
+              33.41460002406563
+            ],
+            [
+              -111.92593351006508,
+              33.41459946435059
+            ],
+            [
+              -111.92593418061733,
+              33.41458603118856
+            ],
+            [
+              -111.92594960331917,
+              33.41458603118856
+            ],
+            [
+              -111.92594960331917,
+              33.41459946435059
+            ],
+            [
+              -111.92596435546875,
+              33.41459946435059
+            ],
+            [
+              -111.92596435546875,
+              33.41459778520544
+            ],
+            [
+              -111.92599318921566,
+              33.4145972254904
+            ],
+            [
+              -111.92601531744003,
+              33.41461513637035
+            ]
+          ]
+        ]
+      },
+      "fidelity": 0.86597145,
+      "areaSqm": 1411.4,
+      "areaSqft": 15193,
+      "clippedAreaSqm": 1118.2,
+      "clippedAreaSqft": 12036,
+      "unclippedAreaSqm": 1411.4,
+      "unclippedAreaSqft": 15193,
+      "attributes": [
+        {
+          "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+          "internalClassId": 10,
+          "description": "Roof Condition",
+          "components": [
+            {
+              "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+              "internalClassId": 1049,
+              "description": "Structural Damage",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.999,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.983,
+                      0.017,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.017,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+              "internalClassId": 1050,
+              "description": "Roof with Temporary Repair",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.994,
+                      0.006,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.006,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+              "internalClassId": 1051,
+              "description": "Roof Ponding",
+              "confidence": 0.58819574,
+              "areaSqm": 21.1,
+              "areaSqft": 227,
+              "ratio": 0.014962983,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.101,
+                      0.301,
+                      0.222,
+                      0.135,
+                      0.096,
+                      0.068,
+                      0.037,
+                      0.016,
+                      0.008,
+                      0.005,
+                      0.005,
+                      0.003,
+                      0.001,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.001,
+                      0.999,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.999,
+                    "median": 0.107
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+              "internalClassId": 1052,
+              "description": "Roof Rusting",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.993,
+                      0.007,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.97,
+                      0.03,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.03,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+              "internalClassId": 1053,
+              "description": "Tile or Shingle Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.992,
+                      0.008,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.805,
+                      0.195,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.195,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+              "internalClassId": 1079,
+              "description": "Missing Roof Tile or Shingle",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+              "internalClassId": 1080,
+              "description": "Roof with Permanent Repair",
+              "confidence": 0.5370937,
+              "areaSqm": 5.3,
+              "areaSqft": 57,
+              "ratio": 0.0037544633,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.808,
+                      0.106,
+                      0.029,
+                      0.016,
+                      0.012,
+                      0.01,
+                      0.007,
+                      0.005,
+                      0.003,
+                      0.003,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.528,
+                      0.472,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.472,
+                    "median": 0.025
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+              "internalClassId": 1081,
+              "description": "Zinc Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+              "internalClassId": 1139,
+              "description": "Roof Debris",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.997,
+                      0.003,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.003,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+              "internalClassId": 1140,
+              "description": "Exposed Roof Deck",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+              "internalClassId": 1141,
+              "description": "Missing Asphalt shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.989,
+                      0.011,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.011,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "94944057-968c-5df3-828b-285091b7e266",
+              "internalClassId": 1142,
+              "description": "Active Ponding",
+              "confidence": 0.5527344,
+              "areaSqm": 0.3,
+              "areaSqft": 4,
+              "ratio": 0.00024142694,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.959,
+                      0.029,
+                      0.006,
+                      0.003,
+                      0.002,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.802,
+                      0.198,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.198,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+              "internalClassId": 1144,
+              "description": "Roof Staining",
+              "confidence": 0.6679832,
+              "areaSqm": 308.1,
+              "areaSqft": 3316,
+              "ratio": 0.21827877,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.023,
+                      0.132,
+                      0.158,
+                      0.125,
+                      0.09,
+                      0.077,
+                      0.067,
+                      0.058,
+                      0.051,
+                      0.041,
+                      0.036,
+                      0.039,
+                      0.042,
+                      0.028,
+                      0.016,
+                      0.013,
+                      0.002,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0,
+                      1,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 1,
+                    "median": 0.248
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+              "internalClassId": 1146,
+              "description": "Worn Shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+              "internalClassId": 1147,
+              "description": "Exposed Underlayment",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.989,
+                      0.011,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.011,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+              "internalClassId": 1149,
+              "description": "Roof Patching",
+              "confidence": 0.5323962,
+              "areaSqm": 5.8,
+              "areaSqft": 62,
+              "ratio": 0.0040973993,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.549,
+                      0.298,
+                      0.068,
+                      0.032,
+                      0.013,
+                      0.011,
+                      0.009,
+                      0.007,
+                      0.008,
+                      0.003,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.102,
+                      0.898,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.898,
+                    "median": 0.037
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04",
+      "isFootprint": true
+    },
+    {
+      "id": "336e2ad4-5e45-5266-bce8-4299999a68f3",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5292969,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92507922649384,
+              33.41503772012228
+            ],
+            [
+              -111.92507855594158,
+              33.415032122999925
+            ],
+            [
+              -111.92508727312088,
+              33.415032122999925
+            ],
+            [
+              -111.92508727312088,
+              33.41503660069783
+            ],
+            [
+              -111.92508526146412,
+              33.41503772012228
+            ],
+            [
+              -111.92507922649384,
+              33.41503772012228
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.5,
+      "areaSqft": 5,
+      "clippedAreaSqm": 0.5,
+      "clippedAreaSqft": 5,
+      "unclippedAreaSqm": 0.5,
+      "unclippedAreaSqft": 5,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "39323f5d-7cbd-521d-8553-84d087a8684b",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9252347946167,
+              33.415446309079485
+            ],
+            [
+              -111.9252361357212,
+              33.41544798820819
+            ],
+            [
+              -111.92522943019867,
+              33.41544910762734
+            ],
+            [
+              -111.92522875964642,
+              33.41544798820819
+            ],
+            [
+              -111.92522943019867,
+              33.41544686878905
+            ],
+            [
+              -111.9252347946167,
+              33.415446309079485
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "3bc97767-cd25-5b8d-9201-2dbf5d848371",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5292969,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9254607707262,
+              33.4149739129061
+            ],
+            [
+              -111.92545875906944,
+              33.41496943520495
+            ],
+            [
+              -111.92546546459198,
+              33.41496943520495
+            ],
+            [
+              -111.92546680569649,
+              33.41497447261874
+            ],
+            [
+              -111.92546412348747,
+              33.414975032331355
+            ],
+            [
+              -111.9254607707262,
+              33.4149739129061
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.3,
+      "areaSqft": 4,
+      "clippedAreaSqm": 0.3,
+      "clippedAreaSqft": 4,
+      "unclippedAreaSqm": 0.3,
+      "unclippedAreaSqft": 4,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "45397c18-9f8f-59fa-844c-b0ae229d3ddf",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9251798093319,
+              33.415015331630705
+            ],
+            [
+              -111.92517712712288,
+              33.41501477191836
+            ],
+            [
+              -111.9251811504364,
+              33.41501197335649
+            ],
+            [
+              -111.92518182098866,
+              33.41501589134306
+            ],
+            [
+              -111.92518047988415,
+              33.415016451055436
+            ],
+            [
+              -111.9251798093319,
+              33.415015331630705
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0.1,
+      "clippedAreaSqft": 1,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "4b71c38e-a149-53dd-ae88-d5ca77962db7",
+      "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+      "internalClassId": 1080,
+      "description": "Roof with Permanent Repair",
+      "confidence": 0.5292969,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92542254924774,
+              33.41532541172527
+            ],
+            [
+              -111.92542724311352,
+              33.41532765056669
+            ],
+            [
+              -111.92542724311352,
+              33.41533212824936
+            ],
+            [
+              -111.92542523145676,
+              33.4153360462215
+            ],
+            [
+              -111.9254232198,
+              33.41533772535237
+            ],
+            [
+              -111.92542120814323,
+              33.4153360462215
+            ],
+            [
+              -111.92541986703873,
+              33.41533156853904
+            ],
+            [
+              -111.92542254924774,
+              33.41532541172527
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.6,
+      "areaSqft": 7,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.6,
+      "unclippedAreaSqft": 7,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "4c7ca1a6-2ef9-5f19-b4db-6b7949670164",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5058594,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92487068474293,
+              33.415062347456335
+            ],
+            [
+              -111.92487336695194,
+              33.415064586304545
+            ],
+            [
+              -111.9248753786087,
+              33.415064586304545
+            ],
+            [
+              -111.9248753786087,
+              33.4150707431368
+            ],
+            [
+              -111.92487336695194,
+              33.41506850428877
+            ],
+            [
+              -111.92487135529518,
+              33.41506794457673
+            ],
+            [
+              -111.92486934363842,
+              33.41506290716839
+            ],
+            [
+              -111.92487068474293,
+              33.415062347456335
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.3,
+      "areaSqft": 3,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.3,
+      "unclippedAreaSqft": 3,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "59a6bc3b-ad0c-569e-a5d3-6f87f4c3ef3a",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92516572773457,
+              33.41552914605833
+            ],
+            [
+              -111.92516572773457,
+              33.41553418343962
+            ],
+            [
+              -111.92516170442104,
+              33.4155336237306
+            ],
+            [
+              -111.92516438663006,
+              33.41552914605833
+            ],
+            [
+              -111.92516572773457,
+              33.41552914605833
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "5a0f588c-c9c6-5ce5-b914-e319fe08ef04",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9246306270361,
+              33.41504163810771
+            ],
+            [
+              -111.92462928593159,
+              33.41504387695645
+            ],
+            [
+              -111.92462794482708,
+              33.41504387695645
+            ],
+            [
+              -111.92462593317032,
+              33.415041078395504
+            ],
+            [
+              -111.92462727427483,
+              33.41503772012228
+            ],
+            [
+              -111.92462727427483,
+              33.41503156328768
+            ],
+            [
+              -111.92462593317032,
+              33.415027645301784
+            ],
+            [
+              -111.92462794482708,
+              33.41502540645263
+            ],
+            [
+              -111.92462794482708,
+              33.41502372731572
+            ],
+            [
+              -111.92462928593159,
+              33.41502372731572
+            ],
+            [
+              -111.9246306270361,
+              33.415027645301784
+            ],
+            [
+              -111.9246306270361,
+              33.41504163810771
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.7,
+      "areaSqft": 8,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.7,
+      "unclippedAreaSqft": 8,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "5aa47c95-8f3d-5377-be6b-929fa7fbcc7c",
+      "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+      "internalClassId": 1080,
+      "description": "Roof with Permanent Repair",
+      "confidence": 0.5058594,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9254332780838,
+              33.41532988940804
+            ],
+            [
+              -111.92543059587479,
+              33.41532821027703
+            ],
+            [
+              -111.92543126642704,
+              33.41532709085634
+            ],
+            [
+              -111.92543394863605,
+              33.41532709085634
+            ],
+            [
+              -111.9254332780838,
+              33.41532988940804
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "60f9de50-287c-56f4-9a67-171958469418",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.6113281,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92527703940868,
+              33.41506794457673
+            ],
+            [
+              -111.9252609461546,
+              33.41506906400077
+            ],
+            [
+              -111.92525692284107,
+              33.41506738486471
+            ],
+            [
+              -111.92525021731853,
+              33.41506794457673
+            ],
+            [
+              -111.92524820566177,
+              33.415065705728615
+            ],
+            [
+              -111.92524418234825,
+              33.415064586304545
+            ],
+            [
+              -111.925243511796,
+              33.41505842947184
+            ],
+            [
+              -111.92524552345276,
+              33.415053951775064
+            ],
+            [
+              -111.92524820566177,
+              33.41505563091136
+            ],
+            [
+              -111.92525692284107,
+              33.41505675033557
+            ],
+            [
+              -111.9252609461546,
+              33.41505339206293
+            ],
+            [
+              -111.92526765167713,
+              33.41505339206293
+            ],
+            [
+              -111.92526899278164,
+              33.41505451148716
+            ],
+            [
+              -111.92526966333389,
+              33.41505954889598
+            ],
+            [
+              -111.92527234554291,
+              33.415062347456335
+            ],
+            [
+              -111.92527838051319,
+              33.41506066832015
+            ],
+            [
+              -111.92528374493122,
+              33.41506290716839
+            ],
+            [
+              -111.92528441548347,
+              33.41506850428877
+            ],
+            [
+              -111.92528173327446,
+              33.41506906400077
+            ],
+            [
+              -111.92527703940868,
+              33.41506794457673
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 4.4,
+      "areaSqft": 47,
+      "clippedAreaSqm": 4.4,
+      "clippedAreaSqft": 47,
+      "unclippedAreaSqm": 4.4,
+      "unclippedAreaSqft": 47,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "611919f4-4e8b-593a-bc5b-8c4bdeab9ff8",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5410156,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92544803023338,
+              33.41496495750358
+            ],
+            [
+              -111.92544870078564,
+              33.41496943520495
+            ],
+            [
+              -111.9254419952631,
+              33.41496999491763
+            ],
+            [
+              -111.92543931305408,
+              33.41496663664163
+            ],
+            [
+              -111.92543260753155,
+              33.41496943520495
+            ],
+            [
+              -111.92543126642704,
+              33.41496663664163
+            ],
+            [
+              -111.9254319369793,
+              33.414963838078215
+            ],
+            [
+              -111.92543461918831,
+              33.414963278365505
+            ],
+            [
+              -111.92543864250183,
+              33.41496439779091
+            ],
+            [
+              -111.92544400691986,
+              33.414962718652816
+            ],
+            [
+              -111.92544803023338,
+              33.41496495750358
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.9,
+      "areaSqft": 9,
+      "clippedAreaSqm": 0.9,
+      "clippedAreaSqft": 9,
+      "unclippedAreaSqm": 0.9,
+      "unclippedAreaSqft": 9,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "71b8ea47-bb35-5cd2-8d41-d3ce543009d1",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5058594,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9250537455082,
+              33.41500469709519
+            ],
+            [
+              -111.92505039274693,
+              33.41500581652006
+            ],
+            [
+              -111.92504905164242,
+              33.41500469709519
+            ],
+            [
+              -111.9250537455082,
+              33.41500469709519
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0,
+      "areaSqft": 0,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0,
+      "unclippedAreaSqft": 0,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "71e039a7-0e68-56c8-9312-2df9c0413e3a",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92472450435162,
+              33.41496495750358
+            ],
+            [
+              -111.9247305393219,
+              33.41496495750358
+            ],
+            [
+              -111.9247305393219,
+              33.41496607692896
+            ],
+            [
+              -111.92472517490387,
+              33.41496663664163
+            ],
+            [
+              -111.92472450435162,
+              33.41496495750358
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "87f49f45-9b90-5ad4-8458-ad909d1bf9a8",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5644531,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92582756280899,
+              33.414487521270146
+            ],
+            [
+              -111.92582421004772,
+              33.4144864018386
+            ],
+            [
+              -111.92581549286842,
+              33.41449031984891
+            ],
+            [
+              -111.92581348121166,
+              33.41449031984891
+            ],
+            [
+              -111.92581281065941,
+              33.41448864070166
+            ],
+            [
+              -111.92580744624138,
+              33.41448528240707
+            ],
+            [
+              -111.92580677568913,
+              33.41447632695415
+            ],
+            [
+              -111.92581281065941,
+              33.4144712895115
+            ],
+            [
+              -111.92581348121166,
+              33.414469610363874
+            ],
+            [
+              -111.92581549286842,
+              33.414469610363874
+            ],
+            [
+              -111.92581616342068,
+              33.41447072979564
+            ],
+            [
+              -111.92582286894321,
+              33.414473528374934
+            ],
+            [
+              -111.92583292722702,
+              33.414475207522486
+            ],
+            [
+              -111.92584097385406,
+              33.414475207522486
+            ],
+            [
+              -111.92584432661533,
+              33.41447688667001
+            ],
+            [
+              -111.92584499716759,
+              33.41448192411234
+            ],
+            [
+              -111.92584365606308,
+              33.414485842122836
+            ],
+            [
+              -111.92584097385406,
+              33.414487521270146
+            ],
+            [
+              -111.92582756280899,
+              33.414487521270146
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 5.3,
+      "areaSqft": 58,
+      "clippedAreaSqm": 5.3,
+      "clippedAreaSqft": 58,
+      "unclippedAreaSqm": 5.3,
+      "unclippedAreaSqft": 58,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "8eb7cf07-b273-5f47-915d-13af5831a398",
+      "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+      "internalClassId": 1080,
+      "description": "Roof with Permanent Repair",
+      "confidence": 0.5292969,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92594692111015,
+              33.41457595631567
+            ],
+            [
+              -111.92594356834888,
+              33.414578195176404
+            ],
+            [
+              -111.92594356834888,
+              33.41457931460677
+            ],
+            [
+              -111.92594088613987,
+              33.41457931460677
+            ],
+            [
+              -111.9259375333786,
+              33.41457707574604
+            ],
+            [
+              -111.92593149840832,
+              33.414576516030856
+            ],
+            [
+              -111.92593082785606,
+              33.414574836885265
+            ],
+            [
+              -111.92593351006508,
+              33.41457371745487
+            ],
+            [
+              -111.9259375333786,
+              33.41457371745487
+            ],
+            [
+              -111.92594222724438,
+              33.4145692397331
+            ],
+            [
+              -111.92594423890114,
+              33.41456979944833
+            ],
+            [
+              -111.92594692111015,
+              33.41457371745487
+            ],
+            [
+              -111.92594692111015,
+              33.41457595631567
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.9,
+      "areaSqft": 9,
+      "clippedAreaSqm": 0.9,
+      "clippedAreaSqft": 9,
+      "unclippedAreaSqm": 0.9,
+      "unclippedAreaSqft": 9,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+      "internalClassId": 1002,
+      "description": "Roof",
+      "confidence": 0.9924752,
+      "parentId": "e87da99d-2c97-542f-9022-4050d97a4841",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92506246268749,
+              33.41563772954608
+            ],
+            [
+              -111.92525424063206,
+              33.41563884896277
+            ],
+            [
+              -111.92525826394558,
+              33.41542224156404
+            ],
+            [
+              -111.92534476518631,
+              33.41542000272506
+            ],
+            [
+              -111.92534945905209,
+              33.41544798820819
+            ],
+            [
+              -111.92543394863605,
+              33.415446309079485
+            ],
+            [
+              -111.92543461918831,
+              33.41542951779034
+            ],
+            [
+              -111.92541852593422,
+              33.41542951779034
+            ],
+            [
+              -111.92541718482971,
+              33.41542000272506
+            ],
+            [
+              -111.92545004189014,
+              33.41542000272506
+            ],
+            [
+              -111.92545004189014,
+              33.41539481578251
+            ],
+            [
+              -111.92544870078564,
+              33.41539481578251
+            ],
+            [
+              -111.92545138299465,
+              33.41509760930883
+            ],
+            [
+              -111.92547954618931,
+              33.41509648988517
+            ],
+            [
+              -111.92548021674156,
+              33.415027645301784
+            ],
+            [
+              -111.92548021674156,
+              33.41493585243904
+            ],
+            [
+              -111.92503027617931,
+              33.414933053874634
+            ],
+            [
+              -111.92459106445312,
+              33.414933053874634
+            ],
+            [
+              -111.92459106445312,
+              33.41493193444883
+            ],
+            [
+              -111.92458167672157,
+              33.41493193444883
+            ],
+            [
+              -111.92458167672157,
+              33.415027645301784
+            ],
+            [
+              -111.92458033561707,
+              33.415027645301784
+            ],
+            [
+              -111.92457966506481,
+              33.41503156328768
+            ],
+            [
+              -111.92458167672157,
+              33.41503156328768
+            ],
+            [
+              -111.92458167672157,
+              33.41509369132594
+            ],
+            [
+              -111.92459106445312,
+              33.41509369132594
+            ],
+            [
+              -111.92465409636497,
+              33.41509369132594
+            ],
+            [
+              -111.92465409636497,
+              33.415095930173344
+            ],
+            [
+              -111.92503027617931,
+              33.41509704959701
+            ],
+            [
+              -111.92505039274693,
+              33.41509648988517
+            ],
+            [
+              -111.92505307495594,
+              33.41509704959701
+            ],
+            [
+              -111.92505173385143,
+              33.41514238624379
+            ],
+            [
+              -111.92514762282372,
+              33.41514350566685
+            ],
+            [
+              -111.92514762282372,
+              33.41515190133947
+            ],
+            [
+              -111.92506246268749,
+              33.41515190133947
+            ],
+            [
+              -111.92506246268749,
+              33.41514966249351
+            ],
+            [
+              -111.92505039274693,
+              33.41514966249351
+            ],
+            [
+              -111.92505039274693,
+              33.415192200556746
+            ],
+            [
+              -111.92506045103073,
+              33.415192200556746
+            ],
+            [
+              -111.92506179213524,
+              33.41539481578251
+            ],
+            [
+              -111.92506246268749,
+              33.41563772954608
+            ]
+          ],
+          [
+            [
+              -111.9252347946167,
+              33.41515134162799
+            ],
+            [
+              -111.92523412406445,
+              33.41514294595532
+            ],
+            [
+              -111.92528776824474,
+              33.41514294595532
+            ],
+            [
+              -111.92528575658798,
+              33.4150987287325
+            ],
+            [
+              -111.92516840994358,
+              33.41509816902067
+            ],
+            [
+              -111.92516908049583,
+              33.41515190133947
+            ],
+            [
+              -111.9252347946167,
+              33.41515134162799
+            ]
+          ]
+        ]
+      },
+      "fidelity": 0.7270462,
+      "areaSqm": 3203.3,
+      "areaSqft": 34480,
+      "clippedAreaSqm": 1161,
+      "clippedAreaSqft": 12497,
+      "unclippedAreaSqm": 3203.3,
+      "unclippedAreaSqft": 34480,
+      "attributes": [
+        {
+          "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+          "internalClassId": 10,
+          "description": "Roof Condition",
+          "components": [
+            {
+              "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+              "internalClassId": 1049,
+              "description": "Structural Damage",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.981,
+                      0.019,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.019,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+              "internalClassId": 1050,
+              "description": "Roof with Temporary Repair",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.996,
+                      0.004,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.929,
+                      0.071,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.071,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+              "internalClassId": 1051,
+              "description": "Roof Ponding",
+              "confidence": 0.5710174,
+              "areaSqm": 14.3,
+              "areaSqft": 154,
+              "ratio": 0.0044518593,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.273,
+                      0.42,
+                      0.169,
+                      0.072,
+                      0.03,
+                      0.014,
+                      0.008,
+                      0.006,
+                      0.004,
+                      0.002,
+                      0.001,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.052,
+                      0.948,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.948,
+                    "median": 0.061
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+              "internalClassId": 1052,
+              "description": "Roof Rusting",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.998,
+                      0.002,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.978,
+                      0.022,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.022,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+              "internalClassId": 1053,
+              "description": "Tile or Shingle Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.994,
+                      0.006,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.877,
+                      0.123,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.123,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+              "internalClassId": 1079,
+              "description": "Missing Roof Tile or Shingle",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+              "internalClassId": 1080,
+              "description": "Roof with Permanent Repair",
+              "confidence": 0.5272674,
+              "areaSqm": 0.7,
+              "areaSqft": 7,
+              "ratio": 0.00021616243,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.803,
+                      0.132,
+                      0.034,
+                      0.012,
+                      0.008,
+                      0.004,
+                      0.004,
+                      0.002,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.49,
+                      0.51,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.51,
+                    "median": 0.025
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+              "internalClassId": 1081,
+              "description": "Zinc Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+              "internalClassId": 1139,
+              "description": "Roof Debris",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.999,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.989,
+                      0.011,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.011,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+              "internalClassId": 1140,
+              "description": "Exposed Roof Deck",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+              "internalClassId": 1141,
+              "description": "Missing Asphalt shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "94944057-968c-5df3-828b-285091b7e266",
+              "internalClassId": 1142,
+              "description": "Active Ponding",
+              "confidence": 0.7951324,
+              "areaSqm": 7.3,
+              "areaSqft": 79,
+              "ratio": 0.0022860083,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.852,
+                      0.118,
+                      0.015,
+                      0.005,
+                      0.003,
+                      0.001,
+                      0.001,
+                      0.001,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.459,
+                      0.541,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.541,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+              "internalClassId": 1144,
+              "description": "Roof Staining",
+              "confidence": 0.62201977,
+              "areaSqm": 772,
+              "areaSqft": 8310,
+              "ratio": 0.24099635,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.098,
+                      0.151,
+                      0.067,
+                      0.06,
+                      0.072,
+                      0.078,
+                      0.085,
+                      0.082,
+                      0.067,
+                      0.062,
+                      0.059,
+                      0.049,
+                      0.031,
+                      0.024,
+                      0.012,
+                      0.004,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.002,
+                      0.998,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.998,
+                    "median": 0.307
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+              "internalClassId": 1146,
+              "description": "Worn Shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+              "internalClassId": 1147,
+              "description": "Exposed Underlayment",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.996,
+                      0.004,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.004,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+              "internalClassId": 1149,
+              "description": "Roof Patching",
+              "confidence": 0.53208166,
+              "areaSqm": 4.4,
+              "areaSqft": 48,
+              "ratio": 0.001379696,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.808,
+                      0.142,
+                      0.021,
+                      0.013,
+                      0.007,
+                      0.003,
+                      0.002,
+                      0.002,
+                      0.002,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.407,
+                      0.593,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.593,
+                    "median": 0.025
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04",
+      "isFootprint": true
+    },
+    {
+      "id": "a4b297a5-9788-5d6c-851c-7b486b23de39",
+      "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+      "internalClassId": 1080,
+      "description": "Roof with Permanent Repair",
+      "confidence": 0.5292969,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92588187754154,
+              33.4144864018386
+            ],
+            [
+              -111.92587852478027,
+              33.4144841629755
+            ],
+            [
+              -111.92587450146675,
+              33.41448864070166
+            ],
+            [
+              -111.9258738309145,
+              33.414491439280404
+            ],
+            [
+              -111.92587248980999,
+              33.41449087956465
+            ],
+            [
+              -111.92587181925774,
+              33.41448864070166
+            ],
+            [
+              -111.92587114870548,
+              33.41447072979564
+            ],
+            [
+              -111.92587248980999,
+              33.41446849093213
+            ],
+            [
+              -111.92587248980999,
+              33.414465692352636
+            ],
+            [
+              -111.9258738309145,
+              33.41446457292083
+            ],
+            [
+              -111.92587450146675,
+              33.41446793121623
+            ],
+            [
+              -111.92587718367577,
+              33.41447017007977
+            ],
+            [
+              -111.92588120698929,
+              33.41447017007977
+            ],
+            [
+              -111.92588455975056,
+              33.41446905064801
+            ],
+            [
+              -111.9258926063776,
+              33.41447184922736
+            ],
+            [
+              -111.9258926063776,
+              33.414473528374934
+            ],
+            [
+              -111.92588992416859,
+              33.41447632695415
+            ],
+            [
+              -111.92588992416859,
+              33.414481364396536
+            ],
+            [
+              -111.92588657140732,
+              33.41448304354393
+            ],
+            [
+              -111.92588455975056,
+              33.4144864018386
+            ],
+            [
+              -111.92588187754154,
+              33.4144864018386
+            ]
+          ],
+          [
+            [
+              -111.92588053643703,
+              33.41447744638583
+            ],
+            [
+              -111.92587986588478,
+              33.41447632695415
+            ],
+            [
+              -111.92587785422802,
+              33.41447688667001
+            ],
+            [
+              -111.92587785422802,
+              33.41447856581749
+            ],
+            [
+              -111.92588053643703,
+              33.41447744638583
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 3.2,
+      "areaSqft": 35,
+      "clippedAreaSqm": 3.2,
+      "clippedAreaSqft": 35,
+      "unclippedAreaSqm": 3.2,
+      "unclippedAreaSqft": 35,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "bbae0585-e8b3-5a9d-a5e2-eb6ea0b5f248",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5878906,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92483380436897,
+              33.41500973450694
+            ],
+            [
+              -111.92483447492123,
+              33.41501924961715
+            ],
+            [
+              -111.92483179271221,
+              33.415020928754146
+            ],
+            [
+              -111.92482441663742,
+              33.41501868990482
+            ],
+            [
+              -111.92482374608517,
+              33.415016451055436
+            ],
+            [
+              -111.9248217344284,
+              33.415015331630705
+            ],
+            [
+              -111.9248217344284,
+              33.415013652493606
+            ],
+            [
+              -111.92482776939869,
+              33.41501197335649
+            ],
+            [
+              -111.9248304516077,
+              33.41500917479451
+            ],
+            [
+              -111.92483246326447,
+              33.415008615082115
+            ],
+            [
+              -111.92483380436897,
+              33.41500973450694
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 1,
+      "areaSqft": 11,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 1,
+      "unclippedAreaSqft": 11,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "bc88016c-5ba1-5467-aac2-162c5afaf267",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5058594,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92529313266277,
+              33.415071862560794
+            ],
+            [
+              -111.92529782652855,
+              33.41507298198479
+            ],
+            [
+              -111.92529313266277,
+              33.41507298198479
+            ],
+            [
+              -111.92529313266277,
+              33.415071862560794
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0,
+      "areaSqft": 0,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0,
+      "unclippedAreaSqft": 0,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "c5262762-daef-523b-a4ff-4102d79078bf",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92577190697193,
+              33.41451886534722
+            ],
+            [
+              -111.92577257752419,
+              33.41452054449389
+            ],
+            [
+              -111.92577458918095,
+              33.41452166392497
+            ],
+            [
+              -111.92577391862869,
+              33.4145261416492
+            ],
+            [
+              -111.92577257752419,
+              33.41452670136471
+            ],
+            [
+              -111.92577123641968,
+              33.41452670136471
+            ],
+            [
+              -111.92577056586742,
+              33.414525581933695
+            ],
+            [
+              -111.92577056586742,
+              33.41451886534722
+            ],
+            [
+              -111.92577190697193,
+              33.41451886534722
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.2,
+      "areaSqft": 3,
+      "clippedAreaSqm": 0.2,
+      "clippedAreaSqft": 3,
+      "unclippedAreaSqm": 0.2,
+      "unclippedAreaSqft": 3,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "cfc9e1c3-14cd-5ee7-884b-250834308f18",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5644531,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92517511546612,
+              33.415193879690406
+            ],
+            [
+              -111.92518182098866,
+              33.41519499911283
+            ],
+            [
+              -111.92518316209316,
+              33.41519779766879
+            ],
+            [
+              -111.92518316209316,
+              33.41520395449161
+            ],
+            [
+              -111.9251811504364,
+              33.41520731275843
+            ],
+            [
+              -111.92517578601837,
+              33.4152050739139
+            ],
+            [
+              -111.92517377436161,
+              33.41519667824642
+            ],
+            [
+              -111.92517511546612,
+              33.415193879690406
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 1,
+      "areaSqft": 11,
+      "clippedAreaSqm": 0.5,
+      "clippedAreaSqft": 5,
+      "unclippedAreaSqm": 1,
+      "unclippedAreaSqft": 11,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "d3e16b36-ed68-5f21-8b8b-791f6b00366c",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.6464844,
+      "parentId": "eae8f9cd-a2ad-59a6-94ea-11a8bfdb2442",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92574709653854,
+              33.41506346688044
+            ],
+            [
+              -111.925740391016,
+              33.41506066832015
+            ],
+            [
+              -111.9257289916277,
+              33.41505954889598
+            ],
+            [
+              -111.92572765052319,
+              33.41505898918392
+            ],
+            [
+              -111.92572765052319,
+              33.41505731004766
+            ],
+            [
+              -111.92572295665741,
+              33.41505451148716
+            ],
+            [
+              -111.92572295665741,
+              33.41505339206293
+            ],
+            [
+              -111.92572496831417,
+              33.415052272638704
+            ],
+            [
+              -111.92572630941868,
+              33.41505003379018
+            ],
+            [
+              -111.92572966217995,
+              33.41504947407803
+            ],
+            [
+              -111.92576050758362,
+              33.41504891436589
+            ],
+            [
+              -111.92576386034489,
+              33.41505003379018
+            ],
+            [
+              -111.92576721310616,
+              33.41505283235082
+            ],
+            [
+              -111.92576855421066,
+              33.41505675033557
+            ],
+            [
+              -111.92577123641968,
+              33.41505898918392
+            ],
+            [
+              -111.92577458918095,
+              33.415052272638704
+            ],
+            [
+              -111.92579202353954,
+              33.415048354653756
+            ],
+            [
+              -111.92579939961433,
+              33.415048354653756
+            ],
+            [
+              -111.92580945789814,
+              33.41505059350231
+            ],
+            [
+              -111.92581549286842,
+              33.41505059350231
+            ],
+            [
+              -111.92581750452518,
+              33.41504947407803
+            ],
+            [
+              -111.92582756280899,
+              33.415048354653756
+            ],
+            [
+              -111.925830245018,
+              33.41504723522944
+            ],
+            [
+              -111.92584164440632,
+              33.41504723522944
+            ],
+            [
+              -111.92584365606308,
+              33.415048354653756
+            ],
+            [
+              -111.92585438489914,
+              33.415048354653756
+            ],
+            [
+              -111.92586176097393,
+              33.41505115321444
+            ],
+            [
+              -111.92586846649647,
+              33.41505115321444
+            ],
+            [
+              -111.92587852478027,
+              33.41504891436589
+            ],
+            [
+              -111.92588120698929,
+              33.41504443666862
+            ],
+            [
+              -111.9258838891983,
+              33.4150421978199
+            ],
+            [
+              -111.92588858306408,
+              33.41504051868332
+            ],
+            [
+              -111.92589193582535,
+              33.41504051868332
+            ],
+            [
+              -111.92589595913887,
+              33.415041078395504
+            ],
+            [
+              -111.92589662969112,
+              33.4150421978199
+            ],
+            [
+              -111.92589998245239,
+              33.415043317244276
+            ],
+            [
+              -111.9259013235569,
+              33.41504555609296
+            ],
+            [
+              -111.92590333521366,
+              33.41504667551728
+            ],
+            [
+              -111.92590333521366,
+              33.41504779494161
+            ],
+            [
+              -111.92590937018394,
+              33.415052272638704
+            ],
+            [
+              -111.9259187579155,
+              33.415052272638704
+            ],
+            [
+              -111.9259274750948,
+              33.41505339206293
+            ],
+            [
+              -111.92592948675156,
+              33.41505451148716
+            ],
+            [
+              -111.92592948675156,
+              33.415057869759735
+            ],
+            [
+              -111.9259288161993,
+              33.41505898918392
+            ],
+            [
+              -111.92592144012451,
+              33.415060108608074
+            ],
+            [
+              -111.92591406404972,
+              33.41506346688044
+            ],
+            [
+              -111.92591071128845,
+              33.41506346688044
+            ],
+            [
+              -111.92590601742268,
+              33.41506514601658
+            ],
+            [
+              -111.92589662969112,
+              33.415065705728615
+            ],
+            [
+              -111.9258838891983,
+              33.415065705728615
+            ],
+            [
+              -111.92587986588478,
+              33.415064586304545
+            ],
+            [
+              -111.92585907876492,
+              33.41506514601658
+            ],
+            [
+              -111.92584700882435,
+              33.415061787744264
+            ],
+            [
+              -111.92582488059998,
+              33.41506122803221
+            ],
+            [
+              -111.9258027523756,
+              33.41506290716839
+            ],
+            [
+              -111.92579604685307,
+              33.41506514601658
+            ],
+            [
+              -111.92578732967377,
+              33.41506626544064
+            ],
+            [
+              -111.92578330636024,
+              33.415064586304545
+            ],
+            [
+              -111.92577391862869,
+              33.415064026592475
+            ],
+            [
+              -111.92577257752419,
+              33.41506346688044
+            ],
+            [
+              -111.92577123641968,
+              33.41505954889598
+            ],
+            [
+              -111.92576989531517,
+              33.415060108608074
+            ],
+            [
+              -111.92576855421066,
+              33.41506346688044
+            ],
+            [
+              -111.92574709653854,
+              33.41506346688044
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 29.5,
+      "areaSqft": 317,
+      "clippedAreaSqm": 29.5,
+      "clippedAreaSqft": 318,
+      "unclippedAreaSqm": 29.5,
+      "unclippedAreaSqft": 317,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "de27a574-cca3-5fdb-a26f-f7727f08b5ed",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5761719,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92475400865078,
+              33.4150421978199
+            ],
+            [
+              -111.9247580319643,
+              33.41504443666862
+            ],
+            [
+              -111.9247580319643,
+              33.41505059350231
+            ],
+            [
+              -111.92475199699402,
+              33.41505115321444
+            ],
+            [
+              -111.92474663257599,
+              33.41505003379018
+            ],
+            [
+              -111.92474529147148,
+              33.41504723522944
+            ],
+            [
+              -111.92474529147148,
+              33.41504275753208
+            ],
+            [
+              -111.92474663257599,
+              33.41504051868332
+            ],
+            [
+              -111.92475266754627,
+              33.41503995897112
+            ],
+            [
+              -111.92475400865078,
+              33.4150421978199
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 1.2,
+      "areaSqft": 13,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 1.2,
+      "unclippedAreaSqft": 13,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "e0a10976-76b2-5425-a07f-daa98251b495",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5058594,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92511811852455,
+              33.415582878110484
+            ],
+            [
+              -111.92512281239033,
+              33.41558231840176
+            ],
+            [
+              -111.92512214183807,
+              33.415584557236556
+            ],
+            [
+              -111.92512080073357,
+              33.415585116945266
+            ],
+            [
+              -111.92511811852455,
+              33.415582878110484
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "eae8f9cd-a2ad-59a6-94ea-11a8bfdb2442",
+      "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+      "internalClassId": 1002,
+      "description": "Roof",
+      "confidence": 0.9785156,
+      "parentId": "4e375e68-5f6e-5a39-b2b6-8e5c968374ce",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92593149840832,
+              33.414981748882546
+            ],
+            [
+              -111.9259462505579,
+              33.414992943133385
+            ],
+            [
+              -111.92595295608044,
+              33.415008615082115
+            ],
+            [
+              -111.92595295608044,
+              33.41505059350231
+            ],
+            [
+              -111.92594423890114,
+              33.41505115321444
+            ],
+            [
+              -111.92594155669212,
+              33.415053951775064
+            ],
+            [
+              -111.92594222724438,
+              33.41506962371278
+            ],
+            [
+              -111.92586176097393,
+              33.41506962371278
+            ],
+            [
+              -111.92586176097393,
+              33.415077459680596
+            ],
+            [
+              -111.92585036158562,
+              33.415078019392546
+            ],
+            [
+              -111.92578330636024,
+              33.41507689996864
+            ],
+            [
+              -111.92578330636024,
+              33.41507018342478
+            ],
+            [
+              -111.92573837935925,
+              33.4150707431368
+            ],
+            [
+              -111.9257390499115,
+              33.41507689996864
+            ],
+            [
+              -111.92570619285107,
+              33.41507578054469
+            ],
+            [
+              -111.9257041811943,
+              33.41503772012228
+            ],
+            [
+              -111.92569278180599,
+              33.415036040985605
+            ],
+            [
+              -111.92569278180599,
+              33.415027645301784
+            ],
+            [
+              -111.92568808794022,
+              33.41496495750358
+            ],
+            [
+              -111.9257216155529,
+              33.41496607692896
+            ],
+            [
+              -111.9257216155529,
+              33.41498902514576
+            ],
+            [
+              -111.92583158612251,
+              33.41498734600814
+            ],
+            [
+              -111.92583158612251,
+              33.41498118916997
+            ],
+            [
+              -111.92585974931717,
+              33.41498118916997
+            ],
+            [
+              -111.92586377263069,
+              33.41497783089441
+            ],
+            [
+              -111.92587181925774,
+              33.414978390607025
+            ],
+            [
+              -111.92588053643703,
+              33.41497055463027
+            ],
+            [
+              -111.9259013235569,
+              33.41497055463027
+            ],
+            [
+              -111.92590199410915,
+              33.41497895031961
+            ],
+            [
+              -111.92593149840832,
+              33.414981748882546
+            ]
+          ]
+        ]
+      },
+      "fidelity": 0.827805,
+      "areaSqm": 239.5,
+      "areaSqft": 2578,
+      "clippedAreaSqm": 239.7,
+      "clippedAreaSqft": 2580,
+      "unclippedAreaSqm": 239.5,
+      "unclippedAreaSqft": 2578,
+      "attributes": [
+        {
+          "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+          "internalClassId": 10,
+          "description": "Roof Condition",
+          "components": [
+            {
+              "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+              "internalClassId": 1049,
+              "description": "Structural Damage",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.998,
+                      0.002,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.946,
+                      0.054,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.054,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+              "internalClassId": 1050,
+              "description": "Roof with Temporary Repair",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.997,
+                      0.003,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.003,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+              "internalClassId": 1051,
+              "description": "Roof Ponding",
+              "confidence": 0.6448511,
+              "areaSqm": 29.8,
+              "areaSqft": 321,
+              "ratio": 0.124535374,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.053,
+                      0.366,
+                      0.151,
+                      0.085,
+                      0.06,
+                      0.054,
+                      0.048,
+                      0.033,
+                      0.026,
+                      0.024,
+                      0.025,
+                      0.024,
+                      0.025,
+                      0.018,
+                      0.009,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0,
+                      1,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 1,
+                    "median": 0.119
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+              "internalClassId": 1052,
+              "description": "Roof Rusting",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.856,
+                      0.144,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.144,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+              "internalClassId": 1053,
+              "description": "Tile or Shingle Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.996,
+                      0.004,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.801,
+                      0.199,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.199,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+              "internalClassId": 1079,
+              "description": "Missing Roof Tile or Shingle",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+              "internalClassId": 1080,
+              "description": "Roof with Permanent Repair",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.627,
+                      0.276,
+                      0.067,
+                      0.025,
+                      0.004,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.251,
+                      0.749,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.749,
+                    "median": 0.025
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+              "internalClassId": 1081,
+              "description": "Zinc Staining",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+              "internalClassId": 1139,
+              "description": "Roof Debris",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.998,
+                      0.002,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.96,
+                      0.04,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.04,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+              "internalClassId": 1140,
+              "description": "Exposed Roof Deck",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+              "internalClassId": 1141,
+              "description": "Missing Asphalt shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.998,
+                      0.002,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.002,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "94944057-968c-5df3-828b-285091b7e266",
+              "internalClassId": 1142,
+              "description": "Active Ponding",
+              "confidence": 0.5996094,
+              "areaSqm": 2.5,
+              "areaSqft": 26,
+              "ratio": 0.0102378875,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.757,
+                      0.15,
+                      0.048,
+                      0.017,
+                      0.008,
+                      0.003,
+                      0.002,
+                      0.002,
+                      0.002,
+                      0.003,
+                      0.003,
+                      0.003,
+                      0.001,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.371,
+                      0.629,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.629,
+                    "median": 0.025
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+              "internalClassId": 1144,
+              "description": "Roof Staining",
+              "confidence": 0.79297715,
+              "areaSqm": 58.1,
+              "areaSqft": 626,
+              "ratio": 0.24274379,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.043,
+                      0.315,
+                      0.133,
+                      0.068,
+                      0.054,
+                      0.052,
+                      0.035,
+                      0.03,
+                      0.027,
+                      0.021,
+                      0.017,
+                      0.02,
+                      0.022,
+                      0.035,
+                      0.041,
+                      0.038,
+                      0.049,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0,
+                      1,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 1,
+                    "median": 0.154
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+              "internalClassId": 1146,
+              "description": "Worn Shingles",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      1,
+                      0,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0,
+                    "median": 0
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+              "internalClassId": 1147,
+              "description": "Exposed Underlayment",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.982,
+                      0.018,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.018,
+                    "median": 0.014
+                  }
+                ]
+              }
+            },
+            {
+              "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+              "internalClassId": 1149,
+              "description": "Roof Patching",
+              "confidence": null,
+              "areaSqm": 0,
+              "areaSqft": 0,
+              "ratio": 0,
+              "confidenceStats": {
+                "histograms": [
+                  {
+                    "binType": "default",
+                    "ratios": [
+                      0.798,
+                      0.185,
+                      0.014,
+                      0.002,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  {
+                    "binType": "extreme",
+                    "ratios": [
+                      0.337,
+                      0.663,
+                      0
+                    ]
+                  }
+                ],
+                "summaries": [
+                  {
+                    "rangeType": "nonzero",
+                    "ratio": 0.663,
+                    "median": 0.025
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04",
+      "isFootprint": true
+    },
+    {
+      "id": "ebc93a46-29aa-51ca-a241-780197baa690",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5058594,
+      "parentId": "eae8f9cd-a2ad-59a6-94ea-11a8bfdb2442",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92572765052319,
+              33.41502372731572
+            ],
+            [
+              -111.92572765052319,
+              33.41501868990482
+            ],
+            [
+              -111.9257289916277,
+              33.415018130192486
+            ],
+            [
+              -111.92573368549347,
+              33.41501924961715
+            ],
+            [
+              -111.92573569715023,
+              33.415023167603415
+            ],
+            [
+              -111.92572765052319,
+              33.41502372731572
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.3,
+      "areaSqft": 4,
+      "clippedAreaSqm": 0.3,
+      "clippedAreaSqft": 4,
+      "unclippedAreaSqm": 0.3,
+      "unclippedAreaSqft": 4,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "ee9361fd-a5d5-5a0b-a98d-3a1d8d57f1ca",
+      "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+      "internalClassId": 1080,
+      "description": "Roof with Permanent Repair",
+      "confidence": 0.5058594,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9259100407362,
+              33.414574836885265
+            ],
+            [
+              -111.92591205239296,
+              33.414574836885265
+            ],
+            [
+              -111.92591205239296,
+              33.41457595631567
+            ],
+            [
+              -111.9259100407362,
+              33.41457595631567
+            ],
+            [
+              -111.9259100407362,
+              33.414574836885265
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0,
+      "areaSqft": 0,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0,
+      "unclippedAreaSqft": 0,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "f3b90e54-7b6d-518d-b205-1ebe10920c53",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5527344,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92581348121166,
+              33.414279306756725
+            ],
+            [
+              -111.92581415176392,
+              33.41428042619091
+            ],
+            [
+              -111.9258114695549,
+              33.41428210534221
+            ],
+            [
+              -111.9258101284504,
+              33.41428490392759
+            ],
+            [
+              -111.92580208182335,
+              33.41428490392759
+            ],
+            [
+              -111.92579939961433,
+              33.41428210534221
+            ],
+            [
+              -111.92579872906208,
+              33.414279306756725
+            ],
+            [
+              -111.92580409348011,
+              33.4142781873225
+            ],
+            [
+              -111.92581348121166,
+              33.414279306756725
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.8,
+      "areaSqft": 8,
+      "clippedAreaSqm": 0.8,
+      "clippedAreaSqft": 8,
+      "unclippedAreaSqm": 0.8,
+      "unclippedAreaSqft": 8,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "f909268c-b72b-5937-b008-bba485db900e",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5410156,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92520193755627,
+              33.4149996596832
+            ],
+            [
+              -111.92520327866077,
+              33.415000219395644
+            ],
+            [
+              -111.92520327866077,
+              33.41500133882056
+            ],
+            [
+              -111.92519657313824,
+              33.41500245824545
+            ],
+            [
+              -111.92519590258598,
+              33.41500133882056
+            ],
+            [
+              -111.92519456148148,
+              33.41500133882056
+            ],
+            [
+              -111.92519590258598,
+              33.4149996596832
+            ],
+            [
+              -111.92520193755627,
+              33.4149996596832
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.2,
+      "areaSqft": 2,
+      "clippedAreaSqm": 0.2,
+      "clippedAreaSqft": 2,
+      "unclippedAreaSqm": 0.2,
+      "unclippedAreaSqft": 2,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "faee986a-198e-58a6-a351-7af7078f82c9",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5175781,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92508190870285,
+              33.41521962640228
+            ],
+            [
+              -111.92508190870285,
+              33.41522074582436
+            ],
+            [
+              -111.92507855594158,
+              33.41522130553538
+            ],
+            [
+              -111.92507788538933,
+              33.41522018611332
+            ],
+            [
+              -111.92507922649384,
+              33.41521906669123
+            ],
+            [
+              -111.92508190870285,
+              33.41521962640228
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.1,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.1,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "fcf84c81-6f93-5735-ae51-fb46a3ef908a",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5058594,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92463867366314,
+              33.41502876472636
+            ],
+            [
+              -111.92464001476765,
+              33.415030443863145
+            ],
+            [
+              -111.9246393442154,
+              33.415032682712166
+            ],
+            [
+              -111.92463800311089,
+              33.415032682712166
+            ],
+            [
+              -111.92463867366314,
+              33.41502876472636
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0,
+      "areaSqft": 1,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0,
+      "unclippedAreaSqft": 1,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "fdb7db00-02d4-5545-b1a5-f6356b3d9bf3",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.5292969,
+      "parentId": "8fb6e43d-c152-5529-9236-7264d67eec44",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92513287067413,
+              33.41555377325302
+            ],
+            [
+              -111.92512884736061,
+              33.4155571315063
+            ],
+            [
+              -111.92512482404709,
+              33.415557691215184
+            ],
+            [
+              -111.92512281239033,
+              33.41555937034175
+            ],
+            [
+              -111.92512281239033,
+              33.41556048975946
+            ],
+            [
+              -111.92512147128582,
+              33.41555937034175
+            ],
+            [
+              -111.92512147128582,
+              33.41555489267079
+            ],
+            [
+              -111.92512348294258,
+              33.415550974708516
+            ],
+            [
+              -111.9251261651516,
+              33.41554929558178
+            ],
+            [
+              -111.92512683570385,
+              33.415547616455
+            ],
+            [
+              -111.92512817680836,
+              33.415547616455
+            ],
+            [
+              -111.92512951791286,
+              33.41554929558178
+            ],
+            [
+              -111.92513354122639,
+              33.415550974708516
+            ],
+            [
+              -111.92513287067413,
+              33.41555377325302
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 0.9,
+      "areaSqft": 9,
+      "clippedAreaSqm": 0,
+      "clippedAreaSqft": 0,
+      "unclippedAreaSqm": 0.9,
+      "unclippedAreaSqft": 9,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    },
+    {
+      "id": "fff8e8e2-637d-540a-afad-bc4d1790da4d",
+      "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+      "internalClassId": 1051,
+      "description": "Roof Ponding",
+      "confidence": 0.6127494,
+      "parentId": "25cc54f2-d8c2-531a-acc9-9c610330e5b7",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92576922476292,
+              33.4142485223105
+            ],
+            [
+              -111.92577123641968,
+              33.41425467920062
+            ],
+            [
+              -111.92578129470348,
+              33.414261395807515
+            ],
+            [
+              -111.92578062415123,
+              33.41426867213109
+            ],
+            [
+              -111.92578196525574,
+              33.41427091099975
+            ],
+            [
+              -111.92578598856926,
+              33.41427314986836
+            ],
+            [
+              -111.92579872906208,
+              33.41427203043405
+            ],
+            [
+              -111.92579872906208,
+              33.414270351282575
+            ],
+            [
+              -111.92580007016659,
+              33.41426979156541
+            ],
+            [
+              -111.92580074071884,
+              33.41426755269672
+            ],
+            [
+              -111.92580208182335,
+              33.41426699297955
+            ],
+            [
+              -111.92580007016659,
+              33.41426195552473
+            ],
+            [
+              -111.92580007016659,
+              33.41425691806964
+            ],
+            [
+              -111.92580342292786,
+              33.41425188061426
+            ],
+            [
+              -111.92581951618195,
+              33.41425076117968
+            ],
+            [
+              -111.92582286894321,
+              33.41425188061426
+            ],
+            [
+              -111.92582353949547,
+              33.4142530000488
+            ],
+            [
+              -111.92582555115223,
+              33.4142530000488
+            ],
+            [
+              -111.92582957446575,
+              33.4142485223105
+            ],
+            [
+              -111.9258289039135,
+              33.4142485223105
+            ],
+            [
+              -111.92582957446575,
+              33.41424740287587
+            ],
+            [
+              -111.92582957446575,
+              33.41424180570261
+            ],
+            [
+              -111.92582555115223,
+              33.414236768246326
+            ],
+            [
+              -111.92581616342068,
+              33.41424124598524
+            ],
+            [
+              -111.92577123641968,
+              33.41424068626789
+            ],
+            [
+              -111.92576855421066,
+              33.41424348485463
+            ],
+            [
+              -111.92576989531517,
+              33.4142485223105
+            ],
+            [
+              -111.92576922476292,
+              33.4142485223105
+            ]
+          ]
+        ]
+      },
+      "areaSqm": 11.7,
+      "areaSqft": 126,
+      "clippedAreaSqm": 11.7,
+      "clippedAreaSqft": 126,
+      "unclippedAreaSqm": 11.7,
+      "unclippedAreaSqft": 126,
+      "attributes": [],
+      "surveyDate": "2025-07-04",
+      "meshDate": "2025-07-04"
+    }
+  ],
+  "taskId": "df61be7b-d352-574f-8ef4-1acd3eacf728",
+  "internalSystemVersion": "LedZeppelin:F.2",
+  "surveyTags": {},
+  "partialResource": false
+}
