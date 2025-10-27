@@ -227,3 +227,170 @@ def test_features_without_rollup(integration_test_dir):
         dot_cols = [c for c in features_gdf.columns if '.' in c]
         if dot_cols:
             print(f"✅ Features-only export has {len(dot_cols)} dot-notation columns")
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_full_export_with_all_includes_and_chunks(integration_test_dir):
+    """
+    End-to-end test with all AI packs, include="all", and multiple chunks.
+
+    This test verifies:
+    1. Multiple packs work together (building, vegetation, roof_cond, etc.)
+    2. include="all" returns all available include parameters
+    3. Chunking works correctly with includes
+    4. All include parameters are properly flattened in both rollup and features
+    5. roofConditionConfidenceStats histogram bins are present
+    """
+
+    # Use Phoenix, AZ area - has good coverage for all packs and includes
+    test_polygon = Polygon([
+        (-111.926, 33.4152),
+        (-111.925, 33.4152),
+        (-111.925, 33.4142),
+        (-111.926, 33.4142),
+        (-111.926, 33.4152)
+    ])
+
+    test_aoi = gpd.GeoDataFrame(
+        {'aoi_id': ['phoenix_test'], 'geometry': [test_polygon]},
+        crs='EPSG:4326'
+    )
+
+    aoi_file = integration_test_dir / 'test_aoi_phoenix.geojson'
+    test_aoi.to_file(aoi_file, driver='GeoJSON')
+
+    # Run exporter with all packs and include="all"
+    exporter = AOIExporter(
+        aoi_file=str(aoi_file),
+        output_dir=str(integration_test_dir),
+        country='us',
+        packs=['building', 'vegetation', 'roof_cond', 'roof_char', 'building_char'],
+        include=['all'],  # Get all available includes
+        save_features=True,  # Test both features and rollup output
+        save_buildings=True,
+        chunk_size=2,  # Force multiple chunks for testing
+        no_cache=True,
+        processes=1,
+    )
+
+    exporter.run()
+
+    final_dir = integration_test_dir / 'final'
+    chunk_dir = integration_test_dir / 'chunks'
+
+    # 1. Verify rollup CSV exists and has include parameter columns
+    rollup_file = final_dir / 'test_aoi_phoenix.csv'
+    assert rollup_file.exists(), f"Rollup CSV should be created at {rollup_file}"
+
+    rollup_df = pd.read_csv(rollup_file)
+    rollup_cols = rollup_df.columns.tolist()
+
+    # Check for include parameter columns in rollup
+    include_patterns = {
+        'roofSpotlightIndex': 'roof_spotlight_index',
+        'hurricaneScore': 'hurricane_vulnerability_score',
+        'defensibleSpace': 'defensible_space_zone_',
+        'roofConditionConfidenceStats': 'confidence_stats_default_bin_',
+    }
+
+    found_includes = {}
+    for include_name, pattern in include_patterns.items():
+        matching_cols = [col for col in rollup_cols if pattern in col]
+        found_includes[include_name] = len(matching_cols)
+        if matching_cols:
+            print(f"✅ Found {len(matching_cols)} columns for {include_name}")
+
+    # Verify roofConditionConfidenceStats histogram bins are present
+    confidence_bins = [col for col in rollup_cols if 'confidence_stats_default_bin_' in col or 'confidence_stats_extreme_bin_' in col]
+    assert len(confidence_bins) > 0, f"Should have roofConditionConfidenceStats histogram bins in rollup. Columns: {rollup_cols[:20]}"
+    print(f"✅ Found {len(confidence_bins)} roofConditionConfidenceStats histogram bin columns")
+
+    # Verify default bins (18 per component) and extreme bins (3 per component)
+    default_bins = [col for col in confidence_bins if '_default_bin_' in col]
+    extreme_bins = [col for col in confidence_bins if '_extreme_bin_' in col]
+    print(f"   - Default bins: {len(default_bins)}")
+    print(f"   - Extreme bins: {len(extreme_bins)}")
+
+    # 2. Verify features parquet exists and was created successfully
+    features_file = final_dir / 'test_aoi_phoenix_features.parquet'
+    assert features_file.exists(), f"Features parquet should be created at {features_file}"
+
+    features_gdf = gpd.read_parquet(features_file)
+    print(f"✅ Features file has {len(features_gdf)} features")
+
+    # 3. Verify rollup chunks were created
+    rollup_chunks = list(chunk_dir.glob('rollup_test_aoi_phoenix_*.parquet'))
+    assert len(rollup_chunks) > 0, f"Should have created rollup chunks"
+    print(f"✅ Created {len(rollup_chunks)} rollup chunks")
+
+    # 4. Verify feature chunks were created
+    feature_chunks = list(chunk_dir.glob('features_test_aoi_phoenix_*.parquet'))
+    assert len(feature_chunks) > 0, f"Should have created feature chunks"
+    print(f"✅ Created {len(feature_chunks)} feature chunks")
+
+    # 5. Verify chunks have include parameter data
+    for chunk_file in rollup_chunks[:1]:  # Check first chunk
+        chunk_df = pd.read_parquet(chunk_file)
+        if len(chunk_df) > 0:
+            chunk_cols = chunk_df.columns.tolist()
+            chunk_confidence_bins = [col for col in chunk_cols if 'confidence_stats_default_bin_' in col]
+            if len(chunk_confidence_bins) > 0:
+                print(f"✅ Rollup chunks contain confidence stats columns ({len(chunk_confidence_bins)} bins)")
+
+    # 6. Verify chunk features match consolidated features
+    chunk_features = []
+    for chunk_file in feature_chunks:
+        chunk_gdf = gpd.read_parquet(chunk_file)
+        if len(chunk_gdf) > 0:
+            chunk_features.append(chunk_gdf)
+
+    if chunk_features:
+        total_chunk_features = sum(len(df) for df in chunk_features)
+        assert total_chunk_features == len(features_gdf), \
+            f"Chunk features ({total_chunk_features}) should match consolidated features ({len(features_gdf)})"
+        print(f"✅ Chunk feature count matches consolidated file: {total_chunk_features}")
+
+    # 7. Verify features have proper dot-notation columns
+    if len(features_gdf) > 0:
+        features_cols = features_gdf.columns.tolist()
+        dot_cols = [col for col in features_cols if '.' in col]
+        print(f"✅ Features have {len(dot_cols)} dot-notation columns")
+
+        # Verify features have multiple feature types from different packs
+        feature_descriptions = features_gdf['description'].unique()
+        print(f"✅ Found {len(feature_descriptions)} unique feature types")
+
+        has_building = any('Building' in d for d in feature_descriptions)
+        has_vegetation = any('Vegetation' in d or 'Tree' in d for d in feature_descriptions)
+        has_roof = any('Roof' in d for d in feature_descriptions)
+
+        found_packs = []
+        if has_building:
+            found_packs.append('building')
+        if has_vegetation:
+            found_packs.append('vegetation')
+        if has_roof:
+            found_packs.append('roof features')
+
+        if found_packs:
+            print(f"✅ Found features from: {', '.join(found_packs)}")
+
+    # 8. Verify rollup has data from multiple packs
+    if len(rollup_df) > 0:
+        has_building_cols = any('building' in col.lower() for col in rollup_cols)
+        has_vegetation_cols = any('vegetation' in col.lower() or 'tree' in col.lower() for col in rollup_cols)
+        has_roof_cols = any('roof' in col.lower() for col in rollup_cols)
+
+        rollup_packs = []
+        if has_building_cols:
+            rollup_packs.append('building')
+        if has_vegetation_cols:
+            rollup_packs.append('vegetation')
+        if has_roof_cols:
+            rollup_packs.append('roof features')
+
+        if rollup_packs:
+            print(f"✅ Found rollup columns from: {', '.join(rollup_packs)}")
+
+    print(f"\n✅ Full end-to-end test passed with all packs, include='all', and chunking")

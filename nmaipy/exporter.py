@@ -891,6 +891,25 @@ class AOIExporter:
                         final_features_df = final_features_df[
                             ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
                         ]
+                        # Convert dict-type include parameters to JSON strings to avoid Parquet serialization errors
+                        # Include parameters like defensibleSpace, hurricaneScore, roofSpotlightIndex can be dicts
+                        # and need to be serialized to JSON strings for Parquet compatibility
+                        include_param_columns = ['defensible_space', 'defensibleSpace', 'hurricane_score',
+                                                'hurricaneScore', 'roof_spotlight_index', 'roofSpotlightIndex']
+                        for col in include_param_columns:
+                            if col in final_features_df.columns:
+                                # Convert dict values to JSON strings, keep None as None
+                                def serialize_include_param(val):
+                                    if val is None or pd.isna(val):
+                                        return None
+                                    if isinstance(val, dict):
+                                        return json.dumps(val)
+                                    if isinstance(val, str):
+                                        return val  # Already a string
+                                    return str(val)
+
+                                final_features_df[col] = final_features_df[col].apply(serialize_include_param)
+
                         # Ensure it's a proper GeoDataFrame before saving to parquet
                         if not isinstance(final_features_df, gpd.GeoDataFrame):
                             final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
