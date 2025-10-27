@@ -894,21 +894,25 @@ class AOIExporter:
                         # Convert dict-type include parameters to JSON strings to avoid Parquet serialization errors
                         # Include parameters like defensibleSpace, hurricaneScore, roofSpotlightIndex can be dicts
                         # and need to be serialized to JSON strings for Parquet compatibility
-                        include_param_columns = ['defensible_space', 'defensibleSpace', 'hurricane_score',
-                                                'hurricaneScore', 'roof_spotlight_index', 'roofSpotlightIndex']
-                        for col in include_param_columns:
-                            if col in final_features_df.columns:
-                                # Convert dict values to JSON strings, keep None as None
-                                def serialize_include_param(val):
-                                    if val is None or pd.isna(val):
-                                        return None
-                                    if isinstance(val, dict):
-                                        return json.dumps(val)
-                                    if isinstance(val, str):
-                                        return val  # Already a string
-                                    return str(val)
+                        # Dynamically detect which columns contain dict values
+                        def serialize_include_param(val):
+                            if val is None or pd.isna(val):
+                                return None
+                            if isinstance(val, dict):
+                                return json.dumps(val)
+                            if isinstance(val, str):
+                                return val  # Already a string
+                            return str(val)
 
-                                final_features_df[col] = final_features_df[col].apply(serialize_include_param)
+                        dict_columns = []
+                        for col in final_features_df.columns:
+                            # Check a sample of non-null values to see if this column contains dicts
+                            sample = final_features_df[col].dropna()
+                            if len(sample) > 0 and isinstance(sample.iloc[0], dict):
+                                dict_columns.append(col)
+
+                        for col in dict_columns:
+                            final_features_df[col] = final_features_df[col].apply(serialize_include_param)
 
                         # Ensure it's a proper GeoDataFrame before saving to parquet
                         if not isinstance(final_features_df, gpd.GeoDataFrame):

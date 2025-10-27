@@ -22,11 +22,11 @@ def integration_test_dir():
     else:
         output_dir = Path(__file__).parent / 'data' / 'integration_test_output'
         output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     yield output_dir
-    
-    # Cleanup
-    if output_dir.exists():
+
+    # Cleanup - skip if KEEP_TEST_FILES is set (useful for QGIS testing)
+    if output_dir.exists() and not os.environ.get('KEEP_TEST_FILES'):
         shutil.rmtree(output_dir)
 
 
@@ -394,3 +394,113 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
             print(f"✅ Found rollup columns from: {', '.join(rollup_packs)}")
 
     print(f"\n✅ Full end-to-end test passed with all packs, include='all', and chunking")
+
+
+@pytest.mark.integration
+def test_parquet_deserialization_of_include_params(integration_test_dir):
+    """
+    Test that include parameters serialized as JSON strings in Parquet files
+    can be successfully deserialized back to dictionaries.
+
+    This verifies that the JSON serialization of dict-type include parameters
+    (hurricaneScore, defensibleSpace, roofSpotlightIndex) works correctly
+    for round-trip Parquet read/write operations.
+    """
+
+    # Use Phoenix area with roof features that have include parameters
+    test_polygon = Polygon([
+        (-111.926, 33.4152),
+        (-111.925, 33.4152),
+        (-111.925, 33.4142),
+        (-111.926, 33.4142),
+        (-111.926, 33.4152)
+    ])
+
+    test_aoi = gpd.GeoDataFrame(
+        {'aoi_id': ['parquet_test'], 'geometry': [test_polygon]},
+        crs='EPSG:4326'
+    )
+
+    aoi_file = integration_test_dir / 'test_aoi_parquet.geojson'
+    test_aoi.to_file(aoi_file, driver='GeoJSON')
+
+    # Run exporter with include parameters that return dict objects
+    exporter = AOIExporter(
+        aoi_file=str(aoi_file),
+        output_dir=str(integration_test_dir),
+        country='us',
+        packs=['building', 'roof_char'],
+        include=['hurricaneScore', 'defensibleSpace', 'roofSpotlightIndex'],
+        save_features=True,
+        save_buildings=False,
+        no_cache=True,
+        processes=1,
+    )
+
+    exporter.run()
+
+    final_dir = integration_test_dir / 'final'
+    features_file = final_dir / 'test_aoi_parquet_features.parquet'
+
+    assert features_file.exists(), f"Features file should exist at {features_file}"
+
+    # Read the parquet file
+    features_gdf = gpd.read_parquet(features_file)
+
+    # Check for include parameter columns
+    include_columns = {
+        'hurricane_score': 'hurricaneScore',
+        'defensible_space': 'defensibleSpace',
+        'roof_spotlight_index': 'roofSpotlightIndex'
+    }
+
+    found_includes = []
+    deserialized_successfully = []
+
+    for snake_case, camel_case in include_columns.items():
+        # Check both naming conventions
+        if snake_case in features_gdf.columns:
+            col_name = snake_case
+            found_includes.append(snake_case)
+        elif camel_case in features_gdf.columns:
+            col_name = camel_case
+            found_includes.append(camel_case)
+        else:
+            continue
+
+        # Get non-null values
+        non_null_values = features_gdf[features_gdf[col_name].notna()][col_name]
+
+        if len(non_null_values) > 0:
+            sample_value = non_null_values.iloc[0]
+
+            # Value should be a JSON string
+            assert isinstance(sample_value, str), \
+                f"{col_name} should be serialized as JSON string, got {type(sample_value)}"
+
+            # Deserialize the JSON string
+            try:
+                deserialized = json.loads(sample_value)
+                assert isinstance(deserialized, dict), \
+                    f"Deserialized {col_name} should be a dict, got {type(deserialized)}"
+
+                # Verify the dict has expected structure (non-empty)
+                assert len(deserialized) > 0, \
+                    f"Deserialized {col_name} should not be empty"
+
+                deserialized_successfully.append(col_name)
+                print(f"✅ Successfully deserialized {col_name}: {list(deserialized.keys())[:5]}")
+
+            except json.JSONDecodeError as e:
+                pytest.fail(f"Failed to deserialize {col_name}: {e}")
+
+    # Verify we found and deserialized at least one include parameter
+    assert len(found_includes) > 0, \
+        f"Should have at least one include parameter in features. Columns: {features_gdf.columns.tolist()}"
+
+    assert len(deserialized_successfully) > 0, \
+        f"Should successfully deserialize at least one include parameter"
+
+    print(f"\n✅ Parquet deserialization test passed:")
+    print(f"   - Found {len(found_includes)} include parameters: {found_includes}")
+    print(f"   - Successfully deserialized {len(deserialized_successfully)}: {deserialized_successfully}")
