@@ -191,7 +191,46 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                 flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
             if "modelVersion" in rsi_data:
                 flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
-        
+
+        # Handle hurricaneScore - check both camelCase and snake_case versions
+        hurricane_score_data = roof.get("hurricaneScore") or roof.get("hurricane_score")
+        if hurricane_score_data and isinstance(hurricane_score_data, dict):
+            if "vulnerabilityScore" in hurricane_score_data:
+                flattened["hurricane_vulnerability_score"] = hurricane_score_data["vulnerabilityScore"]
+            if "vulnerabilityProbability" in hurricane_score_data:
+                flattened["hurricane_vulnerability_probability"] = hurricane_score_data["vulnerabilityProbability"]
+            if "vulnerabilityRateFactor" in hurricane_score_data:
+                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
+            # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
+
+        # Handle defensibleSpace - check both camelCase and snake_case versions
+        defensible_space_data = roof.get("defensibleSpace") or roof.get("defensible_space")
+        if defensible_space_data and isinstance(defensible_space_data, dict):
+            zones = defensible_space_data.get("zones", [])
+            for zone in zones:
+                zone_id = zone.get("zoneId")
+                if zone_id:
+                    # Flatten key metrics for each zone
+                    prefix = f"defensible_space_zone_{zone_id}"
+                    if country in IMPERIAL_COUNTRIES:
+                        if "zoneAreaSqft" in zone:
+                            flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+                        if "defensibleSpaceAreaSqft" in zone:
+                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+                        if "totalRiskObjectAreaSqft" in zone:
+                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+                    else:
+                        if "zoneAreaSqm" in zone:
+                            flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+                        if "defensibleSpaceAreaSqm" in zone:
+                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+                        if "totalRiskObjectAreaSqm" in zone:
+                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+
+                    if "defensibleSpaceCoverageRatio" in zone:
+                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                    # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
+
         for attribute in roof["attributes"]:
             if "components" in attribute:
                 for component in attribute["components"]:
@@ -209,6 +248,18 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                     # Handle ratio field if present
                     if "ratio" in component:
                         flattened[f"{name}_ratio"] = component["ratio"]
+
+                    # Handle confidenceStats if present (from roofConditionConfidenceStats include parameter)
+                    if "confidenceStats" in component:
+                        confidence_stats = component["confidenceStats"]
+                        # Flatten histogram bins
+                        histograms = confidence_stats.get("histograms", [])
+                        for histogram in histograms:
+                            bin_type = histogram.get("binType", "unknown")
+                            ratios = histogram.get("ratios", [])
+                            # Create a column for each bin in the histogram
+                            for bin_idx, ratio_value in enumerate(ratios):
+                                flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
             elif "has3dAttributes" in attribute:
                 flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
                 if attribute["has3dAttributes"]:
@@ -227,7 +278,7 @@ def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]
     flattened = {}
     for building_lifecycle in building_lifecycles:
         attribute = building_lifecycle.get("attributes", {})
-        
+
         # Check if damage exists and is not None
         if "damage" in attribute and attribute["damage"] is not None:
             # Check if damage is a dictionary (expected) vs scalar or other type
@@ -235,16 +286,16 @@ def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]
             if not isinstance(damage_data, dict):
                 # Damage is scalar or unexpected type - skip processing
                 continue
-                
+
             # Check if femaCategoryConfidences exists and is valid
             if "femaCategoryConfidences" not in damage_data:
                 continue
-                
+
             damage_dic = damage_data["femaCategoryConfidences"]
             if damage_dic is None or not isinstance(damage_dic, dict) or len(damage_dic) == 0:
                 # No valid damage categories - skip processing
                 continue
-                
+
             # Process valid damage data
             x = pd.Series(damage_dic)
             flattened["damage_class"] = x.idxmax()

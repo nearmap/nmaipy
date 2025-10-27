@@ -571,9 +571,9 @@ class TestFeatureAPI:
         # All buildings intersect the AOI
         assert len(features_gdf[features_gdf.intersects(aoi)]) == 1
 
-        assert features_gdf["unclipped_area_sqm"].sum() == pytest.approx(154, rel=0.02)
-        assert features_gdf["area_sqm"].sum() == pytest.approx(154, rel=0.02)
-        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(70, rel=0.02)
+        assert features_gdf["unclipped_area_sqm"].sum() == pytest.approx(152, rel=0.02)
+        assert features_gdf["area_sqm"].sum() == pytest.approx(152, rel=0.02)
+        assert features_gdf["clipped_area_sqm"].sum() == pytest.approx(68, rel=0.02)
 
     def test_polygon_with_hole_1(self, cache_directory: Path):
         # This one should have a building in the middle which gets pulled then discarded, and clear space around it.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Test that roofSpotlightIndex is correctly handled in flatten_roof_attributes."""
 
+import ast
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,26 @@ from nmaipy.feature_api import FeatureApi
 from nmaipy.parcels import flatten_roof_attributes
 
 data_directory = Path(__file__).parent / "data"
+
+
+@pytest.fixture
+def rsi_payload():
+    """Load the raw roofSpotlightIndex API payload."""
+    raw_payload_file = data_directory / "test_rsi_raw_payload.json"
+    if not raw_payload_file.exists():
+        pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_rsi_data first.")
+
+    with open(raw_payload_file, 'r') as f:
+        return json.load(f)
+
+
+@pytest.fixture
+def roof_with_rsi(rsi_payload):
+    """Get a roof feature with roofSpotlightIndex from the API payload."""
+    for feature in rsi_payload['features']:
+        if feature.get('classId') == ROOF_ID and 'roofSpotlightIndex' in feature:
+            return feature
+    pytest.skip("No roof with roofSpotlightIndex found in payload")
 
 
 @pytest.mark.skip("Comment out this line if you wish to generate roofSpotlightIndex test data")
@@ -89,7 +110,7 @@ def test_gen_rsi_data(cache_directory: Path):
                 try:
                     attrs = json.loads(attrs.replace("'", '"'))
                 except:
-                    attrs = eval(attrs) if attrs else []
+                    attrs = ast.literal_eval(attrs) if attrs else []
             if isinstance(attrs, list) and len(attrs) > 0:
                 # Save sample of roof with attributes
                 roof_sample = {
@@ -131,64 +152,40 @@ def test_gen_rsi_data(cache_directory: Path):
     # Don't fail - we can still test that the code handles missing RSI gracefully
 
 
-def test_roof_spotlight_index_with_real_data():
+def test_roof_spotlight_index_with_real_data(roof_with_rsi):
     """
     Test that roofSpotlightIndex is correctly extracted using real API data.
-    
+
     roofSpotlightIndex is available with gen6 on "Roof" features as a root-level property.
+    Uses real API data from the payload fixture.
     """
-    # We know from the raw payload that we have RSI data
-    raw_payload_file = data_directory / "test_rsi_raw_payload.json"
-    
-    if not raw_payload_file.exists():
-        pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_rsi_data first.")
-    
-    # Load the raw payload to get the actual structure
-    with open(raw_payload_file, 'r') as f:
-        payload = json.load(f)
-    
-    # Find a roof feature with roofSpotlightIndex
-    roof_with_rsi = None
-    for feature in payload['features']:
-        if feature.get('classId') == ROOF_ID and 'roofSpotlightIndex' in feature:
-            # Found one! Simulate what happens after processing through feature_api
-            # The columns get converted to snake_case
-            roof_with_rsi = {
-                'feature_id': feature['id'],
-                'class_id': feature['classId'],
-                'roof_spotlight_index': feature['roofSpotlightIndex'],  # snake_case conversion
-                'attributes': feature.get('attributes', [])
-            }
-            # Store the original RSI data for verification
-            original_rsi = feature['roofSpotlightIndex']
-            break
-    
-    if not roof_with_rsi:
-        pytest.skip("No roofSpotlightIndex found in raw payload data.")
-    
+    # Use real API data from fixture
+    roof = {
+        'feature_id': roof_with_rsi['id'],
+        'class_id': roof_with_rsi['classId'],
+        'roof_spotlight_index': roof_with_rsi['roofSpotlightIndex'],
+        'attributes': roof_with_rsi.get('attributes', [])
+    }
+
     # Test the flatten_roof_attributes function with the processed data
-    result = flatten_roof_attributes([roof_with_rsi], country="us")
-    
-    # Verify roofSpotlightIndex was extracted correctly
+    result = flatten_roof_attributes([roof], country="us")
+
+    # Verify roofSpotlightIndex was extracted correctly using real values from API
     assert "roof_spotlight_index" in result, "roof_spotlight_index should be present in flattened result"
-    assert result["roof_spotlight_index"] == original_rsi['value'], \
-        f"Expected value {original_rsi['value']}, got {result['roof_spotlight_index']}"
-    
-    if 'confidence' in original_rsi:
+    assert result["roof_spotlight_index"] == roof_with_rsi['roofSpotlightIndex']['value'], \
+        f"Expected value {roof_with_rsi['roofSpotlightIndex']['value']}, got {result['roof_spotlight_index']}"
+
+    if 'confidence' in roof_with_rsi['roofSpotlightIndex']:
         assert "roof_spotlight_index_confidence" in result, \
             "confidence should be in flattened result"
-        assert result["roof_spotlight_index_confidence"] == original_rsi['confidence'], \
-            f"Expected confidence {original_rsi['confidence']}, got {result['roof_spotlight_index_confidence']}"
-    
-    if 'modelVersion' in original_rsi:
+        assert result["roof_spotlight_index_confidence"] == roof_with_rsi['roofSpotlightIndex']['confidence'], \
+            f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got {result['roof_spotlight_index_confidence']}"
+
+    if 'modelVersion' in roof_with_rsi['roofSpotlightIndex']:
         assert "roof_spotlight_index_model_version" in result, \
             "modelVersion should be in flattened result"
-        assert result["roof_spotlight_index_model_version"] == original_rsi['modelVersion'], \
-            f"Expected modelVersion {original_rsi['modelVersion']}, got {result['roof_spotlight_index_model_version']}"
-    
-    print(f"✓ Successfully extracted roofSpotlightIndex from real gen6 API data")
-    print(f"  Value: {result.get('roof_spotlight_index')}")
-    print(f"  Confidence: {result.get('roof_spotlight_index_confidence')}")
+        assert result["roof_spotlight_index_model_version"] == roof_with_rsi['roofSpotlightIndex']['modelVersion'], \
+            f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got {result['roof_spotlight_index_model_version']}"
 
 
 def test_handles_missing_rsi_gracefully():
@@ -219,7 +216,7 @@ def test_handles_missing_rsi_gracefully():
                 attrs = json.loads(attrs.replace("'", '"'))
             except:
                 try:
-                    attrs = eval(attrs)
+                    attrs = ast.literal_eval(attrs)
                 except:
                     attrs = []
         roof['attributes'] = attrs if isinstance(attrs, list) else []

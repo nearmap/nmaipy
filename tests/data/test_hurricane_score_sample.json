@@ -1,0 +1,21 @@
+{
+  "feature_id": "eae8f9cd-a2ad-59a6-94ea-11a8bfdb2442",
+  "hurricane_score": {
+    "vulnerabilityScore": 5,
+    "vulnerabilityProbability": 0.804,
+    "vulnerabilityRateFactor": 0.34,
+    "modelInputFeatures": {
+      "flatPresent": 1,
+      "shinglePresent": 0,
+      "hipPresent": 0,
+      "roofStainingRatio": 0.24274367351680984,
+      "roofRustingRatio": 0,
+      "wornShinglesRatio": 0,
+      "defensibleSpaceWeightedCoverage": 0.8789968675580995,
+      "missingRoofTileOrShingleRatio": 0,
+      "treeOverhangRatio": 0,
+      "roofPatchingRatio": 0
+    }
+  },
+  "attributes": []
+}
