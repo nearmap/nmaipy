@@ -166,6 +166,8 @@ class AIFeatureAPIError(Exception):
                 self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
             except json.JSONDecodeError:
                 self.message = "JSONDecodeError"
+            except ValueError:
+                self.message = "ValueError"
             except requests.exceptions.ChunkedEncodingError:
                 self.message = "ChunkedEncodingError"
             except AttributeError:
