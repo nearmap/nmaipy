@@ -299,6 +299,7 @@ class FeatureApi:
         rapid: Optional[bool] = False,
         order: Optional[str] = None,
         exclude_tiles_with_occlusion: Optional[bool] = False,
+        progress_counters: Optional[dict] = None,
     ):
         """
         Initialize FeatureApi class
@@ -323,11 +324,15 @@ class FeatureApi:
             rapid: When True, rapid survey resources will be considered (for damage classification)
             order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
+            progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
         """
         # Initialize thread-safety attributes first
         self._sessions = []
         self._thread_local = threading.local()
         self._lock = threading.Lock()
+
+        # Store progress counters for cross-process progress tracking
+        self.progress_counters = progress_counters
 
         if not bulk_mode:
             url_root = "api.nearmap.com/ai/features/v4"
@@ -1630,6 +1635,12 @@ class FeatureApi:
         # Round the confidence column to two decimal places (nearest percent)
         if features_gdf is not None and "confidence" in features_gdf.columns:
             features_gdf["confidence"] = features_gdf["confidence"].round(2)
+
+        # Increment progress counter for completed request
+        if self.progress_counters is not None:
+            with self.progress_counters['lock']:
+                self.progress_counters['completed'] += 1
+
         return features_gdf, metadata, error
 
     def get_features_gdf_gridded(
@@ -1670,8 +1681,15 @@ class FeatureApi:
             logger.info(f"Gridding AOI {aoi_id}: acquiring gridding slot")
             
             df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
-            
+
             logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells")
+
+            # Update progress counter: we're splitting 1 AOI into N grid cells, so add (N-1) to total
+            if self.progress_counters is not None:
+                num_grid_cells = len(df_gridded)
+                with self.progress_counters['lock']:
+                    self.progress_counters['total'] += (num_grid_cells - 1)
+                logger.info(f"Gridding AOI {aoi_id}: added {num_grid_cells - 1} requests to progress total (1 AOI -> {num_grid_cells} grid cells)")
 
             # Retrieve the features for every one of the cells in the gridded AOIs
             aoi_id_tmp = range(len(df_gridded))
