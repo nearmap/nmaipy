@@ -59,9 +59,9 @@ from nmaipy.constants import (
 TIMEOUT_SECONDS = 120  # Max time to wait for a server response
 READ_TIMEOUT_SECONDS = 90  # Max time to wait for reading server response (90 seconds)
 CHUNKED_ENCODING_RETRY_DELAY = 1.0  # Delay between ChunkedEncodingError retries
-BACKOFF_FACTOR = 0.2  # Exponential backoff multiplier
+BACKOFF_FACTOR = 0.5  # Exponential backoff multiplier
 DUMMY_STATUS_CODE = -1
-SLOW_REQUEST_THRESHOLD_SECONDS = 30  # Log requests that take longer than 30 seconds
+SLOW_REQUEST_THRESHOLD_SECONDS = 60  # Log requests that take longer than 10 seconds (lowered to catch slow requests)
 
 
 logger = log.get_logger()
@@ -101,8 +101,8 @@ class RetryRequest(Retry):
     Inherited retry request to limit back-off to 5 seconds.
     """
 
-    BACKOFF_MIN = 0.2  # Minimum backoff time in seconds
-    BACKOFF_MAX = 5    # Maximum backoff time in seconds
+    BACKOFF_MIN = 0.5  # Minimum backoff time in seconds
+    BACKOFF_MAX = 16    # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -129,6 +129,28 @@ class RetryRequest(Retry):
             ConnectionResetError,  # Python built-in exception
             ssl.SSLEOFError,  # Explicit SSL EOF error
         })
+
+    def increment(self, method=None, url=None, response=None, error=None, _pool=None, _stacktrace=None):
+        """Override to log on first retry attempt"""
+        result = super().increment(method, url, response, error, _pool, _stacktrace)
+
+        # Log on first retry only (history is a tuple, check length)
+        if result and len(result.history) == 1:
+            if response is not None:
+                reason = f"HTTP {response.status} {response.reason}"
+            elif error is not None:
+                reason = f"{type(error).__name__}: {str(error)[:100]}"
+            else:
+                reason = "unknown reason"
+
+            # Clean URL of API key for logging
+            clean_url = url
+            if url and 'apikey=' in url:
+                clean_url = url.split('apikey=')[0] + 'apikey=***'
+
+            logger.info(f"{reason} causing retry of request {clean_url}")
+
+        return result
 
     def new_timeout(self, *args, **kwargs):
         """Override to enforce backoff time between 1-5 seconds"""
@@ -414,10 +436,10 @@ class FeatureApi:
         """Context manager for session lifecycle - creates fresh session each time to prevent accumulation"""
         # Always create a fresh session to prevent resource accumulation
         session = requests.Session()
-        
+
         # Configure retries based on context: skip 504 retries initially, retry within gridding
         status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
-        
+
         retries = RetryRequest(
             total=self.maxretry,
             backoff_factor=BACKOFF_FACTOR,
@@ -962,6 +984,14 @@ class FeatureApi:
                     headers = {'Content-Type': 'application/json'}
                     response = session.post(url, json=body, headers=headers, timeout=session._timeout)
                     request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
+
+                    # Log geometry if urllib3 performed any retries (check response history)
+                    if hasattr(response, 'history') and len(response.history) > 0:
+                        aoi_geom = body.get('aoi', {}) if body else {}
+                        num_retries = len(response.history)
+                        status = response.status_code if hasattr(response, 'status_code') else 'unknown'
+                        logger.info(f"Request required {num_retries} urllib3 retry(ies), final status {status}, AOI geometry: {json.dumps(aoi_geom)}")
+
                     break  # Success, exit retry loop
                 except requests.exceptions.ReadTimeout as e:
                     # Treat read timeout exactly like a 504 Gateway Timeout from the server
@@ -992,7 +1022,10 @@ class FeatureApi:
 
             response_time_ms = (time.monotonic() - t1) * 1e3
             response_time_seconds = response_time_ms / 1000
-            logger.debug(f"{response_time_ms:.1f}ms response time")
+
+            # Log response at debug level (can be enabled when diagnosing issues)
+            sanitized_url = self._clean_api_key(url)
+            logger.debug(f"Response from {sanitized_url} in {response_time_seconds:.1f}s (status: {response.status_code if response else 'unknown'})")
 
             # Log slow successful requests (failures go in errors CSV)
             if response.ok and response_time_seconds > SLOW_REQUEST_THRESHOLD_SECONDS:
@@ -1336,6 +1369,7 @@ class FeatureApi:
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = None,
+        reason: Optional[str] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Helper method to attempt gridding large AOIs and handle the common pattern of gridding, 
@@ -1377,7 +1411,8 @@ class FeatureApi:
                 since=since,
                 until=until,
                 survey_resource_id=survey_resource_id,
-                aoi_grid_inexact=allow_inexact_gridding
+                aoi_grid_inexact=allow_inexact_gridding,
+                reason=reason
             )
             error = None  # Reset error if we got here without an exception
 
@@ -1487,7 +1522,8 @@ class FeatureApi:
                     since=since,
                     until=until,
                     survey_resource_id=survey_resource_id,
-                    aoi_grid_inexact=self.aoi_grid_inexact
+                    aoi_grid_inexact=self.aoi_grid_inexact,
+                    reason=f"proactive - area {area_sqm:.0f} sqm > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm"
                 )
         
         try:
@@ -1562,7 +1598,8 @@ class FeatureApi:
                     since=since,
                     until=until,
                     survey_resource_id=survey_resource_id,
-                    aoi_grid_inexact=self.aoi_grid_inexact
+                    aoi_grid_inexact=self.aoi_grid_inexact,
+                    reason=f"reactive - HTTP {e.status_code}: {e.message}"
                 )
         except AIFeatureAPIError as e:
             # Catch acceptable errors
@@ -1655,7 +1692,8 @@ class FeatureApi:
         until: Optional[str] = None,
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = False,
-        grid_size: Optional[float] = GRID_SIZE_DEGREES
+        grid_size: Optional[float] = GRID_SIZE_DEGREES,
+        reason: Optional[str] = None
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1678,11 +1716,10 @@ class FeatureApi:
         # Acquire semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened simultaneously
         with self._gridding_semaphore:
-            logger.info(f"Gridding AOI {aoi_id}: acquiring gridding slot")
-            
             df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
-            logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells")
+            reason_str = f" (reason: {reason})" if reason else ""
+            logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells{reason_str}")
 
             # Update progress counter: we're splitting 1 AOI into N grid cells, so add (N-1) to total
             if self.progress_counters is not None:

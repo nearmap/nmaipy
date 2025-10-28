@@ -601,24 +601,12 @@ class AOIExporter:
             classes_df: DataFrame of feature classes
             progress_counters: Optional dict with 'total' and 'completed' multiprocessing.Value counters
         """
-        # Configure logging for worker process to avoid tqdm conflicts
-        # In worker processes, we'll buffer log messages and reduce verbosity
+        # Configure logging for worker process - use same config as main process
         import multiprocessing
-        logger = log.get_logger()  # Always get logger
         if multiprocessing.current_process().name != 'MainProcess':
-            # Remove existing handlers to prevent output conflicts
-            logger.handlers.clear()
-            # Create a buffered handler that writes to stderr
-            handler = logging.StreamHandler(sys.stderr)
-            handler.setFormatter(logging.Formatter(
-                "[%(levelname)s] Chunk %(message)s"  # Simplified format for worker processes
-            ))
-            logger.addHandler(handler)
-            # Set log level from parent but increase threshold for workers
-            # to reduce output during normal operations
-            worker_log_level = max(getattr(logging, self.log_level) if isinstance(self.log_level, str) else self.log_level, 
-                                   logging.WARNING)
-            logger.setLevel(worker_log_level)
+            # Reconfigure logger in worker process to match parent settings
+            log.configure_logger(self.log_level)
+        logger = log.get_logger()
         
         feature_api = None
         try:
@@ -1083,26 +1071,31 @@ class AOIExporter:
             )
             chunks = np.array_split(aoi_gdf, num_chunks)
 
-        # Count AOIs that will actually be processed (exclude already-cached chunks)
+        # Filter out cached chunks before processing
         chunk_path = Path(self.output_dir) / "chunks"
-        aois_to_process = 0
+        chunks_to_process = []
         skipped_chunks = 0
+        skipped_aois = 0
         for i, batch in enumerate(chunks):
             chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
             outfile = chunk_path / f"rollup_{chunk_id}.parquet"
             if not outfile.exists():
-                aois_to_process += len(batch)
+                chunks_to_process.append((i, batch))
             else:
                 skipped_chunks += 1
+                skipped_aois += len(batch)
 
         if skipped_chunks > 0:
-            self.logger.info(f"Found {skipped_chunks} cached chunks, will process {aois_to_process} AOIs (skipping {len(aoi_gdf) - aois_to_process})")
+            self.logger.info(f"Found {skipped_chunks} cached chunks, will process {len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})")
+
+        # Initial estimate: 1 request per AOI (will grow if gridding occurs)
+        initial_request_estimate = len(aoi_gdf) - skipped_aois
 
         # Create shared progress counters for tracking API requests across all workers
         # Use Manager for cross-platform compatibility (works with both fork and spawn)
         manager = multiprocessing.Manager()
         progress_counters = manager.dict({
-            'total': aois_to_process,  # Only count AOIs that will actually be processed
+            'total': initial_request_estimate,  # Initial estimate (1 request per AOI), grows if gridding occurs
             'completed': 0,
             'lock': manager.Lock()  # Separate lock for thread-safe updates
         })
@@ -1116,7 +1109,7 @@ class AOIExporter:
             try:
                 with ProcessPoolExecutor(max_workers=processes) as executor:
                     try:
-                        for i, batch in enumerate(chunks):
+                        for i, batch in chunks_to_process:
                             chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
                             self.logger.debug(
                                 f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
@@ -1132,6 +1125,7 @@ class AOIExporter:
                             job_to_chunk[job] = (chunk_id, i, batch.index.min(), batch.index.max())
                         # Use request-based progress tracking with tqdm's native throttling
                         completed_jobs = 0
+                        num_jobs = len(chunks_to_process)
                         last_progress_check = time.time()
                         PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
 
@@ -1187,7 +1181,7 @@ class AOIExporter:
                                     total_gb = mem.total / (1024**3)
 
                                     pbar.n = requests_completed
-                                    pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {completed_jobs}/{num_chunks} chunks")
+                                    pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {completed_jobs}/{num_jobs} chunks")
                                     pbar.refresh()  # Let tqdm decide if it's time to actually refresh based on mininterval
 
                                     last_progress_check = current_time
@@ -1203,7 +1197,7 @@ class AOIExporter:
 
                             pbar.n = requests_completed
                             pbar.total = requests_total
-                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {num_chunks}/{num_chunks} chunks")
+                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {num_jobs}/{num_jobs} chunks")
                             pbar.refresh()
 
                         break  # Success - exit retry loop
