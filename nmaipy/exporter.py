@@ -1192,6 +1192,20 @@ class AOIExporter:
 
                                     last_progress_check = current_time
 
+                            # Final update to show 100% completion
+                            with progress_counters['lock']:
+                                requests_completed = progress_counters['completed']
+                                requests_total = progress_counters['total']
+
+                            mem = psutil.virtual_memory()
+                            used_gb = (mem.total - mem.available) / (1024**3)
+                            total_gb = mem.total / (1024**3)
+
+                            pbar.n = requests_completed
+                            pbar.total = requests_total
+                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {num_chunks}/{num_chunks} chunks")
+                            pbar.refresh()
+
                         break  # Success - exit retry loop
                     except KeyboardInterrupt:
                         self.logger.warning("Interrupted by user (Ctrl+C) - shutting down processes...")
