@@ -10,6 +10,7 @@ import logging
 import gc
 import shapely
 import pyproj
+import multiprocessing
 
 import geopandas as gpd
 import numpy as np
@@ -590,28 +591,22 @@ class AOIExporter:
             self.logger.warning("No feature data found to write")
             return None
 
-    def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame):
+    def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, progress_counters: Optional[dict] = None):
         """
         Create a parcel rollup for a chunk of parcels.
+
+        Args:
+            chunk_id: Unique identifier for this chunk
+            aoi_gdf: GeoDataFrame containing AOIs to process
+            classes_df: DataFrame of feature classes
+            progress_counters: Optional dict with 'total' and 'completed' multiprocessing.Value counters
         """
-        # Configure logging for worker process to avoid tqdm conflicts
-        # In worker processes, we'll buffer log messages and reduce verbosity
+        # Configure logging for worker process - use same config as main process
         import multiprocessing
-        logger = log.get_logger()  # Always get logger
         if multiprocessing.current_process().name != 'MainProcess':
-            # Remove existing handlers to prevent output conflicts
-            logger.handlers.clear()
-            # Create a buffered handler that writes to stderr
-            handler = logging.StreamHandler(sys.stderr)
-            handler.setFormatter(logging.Formatter(
-                "[%(levelname)s] Chunk %(message)s"  # Simplified format for worker processes
-            ))
-            logger.addHandler(handler)
-            # Set log level from parent but increase threshold for workers
-            # to reduce output during normal operations
-            worker_log_level = max(getattr(logging, self.log_level) if isinstance(self.log_level, str) else self.log_level, 
-                                   logging.WARNING)
-            logger.setLevel(worker_log_level)
+            # Reconfigure logger in worker process to match parent settings
+            log.configure_logger(self.log_level)
+        logger = log.get_logger()
         
         feature_api = None
         try:
@@ -655,6 +650,7 @@ class AOIExporter:
                 aoi_grid_min_pct=self.aoi_grid_min_pct,
                 aoi_grid_inexact=self.aoi_grid_inexact,
                 parcel_mode=self.parcel_mode,
+                progress_counters=progress_counters,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(aoi_gdf)} AOIs ({self.endpoint=})")
@@ -1056,7 +1052,7 @@ class AOIExporter:
         self.logger.info(f"Exporting {len(aoi_gdf)} AOIs as {num_chunks} chunk files.")
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
 
-        # Split the parcels into chunks
+        # Split the parcels into chunks first so we can check which already exist
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -1074,6 +1070,37 @@ class AOIExporter:
                 message="'DataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'DataFrame.transpose' instead.",
             )
             chunks = np.array_split(aoi_gdf, num_chunks)
+
+        # Filter out cached chunks before processing
+        chunk_path = Path(self.output_dir) / "chunks"
+        chunks_to_process = []
+        skipped_chunks = 0
+        skipped_aois = 0
+        for i, batch in enumerate(chunks):
+            chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
+            outfile = chunk_path / f"rollup_{chunk_id}.parquet"
+            if not outfile.exists():
+                chunks_to_process.append((i, batch))
+            else:
+                skipped_chunks += 1
+                skipped_aois += len(batch)
+
+        if skipped_chunks > 0:
+            self.logger.info(f"Found {skipped_chunks} cached chunks, will process {len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})")
+
+        # Initial estimate: 1 request per AOI (will grow if gridding occurs)
+        initial_request_estimate = len(aoi_gdf) - skipped_aois
+
+        # Create shared progress counters for tracking API requests across all workers
+        # Use Manager for cross-platform compatibility (works with both fork and spawn)
+        manager = multiprocessing.Manager()
+        progress_counters = manager.dict({
+            'total': initial_request_estimate,  # Initial estimate (1 request per AOI), grows if gridding occurs
+            'completed': 0,
+            'lock': manager.Lock()  # Separate lock for thread-safe updates
+        })
+
+        # chunks were already split above for cache checking
         processes = int(self.processes)
         max_retries = 3
         PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
@@ -1082,7 +1109,7 @@ class AOIExporter:
             try:
                 with ProcessPoolExecutor(max_workers=processes) as executor:
                     try:
-                        for i, batch in enumerate(chunks):
+                        for i, batch in chunks_to_process:
                             chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
                             self.logger.debug(
                                 f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
@@ -1092,43 +1119,87 @@ class AOIExporter:
                                 chunk_id,
                                 batch,
                                 classes_df,
+                                progress_counters,
                             )
                             jobs.append(job)
                             job_to_chunk[job] = (chunk_id, i, batch.index.min(), batch.index.max())
-                        # Use as_completed to show progress even when individual jobs hang
+                        # Use request-based progress tracking with tqdm's native throttling
                         completed_jobs = 0
-                        with tqdm(total=len(jobs), desc="Processing chunks", file=sys.stdout, position=0, leave=True) as pbar:
-                            for j in concurrent.futures.as_completed(jobs):
-                                try:
-                                    j.result()  # This should return immediately since job is already completed
-                                    completed_jobs += 1
-                                    # Update progress bar with current memory usage
+                        num_jobs = len(chunks_to_process)
+                        last_progress_check = time.time()
+                        PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
+
+                        # Initialize progress bar with initial estimate
+                        with progress_counters['lock']:
+                            initial_total = progress_counters['total']
+
+                        with tqdm(total=initial_total, desc="API requests", file=sys.stdout, position=0, leave=True,
+                                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
+                                 mininterval=2.0, maxinterval=5.0, smoothing=0.1, unit=" requests") as pbar:
+
+                            while completed_jobs < len(jobs):
+                                # Check if any jobs have completed (non-blocking)
+                                done, pending = concurrent.futures.wait(jobs, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
+
+                                for j in done:
+                                    if j in jobs:  # Make sure we haven't already processed this
+                                        try:
+                                            j.result()  # This should return immediately since job is already completed
+                                            completed_jobs += 1
+                                        except BrokenProcessPool:
+                                            # Do cleanup before re-raising to outer handler
+                                            cleanup_thread_sessions(executor)
+                                            executor.shutdown(wait=False)
+                                            raise
+                                        except Exception as e:
+                                            chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
+                                            chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                            completed_jobs += 1
+                                            # Log error with chunk information
+                                            logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
+                                            logger.error(f"Traceback: {traceback.format_exc()}")
+                                            cleanup_thread_sessions(executor)
+                                            executor.shutdown(wait=False)
+                                            raise
+                                        finally:
+                                            jobs.remove(j)  # Remove from pending jobs list
+
+                                # Periodically check shared counters and update progress bar
+                                current_time = time.time()
+                                if current_time - last_progress_check >= PROGRESS_CHECK_INTERVAL:
+                                    with progress_counters['lock']:
+                                        requests_completed = progress_counters['completed']
+                                        requests_total = progress_counters['total']
+
+                                    # Update total if it changed (due to gridding)
+                                    if pbar.total != requests_total:
+                                        pbar.total = requests_total
+
+                                    # Update position and description
                                     mem = psutil.virtual_memory()
                                     used_gb = (mem.total - mem.available) / (1024**3)
                                     total_gb = mem.total / (1024**3)
-                                    pbar.set_description(f"Processing chunks - {used_gb:.1f}GB / {total_gb:.1f}GB memory used")
-                                    pbar.update(1)
-                                except BrokenProcessPool:
-                                    # Do cleanup before re-raising to outer handler
-                                    cleanup_thread_sessions(executor)
-                                    executor.shutdown(wait=False)
-                                    raise
-                                except Exception as e:
-                                    chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
-                                    chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
-                                    # Update progress bar with current memory usage even on error
-                                    completed_jobs += 1
-                                    mem = psutil.virtual_memory()
-                                    used_gb = (mem.total - mem.available) / (1024**3)
-                                    total_gb = mem.total / (1024**3)
-                                    pbar.set_description(f"Processing chunks - {used_gb:.1f}GB / {total_gb:.1f}GB used (ERROR)")
-                                    pbar.update(1)
-                                    # Log error with chunk information
-                                    logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
-                                    logger.error(f"Traceback: {traceback.format_exc()}")
-                                    cleanup_thread_sessions(executor)
-                                    executor.shutdown(wait=False)
-                                    raise
+
+                                    pbar.n = requests_completed
+                                    pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {completed_jobs}/{num_jobs} chunks")
+                                    pbar.refresh()  # Let tqdm decide if it's time to actually refresh based on mininterval
+
+                                    last_progress_check = current_time
+
+                            # Final update to show 100% completion
+                            with progress_counters['lock']:
+                                requests_completed = progress_counters['completed']
+                                requests_total = progress_counters['total']
+
+                            mem = psutil.virtual_memory()
+                            used_gb = (mem.total - mem.available) / (1024**3)
+                            total_gb = mem.total / (1024**3)
+
+                            pbar.n = requests_completed
+                            pbar.total = requests_total
+                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {num_jobs}/{num_jobs} chunks")
+                            pbar.refresh()
+
                         break  # Success - exit retry loop
                     except KeyboardInterrupt:
                         self.logger.warning("Interrupted by user (Ctrl+C) - shutting down processes...")
