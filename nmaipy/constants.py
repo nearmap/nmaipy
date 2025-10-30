@@ -9,7 +9,7 @@ SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
 
-MAX_RETRIES = 10
+MAX_RETRIES = 6
 GRID_SIZE_DEGREES = 0.002  # Approx 200m at the equator
 
 # Maximum AOI area in square meters before forcing gridding

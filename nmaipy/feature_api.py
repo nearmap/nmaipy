@@ -102,7 +102,7 @@ class RetryRequest(Retry):
     """
 
     BACKOFF_MIN = 0.5  # Minimum backoff time in seconds
-    BACKOFF_MAX = 16    # Maximum backoff time in seconds
+    BACKOFF_MAX = 10    # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -155,7 +155,7 @@ class RetryRequest(Retry):
     def new_timeout(self, *args, **kwargs):
         """Override to enforce backoff time between 1-5 seconds"""
         timeout = super().new_timeout(*args, **kwargs)
-        return min(max(timeout, self.BACKOFF_MIN), self.BACKOFF_MAX)  # Clamp between 1-5 seconds
+        return min(max(timeout, self.BACKOFF_MIN), self.BACKOFF_MAX)  # Clamp between min and max seconds
 
     @classmethod
     def from_int(cls, retries, **kwargs):
@@ -430,6 +430,14 @@ class FeatureApi:
                     except:
                         pass
                 self._sessions.clear()
+
+    def _increment_progress(self):
+        """Increment progress counter immediately after each request completes"""
+        if self.progress_counters is None:
+            return
+
+        with self.progress_counters['lock']:
+            self.progress_counters['completed'] += 1
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
@@ -1178,6 +1186,8 @@ class FeatureApi:
             "unclipped_area_sqm",
             "unclipped_area_sqft",
             "attributes",
+            "damage",  # Damage classification data (new structure for building lifecycle)
+            "belongs_to_parcel",  # Parcel mode field
             "survey_date",
             "mesh_date",
             "fidelity",
@@ -1261,6 +1271,7 @@ class FeatureApi:
             "clippedAreaSqft",
             "unclippedAreaSqft",
             "attributes",
+            "damage",  # Damage classification data (new structure for building lifecycle)
             "surveyDate",
             "meshDate",
             "belongsToParcel",  # New field from parcelMode API
@@ -1673,10 +1684,8 @@ class FeatureApi:
         if features_gdf is not None and "confidence" in features_gdf.columns:
             features_gdf["confidence"] = features_gdf["confidence"].round(2)
 
-        # Increment progress counter for completed request
-        if self.progress_counters is not None:
-            with self.progress_counters['lock']:
-                self.progress_counters['completed'] += 1
+        # Increment progress counter for completed request (uses batching)
+        self._increment_progress()
 
         return features_gdf, metadata, error
 

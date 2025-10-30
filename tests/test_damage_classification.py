@@ -13,95 +13,148 @@ from nmaipy.constants import BUILDING_LIFECYCLE_ID, AOI_ID_COLUMN_NAME
 
 
 class TestDamageClassification:
-    """Test damage classification processing to prevent regression of the scalar damage bug."""
-    
+    """Test damage classification processing with the new API structure."""
+
     def test_flatten_damage_with_valid_data(self):
-        """Test normal damage data processing."""
+        """Test normal damage data processing (damage.confidences.raw)."""
         building_lifecycles = [{
-            "attributes": {
-                "damage": {
-                    "femaCategoryConfidences": {
-                        "Affected": 0.1,
-                        "Minor": 0.2,
-                        "Major": 0.6,
-                        "Destroyed": 0.1
+            "damage": {
+                "confidences": {
+                    "raw": {
+                        "Undamaged": 0.807,
+                        "Affected": 0.176,
+                        "Minor": 0.015,
+                        "Major": 0.002,
+                        "Destroyed": 0
+                    },
+                    "3tier": {
+                        "UndamagedOrAffected": 0.983,
+                        "Minor": 0.015,
+                        "MajorOrDestroyed": 0.002
+                    },
+                    "2tier": {
+                        "UndamagedOrAffectedOrMinor": 0.998,
+                        "MajorOrDestroyed": 0.002
                     }
-                }
+                },
+                "ratios": []
             }
         }]
-        
+
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
-        
-        assert result["damage_class"] == "Major"
-        assert result["damage_class_confidence"] == 0.6
-        assert result["damage_class_Major_confidence"] == 0.6
-        assert result["damage_class_Minor_confidence"] == 0.2
+
+        assert result["damage_class"] == "Undamaged"
+        assert result["damage_class_confidence"] == 0.807
+        assert result["damage_class_Undamaged_confidence"] == 0.807
+        assert result["damage_class_Affected_confidence"] == 0.176
+        assert result["damage_class_Minor_confidence"] == 0.015
+
+    def test_flatten_damage_with_ratios_and_2tier(self):
+        """Test damage data processing including ratios and 2tier confidences."""
+        building_lifecycles = [{
+            "damage": {
+                "confidences": {
+                    "raw": {
+                        "Undamaged": 0.967,
+                        "Affected": 0.028,
+                        "Minor": 0.004,
+                        "Major": 0.001,
+                        "Destroyed": 0
+                    },
+                    "3tier": {
+                        "UndamagedOrAffected": 0.995,
+                        "Minor": 0.004,
+                        "MajorOrDestroyed": 0.001
+                    },
+                    "2tier": {
+                        "UndamagedOrAffectedOrMinor": 0.999,
+                        "MajorOrDestroyed": 0.001
+                    }
+                },
+                "ratios": [
+                    {
+                        "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                        "description": "Exposed Underlayment",
+                        "ratioAbove50PctConf": 0
+                    },
+                    {
+                        "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                        "description": "Missing Roof Tile or Shingle",
+                        "ratioAbove50PctConf": 0.15
+                    },
+                    {
+                        "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+                        "description": "Structural Damage",
+                        "ratioAbove50PctConf": 0
+                    }
+                ]
+            }
+        }]
+
+        result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
+
+        # Check raw confidences
+        assert result["damage_class"] == "Undamaged"
+        assert result["damage_class_confidence"] == 0.967
+        assert result["damage_class_Undamaged_confidence"] == 0.967
+        assert result["damage_class_Affected_confidence"] == 0.028
+        assert result["damage_class_Minor_confidence"] == 0.004
+        assert result["damage_class_Major_confidence"] == 0.001
+        assert result["damage_class_Destroyed_confidence"] == 0
+
+        # Check 2tier confidences
+        assert result["damage_2tier_UndamagedOrAffectedOrMinor_confidence"] == 0.999
+        assert result["damage_2tier_MajorOrDestroyed_confidence"] == 0.001
+
+        # Check ratios
+        assert result["damage_ratio_exposed_underlayment"] == 0
+        assert result["damage_ratio_missing_roof_tile_or_shingle"] == 0.15
+        assert result["damage_ratio_structural_damage"] == 0
     
     def test_flatten_damage_with_none_value(self):
         """Test damage processing when damage is None."""
         building_lifecycles = [{
-            "attributes": {
-                "damage": None
-            }
+            "damage": None
         }]
-        
+
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
         assert result == {}
-    
+
     def test_flatten_damage_with_scalar_value(self):
-        """Test damage processing when damage is scalar (the reported bug)."""
+        """Test damage processing when damage is scalar."""
         building_lifecycles = [{
-            "attributes": {
-                "damage": 0  # Scalar value instead of dict
-            }
+            "damage": 0  # Scalar value instead of dict
         }]
-        
+
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
         assert result == {}
-    
-    def test_flatten_damage_with_missing_fema_categories(self):
-        """Test damage processing when femaCategoryConfidences is missing."""
+
+    def test_flatten_damage_with_missing_confidences(self):
+        """Test damage processing when confidences is missing."""
         building_lifecycles = [{
-            "attributes": {
-                "damage": {
-                    "someOtherField": "value"
-                }
+            "damage": {
+                "someOtherField": "value"
             }
         }]
-        
+
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
         assert result == {}
-    
-    def test_flatten_damage_with_empty_fema_categories(self):
-        """Test damage processing when femaCategoryConfidences is empty."""
+
+    def test_flatten_damage_with_empty_confidences(self):
+        """Test damage processing when confidences is empty."""
         building_lifecycles = [{
-            "attributes": {
-                "damage": {
-                    "femaCategoryConfidences": {}
-                }
+            "damage": {
+                "confidences": {}
             }
         }]
-        
+
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
         assert result == {}
-    
-    def test_flatten_damage_with_none_fema_categories(self):
-        """Test damage processing when femaCategoryConfidences is None."""
-        building_lifecycles = [{
-            "attributes": {
-                "damage": {
-                    "femaCategoryConfidences": None
-                }
-            }
-        }]
-        
-        result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
-        assert result == {}
-    
-    def test_flatten_damage_missing_attributes(self):
-        """Test damage processing when attributes key is missing."""
+
+    def test_flatten_damage_missing_field(self):
+        """Test damage processing when damage key is missing."""
         building_lifecycles = [{}]
-        
+
         result = flatten_building_lifecycle_damage_attributes(building_lifecycles)
         assert result == {}
     
@@ -127,31 +180,38 @@ class TestDamageClassification:
             'confidence': [0.95],
             'fidelity': [0.9],
             'feature_id': ['feat_1'],
-            'attributes': [{
-                "damage": {
-                    "femaCategoryConfidences": {
+            'attributes': [[]],
+            'damage': [{
+                "confidences": {
+                    "raw": {
+                        "Undamaged": 0.05,
                         "Affected": 0.05,
                         "Minor": 0.10,
                         "Major": 0.80,
-                        "Destroyed": 0.05
+                        "Destroyed": 0.00
+                    },
+                    "2tier": {
+                        "UndamagedOrAffectedOrMinor": 0.20,
+                        "MajorOrDestroyed": 0.80
                     }
-                }
+                },
+                "ratios": []
             }]
         })
         features_data.index = ['parcel_1']
         features_data.index.name = AOI_ID_COLUMN_NAME
-        
+
         features_gdf = gpd.GeoDataFrame(features_data)
-        
+
         # Mock classes dataframe
         classes_df = pd.DataFrame({
             'description': ['building_lifecycle']
         })
         classes_df.index = [BUILDING_LIFECYCLE_ID]
-        
+
         # Create polygon for parcel
         parcel_geom = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-        
+
         # Process features
         result = feature_attributes(
             features_gdf=features_gdf,
@@ -162,12 +222,13 @@ class TestDamageClassification:
             primary_lat=None,
             primary_lon=None
         )
-        
+
         # Check that damage attributes were processed for primary feature
         assert 'primary_building_lifecycle_damage_class' in result
         assert result['primary_building_lifecycle_damage_class'] == 'Major'
         assert result['primary_building_lifecycle_damage_class_confidence'] == 0.80
         assert result['primary_building_lifecycle_damage_class_Major_confidence'] == 0.80
+        assert result['primary_building_lifecycle_damage_2tier_MajorOrDestroyed_confidence'] == 0.80
     
     def test_feature_attributes_with_invalid_damage_primary(self):
         """Test that feature_attributes handles invalid damage data gracefully."""
@@ -184,9 +245,8 @@ class TestDamageClassification:
             'confidence': [0.95],
             'fidelity': [0.9],
             'feature_id': ['feat_1'],
-            'attributes': [{
-                "damage": 0  # Invalid scalar damage value
-            }]
+            'attributes': [[]],
+            'damage': [0]  # Invalid scalar damage value
         })
         features_data.index = ['parcel_1']
         features_data.index.name = AOI_ID_COLUMN_NAME
