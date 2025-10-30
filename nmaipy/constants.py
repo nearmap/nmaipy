@@ -9,6 +9,9 @@ SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
 
+# Reduced from 10 to 6 to prevent indefinite blocking on requests that persistently
+# fail with 500-series errors. The lower retry count reduces total timeout duration
+# while still allowing for transient failures.
 MAX_RETRIES = 6
 GRID_SIZE_DEGREES = 0.002  # Approx 200m at the equator
 

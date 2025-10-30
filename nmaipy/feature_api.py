@@ -98,11 +98,14 @@ nmaipy_logger.addFilter(APIKeyFilter())
 
 class RetryRequest(Retry):
     """
-    Inherited retry request to limit back-off to 5 seconds.
+    Inherited retry request with controlled backoff timing.
+
+    Reduced BACKOFF_MAX from 16s to 10s to prevent excessive wait times on
+    requests that persistently fail with 500-series errors.
     """
 
     BACKOFF_MIN = 0.5  # Minimum backoff time in seconds
-    BACKOFF_MAX = 10    # Maximum backoff time in seconds
+    BACKOFF_MAX = 10    # Maximum backoff time in seconds (reduced from 16s)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

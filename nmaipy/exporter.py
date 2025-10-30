@@ -149,7 +149,7 @@ def _flatten_damage(damage_obj):
               }
 
     Notes:
-        - Ratio descriptions are used as keys (not classIds)
+        - Ratio descriptions preserve spaces to match attribute naming convention
         - Returns empty dict if damage_obj is None or not a dict
     """
     if not damage_obj or not isinstance(damage_obj, dict):
@@ -186,6 +186,7 @@ def _flatten_damage(damage_obj):
                 description = ratio_item.get('description')
                 ratio_value = ratio_item.get('ratioAbove50PctConf')
                 if description is not None and ratio_value is not None:
+                    # Keep spaces in description to match attribute naming convention
                     flat_dict[f"damage.ratios.{description}"] = ratio_value
 
     return flat_dict
@@ -906,6 +907,7 @@ class AOIExporter:
                     # Apply flattening and create DataFrame - simpler approach that avoids index issues
                     flattened_attrs = final_features_df['attributes'].apply(_flatten_attribute_list).apply(pd.Series)
                     if not flattened_attrs.empty:
+                        logger.debug(f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns from {final_features_df['attributes'].notna().sum()} features")
                         # Drop the attributes column
                         final_features_df = final_features_df.drop(columns=['attributes'])
                         # Add the flattened columns
@@ -921,6 +923,7 @@ class AOIExporter:
                     # Apply flattening and create DataFrame
                     flattened_damage = final_features_df['damage'].apply(_flatten_damage).apply(pd.Series)
                     if not flattened_damage.empty:
+                        logger.debug(f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns from {final_features_df['damage'].notna().sum()} features")
                         # Drop the damage column
                         final_features_df = final_features_df.drop(columns=['damage'])
                         # Add the flattened columns
@@ -1184,6 +1187,12 @@ class AOIExporter:
                         with progress_counters['lock']:
                             initial_total = progress_counters['total']
 
+                        # Progress bar tracks API requests (bar position and total), while description
+                        # shows chunk completion ("Chunks: X/Y"). This dual tracking is important because:
+                        # - Some chunks take very long (gridded AOIs may have 100+ requests)
+                        # - Request-level progress shows work is continuing even during long chunks
+                        # - Chunk-level progress shows overall job completion
+                        # The "+' in the format indicates total can increase during gridding
                         with tqdm(total=initial_total, desc="API requests", file=sys.stdout, position=0, leave=True,
                                  bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
                                  mininterval=2.0, maxinterval=5.0, smoothing=0.1, unit=" requests") as pbar:
