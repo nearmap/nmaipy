@@ -272,36 +272,52 @@ def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]
     Flatten building lifecycle damage attributes
 
     Args:
-        building_lifecycles: List of building lifecycle features with attributes
+        building_lifecycles: List of building lifecycle features with damage field
+
+    Returns:
+        Dictionary with flattened damage attributes
     """
-
     flattened = {}
+
     for building_lifecycle in building_lifecycles:
-        attribute = building_lifecycle.get("attributes", {})
+        # Get damage data from top-level damage field
+        damage_data = building_lifecycle.get("damage")
 
-        # Check if damage exists and is not None
-        if "damage" in attribute and attribute["damage"] is not None:
-            # Check if damage is a dictionary (expected) vs scalar or other type
-            damage_data = attribute["damage"]
-            if not isinstance(damage_data, dict):
-                # Damage is scalar or unexpected type - skip processing
-                continue
+        if damage_data is None or not isinstance(damage_data, dict):
+            continue
 
-            # Check if femaCategoryConfidences exists and is valid
-            if "femaCategoryConfidences" not in damage_data:
-                continue
+        # Extract confidences
+        confidences = damage_data.get("confidences")
+        if not isinstance(confidences, dict):
+            continue
 
-            damage_dic = damage_data["femaCategoryConfidences"]
-            if damage_dic is None or not isinstance(damage_dic, dict) or len(damage_dic) == 0:
-                # No valid damage categories - skip processing
-                continue
-
-            # Process valid damage data
-            x = pd.Series(damage_dic)
+        # Process raw confidence scores (5 classes: Undamaged, Affected, Minor, Major, Destroyed)
+        raw_confidences = confidences.get("raw")
+        if isinstance(raw_confidences, dict) and len(raw_confidences) > 0:
+            x = pd.Series(raw_confidences)
             flattened["damage_class"] = x.idxmax()
             flattened["damage_class_confidence"] = x.max()
-            for damage_class, confidence in damage_dic.items():
+            for damage_class, confidence in raw_confidences.items():
                 flattened[f"damage_class_{damage_class}_confidence"] = confidence
+
+        # Process 2tier confidences (UndamagedOrAffectedOrMinor vs MajorOrDestroyed)
+        tier2_confidences = confidences.get("2tier")
+        if isinstance(tier2_confidences, dict):
+            for tier2_class, confidence in tier2_confidences.items():
+                flattened[f"damage_2tier_{tier2_class}_confidence"] = confidence
+
+        # Process damage ratios (specific damage indicators)
+        ratios = damage_data.get("ratios")
+        if isinstance(ratios, list):
+            for ratio_item in ratios:
+                if isinstance(ratio_item, dict):
+                    description = ratio_item.get("description")
+                    ratio_value = ratio_item.get("ratioAbove50PctConf")
+                    if description is not None and ratio_value is not None:
+                        # Normalize description to valid column name
+                        normalized_desc = description.lower().replace(" ", "_")
+                        flattened[f"damage_ratio_{normalized_desc}"] = ratio_value
+
     return flattened
 
 
@@ -490,6 +506,10 @@ def extract_building_features(
         }
         if hasattr(building, "parent_id"):
             building_record["parent_id"] = building.parent_id
+
+        # Preserve damage field for building lifecycle features
+        if hasattr(building, "damage") and building.damage is not None:
+            building_record["damage"] = building.damage
             
         # Flatten attributes based on the class type
         try:

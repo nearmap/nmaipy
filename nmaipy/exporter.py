@@ -51,11 +51,11 @@ _process_feature_api = None
 def _flatten_attribute_list(attr_list):
     """
     Flatten a list of attribute dictionaries into a single flat dictionary with dot notation.
-    
+
     This function processes the 'attributes' field from Nearmap AI Feature API responses,
     which contains a list of attribute objects with nested structures. It flattens these
     into a single dictionary suitable for columnar storage in GeoParquet files.
-    
+
     Args:
         attr_list: List of attribute dictionaries from the API response. Each dictionary
                   typically contains:
@@ -64,7 +64,7 @@ def _flatten_attribute_list(attr_list):
                   - 'internalClassId': Internal ID (skipped for security)
                   - Various data fields specific to the attribute type
                   - 'components': Optional list of sub-components (e.g., roof materials)
-    
+
     Returns:
         dict: Flattened dictionary with dot-notation keys. For example:
               {
@@ -72,7 +72,7 @@ def _flatten_attribute_list(attr_list):
                   "Building 3d attributes.numStories.1": 0.8,
                   "Roof material.components": "[{...}]"  # JSON string
               }
-              
+
     Notes:
         - 'internalClassId' fields are always skipped (internal use only)
         - 'description' fields are used as prefixes but not included as values
@@ -82,21 +82,21 @@ def _flatten_attribute_list(attr_list):
     """
     if not attr_list or not isinstance(attr_list, list):
         return {}
-    
+
     flat_dict = {}
     for i, attr_obj in enumerate(attr_list):
         if not isinstance(attr_obj, dict):
             continue
-        
+
         # Get the description to use as a prefix
         desc = attr_obj.get('description', f'attr_{i}')
-        
+
         # Process each field in the attribute object
         for key, value in attr_obj.items():
             # Skip internal fields and redundant description
             if key in ['description', 'internalClassId']:
                 continue
-            
+
             # Special handling for components - serialize as JSON
             if key == 'components' and isinstance(value, (list, dict)):
                 # Clean components to remove internalClassId
@@ -121,7 +121,74 @@ def _flatten_attribute_list(attr_list):
             # Direct attributes
             elif value is not None:
                 flat_dict[f"{desc}.{key}"] = value
-    
+
+    return flat_dict
+
+
+def _flatten_damage(damage_obj):
+    """
+    Flatten a damage dictionary into a flat dictionary with dot notation.
+
+    This function processes the 'damage' field from Nearmap AI Feature API responses
+    for building lifecycle features. It flattens the nested damage structure into
+    a single dictionary suitable for columnar storage in GeoParquet files.
+
+    Args:
+        damage_obj: Damage dictionary from the API response, containing:
+                   - 'confidences': dict with 'raw', '3tier', '2tier' sub-dicts
+                   - 'ratios': list of damage indicator ratios
+
+    Returns:
+        dict: Flattened dictionary with dot-notation keys. For example:
+              {
+                  "damage.confidences.raw.Undamaged": 0.967,
+                  "damage.confidences.raw.Affected": 0.028,
+                  "damage.confidences.2tier.MajorOrDestroyed": 0.001,
+                  "damage.ratios.Exposed Underlayment": 0,
+                  "damage.ratios.Missing Roof Tile or Shingle": 0.15,
+              }
+
+    Notes:
+        - Ratio descriptions preserve spaces to match attribute naming convention
+        - Returns empty dict if damage_obj is None or not a dict
+    """
+    if not damage_obj or not isinstance(damage_obj, dict):
+        return {}
+
+    flat_dict = {}
+
+    # Flatten confidences
+    confidences = damage_obj.get('confidences')
+    if isinstance(confidences, dict):
+        # Flatten raw confidences
+        raw = confidences.get('raw')
+        if isinstance(raw, dict):
+            for class_name, confidence in raw.items():
+                flat_dict[f"damage.confidences.raw.{class_name}"] = confidence
+
+        # Flatten 3tier confidences
+        tier3 = confidences.get('3tier')
+        if isinstance(tier3, dict):
+            for class_name, confidence in tier3.items():
+                flat_dict[f"damage.confidences.3tier.{class_name}"] = confidence
+
+        # Flatten 2tier confidences
+        tier2 = confidences.get('2tier')
+        if isinstance(tier2, dict):
+            for class_name, confidence in tier2.items():
+                flat_dict[f"damage.confidences.2tier.{class_name}"] = confidence
+
+    # Flatten ratios
+    ratios = damage_obj.get('ratios')
+    if isinstance(ratios, list):
+        for ratio_item in ratios:
+            if isinstance(ratio_item, dict):
+                description = ratio_item.get('description')
+                ratio_value = ratio_item.get('ratioAbove50PctConf')
+                if description is not None and ratio_value is not None:
+                    # Keep spaces in description to match attribute naming convention
+                    flat_dict[f"damage.ratios.{description}"] = ratio_value
+
     return flat_dict
 
 
@@ -790,25 +857,8 @@ class AOIExporter:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
-                logger.debug(f"Chunk {chunk_id}: Saving {len(features_gdf)} features for {len(aoi_gdf)} AOIs")
-                # Debug: Check if attributes column exists in features_gdf
-                if 'attributes' in features_gdf.columns:
-                    logger.debug(f"Chunk {chunk_id}: 'attributes' column found in features_gdf before merge")
-                    # Check if attributes have actual data
-                    non_null_attrs = features_gdf['attributes'].notna().sum()
-                    logger.debug(f"Chunk {chunk_id}: {non_null_attrs}/{len(features_gdf)} features have non-null attributes")
-                else:
-                    logger.debug(f"Chunk {chunk_id}: No 'attributes' column in features_gdf. Columns: {list(features_gdf.columns)}")
-                
                 # Check for column name collisions between any two dataframes
                 final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
-
-                # Debug: Check if attributes column exists in features_gdf before merge
-                if 'attributes' in features_gdf.columns:
-                    logger.debug(f"Chunk {chunk_id}: 'attributes' column exists in features_gdf before merge")
-                    logger.debug(f"Chunk {chunk_id}: features_gdf columns: {list(features_gdf.columns)}")
-                else:
-                    logger.debug(f"Chunk {chunk_id}: NO 'attributes' column in features_gdf! Columns: {list(features_gdf.columns)}")
 
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
@@ -822,23 +872,16 @@ class AOIExporter:
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-                # Debug: Check what we're merging
-                logger.debug(f"Chunk {chunk_id}: Before merge - metadata_df has {len(metadata_df)} rows, features_gdf has {len(features_gdf)} rows")
-                logger.debug(f"Chunk {chunk_id}: metadata_df columns: {list(metadata_df.columns)}")
-                logger.debug(f"Chunk {chunk_id}: features_gdf has 'attributes': {'attributes' in features_gdf.columns}")
-                
+
                 # First merge
                 merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
-                logger.debug(f"Chunk {chunk_id}: After first merge - {len(merged1)} rows, has 'attributes': {'attributes' in merged1.columns}")
-                
+
                 # Second merge
                 merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
-                logger.debug(f"Chunk {chunk_id}: After second merge - {len(merged2)} rows, has 'attributes': {'attributes' in merged2.columns}")
-                
+
                 # Check what geometry columns we have after the merge
                 geom_cols = [col for col in merged2.columns if 'geometry' in col.lower()]
-                logger.debug(f"Chunk {chunk_id}: Geometry columns after merge: {geom_cols}")
-                
+
                 # Create GeoDataFrame with the appropriate geometry column
                 if 'geometry' in merged2.columns:
                     final_features_df = gpd.GeoDataFrame(merged2, crs=API_CRS)
@@ -855,14 +898,7 @@ class AOIExporter:
                                 f"All columns: {list(merged2.columns)[:20]}")
                     logger.error(error_msg)
                     raise ValueError(error_msg)
-                # Debug: Check if attributes survived the merge
-                if 'attributes' in final_features_df.columns:
-                    logger.debug(f"Chunk {chunk_id}: 'attributes' column survived merge. Checking for data...")
-                    non_null = final_features_df['attributes'].notna().sum()
-                    logger.debug(f"Chunk {chunk_id}: {non_null}/{len(final_features_df)} features have non-null attributes after merge")
-                else:
-                    logger.debug(f"Chunk {chunk_id}: 'attributes' column lost in merge! Columns: {list(final_features_df.columns)[:10]}...")
-                
+
                 if "aoi_geometry" in final_features_df.columns:
                     final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
                 
@@ -871,6 +907,7 @@ class AOIExporter:
                     # Apply flattening and create DataFrame - simpler approach that avoids index issues
                     flattened_attrs = final_features_df['attributes'].apply(_flatten_attribute_list).apply(pd.Series)
                     if not flattened_attrs.empty:
+                        logger.debug(f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns from {final_features_df['attributes'].notna().sum()} features")
                         # Drop the attributes column
                         final_features_df = final_features_df.drop(columns=['attributes'])
                         # Add the flattened columns
@@ -880,6 +917,22 @@ class AOIExporter:
                     else:
                         # No attributes to flatten, just drop the column
                         final_features_df = final_features_df.drop(columns=['attributes'])
+
+                # Apply flattening to damage if present
+                if 'damage' in final_features_df.columns:
+                    # Apply flattening and create DataFrame
+                    flattened_damage = final_features_df['damage'].apply(_flatten_damage).apply(pd.Series)
+                    if not flattened_damage.empty:
+                        logger.debug(f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns from {final_features_df['damage'].notna().sum()} features")
+                        # Drop the damage column
+                        final_features_df = final_features_df.drop(columns=['damage'])
+                        # Add the flattened columns
+                        for col in flattened_damage.columns:
+                            if col not in final_features_df.columns:
+                                final_features_df[col] = flattened_damage[col]
+                    else:
+                        # No damage to flatten, just drop the column
+                        final_features_df = final_features_df.drop(columns=['damage'])
                 if len(final_features_df) > 0:
                     try:
                         if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
@@ -913,6 +966,7 @@ class AOIExporter:
                             final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
                         else:
                             final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
+
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
                         try:
@@ -928,7 +982,7 @@ class AOIExporter:
                         self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
                         self.logger.error(e)
             self.logger.debug(f"Finished saving chunk {chunk_id}")
-            
+
         except Exception as e:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
@@ -1133,19 +1187,46 @@ class AOIExporter:
                         with progress_counters['lock']:
                             initial_total = progress_counters['total']
 
+                        # Progress bar tracks API requests (bar position and total), while description
+                        # shows chunk completion ("Chunks: X/Y"). This dual tracking is important because:
+                        # - Some chunks take very long (gridded AOIs may have 100+ requests)
+                        # - Request-level progress shows work is continuing even during long chunks
+                        # - Chunk-level progress shows overall job completion
+                        # The "+' in the format indicates total can increase during gridding
                         with tqdm(total=initial_total, desc="API requests", file=sys.stdout, position=0, leave=True,
                                  bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
                                  mininterval=2.0, maxinterval=5.0, smoothing=0.1, unit=" requests") as pbar:
 
-                            while completed_jobs < len(jobs):
+                            while completed_jobs < num_jobs:
                                 # Check if any jobs have completed (non-blocking)
                                 done, pending = concurrent.futures.wait(jobs, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
 
                                 for j in done:
                                     if j in jobs:  # Make sure we haven't already processed this
                                         try:
-                                            j.result()  # This should return immediately since job is already completed
-                                            completed_jobs += 1
+                                            j.result()  # Block until result fully transferred and chunk written
+                                            completed_jobs += 1  # Only count as complete AFTER result received
+
+                                            # Update progress bar immediately to show chunk completion
+                                            # (Don't wait for periodic check)
+                                            lock_acquired = progress_counters['lock'].acquire(timeout=0.01)
+                                            if lock_acquired:
+                                                try:
+                                                    requests_completed = progress_counters['completed']
+                                                    requests_total = progress_counters['total']
+                                                finally:
+                                                    progress_counters['lock'].release()
+
+                                                if pbar.total != requests_total:
+                                                    pbar.total = requests_total
+                                                pbar.n = requests_completed
+
+                                            mem = psutil.virtual_memory()
+                                            used_gb = (mem.total - mem.available) / (1024**3)
+                                            total_gb = mem.total / (1024**3)
+                                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}")
+                                            pbar.refresh()
+
                                         except BrokenProcessPool:
                                             # Do cleanup before re-raising to outer handler
                                             cleanup_thread_sessions(executor)
@@ -1167,23 +1248,31 @@ class AOIExporter:
                                 # Periodically check shared counters and update progress bar
                                 current_time = time.time()
                                 if current_time - last_progress_check >= PROGRESS_CHECK_INTERVAL:
-                                    with progress_counters['lock']:
-                                        requests_completed = progress_counters['completed']
-                                        requests_total = progress_counters['total']
+                                    # Try to acquire lock with timeout - don't block if workers are busy
+                                    lock_acquired = progress_counters['lock'].acquire(timeout=0.1)
 
-                                    # Update total if it changed (due to gridding)
-                                    if pbar.total != requests_total:
-                                        pbar.total = requests_total
+                                    if lock_acquired:
+                                        try:
+                                            requests_completed = progress_counters['completed']
+                                            requests_total = progress_counters['total']
+                                        finally:
+                                            progress_counters['lock'].release()
 
-                                    # Update position and description
-                                    mem = psutil.virtual_memory()
-                                    used_gb = (mem.total - mem.available) / (1024**3)
-                                    total_gb = mem.total / (1024**3)
+                                        # Update total if it changed (due to gridding)
+                                        if pbar.total != requests_total:
+                                            pbar.total = requests_total
 
-                                    pbar.n = requests_completed
-                                    pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {completed_jobs}/{num_jobs} chunks")
-                                    pbar.refresh()  # Let tqdm decide if it's time to actually refresh based on mininterval
+                                        # Update position and description
+                                        mem = psutil.virtual_memory()
+                                        used_gb = (mem.total - mem.available) / (1024**3)
+                                        total_gb = mem.total / (1024**3)
 
+                                        pbar.n = requests_completed
+                                        pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}")
+
+                                    # IMPORTANT: Always refresh, even if we couldn't get the lock
+                                    # This keeps tqdm's timer updating so user knows it's not frozen
+                                    pbar.refresh()
                                     last_progress_check = current_time
 
                             # Final update to show 100% completion
@@ -1197,7 +1286,7 @@ class AOIExporter:
 
                             pbar.n = requests_completed
                             pbar.total = requests_total
-                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem, {num_jobs}/{num_jobs} chunks")
+                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {num_jobs}/{num_jobs}")
                             pbar.refresh()
 
                         break  # Success - exit retry loop
