@@ -42,26 +42,25 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     AREA_CRS,
+    BACKOFF_FACTOR,
+    CHUNKED_ENCODING_RETRY_DELAY,
     CONNECTED_CLASS_IDS,
+    DUMMY_STATUS_CODE,
+    GRID_SIZE_DEGREES,
     LAT_LONG_CRS,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     MAX_RETRIES,
     POLYGON_TOO_COMPLEX,
+    READ_TIMEOUT_SECONDS,
     ROLLUP_SURVEY_DATE_ID,
     ROLLUP_SYSTEM_VERSION_ID,
     SINCE_COL_NAME,
+    SLOW_REQUEST_THRESHOLD_SECONDS,
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
+    TIMEOUT_SECONDS,
     UNTIL_COL_NAME,
-    GRID_SIZE_DEGREES,
 )
-
-TIMEOUT_SECONDS = 120  # Max time to wait for a server response
-READ_TIMEOUT_SECONDS = 90  # Max time to wait for reading server response (90 seconds)
-CHUNKED_ENCODING_RETRY_DELAY = 1.0  # Delay between ChunkedEncodingError retries
-BACKOFF_FACTOR = 0.5  # Exponential backoff multiplier
-DUMMY_STATUS_CODE = -1
-SLOW_REQUEST_THRESHOLD_SECONDS = 60  # Log requests that take longer than 10 seconds (lowered to catch slow requests)
 
 
 logger = log.get_logger()
@@ -382,9 +381,6 @@ class FeatureApi:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         elif overwrite_cache:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
-        self._sessions = []
-        self._thread_local = threading.local()
-        self._lock = threading.Lock()  # Initialize lock here
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -986,10 +982,14 @@ class FeatureApi:
                             return json.load(f)
 
             # Request data with retry loop for ChunkedEncodingError
+            # Note: While urllib3 RetryRequest handles ChunkedEncodingError, this additional
+            # retry loop exists to catch cases where the response is successfully received but
+            # fails during reading. After exhausting retries, persistent ChunkedEncodingErrors
+            # are treated as size errors to trigger gridding (the response may be too large).
             t1 = time.monotonic()
             response = None
             request_info = None
-            
+
             for retry_attempt in range(MAX_RETRIES):
                 try:
                     headers = {'Content-Type': 'application/json'}

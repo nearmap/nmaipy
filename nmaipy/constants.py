@@ -9,11 +9,47 @@ SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
 
-# Reduced from 10 to 6 to prevent indefinite blocking on requests that persistently
-# fail with 500-series errors. The lower retry count reduces total timeout duration
-# while still allowing for transient failures.
-MAX_RETRIES = 6
-GRID_SIZE_DEGREES = 0.002  # Approx 200m at the equator
+# ============================================================================
+# HTTP Request Configuration
+# ============================================================================
+# These constants control retry behavior and timeouts for API requests.
+# The retry logic uses exponential backoff to handle transient failures
+# gracefully while preventing indefinite blocking on persistent errors.
+
+# Maximum number of retry attempts for failed requests
+# Set to 22 to handle transient 500-series errors more robustly. With exponential
+# backoff (0.5s factor, capped at 10s), this allows ~185 seconds (~3 minutes) of
+# retry attempts for truly transient failures while still preventing indefinite
+# blocking on persistent errors.
+MAX_RETRIES = 22
+
+# Exponential backoff multiplier for retries
+# With factor 0.5, retry delays are: 0.5s, 1s, 2s, 4s, 8s, 10s (capped), 10s, ...
+BACKOFF_FACTOR = 0.5
+
+# Maximum time to wait for initial server response (connection + waiting for first byte)
+TIMEOUT_SECONDS = 120
+
+# Maximum time to wait for reading complete response body after initial response
+# Set lower than TIMEOUT_SECONDS to detect stalled connections faster
+READ_TIMEOUT_SECONDS = 90
+
+# Delay between retries for ChunkedEncodingError (network-level errors)
+CHUNKED_ENCODING_RETRY_DELAY = 1.0
+
+# Log requests that exceed this duration (helps identify performance issues)
+SLOW_REQUEST_THRESHOLD_SECONDS = 60
+
+# Sentinel value for error cases where no HTTP status code is available
+DUMMY_STATUS_CODE = -1
+
+# ============================================================================
+# Geometry Processing Configuration
+# ============================================================================
+
+# Grid cell size when subdividing large AOIs for parallel processing
+# Approximately 200m at the equator
+GRID_SIZE_DEGREES = 0.002
 
 # Maximum AOI area in square meters before forcing gridding
 # This threshold (1 sq km) prevents backend API issues that occurred when the limit 
