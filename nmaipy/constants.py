@@ -17,10 +17,11 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 # gracefully while preventing indefinite blocking on persistent errors.
 
 # Maximum number of retry attempts for failed requests
-# Set to 10 to handle transient 500-series errors more robustly. With exponential
-# backoff (0.5s factor), this allows ~5 minutes of retry attempts for truly transient
-# failures while still preventing indefinite blocking on persistent errors.
-MAX_RETRIES = 10
+# Set to 22 to handle transient 500-series errors more robustly. With exponential
+# backoff (0.5s factor, capped at 10s), this allows ~185 seconds (~3 minutes) of
+# retry attempts for truly transient failures while still preventing indefinite
+# blocking on persistent errors.
+MAX_RETRIES = 22
 
 # Exponential backoff multiplier for retries
 # With factor 0.5, retry delays are: 0.5s, 1s, 2s, 4s, 8s, 10s (capped), 10s, ...

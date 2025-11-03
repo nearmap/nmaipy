@@ -381,9 +381,6 @@ class FeatureApi:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         elif overwrite_cache:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
-        self._sessions = []
-        self._thread_local = threading.local()
-        self._lock = threading.Lock()  # Initialize lock here
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -985,10 +982,14 @@ class FeatureApi:
                             return json.load(f)
 
             # Request data with retry loop for ChunkedEncodingError
+            # Note: While urllib3 RetryRequest handles ChunkedEncodingError, this additional
+            # retry loop exists to catch cases where the response is successfully received but
+            # fails during reading. After exhausting retries, persistent ChunkedEncodingErrors
+            # are treated as size errors to trigger gridding (the response may be too large).
             t1 = time.monotonic()
             response = None
             request_info = None
-            
+
             for retry_attempt in range(MAX_RETRIES):
                 try:
                     headers = {'Content-Type': 'application/json'}
