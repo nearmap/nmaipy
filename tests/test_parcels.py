@@ -531,7 +531,7 @@ class TestParcels:
         actual_pct = df.loc[51310013081068, "pct_tree_cover"]
         expected_pct = 0.77
         assert abs(actual_pct - expected_pct) / expected_pct <= 0.02, \
-            f"Tree cover {actual_pct:.4f} differs by more than 2% from expected {expected_pct}"
+            f"Tree cover {actual_pct:.4f} differs by more than 2% relative error from expected {expected_pct}"
 
     def test_large_query_geoid_11179800001006(self, cache_directory: Path):
         """
