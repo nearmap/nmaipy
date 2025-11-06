@@ -4,15 +4,15 @@ channels:
   - defaults
 dependencies:
   # Python version
-  - python>=3.11
-  
+  - python>=3.12
+
   # Development tools (not in pyproject.toml)
   - ipykernel
   - matplotlib
   - black
   - isort
   - pytest
-  
+
   # Install nmaipy and its dependencies from pyproject.toml
   - pip
   - pip:

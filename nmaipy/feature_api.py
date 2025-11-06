@@ -748,7 +748,9 @@ class FeatureApi:
         include: Optional[List[str]] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
+        region: Optional[str] = None,
     ) -> Tuple[str, dict, bool]:
         """
         Create parameters for a POST request with given parameters
@@ -825,6 +827,15 @@ class FeatureApi:
         if include:
             include_param = include if isinstance(include, str) else ",".join(include)
             url += f"&include={include_param}"
+
+        # Add address fields as query parameters if given (for address-based queries)
+        if address_fields:
+            # Add country parameter for address-based queries (API requires uppercase)
+            if region:
+                url += f"&country={region.upper()}"
+            for field in ADDRESS_FIELDS:
+                if field in address_fields and address_fields[field]:
+                    url += f"&{field}={address_fields[field]}"
 
         # With POST requests, we always get the exact geometry processed
         exact = True
@@ -962,7 +973,9 @@ class FeatureApi:
                 include=include,
                 since=since,
                 until=until,
+                address_fields=address_fields,
                 survey_resource_id=survey_resource_id,
+                region=region,
             )
             cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
                 
@@ -1525,7 +1538,7 @@ class FeatureApi:
             area_sqm = geometry_projected.area.iloc[0]
             
             if area_sqm > MAX_AOI_AREA_SQM_BEFORE_GRIDDING:
-                logger.info(f"AOI (id {aoi_id}) area ({area_sqm:.0f} sqm) exceeds client threshold ({MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm). Forcing gridding...")
+                logger.debug(f"AOI (id {aoi_id}) area ({area_sqm:.0f} sqm) exceeds client threshold ({MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm). Forcing gridding...")
                 return self._attempt_gridding(
                     geometry=geometry,
                     region=region,
@@ -1731,14 +1744,14 @@ class FeatureApi:
             df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
             reason_str = f" (reason: {reason})" if reason else ""
-            logger.info(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells{reason_str}")
+            logger.debug(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells{reason_str}")
 
             # Update progress counter: we're splitting 1 AOI into N grid cells, so add (N-1) to total
             if self.progress_counters is not None:
                 num_grid_cells = len(df_gridded)
                 with self.progress_counters['lock']:
                     self.progress_counters['total'] += (num_grid_cells - 1)
-                logger.info(f"Gridding AOI {aoi_id}: added {num_grid_cells - 1} requests to progress total (1 AOI -> {num_grid_cells} grid cells)")
+                logger.debug(f"Gridding AOI {aoi_id}: added {num_grid_cells - 1} requests to progress total (1 AOI -> {num_grid_cells} grid cells)")
 
             # Retrieve the features for every one of the cells in the gridded AOIs
             aoi_id_tmp = range(len(df_gridded))
