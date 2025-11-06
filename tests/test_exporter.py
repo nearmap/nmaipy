@@ -557,6 +557,83 @@ class TestExporter:
             )
             assert exporter_with_features.save_features == True
 
+    def test_stream_and_convert_features_schema_mismatch(self):
+        """Test that _stream_and_convert_features handles schema mismatches correctly.
+
+        This test simulates the scenario where:
+        - Chunk 1 has features with proper schema (system_version: string, etc.)
+        - Chunk 2 has no features, resulting in null-type columns
+
+        The fix should handle this by creating properly-typed null arrays.
+        """
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from shapely.geometry import Point
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            chunk_dir = tmpdir / "chunks"
+            chunk_dir.mkdir()
+
+            # Create chunk 1 with real data
+            chunk1_data = gpd.GeoDataFrame({
+                'system_version': ['gen6-'],
+                'link': ['http://example.com'],
+                'date': ['2024-11-06'],
+                'survey_id': ['survey1'],
+                'survey_resource_id': ['resource1'],
+                'perspective': ['vertical'],
+                'postcat': [True],
+                'feature_id': ['feat1'],
+                'class_id': ['class1'],
+                'internal_class_id': [1],
+                'description': ['Test feature'],
+                'geometry': [Point(0, 0)]
+            }, crs='EPSG:4326')
+            chunk1_path = chunk_dir / "features_test_1.parquet"
+            chunk1_data.to_parquet(chunk1_path)
+
+            # Create chunk 2 with null-type columns (simulating empty features)
+            # This mimics what happens when all addresses in a chunk have no features
+            chunk2_data = gpd.GeoDataFrame({
+                'system_version': [None],
+                'link': [None],
+                'date': [None],
+                'survey_id': [None],
+                'survey_resource_id': [None],
+                'perspective': [None],
+                'postcat': [None],
+                'feature_id': [None],
+                'class_id': [None],
+                'internal_class_id': [None],
+                'description': [None],
+                'geometry': [Point(1, 1)]
+            }, crs='EPSG:4326')
+            chunk2_path = chunk_dir / "features_test_2.parquet"
+            chunk2_data.to_parquet(chunk2_path)
+
+            # Now test the streaming function
+            exporter = AOIExporter(
+                output_dir=tmpdir,
+                country='au',
+                packs=['building'],
+                save_features=True,
+            )
+
+            output_path = tmpdir / "merged_features.parquet"
+            feature_paths = [chunk1_path, chunk2_path]
+
+            # This should not raise an error
+            result = exporter._stream_and_convert_features(feature_paths, output_path)
+
+            # Verify the output file exists and can be read
+            assert output_path.exists()
+            merged_data = gpd.read_parquet(output_path)
+            assert len(merged_data) == 2
+            # Verify first row has data, second row has nulls
+            assert merged_data.iloc[0]['system_version'] == 'gen6-'
+            assert pd.isna(merged_data.iloc[1]['system_version'])
+
 
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)

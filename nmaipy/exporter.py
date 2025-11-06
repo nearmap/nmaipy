@@ -589,12 +589,12 @@ class AOIExporter:
                             df_feature_chunk[col] = None
                     if extra_cols:
                         self.logger.warning(f"  Extra columns: {sorted(extra_cols)}")
-                
+
                 # Ensure column order matches reference for all chunks
                 if list(current_columns) != list(reference_columns):
                     self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
                     df_feature_chunk = df_feature_chunk[reference_columns]
-                
+
                 # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
                 geom_col = df_feature_chunk.geometry.to_wkb()
                 df_feature_chunk = pd.DataFrame(df_feature_chunk)
@@ -602,10 +602,10 @@ class AOIExporter:
 
                 # Convert to pyarrow table and stream
                 table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
-                
+
                 if pqwriter is None:
                     reference_schema = table.schema
-                    
+
                     # Create geoparquet metadata from the start
                     geo_metadata = {
                         "version": "1.0.0",
@@ -621,12 +621,12 @@ class AOIExporter:
                             }
                         }
                     }
-                    
+
                     # Add geoparquet metadata to schema
                     schema_with_geo = reference_schema.with_metadata({
                         b'geo': json.dumps(geo_metadata).encode('utf-8')
                     })
-                    
+
                     pqwriter = pq.ParquetWriter(outpath_features, schema_with_geo)
                 else:
                     # Cast to reference schema if needed
@@ -634,10 +634,33 @@ class AOIExporter:
                         try:
                             table = table.cast(reference_schema)
                         except Exception as e:
-                            self.logger.error(f"Chunk {i}: Schema casting failed.")
-                            self.logger.error(f"Error: {e}")
-                            self.logger.error(f"Reference schema: {reference_schema}")
-                            self.logger.error(f"Current schema: {table.schema}")
+                            # Schema casting failed - likely due to null type columns
+                            # Try to fix by creating an empty table with the reference schema
+                            self.logger.warning(f"Chunk {i}: Schema casting failed, attempting to create compatible table")
+                            self.logger.debug(f"  Error: {e}")
+                            self.logger.debug(f"  Reference schema: {reference_schema}")
+                            self.logger.debug(f"  Current schema: {table.schema}")
+
+                            # Create a new table with the reference schema structure but current data
+                            # For columns that can't be cast (e.g., null -> string), create empty arrays
+                            arrays = []
+                            for field in reference_schema:
+                                if field.name in table.column_names:
+                                    col = table.column(field.name)
+                                    # Try to cast this individual column
+                                    try:
+                                        arrays.append(col.cast(field.type))
+                                    except pa.ArrowInvalid:
+                                        # Can't cast (e.g., null -> string), create empty/null array with correct type
+                                        self.logger.debug(f"    Creating null array for column '{field.name}' ({field.type})")
+                                        arrays.append(pa.nulls(len(table), type=field.type))
+                                else:
+                                    # Column missing entirely, create null array with correct type
+                                    self.logger.debug(f"    Creating null array for missing column '{field.name}' ({field.type})")
+                                    arrays.append(pa.nulls(len(table), type=field.type))
+
+                            table = pa.Table.from_arrays(arrays, schema=reference_schema)
+                            self.logger.debug(f"  Successfully created compatible table with {len(table)} rows")
                 pqwriter.write_table(table)
         
         # Close the writer
