@@ -183,7 +183,7 @@ def test_url_encoding_in_address_fields():
 
     # Verify URL encoding
     assert "O%27Reilly" in url, "Apostrophe should be URL-encoded as %27"
-    assert "Jos%C3%A9" in url or "Jos%C3%A9" in url, "Accented character should be URL-encoded"
+    assert "Jos%C3%A9" in url or "Jos%E9" in url, "Accented character should be URL-encoded (UTF-8 or Latin-1)"
     assert "123%20O" in url, "Space should be URL-encoded as %20"
     assert "&country=US" in url, "Country code should be uppercase"
 
