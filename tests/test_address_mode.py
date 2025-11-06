@@ -143,5 +143,101 @@ def test_single_address_export(api_key, single_address_csv, tmp_path):
     assert len(df_features) > 0, f"No features found (expected building features)"
 
 
+def test_url_encoding_in_address_fields():
+    """
+    Test that address fields are properly URL-encoded when creating POST requests.
+
+    Verifies that special characters in address fields (spaces, apostrophes, etc.)
+    are correctly encoded in the query string.
+    """
+    from nmaipy.feature_api import FeatureApi
+    from shapely.geometry import Point
+    import os
+
+    # Get API key
+    api_key = os.getenv('API_KEY')
+    if not api_key:
+        pytest.skip("API_KEY environment variable not set")
+
+    # Create API instance
+    api = FeatureApi(api_key=api_key)
+
+    # Test address with special characters
+    address_fields = {
+        'streetAddress': "123 O'Reilly Street",  # apostrophe
+        'city': "San José",  # accented character
+        'state': "CA",
+        'zip': "94102"
+    }
+
+    # Create a simple geometry (not actually used for address mode)
+    geometry = Point(0, 0).buffer(0.001)
+
+    # Create POST request parameters
+    url, body, exact = api._create_post_request(
+        base_url=api.FEATURES_URL,
+        geometry=geometry,
+        address_fields=address_fields,
+        region='us'
+    )
+
+    # Verify URL encoding
+    assert "O%27Reilly" in url, "Apostrophe should be URL-encoded as %27"
+    assert "Jos%C3%A9" in url or "Jos%E9" in url, "Accented character should be URL-encoded (UTF-8 or Latin-1)"
+    assert "123%20O" in url, "Space should be URL-encoded as %20"
+    assert "&country=US" in url, "Country code should be uppercase"
+
+    # Verify all address fields are present
+    assert "streetAddress=" in url
+    assert "city=" in url
+    assert "state=" in url
+    assert "zip=" in url
+
+
+def test_invalid_region_validation():
+    """
+    Test that invalid region codes are rejected with helpful error messages.
+    """
+    from nmaipy.feature_api import FeatureApi
+    from shapely.geometry import Point
+    import os
+
+    # Get API key
+    api_key = os.getenv('API_KEY')
+    if not api_key:
+        pytest.skip("API_KEY environment variable not set")
+
+    # Create API instance
+    api = FeatureApi(api_key=api_key)
+
+    # Test address fields
+    address_fields = {
+        'streetAddress': "123 Main St",
+        'city': "Test City",
+        'state': "XX",
+        'zip': "12345"
+    }
+
+    # Create a simple geometry
+    geometry = Point(0, 0).buffer(0.001)
+
+    # Test with invalid region code
+    with pytest.raises(ValueError) as exc_info:
+        api._create_post_request(
+            base_url=api.FEATURES_URL,
+            geometry=geometry,
+            address_fields=address_fields,
+            region='invalid'
+        )
+
+    # Verify error message is helpful
+    error_msg = str(exc_info.value)
+    assert "invalid" in error_msg.lower()
+    assert "au" in error_msg
+    assert "ca" in error_msg
+    assert "nz" in error_msg
+    assert "us" in error_msg
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '-s'])

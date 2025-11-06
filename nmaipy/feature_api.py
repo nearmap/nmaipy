@@ -24,7 +24,7 @@ import stringcase
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
-from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, quote
 from urllib3.util.retry import Retry
 import urllib3  # Add this with other imports
 import ssl  # Add this with other imports
@@ -831,11 +831,20 @@ class FeatureApi:
         # Add address fields as query parameters if given (for address-based queries)
         if address_fields:
             # Add country parameter for address-based queries (API requires uppercase)
+            # The region parameter uses the same values as AREA_CRS keys (au, ca, nz, us)
             if region:
-                url += f"&country={region.upper()}"
+                region_lower = region.lower()
+                if region_lower not in AREA_CRS:
+                    valid_regions = ", ".join(sorted(AREA_CRS.keys()))
+                    raise ValueError(
+                        f"Invalid region '{region}'. Must be one of: {valid_regions}"
+                    )
+                url += f"&country={region_lower.upper()}"
             for field in ADDRESS_FIELDS:
                 if field in address_fields and address_fields[field]:
-                    url += f"&{field}={address_fields[field]}"
+                    # URL-encode address values to handle spaces, apostrophes, etc.
+                    encoded_value = quote(str(address_fields[field]))
+                    url += f"&{field}={encoded_value}"
 
         # With POST requests, we always get the exact geometry processed
         exact = True
