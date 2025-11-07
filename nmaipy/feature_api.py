@@ -99,12 +99,12 @@ class RetryRequest(Retry):
     """
     Inherited retry request with controlled backoff timing.
 
-    Reduced BACKOFF_MAX from 16s to 10s to prevent excessive wait times on
-    requests that persistently fail with 500-series errors.
+    BACKOFF_MAX set to 20s to allow more time for transient failures to resolve.
+    BACKOFF_MIN set to 2s to provide more breathing room before retrying.
     """
 
-    BACKOFF_MIN = 0.5  # Minimum backoff time in seconds
-    BACKOFF_MAX = 10    # Maximum backoff time in seconds (reduced from 16s)
+    BACKOFF_MIN = 2.0  # Minimum backoff time in seconds
+    BACKOFF_MAX = 20    # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -155,7 +155,7 @@ class RetryRequest(Retry):
         return result
 
     def new_timeout(self, *args, **kwargs):
-        """Override to enforce backoff time between 1-5 seconds"""
+        """Override to enforce backoff time between BACKOFF_MIN and BACKOFF_MAX"""
         timeout = super().new_timeout(*args, **kwargs)
         return min(max(timeout, self.BACKOFF_MIN), self.BACKOFF_MAX)  # Clamp between min and max seconds
 
