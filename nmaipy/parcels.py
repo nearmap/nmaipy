@@ -76,19 +76,57 @@ def read_from_file(
     elif isinstance(path, Path):
         suffix = path.suffix[1:]
     if suffix in ("csv", "psv", "tsv"):
-        # First read without setting index to avoid failure if id_column doesn't exist
+        # Determine separator based on file extension
         if suffix == "csv":
-            parcels_gdf = pd.read_csv(path)
+            sep = ","
         elif suffix == "psv":
-            parcels_gdf = pd.read_csv(path, sep="|")
+            sep = "|"
         elif suffix == "tsv":
-            parcels_gdf = pd.read_csv(path, sep="\t")
-            
+            sep = "\t"
+
+        # Read CSV with robust type handling:
+        # - Use low_memory=False to scan entire file for type inference
+        # - This prevents issues with mixed types (e.g., numeric street addresses with some text)
+        # - Ensures consistent typing even when chunking would see different types in different chunks
+        # - Keep geometry as regular dtype (object) since we'll convert it to actual geometries
+        dtype_overrides = None
+        if "geometry" in pd.read_csv(path, sep=sep, nrows=0).columns:
+            # If there's a geometry column, keep it as object dtype (not StringArray)
+            # so we can convert it to actual geometry objects later
+            dtype_overrides = {"geometry": "object"}
+
+        parcels_gdf = pd.read_csv(
+            path,
+            sep=sep,
+            low_memory=False,  # Scan whole file for proper type inference
+            dtype=dtype_overrides,  # Keep geometry as object if present
+        )
+
         # Set the index only if the column exists
         if id_column in parcels_gdf.columns:
             parcels_gdf = parcels_gdf.set_index(id_column)
     elif suffix == "parquet":
-        parcels_gdf = gpd.read_parquet(path)
+        # Try geopandas first for geoparquet files with geometry columns
+        # Fall back to pandas for non-geo parquet (e.g., address-only files with explicit dtypes)
+        # This preserves explicit dtypes that may have been carefully specified
+        try:
+            parcels_gdf = gpd.read_parquet(path)
+            logger.info(f"Read geoparquet file with geometry using geopandas")
+        except (ValueError, Exception) as e:
+            # Handle both "Missing geo metadata" and other parquet reading issues
+            if "Missing geo metadata" in str(e) or "geo" in str(e).lower():
+                # Non-geo parquet file - read with pandas to preserve explicit dtypes
+                logger.info(f"Reading non-geo parquet file with pandas (preserves explicit dtypes)")
+                parcels_gdf = pd.read_parquet(path)
+            else:
+                # Unknown error - try pandas as fallback
+                logger.warning(f"geopandas read failed with: {e}. Trying pandas fallback.")
+                try:
+                    parcels_gdf = pd.read_parquet(path)
+                    logger.info(f"Successfully read parquet with pandas fallback")
+                except Exception as e2:
+                    logger.error(f"Both geopandas and pandas failed to read parquet file")
+                    raise e2
     elif suffix in ("geojson", "gpkg"):
         parcels_gdf = gpd.read_file(path)
     else:
