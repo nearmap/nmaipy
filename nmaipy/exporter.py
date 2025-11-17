@@ -1649,11 +1649,42 @@ class AOIExporter:
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
         outpath_errors = final_path / f"{Path(aoi_path).stem}_errors.csv"
+        outpath_errors_geoparquet = final_path / f"{Path(aoi_path).stem}_errors.parquet"
         self.logger.debug(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{Path(aoi_path).stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
+
+            # Merge with aoi_gdf to add geometry or address information for enhanced error output
+            # Use left join to preserve all errors even if aoi_id is missing
+            aoi_gdf_for_merge = aoi_gdf.reset_index()
+
+            if isinstance(aoi_gdf, gpd.GeoDataFrame):
+                # Geometry mode: merge with geometry column for GeoParquet output
+                errors_with_context = errors.merge(
+                    aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]],
+                    on=AOI_ID_COLUMN_NAME,
+                    how="left",
+                )
+                # Convert to GeoDataFrame if we have geometry column
+                if "geometry" in errors_with_context.columns:
+                    errors_gdf = gpd.GeoDataFrame(
+                        errors_with_context, geometry="geometry", crs=aoi_gdf.crs
+                    )
+                else:
+                    errors_gdf = errors_with_context
+            else:
+                # Address mode: merge with address columns for context
+                # Get all columns from aoi_gdf except aoi_id (which is already in errors)
+                merge_cols = [col for col in aoi_gdf_for_merge.columns if col != AOI_ID_COLUMN_NAME]
+                if AOI_ID_COLUMN_NAME in aoi_gdf_for_merge.columns:
+                    merge_cols.insert(0, AOI_ID_COLUMN_NAME)
+                errors_gdf = errors.merge(
+                    aoi_gdf_for_merge[merge_cols],
+                    on=AOI_ID_COLUMN_NAME,
+                    how="left",
+                )
 
             # Count error types by status code and message
             error_summary = []
@@ -1674,8 +1705,24 @@ class AOIExporter:
                 )
         else:
             errors = pd.DataFrame(errors)
+            errors_gdf = errors
             self.logger.info("Processing completed with no failures")
-        errors.to_csv(outpath_errors, index=True)
+
+        # Save CSV format (always - includes address fields if in address mode)
+        if isinstance(aoi_gdf, gpd.GeoDataFrame):
+            # Geometry mode: CSV without geometry for backward compatibility
+            errors.to_csv(outpath_errors, index=True)
+        else:
+            # Address mode: CSV with address fields merged in for easy viewing in Excel
+            errors_gdf.to_csv(outpath_errors, index=True)
+
+        # Save GeoParquet format only for geometry mode (for QGIS visualization)
+        # In address mode, users prefer CSV for Excel compatibility
+        if isinstance(errors_gdf, gpd.GeoDataFrame) and len(errors_gdf) > 0:
+            self.logger.info(
+                f"Saving error data with geometry as geoparquet to {outpath_errors_geoparquet}"
+            )
+            errors_gdf.to_parquet(outpath_errors_geoparquet, index=True)
         if self.save_features:
             feature_paths = [
                 p for p in chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
