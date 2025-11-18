@@ -1,49 +1,48 @@
 import argparse
 import concurrent.futures
+import gc
+import json
+import logging
+import multiprocessing
 import os
+import sys
+import traceback
+import warnings
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional
-import json
-import sys
-from enum import Enum
-import logging
-import gc
-import shapely
-import pyproj
-import multiprocessing
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-import warnings
-import traceback
+import pyproj
+import shapely
 import shapely.geometry
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
+
+import atexit
+import signal
+import time
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+
+import psutil
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
 from nmaipy.constants import (
-    AOI_ID_COLUMN_NAME,
-    SINCE_COL_NAME,
-    UNTIL_COL_NAME,
-    API_CRS,
-    SURVEY_RESOURCE_ID_COL_NAME,
-    DEFAULT_URL_ROOT,
     ADDRESS_FIELDS,
+    AOI_ID_COLUMN_NAME,
+    API_CRS,
     BUILDING_STYLE_CLASS_IDS,
+    DEFAULT_URL_ROOT,
+    SINCE_COL_NAME,
+    SURVEY_RESOURCE_ID_COL_NAME,
+    UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
-
-import psutil
-import time
-from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures.process import BrokenProcessPool
-import gc
-import atexit
-import signal
-
 
 _process_feature_api = None
 
@@ -89,23 +88,25 @@ def _flatten_attribute_list(attr_list):
             continue
 
         # Get the description to use as a prefix
-        desc = attr_obj.get('description', f'attr_{i}')
+        desc = attr_obj.get("description", f"attr_{i}")
 
         # Process each field in the attribute object
         for key, value in attr_obj.items():
             # Skip internal fields and redundant description
-            if key in ['description', 'internalClassId']:
+            if key in ["description", "internalClassId"]:
                 continue
 
             # Special handling for components - serialize as JSON
-            if key == 'components' and isinstance(value, (list, dict)):
+            if key == "components" and isinstance(value, (list, dict)):
                 # Clean components to remove internalClassId
                 if isinstance(value, list):
                     cleaned_components = []
                     for comp in value:
                         if isinstance(comp, dict):
                             # Remove internalClassId from each component
-                            cleaned_comp = {k: v for k, v in comp.items() if k != 'internalClassId'}
+                            cleaned_comp = {
+                                k: v for k, v in comp.items() if k != "internalClassId"
+                            }
                             cleaned_components.append(cleaned_comp)
                         else:
                             cleaned_components.append(comp)
@@ -158,33 +159,33 @@ def _flatten_damage(damage_obj):
     flat_dict = {}
 
     # Flatten confidences
-    confidences = damage_obj.get('confidences')
+    confidences = damage_obj.get("confidences")
     if isinstance(confidences, dict):
         # Flatten raw confidences
-        raw = confidences.get('raw')
+        raw = confidences.get("raw")
         if isinstance(raw, dict):
             for class_name, confidence in raw.items():
                 flat_dict[f"damage.confidences.raw.{class_name}"] = confidence
 
         # Flatten 3tier confidences
-        tier3 = confidences.get('3tier')
+        tier3 = confidences.get("3tier")
         if isinstance(tier3, dict):
             for class_name, confidence in tier3.items():
                 flat_dict[f"damage.confidences.3tier.{class_name}"] = confidence
 
         # Flatten 2tier confidences
-        tier2 = confidences.get('2tier')
+        tier2 = confidences.get("2tier")
         if isinstance(tier2, dict):
             for class_name, confidence in tier2.items():
                 flat_dict[f"damage.confidences.2tier.{class_name}"] = confidence
 
     # Flatten ratios
-    ratios = damage_obj.get('ratios')
+    ratios = damage_obj.get("ratios")
     if isinstance(ratios, list):
         for ratio_item in ratios:
             if isinstance(ratio_item, dict):
-                description = ratio_item.get('description')
-                ratio_value = ratio_item.get('ratioAbove50PctConf')
+                description = ratio_item.get("description")
+                ratio_value = ratio_item.get("ratioAbove50PctConf")
                 if description is not None and ratio_value is not None:
                     # Keep spaces in description to match attribute naming convention
                     flat_dict[f"damage.ratios.{description}"] = ratio_value
@@ -222,12 +223,18 @@ def parse_arguments():
     Get command line arguments
     """
     parser = argparse.ArgumentParser(
-        prog='nmaipy',
-        description='Nearmap AI Python Library - Extract AI features from aerial imagery'
+        prog="nmaipy",
+        description="Nearmap AI Python Library - Extract AI features from aerial imagery",
     )
-    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument("--aoi-file", help="Input AOI file path or S3 URL", type=str, required=True)
-    parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--aoi-file", help="Input AOI file path or S3 URL", type=str, required=True
+    )
+    parser.add_argument(
+        "--output-dir", help="Directory to store results", type=str, required=True
+    )
     parser.add_argument(
         "--packs",
         help="List of AI packs",
@@ -428,42 +435,48 @@ def parse_arguments():
         type=str,
         required=False,
     )
-    parser.add_argument("--log-level", help="Log level (DEBUG, INFO, ...)", required=False, default="INFO", type=str)
+    parser.add_argument(
+        "--log-level",
+        help="Log level (DEBUG, INFO, ...)",
+        required=False,
+        default="INFO",
+        type=str,
+    )
     return parser.parse_args()
 
 
 def cleanup_process_resources():
-    """Helper to ensure processes are cleaned up"""   
+    """Helper to ensure processes are cleaned up"""
     # Clean up the process-level FeatureApi instance
     cleanup_process_feature_api()
-    
+
     gc.collect()
     # Force cleanup of any remaining ProcessPoolExecutor threads
-    if hasattr(concurrent.futures.process, '_threads_wakeups'):
+    if hasattr(concurrent.futures.process, "_threads_wakeups"):
         concurrent.futures.process._threads_wakeups.clear()
+
 
 def cleanup_thread_sessions(executor):
     """Helper to ensure thread sessions are properly closed"""
-    if hasattr(executor, '_threads'):
+    if hasattr(executor, "_threads"):
         for thread in executor._threads:
-            if hasattr(thread, '_local'):
-                if hasattr(thread._local, 'session'):
+            if hasattr(thread, "_local"):
+                if hasattr(thread._local, "session"):
                     try:
                         thread._local.session.close()
                     except:
                         pass
 
 
-
 class AOIExporter:
     def __init__(
         self,
-        aoi_file='default_aoi_file',
-        output_dir='default_output_dir',
+        aoi_file="default_aoi_file",
+        output_dir="default_output_dir",
         packs=None,
         classes=None,
         include=None,
-        primary_decision='largest_intersection',
+        primary_decision="largest_intersection",
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         processes=PROCESSES,
@@ -472,28 +485,28 @@ class AOIExporter:
         include_parcel_geometry=False,
         save_features=False,
         save_buildings=False,
-        rollup_format='csv',
+        rollup_format="csv",
         cache_dir=None,
         no_cache=False,
         overwrite_cache=False,
         compress_cache=False,
-        country='us',
+        country="us",
         alpha=False,
         beta=False,
         prerelease=False,
         only3d=False,
         since=None,
         until=None,
-        endpoint='feature',
+        endpoint="feature",
         url_root=DEFAULT_URL_ROOT,
         system_version_prefix=None,
         system_version=None,
-        log_level='INFO',
+        log_level="INFO",
         api_key=None,  # Add API key parameter
         parcel_mode=True,  # Add parcel mode parameter with default True
         rapid=False,
         order=None,
-        exclude_tiles_with_occlusion=False
+        exclude_tiles_with_occlusion=False,
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -539,38 +552,48 @@ class AOIExporter:
 
     def api_key(self) -> str:
         # Use provided API key if available, otherwise fall back to environment variable
-        if hasattr(self, 'api_key_param') and self.api_key_param is not None:
+        if hasattr(self, "api_key_param") and self.api_key_param is not None:
             return self.api_key_param
         return os.getenv("API_KEY")
 
-    def _stream_and_convert_features(self, feature_paths: List[Path], outpath_features: Path) -> Optional[gpd.GeoDataFrame]:
+    def _stream_and_convert_features(
+        self, feature_paths: List[Path], outpath_features: Path
+    ) -> Optional[gpd.GeoDataFrame]:
         """
         Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
-        
+
         Args:
             feature_paths: List of paths to feature chunk parquet files
             outpath_features: Output path for final geoparquet file
-            
+
         Returns:
             None since we don't need the GeoDataFrame in memory
         """
+
         import pyarrow as pa
         import pyarrow.parquet as pq
-        import json
-        
+
         pqwriter = None
         reference_columns = None  # Store column order from first chunk
-        reference_schema = None   # Store PyArrow schema from first chunk
-        
+        reference_schema = None  # Store PyArrow schema from first chunk
+
         # Stream chunks directly to geoparquet
-        for i, cp in enumerate(tqdm(feature_paths, desc="Streaming chunks", file=sys.stdout, position=0, leave=True)):
+        for i, cp in enumerate(
+            tqdm(
+                feature_paths,
+                desc="Streaming chunks",
+                file=sys.stdout,
+                position=0,
+                leave=True,
+            )
+        ):
             try:
                 df_feature_chunk = gpd.read_parquet(cp)
             except Exception as e:
                 self.logger.error(f"Failed to read {cp}: {e}")
                 continue
-                
+
             if len(df_feature_chunk) > 0:
                 # Store CRS and column schema from first chunk
                 if reference_columns is None:
@@ -583,7 +606,9 @@ class AOIExporter:
                 if missing_cols or extra_cols:
                     self.logger.warning(f"Chunk {i} schema mismatch detected:")
                     if missing_cols:
-                        self.logger.warning(f"  Missing columns: {sorted(missing_cols)}")
+                        self.logger.warning(
+                            f"  Missing columns: {sorted(missing_cols)}"
+                        )
                         # Add missing columns with null values
                         for col in missing_cols:
                             df_feature_chunk[col] = None
@@ -592,13 +617,15 @@ class AOIExporter:
 
                 # Ensure column order matches reference for all chunks
                 if list(current_columns) != list(reference_columns):
-                    self.logger.debug(f"Chunk {i}: Column order differs from reference, reordering silently")
+                    self.logger.debug(
+                        f"Chunk {i}: Column order differs from reference, reordering silently"
+                    )
                     df_feature_chunk = df_feature_chunk[reference_columns]
 
                 # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
                 geom_col = df_feature_chunk.geometry.to_wkb()
                 df_feature_chunk = pd.DataFrame(df_feature_chunk)
-                df_feature_chunk['geometry'] = geom_col
+                df_feature_chunk["geometry"] = geom_col
 
                 # Convert to pyarrow table and stream
                 table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
@@ -617,15 +644,15 @@ class AOIExporter:
                                 "crs": API_CRS,
                                 "edges": "planar",
                                 "orientation": "counterclockwise",
-                                "bbox": None
+                                "bbox": None,
                             }
-                        }
+                        },
                     }
 
                     # Add geoparquet metadata to schema
-                    schema_with_geo = reference_schema.with_metadata({
-                        b'geo': json.dumps(geo_metadata).encode('utf-8')
-                    })
+                    schema_with_geo = reference_schema.with_metadata(
+                        {b"geo": json.dumps(geo_metadata).encode("utf-8")}
+                    )
 
                     pqwriter = pq.ParquetWriter(outpath_features, schema_with_geo)
                 else:
@@ -636,7 +663,9 @@ class AOIExporter:
                         except Exception as e:
                             # Schema casting failed - likely due to null type columns
                             # Try to fix by creating an empty table with the reference schema
-                            self.logger.warning(f"Chunk {i}: Schema casting failed, attempting to create compatible table")
+                            self.logger.warning(
+                                f"Chunk {i}: Schema casting failed, attempting to create compatible table"
+                            )
                             self.logger.debug(f"  Error: {e}")
                             self.logger.debug(f"  Reference schema: {reference_schema}")
                             self.logger.debug(f"  Current schema: {table.schema}")
@@ -652,21 +681,31 @@ class AOIExporter:
                                         arrays.append(col.cast(field.type))
                                     except pa.ArrowInvalid:
                                         # Can't cast (e.g., null -> string), create empty/null array with correct type
-                                        self.logger.debug(f"    Creating null array for column '{field.name}' ({field.type})")
-                                        arrays.append(pa.nulls(len(table), type=field.type))
+                                        self.logger.debug(
+                                            f"    Creating null array for column '{field.name}' ({field.type})"
+                                        )
+                                        arrays.append(
+                                            pa.nulls(len(table), type=field.type)
+                                        )
                                 else:
                                     # Column missing entirely, create null array with correct type
-                                    self.logger.debug(f"    Creating null array for missing column '{field.name}' ({field.type})")
+                                    self.logger.debug(
+                                        f"    Creating null array for missing column '{field.name}' ({field.type})"
+                                    )
                                     arrays.append(pa.nulls(len(table), type=field.type))
 
-                            table = pa.Table.from_arrays(arrays, schema=reference_schema)
-                            self.logger.debug(f"  Successfully created compatible table with {len(table)} rows")
+                            table = pa.Table.from_arrays(
+                                arrays, schema=reference_schema
+                            )
+                            self.logger.debug(
+                                f"  Successfully created compatible table with {len(table)} rows"
+                            )
                 pqwriter.write_table(table)
-        
+
         # Close the writer
         if pqwriter is not None:
             pqwriter.close()
-            
+
             # Log final status
             mem = psutil.virtual_memory()
             final_file_size_gb = outpath_features.stat().st_size / (1024**3)
@@ -675,13 +714,19 @@ class AOIExporter:
                 f"Memory: {(mem.total - mem.available)/1024**3:.2f}GB / {mem.total/1024**3:.2f}GB ({mem.percent:.1f}%). "
                 f"Final file size: {final_file_size_gb:.2f}GB"
             )
-            
+
             return None
         else:
             self.logger.warning("No feature data found to write")
             return None
 
-    def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, classes_df: pd.DataFrame, progress_counters: Optional[dict] = None):
+    def process_chunk(
+        self,
+        chunk_id: str,
+        aoi_gdf: gpd.GeoDataFrame,
+        classes_df: pd.DataFrame,
+        progress_counters: Optional[dict] = None,
+    ):
         """
         Create a parcel rollup for a chunk of parcels.
 
@@ -693,17 +738,20 @@ class AOIExporter:
         """
         # Configure logging for worker process - use same config as main process
         import multiprocessing
-        if multiprocessing.current_process().name != 'MainProcess':
+
+        if multiprocessing.current_process().name != "MainProcess":
             # Reconfigure logger in worker process to match parent settings
             log.configure_logger(self.log_level)
         logger = log.get_logger()
-        
+
         feature_api = None
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
             else:
-                cache_dir = Path(self.cache_dir) if self.cache_dir else Path(self.output_dir)
+                cache_dir = (
+                    Path(self.cache_dir) if self.cache_dir else Path(self.output_dir)
+                )
 
             if not self.no_cache:
                 cache_path = cache_dir / "cache"
@@ -743,7 +791,9 @@ class AOIExporter:
                 progress_counters=progress_counters,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
-                self.logger.debug(f"Chunk {chunk_id}: Getting rollups for {len(aoi_gdf)} AOIs ({self.endpoint=})")
+                self.logger.debug(
+                    f"Chunk {chunk_id}: Getting rollups for {len(aoi_gdf)} AOIs ({self.endpoint=})"
+                )
                 rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
                     aoi_gdf,
                     region=self.country,
@@ -763,23 +813,29 @@ class AOIExporter:
                 if len(errors_df) > 0:
                     if "message" in errors_df:
                         error_counts = errors_df["message"].value_counts().to_dict()
-                        self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
+                        self.logger.debug(
+                            f"Found {len(errors_df)} errors by type: {error_counts}"
+                        )
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
                     errors_df.to_parquet(outfile_errors)
                     return
             elif self.endpoint == Endpoint.FEATURE.value:
-                self.logger.debug(f"Chunk {chunk_id}: Getting features for {len(aoi_gdf)} AOIs ({self.endpoint=})")
-                features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
-                    aoi_gdf,
-                    region=self.country,
-                    since_bulk=self.since,
-                    until_bulk=self.until,
-                    packs=self.packs,
-                    classes=self.classes,
-                    include=self.include,
-                    max_allowed_error_pct=100,
+                self.logger.debug(
+                    f"Chunk {chunk_id}: Getting features for {len(aoi_gdf)} AOIs ({self.endpoint=})"
+                )
+                features_gdf, metadata_df, errors_df = (
+                    feature_api.get_features_gdf_bulk(
+                        aoi_gdf,
+                        region=self.country,
+                        since_bulk=self.since,
+                        until_bulk=self.until,
+                        packs=self.packs,
+                        classes=self.classes,
+                        include=self.include,
+                        max_allowed_error_pct=100,
+                    )
                 )
                 mem = psutil.virtual_memory()
                 self.logger.debug(
@@ -789,7 +845,9 @@ class AOIExporter:
                 if len(errors_df) > 0:
                     if "message" in errors_df:
                         error_counts = errors_df["message"].value_counts().to_dict()
-                        self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
+                        self.logger.debug(
+                            f"Found {len(errors_df)} errors by type: {error_counts}"
+                        )
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
@@ -821,15 +879,23 @@ class AOIExporter:
             # Validate columns
             for meta_data_column in meta_data_columns:
                 if meta_data_column in aoi_gdf.columns:
-                    metadata_df = metadata_df.rename(columns={meta_data_column: f"nmaipy_{meta_data_column}"})
+                    metadata_df = metadata_df.rename(
+                        columns={meta_data_column: f"nmaipy_{meta_data_column}"}
+                    )
                     meta_data_columns.remove(meta_data_column)
 
-            final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(aoi_gdf, on=AOI_ID_COLUMN_NAME)
+            final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(
+                aoi_gdf, on=AOI_ID_COLUMN_NAME
+            )
             parcel_columns = [c for c in aoi_gdf.columns if c != "geometry"]
             columns = (
                 parcel_columns
                 + [c for c in meta_data_columns if c in final_df.columns]
-                + [c for c in final_df.columns if c not in parcel_columns + meta_data_columns + ["geometry"]]
+                + [
+                    c
+                    for c in final_df.columns
+                    if c not in parcel_columns + meta_data_columns + ["geometry"]
+                ]
             )
             final_df = final_df[columns]
             if self.include_parcel_geometry:
@@ -840,56 +906,79 @@ class AOIExporter:
                 lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
             )
             if self.endpoint == Endpoint.ROLLUP.value:
-                if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
+                if (
+                    "query_aoi_lat" in final_df.columns
+                    and "query_aoi_lon" in final_df.columns
+                ):
                     final_df["link"] = final_df.apply(make_link, axis=1)
                 final_df = final_df.drop(columns=["system_version", "date"])
-            self.logger.debug(f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors.")
+            self.logger.debug(
+                f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
+            )
             try:
                 errors_df.to_parquet(outfile_errors)
             except Exception as e:
-                self.logger.error(f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}.")
+                self.logger.error(
+                    f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
+                )
                 self.logger.error(f"Error: {type(e).__name__}: {str(e)}")
             try:
                 # Handle the geometry column separately to avoid conversion issues
                 has_geometry = "geometry" in final_df.columns
                 geometry_series = None
-                
+
                 if has_geometry:
                     # Store the geometry column separately
                     geometry_series = final_df["geometry"]
                     final_df = final_df.drop(columns=["geometry"])
-                
+
                 # Convert dtypes on the dataframe without geometry
                 final_df = final_df.convert_dtypes()
-                
+
                 if has_geometry:
                     # Reattach the geometry column
                     final_df["geometry"] = geometry_series
                     # Create a proper GeoDataFrame
-                    final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
-                
+                    final_df = gpd.GeoDataFrame(
+                        final_df, geometry="geometry", crs=API_CRS
+                    )
+
                 # Save with explicit schema version for better QGIS compatibility
                 # Requires geopandas >= 1.1.0
                 try:
-                    final_df.to_parquet(outfile, schema_version='1.0.0')
+                    final_df.to_parquet(outfile, schema_version="1.0.0")
                 except (TypeError, ValueError) as e:
                     # Fallback for older geopandas or pyarrow versions
-                    self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                    self.logger.debug(
+                        f"Could not use schema_version parameter: {e}. Falling back to default."
+                    )
                     final_df.to_parquet(outfile)
             except Exception as e:
-                self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
-                self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
+                self.logger.error(
+                    f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}."
+                )
+                self.logger.error(
+                    f"Error type: {type(e).__name__}, Error message: {str(e)}"
+                )
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
                 # Check for column name collisions between any two dataframes
-                final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
+                final_features_df = aoi_gdf.rename(
+                    columns=dict(geometry="aoi_geometry")
+                )
 
                 metadata_cols = set(metadata_df.columns)
                 features_cols = set(features_gdf.columns)
                 aoi_cols = set(final_features_df.columns)
-                metadata_features_overlap = metadata_cols & features_cols - {AOI_ID_COLUMN_NAME}
+                metadata_features_overlap = metadata_cols & features_cols - {
+                    AOI_ID_COLUMN_NAME
+                }
                 metadata_aoi_overlap = metadata_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
                 features_aoi_overlap = features_cols & aoi_cols - {AOI_ID_COLUMN_NAME}
-                all_overlapping = metadata_features_overlap | metadata_aoi_overlap | features_aoi_overlap
+                all_overlapping = (
+                    metadata_features_overlap
+                    | metadata_aoi_overlap
+                    | features_aoi_overlap
+                )
                 if all_overlapping:
                     self.logger.warning(
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
@@ -903,66 +992,101 @@ class AOIExporter:
                 merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
 
                 # Check what geometry columns we have after the merge
-                geom_cols = [col for col in merged2.columns if 'geometry' in col.lower()]
+                geom_cols = [
+                    col for col in merged2.columns if "geometry" in col.lower()
+                ]
 
                 # Create GeoDataFrame with the appropriate geometry column
-                if 'geometry' in merged2.columns:
+                if "geometry" in merged2.columns:
                     final_features_df = gpd.GeoDataFrame(merged2, crs=API_CRS)
-                elif 'geometry_y' in merged2.columns:
+                elif "geometry_y" in merged2.columns:
                     # Features geometry (from poles)
-                    final_features_df = gpd.GeoDataFrame(merged2, geometry='geometry_y', crs=API_CRS)
-                elif 'geometry_x' in merged2.columns:
+                    final_features_df = gpd.GeoDataFrame(
+                        merged2, geometry="geometry_y", crs=API_CRS
+                    )
+                elif "geometry_x" in merged2.columns:
                     # AOI geometry
-                    final_features_df = gpd.GeoDataFrame(merged2, geometry='geometry_x', crs=API_CRS)
+                    final_features_df = gpd.GeoDataFrame(
+                        merged2, geometry="geometry_x", crs=API_CRS
+                    )
                 else:
-                    error_msg = (f"Chunk {chunk_id}: No valid geometry column found after merge. "
-                                f"Expected 'geometry', 'geometry_x', or 'geometry_y'. "
-                                f"Found columns: {geom_cols if geom_cols else 'none'}. "
-                                f"All columns: {list(merged2.columns)[:20]}")
+                    error_msg = (
+                        f"Chunk {chunk_id}: No valid geometry column found after merge. "
+                        f"Expected 'geometry', 'geometry_x', or 'geometry_y'. "
+                        f"Found columns: {geom_cols if geom_cols else 'none'}. "
+                        f"All columns: {list(merged2.columns)[:20]}"
+                    )
                     logger.error(error_msg)
                     raise ValueError(error_msg)
 
                 if "aoi_geometry" in final_features_df.columns:
-                    final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
-                
+                    final_features_df["aoi_geometry"] = (
+                        final_features_df.aoi_geometry.to_wkt()
+                    )
+
                 # Apply flattening to attributes if present
-                if 'attributes' in final_features_df.columns:
+                if "attributes" in final_features_df.columns:
                     # Apply flattening and create DataFrame - simpler approach that avoids index issues
-                    flattened_attrs = final_features_df['attributes'].apply(_flatten_attribute_list).apply(pd.Series)
+                    flattened_attrs = (
+                        final_features_df["attributes"]
+                        .apply(_flatten_attribute_list)
+                        .apply(pd.Series)
+                    )
                     if not flattened_attrs.empty:
-                        logger.debug(f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns from {final_features_df['attributes'].notna().sum()} features")
+                        logger.debug(
+                            f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns from {final_features_df['attributes'].notna().sum()} features"
+                        )
                         # Drop the attributes column
-                        final_features_df = final_features_df.drop(columns=['attributes'])
+                        final_features_df = final_features_df.drop(
+                            columns=["attributes"]
+                        )
                         # Add the flattened columns
                         for col in flattened_attrs.columns:
                             if col not in final_features_df.columns:
                                 final_features_df[col] = flattened_attrs[col]
                     else:
                         # No attributes to flatten, just drop the column
-                        final_features_df = final_features_df.drop(columns=['attributes'])
+                        final_features_df = final_features_df.drop(
+                            columns=["attributes"]
+                        )
 
                 # Apply flattening to damage if present
-                if 'damage' in final_features_df.columns:
+                if "damage" in final_features_df.columns:
                     # Apply flattening and create DataFrame
-                    flattened_damage = final_features_df['damage'].apply(_flatten_damage).apply(pd.Series)
+                    flattened_damage = (
+                        final_features_df["damage"]
+                        .apply(_flatten_damage)
+                        .apply(pd.Series)
+                    )
                     if not flattened_damage.empty:
-                        logger.debug(f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns from {final_features_df['damage'].notna().sum()} features")
+                        logger.debug(
+                            f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns from {final_features_df['damage'].notna().sum()} features"
+                        )
                         # Drop the damage column
-                        final_features_df = final_features_df.drop(columns=['damage'])
+                        final_features_df = final_features_df.drop(columns=["damage"])
                         # Add the flattened columns
                         for col in flattened_damage.columns:
                             if col not in final_features_df.columns:
                                 final_features_df[col] = flattened_damage[col]
                     else:
                         # No damage to flatten, just drop the column
-                        final_features_df = final_features_df.drop(columns=['damage'])
+                        final_features_df = final_features_df.drop(columns=["damage"])
                 if len(final_features_df) > 0:
                     try:
-                        if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
-                            final_features_df = final_features_df.drop(columns=["aoi_geometry"])
+                        if (
+                            not self.include_parcel_geometry
+                            and "aoi_geometry" in final_features_df.columns
+                        ):
+                            final_features_df = final_features_df.drop(
+                                columns=["aoi_geometry"]
+                            )
                         final_features_df = final_features_df[
-                            ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
+                            ~(
+                                final_features_df.geometry.is_empty
+                                | final_features_df.geometry.isna()
+                            )
                         ]
+
                         # Convert dict-type include parameters to JSON strings to avoid Parquet serialization errors
                         # Include parameters like defensibleSpace, hurricaneScore, roofSpotlightIndex can be dicts
                         # and need to be serialized to JSON strings for Parquet compatibility
@@ -978,31 +1102,47 @@ class AOIExporter:
 
                         # Apply serialization to all object-dtype columns (where dicts would be stored)
                         # Skip geometry column which is handled separately by GeoPandas
-                        object_columns = final_features_df.select_dtypes(include=['object']).columns
-                        object_columns = [col for col in object_columns if col != 'geometry']
+                        object_columns = final_features_df.select_dtypes(
+                            include=["object"]
+                        ).columns
+                        object_columns = [
+                            col for col in object_columns if col != "geometry"
+                        ]
 
                         for col in object_columns:
-                            final_features_df[col] = final_features_df[col].apply(serialize_include_param)
+                            final_features_df[col] = final_features_df[col].apply(
+                                serialize_include_param
+                            )
 
                         # Ensure it's a proper GeoDataFrame before saving to parquet
                         if not isinstance(final_features_df, gpd.GeoDataFrame):
-                            final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
+                            final_features_df = gpd.GeoDataFrame(
+                                final_features_df, geometry="geometry", crs=API_CRS
+                            )
                         else:
-                            final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
+                            final_features_df = final_features_df.set_crs(
+                                API_CRS, allow_override=True
+                            )
 
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
                         try:
-                            final_features_df.to_parquet(outfile_features, schema_version='1.0.0')
+                            final_features_df.to_parquet(
+                                outfile_features, schema_version="1.0.0"
+                            )
                         except (TypeError, ValueError) as e:
                             # Fallback for older geopandas or pyarrow versions
-                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                            self.logger.debug(
+                                f"Could not use schema_version parameter: {e}. Falling back to default."
+                            )
                             final_features_df.to_parquet(outfile_features)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
                         )
-                        self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
+                        self.logger.error(
+                            f"Error type: {type(e).__name__}, Error message: {str(e)}"
+                        )
                         self.logger.error(e)
             self.logger.debug(f"Finished saving chunk {chunk_id}")
 
@@ -1011,33 +1151,32 @@ class AOIExporter:
             raise
         finally:
             # Clean up feature API to close network connections
-            if 'feature_api' in locals():
+            if "feature_api" in locals():
                 try:
                     feature_api.cleanup()
                     del feature_api
                 except:
                     pass
-            
+
             # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
             try:
                 # Clear Shapely's thread-local GEOS handles which can accumulate
-                if hasattr(shapely, '_geos'):
+                if hasattr(shapely, "_geos"):
                     shapely._geos.clear_all_thread_local()
-                
+
                 # Clear PROJ context caches which can accumulate coordinate system data
                 try:
-                    if hasattr(pyproj, 'proj'):
+                    if hasattr(pyproj, "proj"):
                         # Clear the global CRS cache
                         pyproj.crs.CRS.clear_cache()
-                    if hasattr(pyproj, '_datadir'):
+                    if hasattr(pyproj, "_datadir"):
                         # Clear proj data directory cache
                         pyproj._datadir.clear_data_dir()
                 except:
                     pass
-                    
+
             except:
                 pass
-            
 
     def run(self):
         self.logger.debug("Starting parcel rollup")
@@ -1055,18 +1194,18 @@ class AOIExporter:
 
         # Get classes
         feature_api = FeatureApi(
-                api_key=self.api_key(),
-                alpha=self.alpha,
-                beta=self.beta,
-                prerelease=self.prerelease,
-                only3d=self.only3d,
-                parcel_mode=self.parcel_mode
-            )
+            api_key=self.api_key(),
+            alpha=self.alpha,
+            beta=self.beta,
+            prerelease=self.prerelease,
+            only3d=self.only3d,
+            parcel_mode=self.parcel_mode,
+        )
         try:
             if self.packs is not None:
                 classes_df = feature_api.get_feature_classes(self.packs)
             else:
-                classes_df = feature_api.get_feature_classes() # All classes
+                classes_df = feature_api.get_feature_classes()  # All classes
                 if self.classes is not None:
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
@@ -1075,7 +1214,9 @@ class AOIExporter:
         # Modify output file paths using the AOI file name
         outpath = final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
         outpath_features = final_path / f"{Path(aoi_path).stem}_features.parquet"
-        outpath_buildings = final_path / f"{Path(aoi_path).stem}_buildings.{self.rollup_format}"
+        outpath_buildings = (
+            final_path / f"{Path(aoi_path).stem}_buildings.{self.rollup_format}"
+        )
 
         # Check if all required outputs already exist
         outputs_exist = outpath.exists()
@@ -1083,7 +1224,7 @@ class AOIExporter:
             outputs_exist = outputs_exist and outpath_features.exists()
         if self.save_buildings:
             outputs_exist = outputs_exist and outpath_buildings.exists()
-            
+
         if outputs_exist:
             self.logger.info(f"Output already exists, skipping {Path(aoi_path).stem}")
             return
@@ -1105,13 +1246,17 @@ class AOIExporter:
                 f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
             )
         else:
-            logger.debug(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
+            logger.debug(
+                f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used."
+            )
             if SINCE_COL_NAME in aoi_gdf:
                 logger.info(
                     f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
             elif self.since is not None:
-                logger.debug(f"The since date of {self.since} will limit the earliest returned date for all Query AOIs")
+                logger.debug(
+                    f"The since date of {self.since} will limit the earliest returned date for all Query AOIs"
+                )
             else:
                 logger.debug("No earliest date will be used")
             if UNTIL_COL_NAME in aoi_gdf:
@@ -1119,7 +1264,9 @@ class AOIExporter:
                     f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
             elif self.until is not None:
-                logger.debug(f"The until date of {self.until} will limit the latest returned date for all Query AOIs")
+                logger.debug(
+                    f"The until date of {self.until} will limit the latest returned date for all Query AOIs"
+                )
             else:
                 logger.debug("No latest date will used")
 
@@ -1163,7 +1310,9 @@ class AOIExporter:
                 skipped_aois += len(batch)
 
         if skipped_chunks > 0:
-            self.logger.info(f"Found {skipped_chunks} cached chunks, will process {len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})")
+            self.logger.info(
+                f"Found {skipped_chunks} cached chunks, will process {len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})"
+            )
 
         # Initial estimate: 1 request per AOI (will grow if gridding occurs)
         initial_request_estimate = len(aoi_gdf) - skipped_aois
@@ -1171,17 +1320,19 @@ class AOIExporter:
         # Create shared progress counters for tracking API requests across all workers
         # Use Manager for cross-platform compatibility (works with both fork and spawn)
         manager = multiprocessing.Manager()
-        progress_counters = manager.dict({
-            'total': initial_request_estimate,  # Initial estimate (1 request per AOI), grows if gridding occurs
-            'completed': 0,
-            'lock': manager.Lock()  # Separate lock for thread-safe updates
-        })
+        progress_counters = manager.dict(
+            {
+                "total": initial_request_estimate,  # Initial estimate (1 request per AOI), grows if gridding occurs
+                "completed": 0,
+                "lock": manager.Lock(),  # Separate lock for thread-safe updates
+            }
+        )
 
         # chunks were already split above for cache checking
         processes = int(self.processes)
         max_retries = 3
         PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
-        
+
         for attempt in range(max_retries):
             try:
                 with ProcessPoolExecutor(max_workers=processes) as executor:
@@ -1199,16 +1350,23 @@ class AOIExporter:
                                 progress_counters,
                             )
                             jobs.append(job)
-                            job_to_chunk[job] = (chunk_id, i, batch.index.min(), batch.index.max())
+                            job_to_chunk[job] = (
+                                chunk_id,
+                                i,
+                                batch.index.min(),
+                                batch.index.max(),
+                            )
                         # Use request-based progress tracking with tqdm's native throttling
                         completed_jobs = 0
                         num_jobs = len(chunks_to_process)
                         last_progress_check = time.time()
-                        PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
+                        PROGRESS_CHECK_INTERVAL = (
+                            0.5  # Check shared counters every 0.5 seconds
+                        )
 
                         # Initialize progress bar with initial estimate
-                        with progress_counters['lock']:
-                            initial_total = progress_counters['total']
+                        with progress_counters["lock"]:
+                            initial_total = progress_counters["total"]
 
                         # Progress bar tracks API requests (bar position and total), while description
                         # shows chunk completion ("Chunks: X/Y"). This dual tracking is important because:
@@ -1216,38 +1374,63 @@ class AOIExporter:
                         # - Request-level progress shows work is continuing even during long chunks
                         # - Chunk-level progress shows overall job completion
                         # The "+' in the format indicates total can increase during gridding
-                        with tqdm(total=initial_total, desc="API requests", file=sys.stdout, position=0, leave=True,
-                                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-                                 mininterval=2.0, maxinterval=5.0, smoothing=0.1, unit=" requests") as pbar:
+                        with tqdm(
+                            total=initial_total,
+                            desc="API requests",
+                            file=sys.stdout,
+                            position=0,
+                            leave=True,
+                            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
+                            mininterval=5.0,
+                            maxinterval=10.0,
+                            smoothing=0.1,
+                            unit=" requests",
+                        ) as pbar:
 
                             while completed_jobs < num_jobs:
                                 # Check if any jobs have completed (non-blocking)
-                                done, pending = concurrent.futures.wait(jobs, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
+                                done, pending = concurrent.futures.wait(
+                                    jobs,
+                                    timeout=0.1,
+                                    return_when=concurrent.futures.FIRST_COMPLETED,
+                                )
 
                                 for j in done:
-                                    if j in jobs:  # Make sure we haven't already processed this
+                                    if (
+                                        j in jobs
+                                    ):  # Make sure we haven't already processed this
                                         try:
                                             j.result()  # Block until result fully transferred and chunk written
                                             completed_jobs += 1  # Only count as complete AFTER result received
 
                                             # Update progress bar immediately to show chunk completion
                                             # (Don't wait for periodic check)
-                                            lock_acquired = progress_counters['lock'].acquire(timeout=0.01)
+                                            lock_acquired = progress_counters[
+                                                "lock"
+                                            ].acquire(timeout=0.01)
                                             if lock_acquired:
                                                 try:
-                                                    requests_completed = progress_counters['completed']
-                                                    requests_total = progress_counters['total']
+                                                    requests_completed = (
+                                                        progress_counters["completed"]
+                                                    )
+                                                    requests_total = progress_counters[
+                                                        "total"
+                                                    ]
                                                 finally:
-                                                    progress_counters['lock'].release()
+                                                    progress_counters["lock"].release()
 
                                                 if pbar.total != requests_total:
                                                     pbar.total = requests_total
                                                 pbar.n = requests_completed
 
                                             mem = psutil.virtual_memory()
-                                            used_gb = (mem.total - mem.available) / (1024**3)
+                                            used_gb = (mem.total - mem.available) / (
+                                                1024**3
+                                            )
                                             total_gb = mem.total / (1024**3)
-                                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}")
+                                            pbar.set_description(
+                                                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}"
+                                            )
                                             pbar.refresh()
 
                                         except BrokenProcessPool:
@@ -1256,30 +1439,47 @@ class AOIExporter:
                                             executor.shutdown(wait=False)
                                             raise
                                         except Exception as e:
-                                            chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
-                                            chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
+                                            chunk_info = job_to_chunk.get(
+                                                j, ("unknown", -1, -1, -1)
+                                            )
+                                            chunk_id, chunk_idx, min_aoi, max_aoi = (
+                                                chunk_info
+                                            )
                                             completed_jobs += 1
                                             # Log error with chunk information
-                                            logger.error(f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}")
-                                            logger.error(f"Traceback: {traceback.format_exc()}")
+                                            logger.error(
+                                                f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}"
+                                            )
+                                            logger.error(
+                                                f"Traceback: {traceback.format_exc()}"
+                                            )
                                             cleanup_thread_sessions(executor)
                                             executor.shutdown(wait=False)
                                             raise
                                         finally:
-                                            jobs.remove(j)  # Remove from pending jobs list
+                                            jobs.remove(
+                                                j
+                                            )  # Remove from pending jobs list
 
                                 # Periodically check shared counters and update progress bar
                                 current_time = time.time()
-                                if current_time - last_progress_check >= PROGRESS_CHECK_INTERVAL:
+                                if (
+                                    current_time - last_progress_check
+                                    >= PROGRESS_CHECK_INTERVAL
+                                ):
                                     # Try to acquire lock with timeout - don't block if workers are busy
-                                    lock_acquired = progress_counters['lock'].acquire(timeout=0.1)
+                                    lock_acquired = progress_counters["lock"].acquire(
+                                        timeout=0.1
+                                    )
 
                                     if lock_acquired:
                                         try:
-                                            requests_completed = progress_counters['completed']
-                                            requests_total = progress_counters['total']
+                                            requests_completed = progress_counters[
+                                                "completed"
+                                            ]
+                                            requests_total = progress_counters["total"]
                                         finally:
-                                            progress_counters['lock'].release()
+                                            progress_counters["lock"].release()
 
                                         # Update total if it changed (due to gridding)
                                         if pbar.total != requests_total:
@@ -1287,11 +1487,15 @@ class AOIExporter:
 
                                         # Update position and description
                                         mem = psutil.virtual_memory()
-                                        used_gb = (mem.total - mem.available) / (1024**3)
+                                        used_gb = (mem.total - mem.available) / (
+                                            1024**3
+                                        )
                                         total_gb = mem.total / (1024**3)
 
                                         pbar.n = requests_completed
-                                        pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}")
+                                        pbar.set_description(
+                                            f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}"
+                                        )
 
                                     # IMPORTANT: Always refresh, even if we couldn't get the lock
                                     # This keeps tqdm's timer updating so user knows it's not frozen
@@ -1299,9 +1503,9 @@ class AOIExporter:
                                     last_progress_check = current_time
 
                             # Final update to show 100% completion
-                            with progress_counters['lock']:
-                                requests_completed = progress_counters['completed']
-                                requests_total = progress_counters['total']
+                            with progress_counters["lock"]:
+                                requests_completed = progress_counters["completed"]
+                                requests_total = progress_counters["total"]
 
                             mem = psutil.virtual_memory()
                             used_gb = (mem.total - mem.available) / (1024**3)
@@ -1309,12 +1513,16 @@ class AOIExporter:
 
                             pbar.n = requests_completed
                             pbar.total = requests_total
-                            pbar.set_description(f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {num_jobs}/{num_jobs}")
+                            pbar.set_description(
+                                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {num_jobs}/{num_jobs}"
+                            )
                             pbar.refresh()
 
                         break  # Success - exit retry loop
                     except KeyboardInterrupt:
-                        self.logger.warning("Interrupted by user (Ctrl+C) - shutting down processes...")
+                        self.logger.warning(
+                            "Interrupted by user (Ctrl+C) - shutting down processes..."
+                        )
                         # Cancel all pending jobs
                         for job in jobs:
                             job.cancel()
@@ -1330,46 +1538,62 @@ class AOIExporter:
             except BrokenProcessPool as e:
                 # Gather diagnostic information when process pool fails
                 import resource
+
                 mem = psutil.virtual_memory()
                 swap = psutil.swap_memory()
-                
+
                 # Get resource limits
                 soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-                
+
                 # Count open file descriptors (Linux/Mac)
                 try:
                     import os
+
                     pid = os.getpid()
-                    if os.path.exists(f'/proc/{pid}/fd'):
-                        fd_count = len(os.listdir(f'/proc/{pid}/fd'))
+                    if os.path.exists(f"/proc/{pid}/fd"):
+                        fd_count = len(os.listdir(f"/proc/{pid}/fd"))
                     else:
                         fd_count = "unknown"
                 except:
                     fd_count = "unknown"
-                
+
                 self.logger.error(f"BrokenProcessPool diagnostic info:")
-                self.logger.error(f"  Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)")
-                self.logger.error(f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)")
-                self.logger.error(f"  File descriptors: {fd_count} open (limit: {soft_limit})")
+                self.logger.error(
+                    f"  Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)"
+                )
+                self.logger.error(
+                    f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)"
+                )
+                self.logger.error(
+                    f"  File descriptors: {fd_count} open (limit: {soft_limit})"
+                )
                 self.logger.error(f"  Active processes: {processes}")
                 self.logger.error(f"  Threads per process: {self.threads}")
-                self.logger.error(f"  Total potential connections: {processes * self.threads}")
-                
+                self.logger.error(
+                    f"  Total potential connections: {processes * self.threads}"
+                )
+
                 if attempt < max_retries - 1:
-                    self.logger.warning(f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {PROCESS_POOL_RETRY_DELAY}s delay...")
+                    self.logger.warning(
+                        f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {PROCESS_POOL_RETRY_DELAY}s delay..."
+                    )
                     cleanup_process_resources()
                     time.sleep(PROCESS_POOL_RETRY_DELAY)
                     jobs = []  # Reset jobs list for retry
                     job_to_chunk = {}  # Reset job tracking for retry
                 else:
-                    self.logger.error(f"Process pool broken after {max_retries} attempts, giving up")
+                    self.logger.error(
+                        f"Process pool broken after {max_retries} attempts, giving up"
+                    )
                     cleanup_process_resources()
                     raise
 
         data = []
         data_features = []
         errors = []
-        self.logger.debug(f"Saving rollup data as {self.rollup_format} file to {outpath}")
+        self.logger.debug(
+            f"Saving rollup data as {self.rollup_format} file to {outpath}"
+        )
         for i in range(num_chunks):
             chunk_filename = f"rollup_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
             cp = chunk_path / chunk_filename
@@ -1381,11 +1605,17 @@ class AOIExporter:
                 if len(chunk) > 0:
                     data.append(chunk)
             else:
-                error_filename = f"errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
+                error_filename = (
+                    f"errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
+                )
                 if (chunk_path / error_filename).exists():
-                    self.logger.debug(f"Chunk {i} rollup file missing, but error file found.")
+                    self.logger.debug(
+                        f"Chunk {i} rollup file missing, but error file found."
+                    )
                 else:
-                    self.logger.error(f"Chunk {i} rollup and error files missing. Try rerunning.")
+                    self.logger.error(
+                        f"Chunk {i} rollup and error files missing. Try rerunning."
+                    )
                     sys.exit(1)
         if len(data) > 0:
             data = pd.concat([data for data in data if len(data) > 0])
@@ -1393,7 +1623,7 @@ class AOIExporter:
                 if not isinstance(data.geometry, gpd.GeoSeries):
                     data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
                 data = gpd.GeoDataFrame(data, crs=API_CRS)
-            
+
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
@@ -1401,110 +1631,197 @@ class AOIExporter:
                 data.to_parquet(outpath, index=True)
             elif self.rollup_format == "csv":
                 if "geometry" in data.columns:
-                    if hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
+                    if hasattr(data.geometry, "to_wkt") and callable(
+                        data.geometry.to_wkt
+                    ):
                         # If it has a to_wkt method but isn't a GeoSeries
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 self.logger.info("Invalid output format specified - reverting to csv")
                 if "geometry" in data.columns:
-                    if hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
+                    if hasattr(data.geometry, "to_wkt") and callable(
+                        data.geometry.to_wkt
+                    ):
                         # If it has a to_wkt method but isn't a GeoSeries
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
         outpath_errors = final_path / f"{Path(aoi_path).stem}_errors.csv"
+        outpath_errors_geoparquet = final_path / f"{Path(aoi_path).stem}_errors.parquet"
         self.logger.debug(f"Saving error data as .csv to {outpath_errors}")
         for cp in chunk_path.glob(f"errors_{Path(aoi_path).stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
-            
+        else:
+            errors = pd.DataFrame()
+
+        # Check if we actually have error rows (not just empty DataFrames)
+        if len(errors) > 0 and AOI_ID_COLUMN_NAME in errors.columns:
+            # Merge with aoi_gdf to add geometry or address information for enhanced error output
+            # Use left join to preserve all errors even if aoi_id is missing
+            aoi_gdf_for_merge = aoi_gdf.reset_index()
+
+            if isinstance(aoi_gdf, gpd.GeoDataFrame):
+                # Geometry mode: merge with geometry column for GeoParquet output
+                errors_with_context = errors.merge(
+                    aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]],
+                    on=AOI_ID_COLUMN_NAME,
+                    how="left",
+                )
+                # Convert to GeoDataFrame if we have geometry column
+                if "geometry" in errors_with_context.columns:
+                    errors_gdf = gpd.GeoDataFrame(
+                        errors_with_context, geometry="geometry", crs=aoi_gdf.crs
+                    )
+                else:
+                    errors_gdf = errors_with_context
+            else:
+                # Address mode: merge with address columns for context
+                # Get all columns from aoi_gdf except aoi_id (which is already in errors)
+                merge_cols = [col for col in aoi_gdf_for_merge.columns if col != AOI_ID_COLUMN_NAME]
+                if AOI_ID_COLUMN_NAME in aoi_gdf_for_merge.columns:
+                    merge_cols.insert(0, AOI_ID_COLUMN_NAME)
+                errors_gdf = errors.merge(
+                    aoi_gdf_for_merge[merge_cols],
+                    on=AOI_ID_COLUMN_NAME,
+                    how="left",
+                )
+
             # Count error types by status code and message
             error_summary = []
-            if 'status_code' in errors.columns:
-                status_counts = errors['status_code'].value_counts()
+            if "status_code" in errors.columns:
+                status_counts = errors["status_code"].value_counts()
                 error_summary.append(f"status codes: {status_counts.to_dict()}")
-            if 'message' in errors.columns:
-                message_counts = errors['message'].value_counts()
+            if "message" in errors.columns:
+                message_counts = errors["message"].value_counts()
                 error_summary.append(f"messages: {message_counts.to_dict()}")
-            
+
             if error_summary:
-                self.logger.info(f"Processing completed with {len(errors)} total failures - {', '.join(error_summary)}")
+                self.logger.info(
+                    f"Processing completed with {len(errors)} total failures - {', '.join(error_summary)}"
+                )
             else:
-                self.logger.info(f"Processing completed with {len(errors)} total failures")
+                self.logger.info(
+                    f"Processing completed with {len(errors)} total failures"
+                )
         else:
-            errors = pd.DataFrame(errors)
+            # No errors or errors DataFrame is empty/malformed
+            errors_gdf = errors
             self.logger.info("Processing completed with no failures")
-        errors.to_csv(outpath_errors, index=True)
+
+        # Save CSV format (always - includes address fields if in address mode)
+        if isinstance(aoi_gdf, gpd.GeoDataFrame):
+            # Geometry mode: CSV without geometry for backward compatibility
+            errors.to_csv(outpath_errors, index=True)
+        else:
+            # Address mode: CSV with address fields merged in for easy viewing in Excel
+            errors_gdf.to_csv(outpath_errors, index=True)
+
+        # Save GeoParquet format only for geometry mode (for QGIS visualization)
+        # In address mode, users prefer CSV for Excel compatibility
+        if isinstance(errors_gdf, gpd.GeoDataFrame) and len(errors_gdf) > 0:
+            self.logger.info(
+                f"Saving error data with geometry as geoparquet to {outpath_errors_geoparquet}"
+            )
+            errors_gdf.to_parquet(outpath_errors_geoparquet, index=True)
         if self.save_features:
-            feature_paths = [p for p in chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")]
-            self.logger.info(f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}")
-            
-            features_gdf = self._stream_and_convert_features(feature_paths, outpath_features)
-                
+            feature_paths = [
+                p for p in chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
+            ]
+            self.logger.info(
+                f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
+            )
+
+            features_gdf = self._stream_and_convert_features(
+                feature_paths, outpath_features
+            )
+
             # If buildings export is enabled, process building features
             if self.save_buildings:
-                self.logger.info(f"Saving building-level data as {self.rollup_format} to {outpath_buildings}")
+                self.logger.info(
+                    f"Saving building-level data as {self.rollup_format} to {outpath_buildings}"
+                )
                 # Define geoparquet path for buildings
-                outpath_buildings_geoparquet = final_path / f"{Path(aoi_path).stem}_building_features.parquet"
-                
+                outpath_buildings_geoparquet = (
+                    final_path / f"{Path(aoi_path).stem}_building_features.parquet"
+                )
+
                 buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf,
-                    features_gdf=features_gdf,
-                    country=self.country
+                    parcels_gdf=aoi_gdf, features_gdf=features_gdf, country=self.country
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
-                    self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
+                    self.logger.info(
+                        f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}"
+                    )
                     try:
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
                         try:
-                            buildings_gdf.to_parquet(outpath_buildings_geoparquet, schema_version='1.0.0')
+                            buildings_gdf.to_parquet(
+                                outpath_buildings_geoparquet, schema_version="1.0.0"
+                            )
                         except (TypeError, ValueError) as e:
                             # Fallback for older geopandas or pyarrow versions
-                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                            self.logger.debug(
+                                f"Could not use schema_version parameter: {e}. Falling back to default."
+                            )
                             buildings_gdf.to_parquet(outpath_buildings_geoparquet)
                     except Exception as e:
-                        self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
-                        
+                        self.logger.error(
+                            f"Failed to save buildings geoparquet file: {str(e)}"
+                        )
+
                     # Then convert geodataframe to plain dataframe for tabular output
                     # Keep geometry as WKT representation if needed
                     buildings_df = pd.DataFrame(buildings_gdf)
                     if "geometry" in buildings_df.columns:
-                        buildings_df["geometry"] = buildings_df.geometry.apply(lambda geom: geom.wkt if geom else None)
-                    
+                        buildings_df["geometry"] = buildings_df.geometry.apply(
+                            lambda geom: geom.wkt if geom else None
+                        )
+
                     # Save in the same format as rollup
                     if self.rollup_format == "parquet":
                         buildings_df.to_parquet(outpath_buildings, index=True)
                     elif self.rollup_format == "csv":
                         buildings_df.to_csv(outpath_buildings, index=True)
                     else:
-                        self.logger.info("Invalid output format specified for buildings - reverting to csv")
+                        self.logger.info(
+                            "Invalid output format specified for buildings - reverting to csv"
+                        )
                         buildings_df.to_csv(outpath_buildings, index=True)
                 else:
-                    self.logger.info(f"No building features found for {Path(aoi_path).stem}")
+                    self.logger.info(
+                        f"No building features found for {Path(aoi_path).stem}"
+                    )
 
 
 def main():
-        # Set higher file descriptor limits for running many processes in parallel.
+    # Set higher file descriptor limits for running many processes in parallel.
     import resource
     import sys
 
-    if sys.platform != 'win32':
+    if sys.platform != "win32":
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         desired = 32000  # Same as ulimit -n 32000
         try:
             resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
             new_soft, new_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-            logger.info(f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}")
+            logger.info(
+                f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}"
+            )
         except ValueError as e:
             # If desired limit is too high, try setting to hard limit
-            logger.warning(f"Could not set file descriptor limit to {desired}, trying hard limit {hard}")
+            logger.warning(
+                f"Could not set file descriptor limit to {desired}, trying hard limit {hard}"
+            )
             try:
                 resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
                 new_soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
-                logger.info(f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}")
+                logger.info(
+                    f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}"
+                )
             except ValueError as e:
                 logger.warning(f"Could not increase file descriptor limits: {e}")
     args = parse_arguments()
@@ -1544,13 +1861,14 @@ def main():
         parcel_mode=not args.no_parcel_mode,  # Default to True unless --no-parcel-mode is set
         rapid=args.rapid,
         order=args.order,
-        exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion
+        exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
     )
     exporter.run()
+
 
 if __name__ == "__main__":
     # Register cleanup handlers
     atexit.register(cleanup_process_resources)
     signal.signal(signal.SIGTERM, lambda *args: cleanup_process_resources())
-    
+
     main()
