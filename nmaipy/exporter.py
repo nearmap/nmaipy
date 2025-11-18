@@ -1655,7 +1655,11 @@ class AOIExporter:
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
+        else:
+            errors = pd.DataFrame()
 
+        # Check if we actually have error rows (not just empty DataFrames)
+        if len(errors) > 0 and AOI_ID_COLUMN_NAME in errors.columns:
             # Merge with aoi_gdf to add geometry or address information for enhanced error output
             # Use left join to preserve all errors even if aoi_id is missing
             aoi_gdf_for_merge = aoi_gdf.reset_index()
@@ -1704,7 +1708,7 @@ class AOIExporter:
                     f"Processing completed with {len(errors)} total failures"
                 )
         else:
-            errors = pd.DataFrame(errors)
+            # No errors or errors DataFrame is empty/malformed
             errors_gdf = errors
             self.logger.info("Processing completed with no failures")
 
