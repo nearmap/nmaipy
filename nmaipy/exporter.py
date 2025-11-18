@@ -23,7 +23,6 @@ from tqdm import tqdm
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
 
 import atexit
-import gc
 import signal
 import time
 from concurrent.futures import ProcessPoolExecutor
