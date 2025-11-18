@@ -570,7 +570,6 @@ class AOIExporter:
         Returns:
             None since we don't need the GeoDataFrame in memory
         """
-        import json
 
         import pyarrow as pa
         import pyarrow.parquet as pq
