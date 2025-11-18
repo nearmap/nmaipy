@@ -1383,8 +1383,8 @@ class AOIExporter:
                             position=0,
                             leave=True,
                             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-                            mininterval=2.0,
-                            maxinterval=5.0,
+                            mininterval=5.0,
+                            maxinterval=10.0,
                             smoothing=0.1,
                             unit=" requests",
                         ) as pbar:

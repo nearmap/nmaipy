@@ -1471,7 +1471,7 @@ class FeatureApi:
             return features_gdf, metadata, error
 
         except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
-            # Catch acceptable errors
+            # Catch acceptable errors - these are complete grid failures
             features_gdf = None
             metadata = None
             error = {
@@ -1480,6 +1480,7 @@ class FeatureApi:
                 "message": e.message,
                 "text": e.text[:200] if e.text else "",
                 "request": "Grid error",
+                "failure_type": "grid",
             }
             return features_gdf, metadata, error
         except Exception as grid_error:
@@ -1490,6 +1491,7 @@ class FeatureApi:
                 "message": f"Gridding failed: {str(grid_error)}",
                 "text": str(grid_error)[:200],
                 "request": "Gridding failed",
+                "failure_type": "grid",
             }
             return None, None, error
 
@@ -1611,6 +1613,7 @@ class FeatureApi:
                             "message": e.message,
                             "text": e.text[:200] if e.text else "",  # Truncate long text
                             "request": "Size error - geometry simplification failed",
+                            "failure_type": "standard",
                         }
                 else:
                     logger.debug("Failing hard and NOT re-gridding....")
@@ -1620,6 +1623,7 @@ class FeatureApi:
                         "message": e.message,
                         "text": e.text[:200] if e.text else "",  # Truncate long text
                         "request": "Size error - request too large",
+                        "failure_type": "standard",
                     }
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
@@ -1647,6 +1651,7 @@ class FeatureApi:
                 "message": e.message,
                 "text": e.text,
                 "request": e.request_string,
+                "failure_type": "standard",
             }
 
         except requests.exceptions.RetryError as e:
@@ -1677,6 +1682,7 @@ class FeatureApi:
                 "message": "RETRY_ERROR",
                 "text": "Retry Error",
                 "request": f"Geometry with {len(str(geometry))} chars",
+                "failure_type": "standard",
             }
         except requests.exceptions.Timeout as e:
             logger.warning(f"Timeout Exception on aoi_id: {aoi_id} near {geometry.representative_point()}")
@@ -1703,6 +1709,7 @@ class FeatureApi:
                 "message": "TIMEOUT_ERROR",
                 "text": str(e),
                 "request": f"Geometry with {len(str(geometry))} chars",
+                "failure_type": "standard",
             }
 
         # Round the confidence column to two decimal places (nearest percent)
@@ -1833,6 +1840,21 @@ class FeatureApi:
             # Reset the correct aoi_id for the gridded result
             features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
             metadata_df[AOI_ID_COLUMN_NAME] = aoi_id
+
+            # Process errors_df to add grid cell geometry and mark as partial failures
+            if len(errors_df) > 0:
+                # errors_df has the temp grid cell IDs, merge with df_gridded to get geometry
+                errors_with_geom = errors_df.merge(
+                    df_gridded[[AOI_ID_COLUMN_NAME, 'geometry']],
+                    on=AOI_ID_COLUMN_NAME,
+                    how='left'
+                )
+                # Update aoi_id to the actual AOI (not the temp grid cell ID)
+                errors_with_geom[AOI_ID_COLUMN_NAME] = aoi_id
+                # Mark these as grid failures (individual grid cells failed, but AOI has some data)
+                errors_with_geom['failure_type'] = 'grid'
+                errors_df = errors_with_geom
+
             return features_gdf, metadata_df, errors_df
 
     def get_features_gdf_bulk(
@@ -2025,6 +2047,7 @@ class FeatureApi:
                 "message": e.message,
                 "text": e.text,
                 "request": e.request_string,
+                "failure_type": "standard",
             }
 
         except requests.exceptions.RetryError as e:
@@ -2035,6 +2058,7 @@ class FeatureApi:
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": DUMMY_STATUS_CODE,
                 "message": "RETRY_ERROR",
+                "failure_type": "standard",
                 "text": str(e),
                 "request": "No request info",
             }
