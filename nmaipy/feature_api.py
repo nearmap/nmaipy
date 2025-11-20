@@ -1770,8 +1770,11 @@ class FeatureApi:
                 logger.debug(f"Gridding AOI {aoi_id}: added {num_grid_cells - 1} requests to progress total (1 AOI -> {num_grid_cells} grid cells)")
 
             # Retrieve the features for every one of the cells in the gridded AOIs
+            # Assign temp integer IDs to grid cells and set as index to ensure dtype consistency
+            # when errors_df is created from iterrows() in get_features_gdf_bulk()
             aoi_id_tmp = range(len(df_gridded))
             df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
+            df_gridded = df_gridded.set_index(AOI_ID_COLUMN_NAME)
 
             try:
                 # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
@@ -1843,10 +1846,12 @@ class FeatureApi:
 
             # Process errors_df to add grid cell geometry and mark as partial failures
             if len(errors_df) > 0:
-                # errors_df has the temp grid cell IDs, merge with df_gridded to get geometry
+                # errors_df has the temp grid cell IDs in a column, df_gridded has them as index
+                # Merge on the aoi_id column (errors_df) with the index (df_gridded)
                 errors_with_geom = errors_df.merge(
-                    df_gridded[[AOI_ID_COLUMN_NAME, 'geometry']],
-                    on=AOI_ID_COLUMN_NAME,
+                    df_gridded[['geometry']],
+                    left_on=AOI_ID_COLUMN_NAME,
+                    right_index=True,
                     how='left'
                 )
                 # Update aoi_id to the actual AOI (not the temp grid cell ID)
