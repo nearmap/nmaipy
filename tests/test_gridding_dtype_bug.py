@@ -45,7 +45,8 @@ class TestGriddingDtypeBug:
         feature_api = FeatureApi(
             cache_dir=cache_directory,
             only3d=True,
-            aoi_grid_min_pct=75  # Allow some grid cells to fail
+            aoi_grid_min_pct=75,  # Allow some grid cells to fail
+            threads=50
         )
 
         try:
@@ -98,7 +99,8 @@ class TestGriddingDtypeBug:
         feature_api = FeatureApi(
             cache_dir=cache_directory,
             only3d=True,
-            aoi_grid_min_pct=75
+            aoi_grid_min_pct=75,
+            threads=50
         )
 
         try:
