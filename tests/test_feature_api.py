@@ -705,6 +705,56 @@ class TestFeatureAPI:
                 # Note: The actual RSI data might not be present in test data,
                 # but the API call should succeed
 
+    def test_param_dic_api_call(self, cache_directory: Path, sydney_aoi: Polygon):
+        """Test that param_dic parameter correctly adds custom parameters to API URL"""
+        date_1 = "2025-01-20"
+        date_2 = "2025-01-20"
+        country = "au"
+        packs = ["roof_char", "roof_cond"]
+        aoi_id = "123"
+
+        feature_api = FeatureApi(cache_dir=cache_directory)
+
+        # Use patch to capture the URL being constructed
+        with patch('requests.Session.post') as mock_post:
+            # Create a mock response with all required fields
+            mock_response = MagicMock()
+            mock_response.ok = True
+            mock_response.json.return_value = {
+                "features": [],
+                "systemVersion": "test-version",
+                "link": "https://api.nearmap.com/ai/features/v4/au.json?since=2025-01-20&until=2025-01-20",
+                "surveyId": "test-survey-id",
+                "resourceId": "test-resource-id",
+                "perspective": "test-perspective",
+                "postcat": "test-postcat"
+            }
+            mock_post.return_value = mock_response
+
+            # Call with param_dic - using 'include' as a test parameter
+            # (normally you'd use the include parameter, but this tests param_dic)
+            param_dic = {"include": "roofSpotlightIndex"}
+
+            features_gdf, metadata, error = feature_api.get_features_gdf(
+                geometry=sydney_aoi,
+                region=country,
+                packs=packs,
+                param_dic=param_dic,
+                aoi_id=aoi_id,
+                since=date_1,
+                until=date_2
+            )
+
+            # Verify the mock was called
+            assert mock_post.called
+
+            # Get the URL that was used in the POST request
+            call_args = mock_post.call_args
+            url_used = call_args[0][0] if call_args[0] else call_args[1].get('url', '')
+
+            # Verify the custom parameter is in the URL
+            assert "include=roofSpotlightIndex" in url_used, f"Expected 'include=roofSpotlightIndex' in URL: {url_used}"
+
     def test_gridding_semaphore_limits_concurrent_operations(self):
         """Test that semaphore correctly limits concurrent gridding operations to 1/5th of thread count"""
         thread_count = 20

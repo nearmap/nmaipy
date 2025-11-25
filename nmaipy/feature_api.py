@@ -751,6 +751,7 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         region: Optional[str] = None,
+        param_dic: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, dict, bool]:
         """
         Create parameters for a POST request with given parameters
@@ -846,6 +847,13 @@ class FeatureApi:
                     encoded_value = quote(str(address_fields[field]))
                     url += f"&{field}={encoded_value}"
 
+        # Add custom parameters from param_dic if provided
+        if param_dic:
+            for key, value in param_dic.items():
+                # URL-encode values to handle special characters
+                encoded_value = quote(str(value))
+                url += f"&{key}={encoded_value}"
+
         # With POST requests, we always get the exact geometry processed
         exact = True
 
@@ -863,6 +871,7 @@ class FeatureApi:
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
         in_gridding_mode: bool = False,
+        param_dic: Optional[Dict[str, str]] = None,
     ):
         """
         Get features for the provided geometry.
@@ -876,6 +885,7 @@ class FeatureApi:
             until: End date for the query
             address_fields: Address fields for address-based queries
             survey_resource_id: ID of the specific survey to query
+            param_dic: Optional dictionary of custom parameters to add to the API request
 
         Returns:
             API response as a dictionary
@@ -892,6 +902,7 @@ class FeatureApi:
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_FEATURES,
             in_gridding_mode=in_gridding_mode,
+            param_dic=param_dic,
         )
         return data
 
@@ -905,6 +916,7 @@ class FeatureApi:
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
+        param_dic: Optional[Dict[str, str]] = None,
     ):
         """
         Get rollup data for the provided geometry.
@@ -918,6 +930,7 @@ class FeatureApi:
             until: End date for the query
             address_fields: Address fields for address-based queries
             survey_resource_id: ID of the specific survey to query
+            param_dic: Optional dictionary of custom parameters to add to the API request
 
         Returns:
             API response as CSV text
@@ -932,6 +945,7 @@ class FeatureApi:
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
             result_type=self.API_TYPE_ROLLUPS,
+            param_dic=param_dic,
         )
         return data
 
@@ -948,6 +962,7 @@ class FeatureApi:
         survey_resource_id: Optional[str] = None,
         result_type: str = API_TYPE_FEATURES,
         in_gridding_mode: bool = False,
+        param_dic: Optional[Dict[str, str]] = None,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -962,6 +977,7 @@ class FeatureApi:
             survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull.
                                NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
             result_type: Type of API endpoint (features or rollups)
+            param_dic: Optional dictionary of custom parameters to add to the API request
 
         Returns:
             API response as a Dictionary
@@ -985,6 +1001,7 @@ class FeatureApi:
                 address_fields=address_fields,
                 survey_resource_id=survey_resource_id,
                 region=region,
+                param_dic=param_dic,
             )
             cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
                 
@@ -1509,6 +1526,7 @@ class FeatureApi:
         survey_resource_id: Optional[str] = None,
         fail_hard_regrid: Optional[bool] = False,
         in_gridding_mode: bool = False,
+        param_dic: Optional[Dict[str, str]] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1529,6 +1547,7 @@ class FeatureApi:
                               get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
                               and we need to be able to stop at 2nd call to get_features_gdf if we get another
                               AIFeatureAPIRequestSizeError
+            param_dic: Optional dictionary of custom parameters to add to the API request
         Returns:
             API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
@@ -1567,16 +1586,17 @@ class FeatureApi:
         try:
             features_gdf, metadata, error = None, None, None
             payload = self.get_features(
-                geometry=geometry, 
-                region=region, 
-                packs=packs, 
-                classes=classes, 
+                geometry=geometry,
+                region=region,
+                packs=packs,
+                classes=classes,
                 include=include,
-                since=since, 
-                until=until, 
-                address_fields=address_fields, 
+                since=since,
+                until=until,
+                address_fields=address_fields,
                 survey_resource_id=survey_resource_id,
-                in_gridding_mode=in_gridding_mode
+                in_gridding_mode=in_gridding_mode,
+                param_dic=param_dic
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
         except AIFeatureAPIRequestSizeError as e:
