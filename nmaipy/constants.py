@@ -8,6 +8,27 @@ SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 
 DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
+# ============================================================================
+# Roof Age API Configuration
+# ============================================================================
+ROOF_AGE_URL_ROOT = "api.nearmap.com/ai/roofage/v1"
+ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
+
+# Roof Age API response field names
+ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
+ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
+ROOF_AGE_UNTIL_DATE_FIELD = "untilDate"
+ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD = "afterInstallationCaptureDate"
+ROOF_AGE_AREA_FIELD = "area"
+ROOF_AGE_EVIDENCE_TYPE_FIELD = "evidenceType"
+ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD = "evidenceTypeDescription"
+ROOF_AGE_MIN_CAPTURE_DATE_FIELD = "minCaptureDate"
+ROOF_AGE_MAX_CAPTURE_DATE_FIELD = "maxCaptureDate"
+ROOF_AGE_NUM_CAPTURES_FIELD = "numberOfCaptures"
+ROOF_AGE_TIMELINE_FIELD = "timeline"
+ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
+ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
+
 
 # ============================================================================
 # HTTP Request Configuration

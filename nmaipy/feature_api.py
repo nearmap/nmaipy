@@ -5,12 +5,10 @@ import hashlib
 import json
 import logging
 import os
-import re
 import threading
 import time
 import uuid
 from http import HTTPStatus
-from http.client import RemoteDisconnected
 from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -21,21 +19,18 @@ import pandas as pd
 import requests
 import shapely.geometry
 import stringcase
-from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, quote
-from urllib3.util.retry import Retry
-import urllib3  # Add this with other imports
-import ssl  # Add this with other imports
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Get API key, with fallback to empty string
-API_KEY = os.getenv("API_KEY", "")
 
 from nmaipy import log
+from nmaipy.api_common import (
+    APIError,
+    AIFeatureAPIError,
+    RetryRequest,
+    clean_api_key_from_string,
+)
+from nmaipy.api_common import API_KEY
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_EXCEEDS_MAX_SIZE,
@@ -64,144 +59,6 @@ from nmaipy.constants import (
 
 
 logger = log.get_logger()
-
-
-class APIKeyFilter(logging.Filter):
-    """Logging filter to remove API keys from log messages for security."""
-
-    def filter(self, record):
-        # Clean API key from the message if present
-        if hasattr(record, 'getMessage'):
-            msg = record.getMessage()
-            # Pattern to match API key in URLs
-            msg = re.sub(r'apikey=[^&\s]+', 'apikey=REMOVED', msg)
-            # Pattern to match API key in various formats (be aggressive about cleaning)
-            msg = re.sub(r'(["\']?api[_-]?key["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+', r'\1REMOVED', msg, flags=re.IGNORECASE)
-            record.msg = msg
-            record.args = ()  # Clear args to prevent formatting issues
-        return True
-
-
-# Apply the filter to urllib3 logger to prevent API key leakage
-urllib3_logger = logging.getLogger('urllib3.connectionpool')
-urllib3_logger.addFilter(APIKeyFilter())
-
-# Also apply to requests logger for completeness
-requests_logger = logging.getLogger('requests')
-requests_logger.addFilter(APIKeyFilter())
-
-# Also apply to nmaipy logger for defense in depth
-nmaipy_logger = logging.getLogger('nmaipy')
-nmaipy_logger.addFilter(APIKeyFilter())
-
-
-class RetryRequest(Retry):
-    """
-    Inherited retry request with controlled backoff timing.
-
-    BACKOFF_MAX set to 20s to allow more time for transient failures to resolve.
-    BACKOFF_MIN set to 2s to provide more breathing room before retrying.
-    """
-
-    BACKOFF_MIN = 2.0  # Minimum backoff time in seconds
-    BACKOFF_MAX = 20    # Maximum backoff time in seconds
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Add all connection-related errors to retry on
-        self.RETRY_AFTER_STATUS_CODES = frozenset({
-            HTTPStatus.TOO_MANY_REQUESTS,      # 429
-            HTTPStatus.INTERNAL_SERVER_ERROR,   # 500
-            HTTPStatus.BAD_GATEWAY,            # 502
-            HTTPStatus.SERVICE_UNAVAILABLE,     # 503
-        })
-        
-        # Add connection errors that should trigger retries
-        self.RETRY_ON_EXCEPTIONS = frozenset({
-            requests.exceptions.ChunkedEncodingError,
-            requests.exceptions.ConnectionError,
-            requests.exceptions.ReadTimeout,
-            RemoteDisconnected,  # From http.client
-            requests.exceptions.ProxyError,
-            requests.exceptions.SSLError,
-            urllib3.exceptions.SSLError,  # Added to catch SSL errors from urllib3
-            requests.exceptions.Timeout,
-            urllib3.exceptions.ProtocolError,
-            EOFError,  # Sometimes occurs with RemoteDisconnected
-            ConnectionResetError,  # Python built-in exception
-            ssl.SSLEOFError,  # Explicit SSL EOF error
-        })
-
-    def increment(self, method=None, url=None, response=None, error=None, _pool=None, _stacktrace=None):
-        """Override to log on first retry attempt"""
-        result = super().increment(method, url, response, error, _pool, _stacktrace)
-
-        # Log on first retry only (history is a tuple, check length)
-        if result and len(result.history) == 1:
-            if response is not None:
-                reason = f"HTTP {response.status} {response.reason}"
-            elif error is not None:
-                reason = f"{type(error).__name__}: {str(error)[:100]}"
-            else:
-                reason = "unknown reason"
-
-            # Clean URL of API key for logging
-            clean_url = url
-            if url and 'apikey=' in url:
-                clean_url = url.split('apikey=')[0] + 'apikey=***'
-
-            logger.info(f"{reason} causing retry of request {clean_url}")
-
-        return result
-
-    def new_timeout(self, *args, **kwargs):
-        """Override to enforce backoff time between BACKOFF_MIN and BACKOFF_MAX"""
-        timeout = super().new_timeout(*args, **kwargs)
-        return min(max(timeout, self.BACKOFF_MIN), self.BACKOFF_MAX)  # Clamp between min and max seconds
-
-    @classmethod
-    def from_int(cls, retries, **kwargs):
-        """Helper to create retry config with better defaults"""
-        kwargs.setdefault('backoff_factor', BACKOFF_FACTOR)
-        kwargs.setdefault('status_forcelist', [429, 500, 502, 503, 504])
-        kwargs.setdefault('respect_retry_after_header', True)
-        return super().from_int(retries, **kwargs)
-
-
-class AIFeatureAPIError(Exception):
-    """
-    Error responses for logging from AI Feature API. Also include non rest API errors (use dummy status code and
-    explicitly set messages).
-    """
-
-    def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query AOI"):
-        if response is None:
-            self.status_code = DUMMY_STATUS_CODE
-            self.text = text
-            self.message = message
-        else:
-            try:
-                self.status_code = response.status_code
-                self.text = response.text
-            except AttributeError:
-                self.status_code = response["status_code"]
-                self.text = response["text"]
-            try:
-                err_body = response.json()
-                self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
-            except json.JSONDecodeError:
-                self.message = "JSONDecodeError"
-            except ValueError:
-                self.message = "ValueError"
-            except requests.exceptions.ChunkedEncodingError:
-                self.message = "ChunkedEncodingError"
-            except AttributeError:
-                self.message = ""
-        self.request_string = request_string
-    
-    def __str__(self):
-        """Return a concise error message without the full response body"""
-        return f"AIFeatureAPIError: {self.status_code} - {self.message}"
 
 
 class AIFeatureAPIGridError(Exception):

@@ -130,6 +130,34 @@ exporter = AOIExporter(
 )
 ```
 
+### 🏠 Roof Age Analysis (US Only)
+Predict roof installation dates using AI analysis of historical imagery:
+
+```python
+from nmaipy.roof_age_exporter import RoofAgeExporter
+
+exporter = RoofAgeExporter(
+    aoi_file='properties.geojson',
+    output_dir='roof_age_results',
+    country='us',  # Currently US only
+    threads=10,
+    output_format='both'  # Generate both GeoParquet and CSV
+)
+exporter.run()
+```
+
+The roof age API uses machine learning to analyze multiple imagery captures over time, combined with building permit data and climate information, to predict when roofs were last installed or significantly renovated. Each roof feature includes:
+- Predicted installation date
+- Confidence score (trust score)
+- Evidence type and number of captures analyzed
+- Timeline of all imagery used in analysis
+
+This is valuable for:
+- Insurance underwriting and risk assessment
+- Property valuation and market analysis
+- Maintenance planning and capital budgeting
+- Real estate due diligence
+
 ## Available AI Features
 
 Some of the more common AI packs are below - there are more and growing, available via API request or on the Nearmap help.nearmap.com page.

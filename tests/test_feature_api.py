@@ -860,7 +860,7 @@ class TestFeatureAPI:
 
     def test_api_key_filtering(self):
         """Test that API key filter removes sensitive information from logs"""
-        from nmaipy.feature_api import APIKeyFilter
+        from nmaipy.api_common import APIKeyFilter
         import logging
 
         # Create a mock log record
