@@ -51,6 +51,42 @@ from nmaipy.roof_age_api import RoofAgeApi
 _process_feature_api = None
 
 
+def _format_error_summary_table(status_counts, message_counts, max_message_len=160):
+    """
+    Format error summary as an ASCII table for logging.
+
+    Args:
+        status_counts: pandas Series of status code counts (or None)
+        message_counts: pandas Series of message counts (or None)
+        max_message_len: Maximum length for message text before truncation
+
+    Returns:
+        str: Formatted ASCII table string
+    """
+    lines = []
+
+    # Status codes table
+    if status_counts is not None and len(status_counts) > 0:
+        lines.append("  Status Codes:")
+        lines.append(f"  {'Code':<10} {'Count':>8}")
+        lines.append(f"  {'-' * 10} {'-' * 8}")
+        for code, count in status_counts.items():
+            lines.append(f"  {code:<10} {count:>8}")
+
+    # Messages table
+    if message_counts is not None and len(message_counts) > 0:
+        if lines:
+            lines.append("")
+        lines.append("  Error Messages:")
+        lines.append(f"  {'Count':>6}  {'Message'}")
+        lines.append(f"  {'-' * 6}  {'-' * max_message_len}")
+        for msg, count in message_counts.items():
+            truncated_msg = msg if len(msg) <= max_message_len else msg[: max_message_len - 3] + "..."
+            lines.append(f"  {count:>6}  {truncated_msg}")
+
+    return "\n" + "\n".join(lines) if lines else ""
+
+
 def _flatten_attribute_list(attr_list):
     """
     Flatten a list of attribute dictionaries into a single flat dictionary with dot notation.
@@ -1650,23 +1686,18 @@ class NearmapAIExporter(BaseExporter):
                         how="left",
                     )
 
-                # Log error summary
-                error_summary = []
+                # Log error summary as ASCII table
+                status_counts = None
+                message_counts = None
                 if "status_code" in errors_df.columns:
                     status_counts = errors_df["status_code"].value_counts()
-                    error_summary.append(f"status codes: {status_counts.to_dict()}")
                 if "message" in errors_df.columns:
                     # Sanitize URLs in messages before aggregating (truncate query params)
                     sanitized_messages = errors_df["message"].apply(sanitize_error_message)
                     message_counts = sanitized_messages.value_counts()
-                    error_summary.append(f"messages: {message_counts.to_dict()}")
 
-                if error_summary:
-                    self.logger.info(
-                        f"{error_type}: {len(errors_df)} failures - {', '.join(error_summary)}"
-                    )
-                else:
-                    self.logger.info(f"{error_type}: {len(errors_df)} failures")
+                error_table = _format_error_summary_table(status_counts, message_counts)
+                self.logger.info(f"{error_type}: {len(errors_df)} failures{error_table}")
 
                 # Save CSV
                 if isinstance(aoi_gdf, gpd.GeoDataFrame):
