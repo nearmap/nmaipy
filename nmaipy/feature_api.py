@@ -23,12 +23,17 @@ from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, quote
 
-from nmaipy import log
+from nmaipy import log, geometry_utils
 from nmaipy.api_common import (
     APIError,
     AIFeatureAPIError,
+    APIRequestSizeError,
+    APIGridError,
+    GriddedApiClient,
     RetryRequest,
     clean_api_key_from_string,
+    generate_curl_command,
+    format_error_message,
 )
 from nmaipy.api_common import API_KEY
 from nmaipy.constants import (
@@ -61,38 +66,9 @@ from nmaipy.constants import (
 logger = log.get_logger()
 
 
-class AIFeatureAPIGridError(Exception):
-    """
-    Specific error to indicate that at least one of the requests comprising a gridded request has failed.
-    """
-
-    def __init__(self, status_code_error_mode, message=""):
-        self.status_code = status_code_error_mode
-        self.text = "Gridding and re-requesting failed on one or more grid cell queries."
-        self.request_string = ""
-        self.message = message
-    
-    def __str__(self):
-        """Return a concise error message"""
-        return f"AIFeatureAPIGridError: {self.status_code} - {self.message}"
-
-
-class AIFeatureAPIRequestSizeError(AIFeatureAPIError):
-    """
-    Error indicating the size is, or might, be too large. Either through explicit size too large issues, or a timeout
-    indicating that the server was unable to cope with the complexity of the geometries, which is usually fixed by
-    querying a smaller AOI.
-    """
-
-    status_codes = (HTTPStatus.GATEWAY_TIMEOUT,)
-    codes = (AOI_EXCEEDS_MAX_SIZE, POLYGON_TOO_COMPLEX)
-    """
-    Use to indicate when an AOI should be gridded and recombined, as it is too large for a request to handle (413, 504).
-    """
-    
-    def __str__(self):
-        """Return a concise error message without the full response body"""
-        return f"AIFeatureAPIRequestSizeError: {self.status_code} - Request too large, should grid"
+# Backward compatibility aliases - use generic versions from api_common
+AIFeatureAPIGridError = APIGridError
+AIFeatureAPIRequestSizeError = APIRequestSizeError
 
 
 # Add these helper functions at the top of ai_offline_parcel.py
@@ -123,9 +99,11 @@ def cleanup_executor(executor):
         pass
 
 
-class FeatureApi:
+class FeatureApi(GriddedApiClient):
     """
-    Class to connect to the AI Feature API
+    Client for the Nearmap AI Feature API.
+
+    Inherits from GriddedApiClient for automatic gridding support.
     """
     
     # Thread-local storage for executor reuse in gridding scenarios
@@ -388,43 +366,8 @@ class FeatureApi:
 
         return df_classes
 
-    @staticmethod
-    def _polygon_to_coordstring(poly: Polygon) -> str:
-        """
-        Turn a shapely polygon into the format required by the API for a query polygon.
-        """
-        coords = poly.exterior.coords[:]
-        flat_coords = np.array(coords).ravel()
-        coordstring = ",".join(flat_coords.astype(str))
-        return coordstring
-
-    @staticmethod
-    def _clip_features_to_polygon(
-        feature_poly_series: gpd.GeoSeries, geometry: Union[Polygon, MultiPolygon], region: str
-    ) -> gpd.GeoDataFrame:
-        """
-        Take polygon of a feature, and reclip it to a new background geometry. Return the clipped polygon,
-        and suitably rounded area in sqm and sqft. Args: feature_poly: Polygon of a single feature. geometry: Polygon
-        to be used as a clipping mask (e.g. Query AOI). region: country region.
 
 
-        Returns: A dataframe with same structure and rows, but corrected values.
-
-        """
-        assert isinstance(feature_poly_series, gpd.GeoSeries)
-        gdf_clip = gpd.GeoDataFrame(geometry=feature_poly_series.intersection(geometry), crs=feature_poly_series.crs)
-
-        clipped_area_sqm = gdf_clip.to_crs(AREA_CRS[region]).area
-        gdf_clip["clipped_area_sqft"] = (clipped_area_sqm * SQUARED_METERS_TO_SQUARED_FEET).round()
-        gdf_clip["clipped_area_sqm"] = clipped_area_sqm.round(1)
-        return gdf_clip
-
-    @staticmethod
-    def _make_latlon_path_for_cache(request_string: str):
-        r = request_string.split("?")[-1]
-        dic = dict([token.split("=") for token in r.split("&")])
-        lon, lat = np.array(dic["polygon"].split(",")).astype("float").round().astype("int").astype("str")[:2]
-        return lon, lat
 
     def _clean_api_key(self, request_string: str) -> str:
         """
@@ -474,49 +417,6 @@ class FeatureApi:
 
         return result
 
-    def _generate_curl_command(self, url: str, body: dict = None, method: str = "POST") -> str:
-        """
-        Generate a curl command for debugging failed requests.
-        Provides all information needed to reproduce the request from command line.
-
-        Args:
-            url: The request URL (with API key already in query params)
-            body: The JSON body for POST requests
-            method: HTTP method (POST or GET)
-
-        Returns:
-            A curl command string with API key sanitized
-        """
-        # Clean the API key from the URL
-        clean_url = self._clean_api_key(url)
-
-        if method == "POST" and body:
-            # Format the JSON body nicely
-            json_body = json.dumps(body, indent=2)
-
-            # Build the curl command
-            curl_cmd = f"""curl -X POST '{clean_url}' \\
-  -H 'Content-Type: application/json' \\
-  -H 'Accept: application/json' \\
-  --max-time {READ_TIMEOUT_SECONDS} \\
-  --data '{json_body}'
-
-# To use this command:
-# 1. Replace 'APIKEYREMOVED' with your actual API key
-# 2. Save the geometry to a file if it's too large for command line
-# 3. Use --data @filename.json for large payloads
-# 4. Add -v for verbose output to debug connection issues"""
-        else:
-            # GET request
-            curl_cmd = f"""curl -X GET '{clean_url}' \\
-  -H 'Accept: application/json' \\
-  --max-time {READ_TIMEOUT_SECONDS}
-
-# To use this command:
-# 1. Replace 'APIKEYREMOVED' with your actual API key
-# 2. Add -v for verbose output to debug connection issues"""
-
-        return curl_cmd
 
     def _request_cache_path(self, request_string: str) -> Path:
         """
@@ -524,7 +424,7 @@ class FeatureApi:
         """
         request_string = self._clean_api_key(request_string)
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
-        lon, lat = self._make_latlon_path_for_cache(request_string)
+        lon, lat = geometry_utils.extract_coords_for_cache(request_string)
         ext = "json.gz" if self.compress_cache else "json"
         return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
         
@@ -556,11 +456,6 @@ class FeatureApi:
         ext = "json.gz" if self.compress_cache else "json"
         return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
 
-    def _request_error_message(self, request_string: str, response: requests.Response) -> str:
-        """
-        Create a descriptive error message without the API key.
-        """
-        return f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
     def _handle_response_errors(self, response: requests.Response, request_string: str):
         """
@@ -1013,120 +908,8 @@ class FeatureApi:
         else:
             return link + location_marker_string
 
-    @staticmethod
-    def create_grid(df: gpd.GeoDataFrame, cell_size: float):
-        """
-        Create a GeodataFrame of grid squares, matching the extent of an input GeoDataFrame.
-        """
-        minx, miny, maxx, maxy = df.total_bounds
-        w, h = (cell_size, cell_size)
 
-        rows = int(np.ceil((maxy - miny) / h))
-        cols = int(np.ceil((maxx - minx) / w))
 
-        polygons = []
-        for i in range(cols):
-            for j in range(rows):
-                polygons.append(
-                    Polygon(
-                        [
-                            (minx + i * w, miny + (j + 1) * h),
-                            (minx + (i + 1) * w, miny + (j + 1) * h),
-                            (minx + (i + 1) * w, miny + j * h),
-                            (minx + i * w, miny + j * h),
-                        ]
-                    )
-                )
-        df_grid = gpd.GeoDataFrame(geometry=polygons, crs=df.crs)
-        return df_grid
-
-    @staticmethod
-    def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: float):
-        """
-        Take a geometry (implied CRS as API_CRS), and split it into a grid of given height/width cells (in degrees).
-
-        Returns:
-            Gridded GeoDataFrame
-        """
-        df = gpd.GeoDataFrame(geometry=[geometry], crs=API_CRS)
-        df_gridded = FeatureApi.create_grid(df, cell_size)
-        df_gridded = gpd.overlay(df, df_gridded, keep_geom_type=True)
-        # explicit index_parts added to get rid of warning, and this was the default behaviour so I am
-        # assuming this is the behaviour that is intended
-        df_gridded = df_gridded.explode(index_parts=True)  # Break apart grid squares that are multipolygons.
-        df_gridded = df_gridded.to_crs(API_CRS)
-        return df_gridded
-
-    @staticmethod
-    def combine_features_gdf_from_grid(features_gdf: gpd.GeoDataFrame):
-        """
-        Where a grid of adjacent queries has been used to pull features, remove duplicates for discrete classes,
-        and recombine geometries of connected classes (including reconciling areas correctly) where the feature id
-        of the larger object is the same.
-
-        param features_gdf: Output from FeatureAPI.payload_gdf
-        :return:
-        """
-        
-        # Handle empty or None input (when no features returned from any grid cell)
-        if features_gdf is None or len(features_gdf) == 0:
-            # Return empty GeoDataFrame with proper structure
-            empty_gdf = gpd.GeoDataFrame(columns=['geometry'], crs=API_CRS)
-            empty_gdf.index.name = AOI_ID_COLUMN_NAME
-            return empty_gdf
-
-        # Columns that don't require aggregation.
-        agg_cols_first = [
-            AOI_ID_COLUMN_NAME,
-            "class_id",
-            "description",
-            "confidence",
-            "parent_id",
-            "unclipped_area_sqm",
-            "unclipped_area_sqft",
-            "attributes",
-            "damage",  # Damage classification data (new structure for building lifecycle)
-            "belongs_to_parcel",  # Parcel mode field
-            "survey_date",
-            "mesh_date",
-            "fidelity",
-        ]
-
-        # Columns with clipped areas that should be summed when geometries are merged.
-        agg_cols_sum = [
-            "area_sqm",
-            "area_sqft",
-            "clipped_area_sqm",
-            "clipped_area_sqft",
-        ]
-
-        # Filter columns to only those that exist
-        existing_agg_cols_first = [col for col in agg_cols_first if col in features_gdf.columns]
-        existing_agg_cols_sum = [col for col in agg_cols_sum if col in features_gdf.columns]
-        
-        features_gdf_dissolved = (
-            features_gdf.drop_duplicates(
-                ["feature_id", "geometry"]
-            )  # First, drop duplicate geometries rather than dissolving them together.
-            .filter(existing_agg_cols_first + ["geometry", "feature_id"], axis=1)
-            .dissolve(
-                by="feature_id", aggfunc="first"
-            )  # Then dissolve any remaining features that represent a single feature_id that has been split.
-            .reset_index()
-            .set_index("feature_id")
-        )
-
-        features_gdf_summed = (
-            features_gdf.filter(existing_agg_cols_sum + ["feature_id"], axis=1)
-            .groupby("feature_id")
-            .aggregate(dict([c, "sum"] for c in existing_agg_cols_sum))
-        )
-
-        # final output - same format, same set of feature_ids, but fewer rows due to dedup and merging.
-        # Set the index back to being the AOI_ID column
-        features_gdf_out = features_gdf_dissolved.join(features_gdf_summed).reset_index().set_index(AOI_ID_COLUMN_NAME)
-
-        return features_gdf_out
 
     @classmethod
     def payload_gdf(cls, payload: dict, aoi_id: Optional[str] = None, parcel_mode: Optional[bool] = False) -> Tuple[gpd.GeoDataFrame, dict]:
@@ -1327,7 +1110,7 @@ class FeatureApi:
             error = None  # Reset error if we got here without an exception
 
             # Recombine gridded features
-            features_gdf = FeatureApi.combine_features_gdf_from_grid(features_gdf)
+            features_gdf = geometry_utils.combine_features_from_grid(features_gdf)
 
             # Create metadata
             metadata_df = metadata_df.drop_duplicates().iloc[0]
@@ -1550,7 +1333,7 @@ class FeatureApi:
                 )
                 logger.debug(f"Failed request URL: {self._clean_api_key(url)}")
                 logger.debug("To reproduce this request, use the following curl command:")
-                logger.debug(self._generate_curl_command(url, body, method="POST"))
+                logger.debug(generate_curl_command(url, body, method="POST", timeout=READ_TIMEOUT_SECONDS))
             features_gdf = None
             metadata = None
             error = {
@@ -1577,7 +1360,7 @@ class FeatureApi:
                 )
                 logger.debug(f"Timeout on request URL: {self._clean_api_key(url)}")
                 logger.debug("To reproduce this request, use the following curl command:")
-                logger.debug(self._generate_curl_command(url, body, method="POST"))
+                logger.debug(generate_curl_command(url, body, method="POST", timeout=READ_TIMEOUT_SECONDS))
             features_gdf = None
             metadata = None
             error = {
@@ -1634,7 +1417,7 @@ class FeatureApi:
         # Acquire semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened simultaneously
         with self._gridding_semaphore:
-            df_gridded = FeatureApi.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
+            df_gridded = geometry_utils.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
             reason_str = f" (reason: {reason})" if reason else ""
             logger.debug(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells{reason_str}")

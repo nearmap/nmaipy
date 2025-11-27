@@ -197,6 +197,47 @@ class RoofAgeAPIError(APIError):
     pass
 
 
+class APIRequestSizeError(APIError):
+    """
+    Generic error indicating a request is too large for the API to handle.
+
+    This can occur when:
+    - AOI geometry is too complex or has too many vertices
+    - AOI area exceeds API limits
+    - Server times out due to request complexity (504 Gateway Timeout)
+
+    When this error occurs, the client should consider:
+    - Splitting the AOI into smaller chunks (gridding)
+    - Simplifying the geometry
+    - Reducing the query scope
+    """
+
+    status_codes = (HTTPStatus.GATEWAY_TIMEOUT, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+
+    def __str__(self):
+        """Return a concise error message"""
+        return f"APIRequestSizeError: {self.status_code} - Request too large, consider gridding"
+
+
+class APIGridError(Exception):
+    """
+    Generic error indicating that a gridded request failed.
+
+    This occurs when an AOI was split into a grid for parallel processing,
+    but one or more grid cells failed to process successfully.
+    """
+
+    def __init__(self, status_code_error_mode, message=""):
+        self.status_code = status_code_error_mode
+        self.text = "Gridding and re-requesting failed on one or more grid cell queries."
+        self.request_string = ""
+        self.message = message
+
+    def __str__(self):
+        """Return a concise error message"""
+        return f"APIGridError: {self.status_code} - {self.message}"
+
+
 def clean_api_key_from_string(text: str) -> str:
     """
     Remove API keys from a string for safe logging.
@@ -435,3 +476,162 @@ class BaseApiClient:
             String with API keys replaced with 'REMOVED'
         """
         return clean_api_key_from_string(text)
+
+
+class GriddedApiClient(BaseApiClient):
+    """
+    Base class for API clients that support automatic gridding of large AOIs.
+
+    Extends BaseApiClient with the ability to automatically split large geometries
+    into grid cells for parallel processing. This is useful for APIs that have
+    size limits on individual requests.
+
+    Features:
+    - Automatic gridding when AOI exceeds size threshold
+    - Parallel processing of grid cells with thread pool
+    - Semaphore-based concurrency control to prevent resource exhaustion
+    - Result combination with deduplication
+    - Proactive and reactive gridding strategies
+
+    Subclasses should implement:
+    - Query methods that may need gridding support
+    - _combine_grid_results() if custom result combination is needed
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        cache_dir: Optional[Path] = None,
+        overwrite_cache: Optional[bool] = False,
+        compress_cache: Optional[bool] = False,
+        threads: Optional[int] = 10,
+        maxretry: int = MAX_RETRIES,
+        grid_cell_size: float = 0.002,
+        max_aoi_area_sqm: float = 1_000_000,
+        max_concurrent_gridding: Optional[int] = None,
+    ):
+        """
+        Initialize GriddedApiClient.
+
+        Args:
+            api_key: Nearmap API key
+            cache_dir: Directory for caching
+            overwrite_cache: Whether to overwrite cache
+            compress_cache: Whether to compress cache files
+            threads: Number of concurrent threads
+            maxretry: Number of retries for failed requests
+            grid_cell_size: Size of grid cells in degrees (default ~200m)
+            max_aoi_area_sqm: Max AOI area before gridding (default 1 sq km)
+            max_concurrent_gridding: Max concurrent gridding operations (default threads/5)
+        """
+        super().__init__(
+            api_key=api_key,
+            cache_dir=cache_dir,
+            overwrite_cache=overwrite_cache,
+            compress_cache=compress_cache,
+            threads=threads,
+            maxretry=maxretry,
+        )
+
+        self.grid_cell_size = grid_cell_size
+        self.max_aoi_area_sqm = max_aoi_area_sqm
+
+        # Semaphore to limit concurrent gridding operations
+        # This prevents too many file handles being opened when many large AOIs grid simultaneously
+        if max_concurrent_gridding is None:
+            max_concurrent_gridding = max(1, self.threads // 5)
+        self._gridding_semaphore = threading.Semaphore(max_concurrent_gridding)
+        logger.debug(f"Initialized gridding semaphore with limit of {max_concurrent_gridding} concurrent AOIs")
+
+    def should_grid_aoi(self, geometry, region: str = "us") -> bool:
+        """
+        Determine if an AOI should be pre-emptively gridded based on area.
+
+        Args:
+            geometry: Polygon or MultiPolygon in API_CRS (EPSG:4326)
+            region: Country/region code for CRS selection (default: 'us')
+
+        Returns:
+            True if geometry area exceeds threshold and should be gridded
+        """
+        from nmaipy.constants import AREA_CRS
+        import geopandas as gpd
+
+        # Calculate area in appropriate projected CRS
+        gdf = gpd.GeoDataFrame(geometry=[geometry], crs="EPSG:4326")
+        area_sqm = gdf.to_crs(AREA_CRS.get(region, AREA_CRS["us"])).area.iloc[0]
+
+        return area_sqm > self.max_aoi_area_sqm
+
+
+def generate_curl_command(url: str, body: dict = None, method: str = "POST", timeout: int = 90) -> str:
+    """
+    Generate a curl command for debugging HTTP requests.
+
+    Provides all information needed to reproduce an API request from the command line.
+    API keys are automatically sanitized for safety.
+
+    Args:
+        url: The request URL (with API key in query params if applicable)
+        body: Optional JSON body for POST requests
+        method: HTTP method (POST or GET)
+        timeout: Request timeout in seconds
+
+    Returns:
+        A formatted curl command string with API key sanitized
+
+    Example:
+        >>> url = "https://api.nearmap.com/ai/features/v4/features.json?apikey=SECRET"
+        >>> body = {"aoi": {"type": "Polygon", "coordinates": [...]}}
+        >>> cmd = generate_curl_command(url, body)
+        >>> print(cmd)  # API key will be replaced with 'APIKEYREMOVED'
+    """
+    # Clean the API key from the URL
+    clean_url = clean_api_key_from_string(url)
+
+    if method == "POST" and body:
+        # Format the JSON body nicely
+        json_body = json.dumps(body, indent=2)
+
+        # Build the curl command
+        curl_cmd = f"""curl -X POST '{clean_url}' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Accept: application/json' \\
+  --max-time {timeout} \\
+  --data '{json_body}'
+
+# To use this command:
+# 1. Replace 'APIKEYREMOVED' or 'REMOVED' with your actual API key
+# 2. Save the geometry to a file if it's too large for command line
+# 3. Use --data @filename.json for large payloads
+# 4. Add -v for verbose output to debug connection issues"""
+    else:
+        # GET request
+        curl_cmd = f"""curl -X GET '{clean_url}' \\
+  -H 'Accept: application/json' \\
+  --max-time {timeout}
+
+# To use this command:
+# 1. Replace 'APIKEYREMOVED' or 'REMOVED' with your actual API key
+# 2. Add -v for verbose output to debug connection issues"""
+
+    return curl_cmd
+
+
+def format_error_message(request_string: str, response: requests.Response) -> str:
+    """
+    Format a detailed error message for failed API requests.
+
+    Args:
+        request_string: The original request URL/string
+        response: HTTP response object from failed request
+
+    Returns:
+        Formatted error message with status, response text, and sanitized request
+
+    Example:
+        >>> msg = format_error_message(url, response)
+        >>> logger.error(msg)
+    """
+    clean_request = clean_api_key_from_string(request_string)
+    return f"\n{clean_request=}\n\n{response.status_code=}\n\n{response.text}\n\n"

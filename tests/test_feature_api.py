@@ -13,7 +13,8 @@ from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.wkt import loads
 
-from nmaipy import parcels, reference_code
+from nmaipy import parcels, reference_code, geometry_utils
+from nmaipy.api_common import generate_curl_command
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -22,6 +23,7 @@ from nmaipy.constants import (
     BUILDING_ID,
     BUILDING_NEW_ID,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
+    READ_TIMEOUT_SECONDS,
     ROLLUP_BUILDING_COUNT_ID,
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
     ROOF_ID,
@@ -123,7 +125,7 @@ class TestFeatureAPI:
         d = max(width, height)
 
         for cell_size in [d / 5, width, height, d, 2 * d]:
-            df_gridded = FeatureApi.split_geometry_into_grid(aoi, cell_size)
+            df_gridded = geometry_utils.split_geometry_into_grid(aoi, cell_size)
             geom_recombined = df_gridded.geometry.unary_union
             assert geom_recombined.difference(aoi).area == pytest.approx(0)
             assert aoi.difference(geom_recombined).area == pytest.approx(0)
@@ -135,17 +137,17 @@ class TestFeatureAPI:
         
         # Test 1: Empty GeoDataFrame (the main bug we fixed)
         empty_gdf = gpd.GeoDataFrame(columns=['geometry', 'feature_id'], crs=API_CRS)
-        result = FeatureApi.combine_features_gdf_from_grid(empty_gdf)
+        result = geometry_utils.combine_features_from_grid(empty_gdf)
         assert isinstance(result, gpd.GeoDataFrame)
         assert len(result) == 0
         assert result.crs == API_CRS
-        
+
         # Test 2: None input
-        result = FeatureApi.combine_features_gdf_from_grid(None)
+        result = geometry_utils.combine_features_from_grid(None)
         assert isinstance(result, gpd.GeoDataFrame)
         assert len(result) == 0
         assert result.crs == API_CRS
-        
+
         # Test 3: Normal case with features to combine
         from shapely.geometry import Polygon
         test_features = gpd.GeoDataFrame({
@@ -160,8 +162,8 @@ class TestFeatureAPI:
             'area_sqm': [1.0, 1.0, 1.0],
             'confidence': [0.9, 0.9, 0.8]
         }, crs=API_CRS)
-        
-        result = FeatureApi.combine_features_gdf_from_grid(test_features)
+
+        result = geometry_utils.combine_features_from_grid(test_features)
         assert isinstance(result, gpd.GeoDataFrame)
         assert len(result) == 2  # Should have 2 features after combining duplicates
         assert result.crs == API_CRS
@@ -939,8 +941,6 @@ class TestFeatureAPI:
 
     def test_curl_command_generation(self):
         """Test that curl commands are generated correctly with sanitized API keys"""
-        api = FeatureApi(api_key="TEST_API_KEY_12345")
-
         # Test POST request
         test_url = "https://api.nearmap.com/ai/features/v4/bulk/features.json?apikey=TEST_API_KEY_12345&param=value"
         test_body = {
@@ -950,7 +950,7 @@ class TestFeatureAPI:
             }
         }
 
-        curl_cmd = api._generate_curl_command(test_url, test_body, method="POST")
+        curl_cmd = generate_curl_command(test_url, test_body, method="POST", timeout=READ_TIMEOUT_SECONDS)
 
         # Verify API key is removed
         assert "TEST_API_KEY_12345" not in curl_cmd, "API key not removed from curl command"
@@ -960,7 +960,7 @@ class TestFeatureAPI:
         assert "--max-time" in curl_cmd, "Missing timeout"
 
         # Test GET request
-        curl_cmd_get = api._generate_curl_command(test_url, None, method="GET")
+        curl_cmd_get = generate_curl_command(test_url, None, method="GET", timeout=READ_TIMEOUT_SECONDS)
         assert "TEST_API_KEY_12345" not in curl_cmd_get, "API key not removed from GET command"
         assert "curl -X GET" in curl_cmd_get, "Missing GET method"
 
