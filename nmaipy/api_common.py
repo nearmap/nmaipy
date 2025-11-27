@@ -144,7 +144,7 @@ class RetryRequest(Retry):
     """
 
     BACKOFF_MIN = 2.0  # Minimum backoff time in seconds
-    BACKOFF_MAX = 20    # Maximum backoff time in seconds
+    BACKOFF_MAX = 10    # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

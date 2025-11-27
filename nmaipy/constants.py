@@ -19,6 +19,7 @@ ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
 ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
 ROOF_AGE_UNTIL_DATE_FIELD = "untilDate"
 ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD = "afterInstallationCaptureDate"
+ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD = "beforeInstallationCaptureDate"
 ROOF_AGE_AREA_FIELD = "area"
 ROOF_AGE_EVIDENCE_TYPE_FIELD = "evidenceType"
 ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD = "evidenceTypeDescription"
@@ -125,8 +126,9 @@ BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
 # This is a "virtual" feature class that represents roof installation date information
 # Roof instances may spatially correspond to roof objects from the Feature API, but are
 # tracked separately as they come from different data sources with different semantics
-# Note: This is an obviously synthetic UUID - not a real Feature API class_id
-ROOF_INSTANCE_CLASS_ID = "r00f1age-0000-0000-0000-roof1nstance"
+# Note: This is a synthetic UUID (not a real Feature API class_id) but valid format
+# f00f = "roof", 1a9e = "age" in hex-speak
+ROOF_INSTANCE_CLASS_ID = "f00f1a9e-0001-4000-a000-000000000001"
 
 BUILDING_STYLE_CLASS_IDS = [
     BUILDING_LIFECYCLE_ID,

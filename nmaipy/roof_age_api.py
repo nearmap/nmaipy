@@ -291,21 +291,10 @@ class RoofAgeApi(BaseApiClient):
         # Create GeoDataFrame
         gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=API_CRS)
 
-        # Map Roof Age API 'area' field to standard Feature API column names
-        # Roof Age API returns area in sqm
+        # Map Roof Age API 'area' field to area_sqm for consistency
+        # Note: Roof instances don't have clipped/unclipped distinction - they have a single 'area'
         if ROOF_AGE_AREA_FIELD in gdf.columns:
             gdf["area_sqm"] = gdf[ROOF_AGE_AREA_FIELD]
-            # For roof instances, clipped/unclipped are same as total area
-            # (roof instances are always within the AOI boundary)
-            gdf["clipped_area_sqm"] = gdf[ROOF_AGE_AREA_FIELD]
-            gdf["unclipped_area_sqm"] = gdf[ROOF_AGE_AREA_FIELD]
-
-        # Map trustScore to confidence for compatibility with parcel_rollup
-        if ROOF_AGE_TRUST_SCORE_FIELD in gdf.columns:
-            gdf["confidence"] = gdf[ROOF_AGE_TRUST_SCORE_FIELD]
-
-        # Add placeholder columns expected by parcel_rollup
-        gdf["fidelity"] = None
 
         # Use hilbertId as feature_id if available
         if ROOF_AGE_HILBERT_ID_FIELD in gdf.columns:

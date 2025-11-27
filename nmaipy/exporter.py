@@ -1097,13 +1097,16 @@ class NearmapAIExporter(BaseExporter):
                         f"Chunk {chunk_id}: Combining {len(features_gdf)} Feature API features with "
                         f"{len(roof_age_gdf)} Roof Age features"
                     )
-                    # Filter out empty DataFrames to avoid FutureWarning about all-NA columns
                     dfs_to_concat = [df for df in [features_gdf, roof_age_gdf] if len(df) > 0]
                     if dfs_to_concat:
-                        features_gdf = gpd.GeoDataFrame(
-                            pd.concat(dfs_to_concat, ignore_index=False),
-                            crs=API_CRS
-                        )
+                        # Concatenating DataFrames with different schemas (Feature API vs Roof Age API)
+                        # triggers FutureWarning about all-NA column dtype inference - this is expected
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message=".*concatenation with empty or all-NA.*")
+                            features_gdf = gpd.GeoDataFrame(
+                                pd.concat(dfs_to_concat, ignore_index=False),
+                                crs=API_CRS
+                            )
                     logger.debug(f"Chunk {chunk_id}: Combined features_gdf has {len(features_gdf)} rows")
 
                     # Perform spatial matching between roof instances and roofs
@@ -1122,13 +1125,14 @@ class NearmapAIExporter(BaseExporter):
                             (features_gdf["class_id"] != ROOF_ID) &
                             (features_gdf["class_id"] != roof_age_gdf["class_id"].iloc[0])
                         ]
-                        # Filter out empty DataFrames to avoid FutureWarning
                         dfs_to_concat = [df for df in [non_roof_features, roofs_gdf_linked, roof_age_gdf_linked] if len(df) > 0]
                         if dfs_to_concat:
-                            features_gdf = gpd.GeoDataFrame(
-                                pd.concat(dfs_to_concat, ignore_index=False),
-                                crs=API_CRS
-                            )
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings("ignore", message=".*concatenation with empty or all-NA.*")
+                                features_gdf = gpd.GeoDataFrame(
+                                    pd.concat(dfs_to_concat, ignore_index=False),
+                                    crs=API_CRS
+                                )
                         logger.debug(
                             f"Chunk {chunk_id}: After linking, features_gdf has {len(features_gdf)} rows"
                         )

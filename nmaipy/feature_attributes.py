@@ -22,15 +22,16 @@ from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
     ROOF_AGE_AREA_FIELD,
+    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
+    ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
+    ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
+    ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_AGE_UNTIL_DATE_FIELD,
-    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
-    ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
-    ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
-    ROOF_AGE_NUM_CAPTURES_FIELD,
 )
 
 logger = log.get_logger()
@@ -293,6 +294,10 @@ def flatten_roof_instance_attributes(
         flattened[f"{prefix}evidence_type_description"] = evidence_desc
 
     # Capture date information
+    before_capture = get_value(ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD)
+    if before_capture is not None:
+        flattened[f"{prefix}before_installation_capture_date"] = before_capture
+
     after_capture = get_value(ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD)
     if after_capture is not None:
         flattened[f"{prefix}after_installation_capture_date"] = after_capture
