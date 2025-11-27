@@ -82,6 +82,7 @@ class RoofAgeApi(BaseApiClient):
         threads: Optional[int] = 10,
         url_root: Optional[str] = None,
         country: str = "us",
+        progress_counters: Optional[dict] = None,
     ):
         """
         Initialize Roof Age API client.
@@ -94,6 +95,7 @@ class RoofAgeApi(BaseApiClient):
             threads: Number of threads for concurrent execution
             url_root: Override the default API root URL (for testing)
             country: Country code for address queries (e.g., 'us', 'au')
+            progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
         """
         super().__init__(
             api_key=api_key,
@@ -102,6 +104,9 @@ class RoofAgeApi(BaseApiClient):
             compress_cache=compress_cache,
             threads=threads,
         )
+
+        # Store progress counters for cross-process progress tracking
+        self.progress_counters = progress_counters
 
         # Store country for address queries
         self.country = country.upper()
@@ -112,6 +117,14 @@ class RoofAgeApi(BaseApiClient):
         self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_ENDPOINT}"
 
         logger.debug(f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}")
+
+    def _increment_progress(self):
+        """Increment progress counter immediately after each request completes."""
+        if self.progress_counters is None:
+            return
+
+        with self.progress_counters["lock"]:
+            self.progress_counters["completed"] += 1
 
     def _build_request_payload(
         self,
@@ -445,6 +458,9 @@ class RoofAgeApi(BaseApiClient):
                         metadata_list.append(metadata)
                 else:
                     errors_list.append(error_info)
+
+                # Increment progress counter for completed request
+                self._increment_progress()
 
         # Combine results
         if roofs_list:

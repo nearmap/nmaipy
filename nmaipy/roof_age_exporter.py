@@ -29,7 +29,7 @@ import pandas as pd
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
-from nmaipy.api_common import sanitize_error_message
+from nmaipy.api_common import format_error_summary_table, sanitize_error_message
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.roof_age_api import RoofAgeApi
@@ -255,6 +255,9 @@ class RoofAgeExporter(BaseExporter):
 
             logger.debug(f"Chunk {chunk_id}: Processing {len(aoi_gdf)} AOIs")
 
+            # Get progress counters from kwargs (passed by BaseExporter)
+            progress_counters = kwargs.get("progress_counters")
+
             # Initialize API client for this chunk
             cache_path = None if self.no_cache else self.cache_dir
             api = RoofAgeApi(
@@ -264,6 +267,7 @@ class RoofAgeExporter(BaseExporter):
                 compress_cache=self.compress_cache,
                 threads=self.threads,
                 country=self.country,
+                progress_counters=progress_counters,
             )
 
             # Query API for this chunk
@@ -314,12 +318,12 @@ class RoofAgeExporter(BaseExporter):
         # Calculate initial AOI count for progress tracking (excluding skipped)
         initial_aoi_count = len(aoi_gdf) - skipped_aois
 
-        # Run parallel processing (disable progress tracking for simpler roof age API)
+        # Run parallel processing with progress tracking
         self.run_parallel(
             chunks_to_process,
             aoi_stem,
             initial_aoi_count=initial_aoi_count,
-            use_progress_tracking=False,  # Roof age API doesn't use progress counters
+            use_progress_tracking=True,
         )
 
         # Combine chunk results
@@ -375,16 +379,18 @@ class RoofAgeExporter(BaseExporter):
         )
 
         if error_count > 0:
-            self.logger.warning(f"Failed queries: {error_count} / {len(aoi_gdf)}")
-            # Log error details
+            # Log error summary as ASCII table (same format as Feature API)
+            status_counts = None
+            message_counts = None
             if "status_code" in errors_df.columns:
-                status_counts = errors_df["status_code"].value_counts().to_dict()
-                self.logger.warning(f"Error status codes: {status_counts}")
+                status_counts = errors_df["status_code"].value_counts()
             if "message" in errors_df.columns:
                 # Sanitize URLs in messages before aggregating (truncate query params)
                 sanitized_messages = errors_df["message"].apply(sanitize_error_message)
-                error_summary = sanitized_messages.value_counts().to_dict()
-                self.logger.warning(f"Error messages: {error_summary}")
+                message_counts = sanitized_messages.value_counts()
+
+            error_table = format_error_summary_table(status_counts, message_counts)
+            self.logger.info(f"Roof Age API: {error_count} failures{error_table}")
 
         # Merge with AOI attributes if requested
         if self.include_aoi_geometry and len(roofs_gdf) > 0:

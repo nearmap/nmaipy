@@ -99,6 +99,42 @@ def sanitize_error_message(message: str) -> str:
     return re.sub(r'(https?://[^\s?]+)\?[^\s]*', r'\1?...', message)
 
 
+def format_error_summary_table(status_counts, message_counts, max_message_len=160):
+    """
+    Format error summary as an ASCII table for logging.
+
+    Args:
+        status_counts: pandas Series of status code counts (or None)
+        message_counts: pandas Series of message counts (or None)
+        max_message_len: Maximum length for message text before truncation
+
+    Returns:
+        str: Formatted ASCII table string
+    """
+    lines = []
+
+    # Status codes table
+    if status_counts is not None and len(status_counts) > 0:
+        lines.append("  Status Codes:")
+        lines.append(f"  {'Code':<10} {'Count':>8}")
+        lines.append(f"  {'-' * 10} {'-' * 8}")
+        for code, count in status_counts.items():
+            lines.append(f"  {code:<10} {count:>8}")
+
+    # Messages table
+    if message_counts is not None and len(message_counts) > 0:
+        if lines:
+            lines.append("")
+        lines.append("  Error Messages:")
+        lines.append(f"  {'Count':>6}  {'Message'}")
+        lines.append(f"  {'-' * 6}  {'-' * max_message_len}")
+        for msg, count in message_counts.items():
+            truncated_msg = msg if len(msg) <= max_message_len else msg[: max_message_len - 3] + "..."
+            lines.append(f"  {count:>6}  {truncated_msg}")
+
+    return "\n" + "\n".join(lines) if lines else ""
+
+
 class RetryRequest(Retry):
     """
     Inherited retry request with controlled backoff timing.
