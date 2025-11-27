@@ -530,7 +530,7 @@ class RoofAgeApi(BaseApiClient):
         # Calculate error rate for logging
         error_pct = (len(errors_df) / len(aoi_gdf)) * 100 if len(aoi_gdf) > 0 else 0
 
-        logger.info(
+        logger.debug(
             f"Roof age bulk query complete: {len(roofs_gdf)} roofs found, "
             f"{len(errors_df)} errors ({error_pct:.1f}%)"
         )
