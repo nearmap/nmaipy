@@ -295,15 +295,8 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info("Loading AOI file...")
         aoi_gdf = parcels.read_from_file(self.aoi_file, id_column=AOI_ID_COLUMN_NAME)
 
-        # Validate that we have geometries
-        if not isinstance(aoi_gdf, gpd.GeoDataFrame):
-            raise ValueError(
-                "Roof Age API requires geometry (AOI polygons). "
-                "Address-based queries are not yet supported in bulk mode."
-            )
-
-        # Ensure correct CRS
-        if aoi_gdf.crs != API_CRS:
+        # Ensure correct CRS if geometry mode (skip CRS check for address mode)
+        if "geometry" in aoi_gdf.columns and aoi_gdf.crs != API_CRS:
             self.logger.info(f"Reprojecting from {aoi_gdf.crs} to {API_CRS}")
             aoi_gdf = aoi_gdf.to_crs(API_CRS)
 

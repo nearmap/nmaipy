@@ -329,8 +329,13 @@ class RoofAgeApi(BaseApiClient):
         """
         Get roof age data for multiple AOIs in parallel.
 
+        Supports both geometry-based and address-based queries. Automatically detects
+        the input mode based on available columns.
+
         Args:
-            aoi_gdf: GeoDataFrame with AOIs to query (must have aoi_id index and geometry column)
+            aoi_gdf: GeoDataFrame with AOIs to query (must have aoi_id index)
+                     For geometry mode: must have 'geometry' column
+                     For address mode: must have streetAddress, city, state, zip columns
             max_allowed_error_pct: Maximum percentage of AOIs that can fail before raising error
 
         Returns:
@@ -340,27 +345,40 @@ class RoofAgeApi(BaseApiClient):
                 - errors_df: DataFrame with failed queries
 
         Raises:
-            ValueError: If error rate exceeds max_allowed_error_pct
+            ValueError: If error rate exceeds max_allowed_error_pct or required columns are missing
         """
         if not isinstance(aoi_gdf.index, pd.Index) or aoi_gdf.index.name != AOI_ID_COLUMN_NAME:
             raise ValueError(f"aoi_gdf must have '{AOI_ID_COLUMN_NAME}' as index")
 
-        if "geometry" not in aoi_gdf.columns:
-            raise ValueError("aoi_gdf must have a 'geometry' column")
+        # Detect input mode - check for address fields and geometry
+        has_address_fields = set(aoi_gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
+        has_geom = "geometry" in aoi_gdf.columns
 
-        logger.info(f"Getting roof age data for {len(aoi_gdf)} AOIs using {self.threads} threads")
+        if not has_geom and not has_address_fields:
+            raise ValueError(
+                "aoi_gdf must have either a 'geometry' column (for AOI-based queries) "
+                "or address columns (streetAddress, city, state, zip) for address-based queries"
+            )
+
+        mode = "address" if has_address_fields and not has_geom else "geometry"
+        logger.info(f"Getting roof age data for {len(aoi_gdf)} AOIs using {self.threads} threads ({mode} mode)")
 
         roofs_list = []
         metadata_list = []
         errors_list = []
 
         def process_aoi(row):
-            """Process a single AOI row"""
+            """Process a single AOI row (handles both geometry and address modes)"""
             aoi_id = row.name
-            geometry = row.geometry
 
             try:
-                roofs_gdf = self.get_roof_age_by_aoi(geometry, aoi_id)
+                if has_geom:
+                    # Geometry-based query
+                    roofs_gdf = self.get_roof_age_by_aoi(row.geometry, aoi_id)
+                else:
+                    # Address-based query
+                    address = {f: row[f] for f in ADDRESS_FIELDS}
+                    roofs_gdf = self.get_roof_age_by_address(address, aoi_id)
 
                 # Extract metadata
                 metadata = {
