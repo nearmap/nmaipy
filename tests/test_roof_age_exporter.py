@@ -71,7 +71,7 @@ def test_exporter_run_mocked(test_aoi_file, test_output_dir, data_directory):
         output_format="both",  # Test both formats
         country="us",
         api_key="test_key",
-        threads=2,
+        processes=2,
     )
 
     # Mock the RoofAgeApi.get_roof_age_bulk method
@@ -153,7 +153,7 @@ def test_exporter_integration(test_aoi_file, test_output_dir):
         aoi_file=str(test_aoi_file),
         output_dir=str(test_output_dir),
         country="us",
-        threads=2,
+        processes=2,
     )
 
     exporter.run()
