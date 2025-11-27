@@ -29,7 +29,9 @@ Example usage:
     ```
 """
 import concurrent.futures
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -126,6 +128,65 @@ class RoofAgeApi(BaseApiClient):
         with self.progress_counters["lock"]:
             self.progress_counters["completed"] += 1
 
+    def _sanitize_path_component(self, text: str) -> str:
+        """
+        Sanitize a string for use as a path component.
+
+        Removes/replaces characters that are problematic in file paths.
+        """
+        if not text:
+            return "_empty_"
+        # Replace problematic characters with underscore
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(text))
+        # Replace multiple underscores with single
+        sanitized = re.sub(r'_+', '_', sanitized)
+        # Remove leading/trailing underscores and whitespace
+        sanitized = sanitized.strip('_ \t')
+        # Truncate to reasonable length
+        return sanitized[:50] if sanitized else "_empty_"
+
+    def _get_cache_path(self, cache_key: str) -> Path:
+        """
+        Get the cache file path for a given key.
+
+        For address-based queries, uses nested directories:
+        cache_dir/country/state/city/zip/<hash>.json
+
+        For AOI-based queries, uses flat structure with hash.
+
+        Args:
+            cache_key: Unique identifier for the cached item
+
+        Returns:
+            Path to the cache file
+        """
+        if self.cache_dir is None:
+            raise ValueError("Cache directory not configured")
+
+        extension = ".json.gz" if self.compress_cache else ".json"
+
+        # Check if this is an address-based cache key
+        if cache_key.startswith("roofage_address_"):
+            # Parse the address parts from cache key format: roofage_address_<country>/<state>/<city>/<zip>/<street>
+            parts = cache_key.replace("roofage_address_", "").split("/")
+            if len(parts) >= 4:
+                country, state, city, zipcode = parts[0], parts[1], parts[2], parts[3]
+                # Hash the full key for the filename (street address may have special chars)
+                key_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
+                cache_subdir = (
+                    self.cache_dir
+                    / self._sanitize_path_component(country)
+                    / self._sanitize_path_component(state)
+                    / self._sanitize_path_component(city)
+                    / self._sanitize_path_component(zipcode)
+                )
+                cache_subdir.mkdir(parents=True, exist_ok=True)
+                return cache_subdir / f"{key_hash}{extension}"
+
+        # Default: use hash-based flat structure (for AOI queries or fallback)
+        key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
+        return self.cache_dir / f"{key_hash}{extension}"
+
     def _build_request_payload(
         self,
         aoi: Optional[Polygon] = None,
@@ -185,9 +246,16 @@ class RoofAgeApi(BaseApiClient):
             # Use WKT representation for cache key
             return f"roofage_aoi_{aoi.wkt}"
         else:
-            # Build key from address fields
-            addr_str = "_".join([str(address[f]) for f in ADDRESS_FIELDS])
-            return f"roofage_address_{addr_str}"
+            # Build key with slash-separated parts for nested directory structure
+            # Format: roofage_address_<country>/<state>/<city>/<zip>/<street>
+            # This allows _get_cache_path to create nested directories
+            return (
+                f"roofage_address_{self.country}/"
+                f"{address.get('state', '_')}/"
+                f"{address.get('city', '_')}/"
+                f"{address.get('zip', '_')}/"
+                f"{address.get('streetAddress', '_')}"
+            )
 
     def _parse_response(self, response_data: Dict, aoi_id: str) -> gpd.GeoDataFrame:
         """

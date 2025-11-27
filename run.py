@@ -11,43 +11,43 @@ The NearmapAIExporter provides a unified interface for both APIs.
 
 from nmaipy.exporter import NearmapAIExporter
 
-# Example 1: Extract AI features only (Feature API)
-print("=" * 60)
-print("Example 1: Extracting AI Features Only (Feature API)")
-print("=" * 60)
 
-feature_only_exporter = NearmapAIExporter(
-    aoi_file='tests/data/test_parcels_2.csv',  # New Jersey parcels (US)
-    output_dir='data/outputs/features_only',
-    country='us',
-    packs=['building', 'vegetation'],  # Options: building, vegetation, surfaces, pools, damage, etc.
-    processes=2,
-    save_features=True,
-    include_parcel_geometry=True,
-    roof_age=False,  # Feature API only
-)
-
-# Example 2: Extract both AI features and roof age (unified)
-print("=" * 60)
-print("Example 2: Extracting Features + Roof Age (Unified)")
-print("=" * 60)
-
-unified_exporter = NearmapAIExporter(
-    aoi_file='tests/data/test_parcels_2.csv',  # Same New Jersey parcels
-    output_dir='data/outputs/unified',
-    country='us',
-    packs=['building'],  # Default pack
-    processes=2,
-    save_features=True,
-    include_parcel_geometry=True,
-    roof_age=True,  # Also query Roof Age API
-)
-
-# Run the extractions
 if __name__ == "__main__":
+    # Example 1: Extract AI features only (Feature API)
+    print("=" * 60)
+    print("Example 1: Extracting AI Features Only (Feature API)")
+    print("=" * 60)
+
+    feature_only_exporter = NearmapAIExporter(
+        aoi_file='tests/data/test_parcels_2.csv',  # New Jersey parcels (US)
+        output_dir='data/outputs/features_only',
+        country='us',
+        packs=['building', 'vegetation'],  # Options: building, vegetation, surfaces, pools, damage, etc.
+        processes=2,
+        save_features=True,
+        include_parcel_geometry=True,
+        roof_age=False,  # Feature API only
+    )
+
     print("\nExtracting Nearmap AI features (Feature API only)...")
     feature_only_exporter.run()
     print("Feature extraction complete! Check data/outputs/features_only/\n")
+
+    # Example 2: Extract both AI features and roof age (unified)
+    print("=" * 60)
+    print("Example 2: Extracting Features + Roof Age (Unified)")
+    print("=" * 60)
+
+    unified_exporter = NearmapAIExporter(
+        aoi_file='tests/data/test_parcels_2.csv',  # Same New Jersey parcels
+        output_dir='data/outputs/unified',
+        country='us',
+        packs=['building'],  # Default pack
+        processes=2,
+        save_features=True,
+        include_parcel_geometry=True,
+        roof_age=True,  # Also query Roof Age API
+    )
 
     print("\nExtracting unified features + roof age...")
     unified_exporter.run()

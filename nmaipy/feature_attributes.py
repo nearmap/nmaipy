@@ -233,10 +233,12 @@ def flatten_roof_instance_attributes(
     Flatten roof instance attributes from Roof Age API.
 
     Roof instances are temporal slices of roofs with installation date information.
-    The attributes are already largely flat, so this function primarily:
-    - Extracts the public-facing fields
-    - Handles unit conversion for area if needed
-    - Excludes internal fields (timeline, hilbertId, resourceId)
+    This function extracts Roof Age specific fields like installation date, trust score,
+    and evidence type. It excludes internal fields (timeline, hilbertId, resourceId).
+
+    Note: Area fields (area_sqm, area_sqft, etc.) are NOT added here because they're
+    already handled by the standard Feature API column mapping in roof_age_api._parse_response()
+    and exporter.py.
 
     Args:
         roof_instance: A roof instance feature (dict or pandas Series)
@@ -247,10 +249,10 @@ def flatten_roof_instance_attributes(
         Flattened dictionary with roof instance attributes
 
     Example:
-        >>> instance = {"installationDate": "2019-06", "trustScore": 0.85, "area": 150.5}
+        >>> instance = {"installationDate": "2019-06", "trustScore": 0.85, "evidenceType": 1}
         >>> attrs = flatten_roof_instance_attributes(instance, country="us")
         >>> print(attrs)
-        {'installation_date': '2019-06', 'trust_score': 0.85, 'area_sqft': 150.5}
+        {'installation_date': '2019-06', 'trust_score': 0.85, 'evidence_type': 1}
     """
     flattened = {}
 
@@ -277,14 +279,9 @@ def flatten_roof_instance_attributes(
     if trust_score is not None:
         flattened[f"{prefix}trust_score"] = trust_score
 
-    # Area - Roof Age API returns area in sqm (not sqft)
-    area = get_value(ROOF_AGE_AREA_FIELD)
-    if area is not None:
-        # Always provide area in sqm
-        flattened[f"{prefix}area_sqm"] = round(area, 1)
-        if country in IMPERIAL_COUNTRIES:
-            # Also provide sqft conversion for US users
-            flattened[f"{prefix}area_sqft"] = round(area * (METERS_TO_FEET ** 2), 1)
+    # Note: Area fields (area_sqm, area_sqft, etc.) are NOT added here because they're
+    # already handled by the standard Feature API column mapping in roof_age_api._parse_response()
+    # and exporter.py. Adding them here would create duplicate columns.
 
     # Evidence type and description
     evidence_type = get_value(ROOF_AGE_EVIDENCE_TYPE_FIELD)

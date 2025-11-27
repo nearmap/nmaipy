@@ -220,7 +220,6 @@ def export_feature_class(
         Tuple of (csv_path, parquet_path) or (None, None) if no features
     """
     from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
-    from nmaipy.feature_attributes import flatten_roof_instance_attributes
 
     # Filter to this class
     class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
@@ -232,60 +231,85 @@ def export_feature_class(
     csv_path = Path(f"{output_stem}_{class_name}.csv")
     parquet_path = Path(f"{output_stem}_{class_name}_features.parquet")
 
-    # Build flattened records
-    records = []
-    for idx, feature in class_features.iterrows():
-        record = {
-            AOI_ID_COLUMN_NAME: idx if class_features.index.name == AOI_ID_COLUMN_NAME else feature.get(AOI_ID_COLUMN_NAME),
-            "feature_id": feature.get("feature_id"),
-            "class_id": class_id,
-            "class_description": class_description,
-            "confidence": feature.get("confidence"),
-        }
+    # Build output DataFrame using vectorized operations (much faster than iterrows)
+    # Start with required columns
+    flat_df = pd.DataFrame()
+    added_cols = set()  # Track columns to avoid duplicates (e.g., area_sqm from Feature API vs Roof Age API)
 
-        # Add area fields
-        for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm",
-                    "area_sqft", "clipped_area_sqft", "unclipped_area_sqft"]:
-            if col in feature.index:
-                record[col] = feature.get(col)
+    # Add aoi_id from index or column
+    if class_features.index.name == AOI_ID_COLUMN_NAME:
+        flat_df[AOI_ID_COLUMN_NAME] = class_features.index
+        added_cols.add(AOI_ID_COLUMN_NAME)
+    elif AOI_ID_COLUMN_NAME in class_features.columns:
+        flat_df[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].values
+        added_cols.add(AOI_ID_COLUMN_NAME)
 
-        # Add date fields
-        for col in ["survey_date", "mesh_date"]:
-            if col in feature.index:
-                record[col] = feature.get(col)
+    # Add standard columns
+    if "feature_id" in class_features.columns:
+        flat_df["feature_id"] = class_features["feature_id"].values
+        added_cols.add("feature_id")
+    flat_df["class_id"] = class_id
+    added_cols.add("class_id")
+    flat_df["class_description"] = class_description
+    added_cols.add("class_description")
+    if "confidence" in class_features.columns:
+        flat_df["confidence"] = class_features["confidence"].values
+        added_cols.add("confidence")
 
-        # Add class-specific attributes if available
-        # For roof instances, flatten from the feature's fields
-        if class_id == ROOF_INSTANCE_CLASS_ID:
-            try:
-                flat_attrs = flatten_roof_instance_attributes(feature, country=country)
-                record.update(flat_attrs)
-            except Exception as e:
-                logger.debug(f"Could not flatten roof instance attributes: {e}")
+    # Add area fields (vectorized) - skip if already added
+    for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm",
+                "area_sqft", "clipped_area_sqft", "unclipped_area_sqft"]:
+        if col in class_features.columns and col not in added_cols:
+            flat_df[col] = class_features[col].values
+            added_cols.add(col)
 
-        # Add geometry as WKT for CSV
-        if include_geometry and hasattr(feature, "geometry") and feature.geometry is not None:
-            record["geometry_wkt"] = feature.geometry.wkt
+    # Add date fields (vectorized)
+    for col in ["survey_date", "mesh_date"]:
+        if col in class_features.columns and col not in added_cols:
+            flat_df[col] = class_features[col].values
+            added_cols.add(col)
 
-        records.append(record)
+    # Add class-specific attributes for roof instances
+    if class_id == ROOF_INSTANCE_CLASS_ID:
+        try:
+            from nmaipy.feature_attributes import flatten_roof_instance_attributes_vectorized
+            attr_df = flatten_roof_instance_attributes_vectorized(class_features, country=country)
+            if attr_df is not None and len(attr_df) > 0:
+                # Remove columns that would be duplicates
+                attr_df = attr_df.drop(columns=[c for c in attr_df.columns if c in added_cols], errors="ignore")
+                flat_df = pd.concat([flat_df.reset_index(drop=True), attr_df.reset_index(drop=True)], axis=1)
+                added_cols.update(attr_df.columns)
+        except ImportError:
+            # Fall back to row-by-row if vectorized version not available
+            from nmaipy.feature_attributes import flatten_roof_instance_attributes
+            attr_records = []
+            for _, row in class_features.iterrows():
+                try:
+                    attr_records.append(flatten_roof_instance_attributes(row, country=country))
+                except Exception:
+                    attr_records.append({})
+            if attr_records:
+                attr_df = pd.DataFrame(attr_records)
+                # Remove columns that would be duplicates
+                attr_df = attr_df.drop(columns=[c for c in attr_df.columns if c in added_cols], errors="ignore")
+                flat_df = pd.concat([flat_df.reset_index(drop=True), attr_df.reset_index(drop=True)], axis=1)
+        except Exception as e:
+            logger.debug(f"Could not flatten roof instance attributes: {e}")
 
-    # Create DataFrame
-    flat_df = pd.DataFrame(records)
+    # Add geometry as WKT for CSV (vectorized)
+    if include_geometry and "geometry" in class_features.columns:
+        flat_df["geometry_wkt"] = class_features.geometry.apply(
+            lambda g: g.wkt if g is not None else None
+        ).values
 
     # Save CSV
     flat_df.to_csv(csv_path, index=False)
 
-    # Save GeoParquet (with actual geometry)
+    # Save GeoParquet (with actual geometry, without WKT column)
     if include_geometry and "geometry" in class_features.columns:
-        # Create GeoDataFrame preserving geometry
-        geo_records = []
-        for idx, feature in class_features.iterrows():
-            record = records[class_features.index.get_loc(idx)] if class_features.index.name == AOI_ID_COLUMN_NAME else records[list(class_features.index).index(idx)]
-            record_copy = {k: v for k, v in record.items() if k != "geometry_wkt"}
-            geo_records.append(record_copy)
-
+        geo_df = flat_df.drop(columns=["geometry_wkt"], errors="ignore")
         geo_df = gpd.GeoDataFrame(
-            geo_records,
+            geo_df,
             geometry=class_features.geometry.values,
             crs=API_CRS
         )

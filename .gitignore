@@ -19,3 +19,7 @@ tests/data/cache/*
 
 # Test artifacts
 test_pip_install.py
+
+# Local run scripts
+run_*.py
+!run.py
