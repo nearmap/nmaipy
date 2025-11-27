@@ -125,7 +125,8 @@ BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
 # This is a "virtual" feature class that represents roof installation date information
 # Roof instances may spatially correspond to roof objects from the Feature API, but are
 # tracked separately as they come from different data sources with different semantics
-ROOF_INSTANCE_CLASS_ID = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+# Note: This is an obviously synthetic UUID - not a real Feature API class_id
+ROOF_INSTANCE_CLASS_ID = "r00f1age-0000-0000-0000-roof1nstance"
 
 BUILDING_STYLE_CLASS_IDS = [
     BUILDING_LIFECYCLE_ID,

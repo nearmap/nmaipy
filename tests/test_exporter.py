@@ -396,10 +396,11 @@ class TestExporter:
         final_path = output_dir / "final"
         chunk_path = output_dir / "chunks"
         
-        expected_rollup_file = final_path / "test_aoi.csv"
+        # Note: Output filename changed from test_aoi.csv to test_aoi_aoi_rollup.csv
+        expected_rollup_file = final_path / "test_aoi_aoi_rollup.csv"
         expected_features_file = final_path / "test_aoi_features.parquet"
-        
-        assert expected_rollup_file.exists(), "Rollup CSV file was not created"
+
+        assert expected_rollup_file.exists(), f"Rollup CSV file was not created at {expected_rollup_file}. Found files: {list(final_path.glob('*'))}"
         assert expected_features_file.exists(), "Features parquet file was not created"
         
         # Verify chunk files were created

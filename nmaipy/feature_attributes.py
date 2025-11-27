@@ -277,14 +277,14 @@ def flatten_roof_instance_attributes(
     if trust_score is not None:
         flattened[f"{prefix}trust_score"] = trust_score
 
-    # Area - note: Roof Age API returns area in sqft for US
+    # Area - Roof Age API returns area in sqm (not sqft)
     area = get_value(ROOF_AGE_AREA_FIELD)
     if area is not None:
+        # Always provide area in sqm
+        flattened[f"{prefix}area_sqm"] = round(area, 1)
         if country in IMPERIAL_COUNTRIES:
-            flattened[f"{prefix}area_sqft"] = round(area, 1)
-        else:
-            # Convert sqft to sqm if needed (assuming API returns sqft)
-            flattened[f"{prefix}area_sqm"] = round(area / (METERS_TO_FEET ** 2), 1)
+            # Also provide sqft conversion for US users
+            flattened[f"{prefix}area_sqft"] = round(area * (METERS_TO_FEET ** 2), 1)
 
     # Evidence type and description
     evidence_type = get_value(ROOF_AGE_EVIDENCE_TYPE_FIELD)

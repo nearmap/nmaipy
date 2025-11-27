@@ -40,6 +40,7 @@ from nmaipy.constants import (
     BUILDING_STYLE_CLASS_IDS,
     DEFAULT_URL_ROOT,
     SINCE_COL_NAME,
+    SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
 )
@@ -195,6 +196,125 @@ def _flatten_damage(damage_obj):
     return flat_dict
 
 
+def export_feature_class(
+    features_gdf: gpd.GeoDataFrame,
+    class_id: str,
+    class_description: str,
+    country: str,
+    output_stem: Path,
+    include_geometry: bool = True,
+) -> tuple:
+    """
+    Export features of a single class to CSV and GeoParquet.
+
+    Args:
+        features_gdf: GeoDataFrame with all features (will be filtered to class_id)
+        class_id: UUID of the feature class to export
+        class_description: Human-readable description (used in filename)
+        country: Country code for units (us, au, etc.)
+        output_stem: Base path for output files (without extension)
+        include_geometry: Whether to include geometry in output
+
+    Returns:
+        Tuple of (csv_path, parquet_path) or (None, None) if no features
+    """
+    from nmaipy.constants import (
+        BUILDING_ID,
+        BUILDING_LIFECYCLE_ID,
+        BUILDING_NEW_ID,
+        ROOF_ID,
+        ROOF_INSTANCE_CLASS_ID,
+    )
+    from nmaipy.feature_attributes import (
+        flatten_building_attributes,
+        flatten_building_lifecycle_damage_attributes,
+        flatten_roof_attributes,
+        flatten_roof_instance_attributes,
+    )
+
+    # Filter to this class
+    class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
+    if len(class_features) == 0:
+        return (None, None)
+
+    # Normalize class description for filename
+    class_name = class_description.lower().replace(" ", "_").replace("-", "_")
+    csv_path = Path(f"{output_stem}_{class_name}.csv")
+    parquet_path = Path(f"{output_stem}_{class_name}_features.parquet")
+
+    # Build flattened records
+    records = []
+    for idx, feature in class_features.iterrows():
+        record = {
+            AOI_ID_COLUMN_NAME: idx if class_features.index.name == AOI_ID_COLUMN_NAME else feature.get(AOI_ID_COLUMN_NAME),
+            "feature_id": feature.get("feature_id"),
+            "class_id": class_id,
+            "class_description": class_description,
+            "confidence": feature.get("confidence"),
+        }
+
+        # Add area fields
+        for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm",
+                    "area_sqft", "clipped_area_sqft", "unclipped_area_sqft"]:
+            if col in feature.index:
+                record[col] = feature.get(col)
+
+        # Add date fields
+        for col in ["survey_date", "mesh_date"]:
+            if col in feature.index:
+                record[col] = feature.get(col)
+
+        # Flatten class-specific attributes
+        try:
+            if class_id == ROOF_ID:
+                flat_attrs = flatten_roof_attributes([feature.to_dict()], country=country)
+                record.update(flat_attrs)
+            elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
+                flat_attrs = flatten_building_attributes([feature.to_dict()], country=country)
+                record.update(flat_attrs)
+            elif class_id == BUILDING_LIFECYCLE_ID:
+                flat_attrs = flatten_building_lifecycle_damage_attributes([feature.to_dict()])
+                record.update(flat_attrs)
+            elif class_id == ROOF_INSTANCE_CLASS_ID:
+                flat_attrs = flatten_roof_instance_attributes(feature, country=country)
+                record.update(flat_attrs)
+        except Exception as e:
+            logger.warning(f"Error flattening attributes for feature {feature.get('feature_id')}: {e}")
+
+        # Add geometry as WKT for CSV
+        if include_geometry and hasattr(feature, "geometry") and feature.geometry is not None:
+            record["geometry_wkt"] = feature.geometry.wkt
+
+        records.append(record)
+
+    # Create DataFrame
+    flat_df = pd.DataFrame(records)
+
+    # Save CSV
+    flat_df.to_csv(csv_path, index=False)
+
+    # Save GeoParquet (with actual geometry)
+    if include_geometry and "geometry" in class_features.columns:
+        # Create GeoDataFrame preserving geometry
+        geo_records = []
+        for idx, feature in class_features.iterrows():
+            record = records[class_features.index.get_loc(idx)] if class_features.index.name == AOI_ID_COLUMN_NAME else records[list(class_features.index).index(idx)]
+            record_copy = {k: v for k, v in record.items() if k != "geometry_wkt"}
+            geo_records.append(record_copy)
+
+        geo_df = gpd.GeoDataFrame(
+            geo_records,
+            geometry=class_features.geometry.values,
+            crs=API_CRS
+        )
+        try:
+            geo_df.to_parquet(parquet_path, schema_version="1.0.0")
+        except (TypeError, ValueError):
+            geo_df.to_parquet(parquet_path)
+
+    return (csv_path, parquet_path)
+
+
 def cleanup_process_feature_api():
     """
     Clean up the process-level FeatureApi instance
@@ -324,6 +444,11 @@ def parse_arguments():
     parser.add_argument(
         "--save-buildings",
         help="If set, save a building-level geoparquet file with one row per building feature and associated attributes.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--no-class-level-files",
+        help="If set, disable per-feature-class CSV and GeoParquet exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
         action="store_true",
     )
     parser.add_argument(
@@ -524,6 +649,7 @@ class NearmapAIExporter(BaseExporter):
         order=None,
         exclude_tiles_with_occlusion=False,
         roof_age=False,  # Include Roof Age API data
+        class_level_files=True,  # Export per-feature-class CSV and GeoParquet files
     ):
         # Initialize base exporter first
         super().__init__(
@@ -568,6 +694,7 @@ class NearmapAIExporter(BaseExporter):
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
         self.roof_age = roof_age
+        self.class_level_files = class_level_files
 
         # Validate roof_age usage
         if self.roof_age and self.country.lower() != "us":
@@ -939,14 +1066,33 @@ class NearmapAIExporter(BaseExporter):
                     return
 
                 # Combine features from both APIs (roof instances are treated as a feature class)
+                # Note: Most field mappings (area_sqm, confidence, fidelity, feature_id) are done
+                # in roof_age_api._parse_response(). Here we only add country-specific sqft columns
+                # and prepare for concat.
                 if len(roof_age_gdf) > 0:
-                    # Ensure roof instances have required columns for parcel_rollup
-                    if "confidence" not in roof_age_gdf.columns and "trustScore" in roof_age_gdf.columns:
-                        roof_age_gdf["confidence"] = roof_age_gdf["trustScore"]
+                    # Add sqft columns for US (sqm columns are set in roof_age_api._parse_response)
+                    if self.country.lower() == "us" and "area_sqm" in roof_age_gdf.columns:
+                        roof_age_gdf["area_sqft"] = roof_age_gdf["area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
+                        roof_age_gdf["clipped_area_sqft"] = roof_age_gdf["clipped_area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
+                        roof_age_gdf["unclipped_area_sqft"] = roof_age_gdf["unclipped_area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
+
+                    # Copy geometry to geometry_feature (used by select_primary)
+                    if "geometry_feature" not in roof_age_gdf.columns:
+                        roof_age_gdf["geometry_feature"] = roof_age_gdf.geometry
+
+                    # Ensure roof_age_gdf has aoi_id as index (Feature API returns index, Roof Age returns column)
+                    if roof_age_gdf.index.name != AOI_ID_COLUMN_NAME and AOI_ID_COLUMN_NAME in roof_age_gdf.columns:
+                        roof_age_gdf = roof_age_gdf.set_index(AOI_ID_COLUMN_NAME)
+
+                    logger.debug(
+                        f"Chunk {chunk_id}: Combining {len(features_gdf)} Feature API features with "
+                        f"{len(roof_age_gdf)} Roof Age features"
+                    )
                     features_gdf = gpd.GeoDataFrame(
                         pd.concat([features_gdf, roof_age_gdf], ignore_index=False),
                         crs=API_CRS
                     )
+                    logger.debug(f"Chunk {chunk_id}: Combined features_gdf has {len(features_gdf)} rows")
 
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
@@ -1327,11 +1473,14 @@ class NearmapAIExporter(BaseExporter):
             feature_api.cleanup()
 
         # Modify output file paths using the AOI file name
-        outpath = self.final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
+        # Renamed from {stem}.csv to {stem}_aoi_rollup.csv for clarity
+        outpath = self.final_path / f"{Path(aoi_path).stem}_aoi_rollup.{self.rollup_format}"
         outpath_features = self.final_path / f"{Path(aoi_path).stem}_features.parquet"
         outpath_buildings = (
             self.final_path / f"{Path(aoi_path).stem}_buildings.{self.rollup_format}"
         )
+        # Base stem for per-class output files
+        output_stem = self.final_path / Path(aoi_path).stem
 
         # Check if all required outputs already exist
         outputs_exist = outpath.exists()
@@ -1634,6 +1783,63 @@ class NearmapAIExporter(BaseExporter):
                         f"No building features found for {Path(aoi_path).stem}"
                     )
 
+        # Export per-class CSV and GeoParquet files if enabled
+        if self.class_level_files:
+            self.logger.info("Exporting per-feature-class CSV and GeoParquet files...")
+
+            # Load combined features from chunks if not already loaded
+            if not self.save_features:
+                feature_paths = [
+                    p for p in self.chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
+                ]
+                if feature_paths:
+                    all_features = []
+                    for fp in feature_paths:
+                        try:
+                            chunk_gdf = gpd.read_parquet(fp)
+                            if len(chunk_gdf) > 0:
+                                all_features.append(chunk_gdf)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to read {fp}: {e}")
+                    if all_features:
+                        features_gdf = gpd.GeoDataFrame(
+                            pd.concat(all_features, ignore_index=False),
+                            crs=API_CRS
+                        )
+                    else:
+                        features_gdf = gpd.GeoDataFrame(columns=["class_id", "geometry"], crs=API_CRS)
+                else:
+                    features_gdf = gpd.GeoDataFrame(columns=["class_id", "geometry"], crs=API_CRS)
+
+            if features_gdf is not None and len(features_gdf) > 0 and "class_id" in features_gdf.columns:
+                # Get unique classes in the data
+                unique_classes = features_gdf["class_id"].dropna().unique()
+                self.logger.debug(f"Found {len(unique_classes)} unique feature classes to export")
+
+                # Build class_id -> description mapping
+                from nmaipy.constants import FEATURE_CLASS_DESCRIPTIONS
+                class_descriptions = {**FEATURE_CLASS_DESCRIPTIONS}
+                # Add descriptions from classes_df if available
+                if classes_df is not None and "description" in classes_df.columns:
+                    for class_id in classes_df.index:
+                        class_descriptions[class_id] = classes_df.loc[class_id, "description"]
+
+                # Export each class
+                for class_id in unique_classes:
+                    description = class_descriptions.get(class_id, f"class_{class_id[:8]}")
+                    csv_path, parquet_path = export_feature_class(
+                        features_gdf=features_gdf,
+                        class_id=class_id,
+                        class_description=description,
+                        country=self.country,
+                        output_stem=output_stem,
+                        include_geometry=True,
+                    )
+                    if csv_path:
+                        self.logger.info(f"  Exported {description}: {csv_path.name}")
+            else:
+                self.logger.info("No features found for per-class export")
+
 
 # Backward compatibility alias
 AOIExporter = NearmapAIExporter
@@ -1705,6 +1911,7 @@ def main():
         order=args.order,
         exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
         roof_age=args.roof_age,
+        class_level_files=not args.no_class_level_files,
     )
     exporter.run()
 
