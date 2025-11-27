@@ -26,10 +26,10 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
-from tqdm import tqdm
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
+from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -86,10 +86,22 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--processes",
+        help="Number of processes for parallel chunk processing (default: 4)",
+        type=int,
+        default=4,
+    )
+    parser.add_argument(
         "--threads",
-        help="Number of concurrent API requests (default: 10)",
+        help="Number of concurrent API requests within each process (default: 10)",
         type=int,
         default=10,
+    )
+    parser.add_argument(
+        "--chunk-size",
+        help="Number of AOIs to process in a single chunk (default: 500)",
+        type=int,
+        default=500,
     )
     parser.add_argument(
         "--country",
@@ -118,11 +130,12 @@ def parse_arguments():
     return parser.parse_args()
 
 
-class RoofAgeExporter:
+class RoofAgeExporter(BaseExporter):
     """
     Exporter for bulk roof age data retrieval.
 
     Handles parallel processing, progress tracking, caching, and output generation.
+    Inherits chunking and parallel processing infrastructure from BaseExporter.
     """
 
     def __init__(
@@ -134,7 +147,9 @@ class RoofAgeExporter:
         no_cache: bool = False,
         overwrite_cache: bool = False,
         compress_cache: bool = False,
+        processes: int = 4,
         threads: int = 10,
+        chunk_size: int = 500,
         country: str = "us",
         api_key: str = None,
         log_level: str = "INFO",
@@ -151,14 +166,24 @@ class RoofAgeExporter:
             no_cache: Disable caching
             overwrite_cache: Overwrite existing cache
             compress_cache: Use gzip compression for cache
-            threads: Number of concurrent threads
+            processes: Number of processes for parallel chunk processing
+            threads: Number of concurrent API requests within each process
+            chunk_size: Number of AOIs to process in a single chunk
             country: Country code (must be 'us')
             api_key: API key (optional, uses environment variable if not provided)
             log_level: Logging level
             include_aoi_geometry: Include AOI geometry in output
         """
+        # Initialize base exporter (handles output_dir, processes, chunk_size, log_level)
+        super().__init__(
+            output_dir=output_dir,
+            processes=processes,
+            chunk_size=chunk_size,
+            log_level=log_level,
+        )
+
+        # RoofAgeExporter-specific attributes
         self.aoi_file = aoi_file
-        self.output_dir = Path(output_dir)
         self.output_format = output_format
         self.cache_dir = Path(cache_dir) if cache_dir else self.output_dir / "cache"
         self.no_cache = no_cache
@@ -167,12 +192,7 @@ class RoofAgeExporter:
         self.threads = threads
         self.country = country
         self.api_key = api_key
-        self.log_level = log_level
         self.include_aoi_geometry = include_aoi_geometry
-
-        # Configure logging
-        log.configure_logger(self.log_level)
-        self.logger = log.get_logger()
 
         # Validate country
         if self.country.lower() != "us":
@@ -181,10 +201,90 @@ class RoofAgeExporter:
                 f"Got country='{self.country}'"
             )
 
-        # Create output directories
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Create cache directory if needed
         if not self.no_cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_chunk_output_file(self, chunk_id: str) -> Path:
+        """
+        Get the path to the main output file for a chunk.
+
+        Args:
+            chunk_id: Unique identifier for this chunk
+
+        Returns:
+            Path to the chunk's metadata file (used for cache checking)
+        """
+        return self.chunk_path / f"metadata_{chunk_id}.parquet"
+
+    def process_chunk(
+        self,
+        chunk_id: str,
+        aoi_gdf: gpd.GeoDataFrame,
+        **kwargs
+    ):
+        """
+        Process a chunk of AOIs to extract roof age data.
+
+        Args:
+            chunk_id: Unique identifier for this chunk
+            aoi_gdf: GeoDataFrame containing AOIs to process
+            **kwargs: Additional parameters (unused for roof age, but required by base class)
+
+        Returns:
+            None (results are saved to chunk files)
+        """
+        # Configure logging for worker process
+        BaseExporter.configure_worker_logging(self.log_level)
+        logger = log.get_logger()
+
+        try:
+            # Ensure chunk output directory exists (BaseExporter creates self.chunk_path)
+            self.chunk_path.mkdir(parents=True, exist_ok=True)
+
+            # Define chunk output files
+            outfile_roofs = self.chunk_path / f"roofs_{chunk_id}.parquet"
+            outfile_metadata = self.chunk_path / f"metadata_{chunk_id}.parquet"
+            outfile_errors = self.chunk_path / f"errors_{chunk_id}.parquet"
+
+            # Check if chunk already processed
+            if outfile_metadata.exists():
+                logger.debug(f"Chunk {chunk_id} already processed, skipping")
+                return
+
+            logger.debug(f"Chunk {chunk_id}: Processing {len(aoi_gdf)} AOIs")
+
+            # Initialize API client for this chunk
+            cache_path = None if self.no_cache else self.cache_dir
+            api = RoofAgeApi(
+                api_key=self.api_key,
+                cache_dir=cache_path,
+                overwrite_cache=self.overwrite_cache,
+                compress_cache=self.compress_cache,
+                threads=self.threads,
+            )
+
+            # Query API for this chunk
+            roofs_gdf, metadata_df, errors_df = api.get_roof_age_bulk(aoi_gdf)
+
+            logger.debug(
+                f"Chunk {chunk_id}: Found {len(roofs_gdf)} roofs, "
+                f"{len(metadata_df)} successful queries, {len(errors_df)} errors"
+            )
+
+            # Save chunk results
+            if len(roofs_gdf) > 0:
+                roofs_gdf.to_parquet(outfile_roofs)
+            if len(metadata_df) > 0:
+                metadata_df.to_parquet(outfile_metadata)
+            if len(errors_df) > 0:
+                errors_df.to_parquet(outfile_errors)
+
+        except Exception as e:
+            logger.error(f"Chunk {chunk_id} failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     def run(self):
         """Execute the roof age export workflow"""
@@ -209,19 +309,65 @@ class RoofAgeExporter:
 
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
-        # Initialize API client
-        cache_path = None if self.no_cache else self.cache_dir
-        api = RoofAgeApi(
-            api_key=self.api_key,
-            cache_dir=cache_path,
-            overwrite_cache=self.overwrite_cache,
-            compress_cache=self.compress_cache,
-            threads=self.threads,
+        # Split into chunks and process in parallel (using BaseExporter methods)
+        aoi_stem = Path(self.aoi_file).stem
+        chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
+            aoi_gdf, aoi_stem, check_cache=True
         )
 
-        # Query API for all AOIs
-        self.logger.info(f"Querying Roof Age API with {self.threads} concurrent threads...")
-        roofs_gdf, metadata_df, errors_df = api.get_roof_age_bulk(aoi_gdf)
+        # Calculate initial AOI count for progress tracking (excluding skipped)
+        initial_aoi_count = len(aoi_gdf) - skipped_aois
+
+        # Run parallel processing (disable progress tracking for simpler roof age API)
+        self.run_parallel(
+            chunks_to_process,
+            aoi_stem,
+            initial_aoi_count=initial_aoi_count,
+            use_progress_tracking=False,  # Roof age API doesn't use progress counters
+        )
+
+        # Combine chunk results
+        self.logger.info("Combining chunk results...")
+        roofs_list = []
+        metadata_list = []
+        errors_list = []
+
+        # Calculate total number of chunks (including cached ones)
+        num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
+
+        for i in range(num_chunks):
+            chunk_id = f"{aoi_stem}_{str(i).zfill(4)}"
+
+            # Load roofs
+            roofs_file = self.chunk_path / f"roofs_{chunk_id}.parquet"
+            if roofs_file.exists():
+                roofs_list.append(gpd.read_parquet(roofs_file))
+
+            # Load metadata
+            metadata_file = self.chunk_path / f"metadata_{chunk_id}.parquet"
+            if metadata_file.exists():
+                metadata_list.append(pd.read_parquet(metadata_file))
+
+            # Load errors
+            errors_file = self.chunk_path / f"errors_{chunk_id}.parquet"
+            if errors_file.exists():
+                errors_list.append(pd.read_parquet(errors_file))
+
+        # Combine results
+        if roofs_list:
+            roofs_gdf = gpd.GeoDataFrame(pd.concat(roofs_list, ignore_index=False), crs=API_CRS)
+        else:
+            roofs_gdf = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+
+        if metadata_list:
+            metadata_df = pd.concat(metadata_list, ignore_index=False)
+        else:
+            metadata_df = pd.DataFrame()
+
+        if errors_list:
+            errors_df = pd.concat(errors_list, ignore_index=False)
+        else:
+            errors_df = pd.DataFrame()
 
         # Report results
         success_count = len(metadata_df)
@@ -256,8 +402,7 @@ class RoofAgeExporter:
                 )
 
         # Save outputs
-        aoi_stem = Path(self.aoi_file).stem
-        self._save_outputs(aoi_stem, roofs_gdf, metadata_df, errors_df)
+        self._save_outputs(aoi_stem, roofs_gdf, metadata_df, errors_df, self.final_path)
 
         self.logger.info("Export complete!")
 
@@ -267,6 +412,7 @@ class RoofAgeExporter:
         roofs_gdf: gpd.GeoDataFrame,
         metadata_df: pd.DataFrame,
         errors_df: pd.DataFrame,
+        output_path: Path,
     ):
         """
         Save output files.
@@ -276,16 +422,17 @@ class RoofAgeExporter:
             roofs_gdf: GeoDataFrame with roof features
             metadata_df: DataFrame with metadata
             errors_df: DataFrame with errors
+            output_path: Directory to save final outputs
         """
         # Save roofs
         if len(roofs_gdf) > 0:
             if self.output_format in ["geoparquet", "both"]:
-                roofs_path = self.output_dir / f"{file_stem}_roofs.parquet"
+                roofs_path = output_path / f"{file_stem}_roofs.parquet"
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
                 roofs_gdf.to_parquet(roofs_path, index=True)
 
             if self.output_format in ["csv", "both"]:
-                roofs_path = self.output_dir / f"{file_stem}_roofs.csv"
+                roofs_path = output_path / f"{file_stem}_roofs.csv"
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
                 # Convert geometry to WKT for CSV
                 roofs_df = pd.DataFrame(roofs_gdf)
@@ -293,19 +440,34 @@ class RoofAgeExporter:
                     roofs_df["geometry"] = roofs_df["geometry"].apply(
                         lambda g: g.wkt if g is not None else None
                     )
+
+                # Filter to only public fields as defined in swagger spec
+                # Public fields: installationDate, untilDate, kind, trustScore, area, geometry
+                public_fields = ["installationDate", "untilDate", "kind", "trustScore", "area", "geometry"]
+                # Include AOI ID if present
+                if AOI_ID_COLUMN_NAME in roofs_df.columns:
+                    public_fields.insert(0, AOI_ID_COLUMN_NAME)
+                # Include aoi_geometry if present (from include_aoi_geometry flag)
+                if "aoi_geometry" in roofs_df.columns:
+                    public_fields.append("aoi_geometry")
+
+                # Only keep columns that exist in the dataframe
+                columns_to_save = [col for col in public_fields if col in roofs_df.columns]
+                roofs_df = roofs_df[columns_to_save]
+
                 roofs_df.to_csv(roofs_path, index=True)
         else:
             self.logger.warning("No roof data to save")
 
         # Save metadata
         if len(metadata_df) > 0:
-            metadata_path = self.output_dir / f"{file_stem}_metadata.csv"
+            metadata_path = output_path / f"{file_stem}_metadata.csv"
             self.logger.info(f"Saving metadata to {metadata_path}")
             metadata_df.to_csv(metadata_path, index=True)
 
         # Save errors
         if len(errors_df) > 0:
-            errors_path = self.output_dir / f"{file_stem}_errors.csv"
+            errors_path = output_path / f"{file_stem}_errors.csv"
             self.logger.info(f"Saving {len(errors_df)} errors to {errors_path}")
             errors_df.to_csv(errors_path, index=True)
 
@@ -323,7 +485,9 @@ def main():
             no_cache=args.no_cache,
             overwrite_cache=args.overwrite_cache,
             compress_cache=args.compress_cache,
+            processes=args.processes,
             threads=args.threads,
+            chunk_size=args.chunk_size,
             country=args.country,
             api_key=args.api_key,
             log_level=args.log_level,

@@ -32,6 +32,7 @@ import psutil
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
+from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
@@ -468,7 +469,7 @@ def cleanup_thread_sessions(executor):
                         pass
 
 
-class AOIExporter:
+class AOIExporter(BaseExporter):
     def __init__(
         self,
         aoi_file="default_aoi_file",
@@ -508,18 +509,24 @@ class AOIExporter:
         order=None,
         exclude_tiles_with_occlusion=False,
     ):
-        # Assign parameters to instance variables
+        # Initialize base exporter first
+        super().__init__(
+            output_dir=output_dir,
+            processes=processes,
+            chunk_size=chunk_size,
+            log_level=log_level,
+        )
+
+        # Assign AOIExporter-specific parameters to instance variables
         self.aoi_file = aoi_file
-        self.output_dir = output_dir
         self.packs = packs
         self.classes = classes
         self.include = include
         self.primary_decision = primary_decision
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
-        self.processes = processes
+        # Note: processes, chunk_size, log_level handled by BaseExporter
         self.threads = threads
-        self.chunk_size = chunk_size
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
         self.save_buildings = save_buildings
@@ -539,16 +546,13 @@ class AOIExporter:
         self.url_root = url_root
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
-        self.log_level = log_level
         self.api_key_param = api_key  # Store the API key parameter
         self.parcel_mode = parcel_mode  # Store the parcel mode parameter
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
 
-        # Configure logger
-        log.configure_logger(self.log_level)
-        self.logger = log.get_logger()
+        # Note: logger already configured by BaseExporter
 
     def api_key(self) -> str:
         # Use provided API key if available, otherwise fall back to environment variable
@@ -720,12 +724,25 @@ class AOIExporter:
             self.logger.warning("No feature data found to write")
             return None
 
+    def get_chunk_output_file(self, chunk_id: str) -> Path:
+        """
+        Get the path to the main output file for a chunk.
+
+        Args:
+            chunk_id: Unique identifier for this chunk
+
+        Returns:
+            Path to the chunk's rollup file (used for cache checking)
+        """
+        return self.chunk_path / f"rollup_{chunk_id}.parquet"
+
     def process_chunk(
         self,
         chunk_id: str,
         aoi_gdf: gpd.GeoDataFrame,
-        classes_df: pd.DataFrame,
-        progress_counters: Optional[dict] = None,
+        classes_df: pd.DataFrame = None,
+        progress_counters: dict = None,
+        **kwargs
     ):
         """
         Create a parcel rollup for a chunk of parcels.
@@ -735,13 +752,10 @@ class AOIExporter:
             aoi_gdf: GeoDataFrame containing AOIs to process
             classes_df: DataFrame of feature classes
             progress_counters: Optional dict with 'total' and 'completed' multiprocessing.Value counters
+            **kwargs: Additional parameters (unused, but required by base class)
         """
-        # Configure logging for worker process - use same config as main process
-        import multiprocessing
-
-        if multiprocessing.current_process().name != "MainProcess":
-            # Reconfigure logger in worker process to match parent settings
-            log.configure_logger(self.log_level)
+        # Configure logging for worker process
+        BaseExporter.configure_worker_logging(self.log_level)
         logger = log.get_logger()
 
         feature_api = None
@@ -758,10 +772,9 @@ class AOIExporter:
             else:
                 cache_path = None
 
-            chunk_path = Path(self.output_dir) / "chunks"
-            outfile = chunk_path / f"rollup_{chunk_id}.parquet"
-            outfile_features = chunk_path / f"features_{chunk_id}.parquet"
-            outfile_errors = chunk_path / f"errors_{chunk_id}.parquet"
+            outfile = self.chunk_path / f"rollup_{chunk_id}.parquet"
+            outfile_features = self.chunk_path / f"features_{chunk_id}.parquet"
+            outfile_errors = self.chunk_path / f"errors_{chunk_id}.parquet"
             if outfile.exists():
                 return
 
@@ -1186,11 +1199,8 @@ class AOIExporter:
         self.logger.info(f"Processing AOI file {aoi_path}")
 
         cache_path = Path(self.output_dir) / "cache"
-        chunk_path = Path(self.output_dir) / "chunks"
-        final_path = Path(self.output_dir) / "final"
         cache_path.mkdir(parents=True, exist_ok=True)
-        chunk_path.mkdir(parents=True, exist_ok=True)
-        final_path.mkdir(parents=True, exist_ok=True)
+        # Note: chunk_path and final_path created by BaseExporter
 
         # Get classes
         feature_api = FeatureApi(
@@ -1212,10 +1222,10 @@ class AOIExporter:
             feature_api.cleanup()
 
         # Modify output file paths using the AOI file name
-        outpath = final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
-        outpath_features = final_path / f"{Path(aoi_path).stem}_features.parquet"
+        outpath = self.final_path / f"{Path(aoi_path).stem}.{self.rollup_format}"
+        outpath_features = self.final_path / f"{Path(aoi_path).stem}_features.parquet"
         outpath_buildings = (
-            final_path / f"{Path(aoi_path).stem}_buildings.{self.rollup_format}"
+            self.final_path / f"{Path(aoi_path).stem}_buildings.{self.rollup_format}"
         )
 
         # Check if all required outputs already exist
@@ -1270,323 +1280,25 @@ class AOIExporter:
             else:
                 logger.debug("No latest date will used")
 
-        jobs = []
-        job_to_chunk = {}  # Track which chunk each job corresponds to
-        num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
-        self.logger.info(f"Exporting {len(aoi_gdf)} AOIs as {num_chunks} chunk files.")
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
 
-        # Split the parcels into chunks first so we can check which already exist
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="Geometry is in a geographic CRS.",
-            )
-            if isinstance(aoi_gdf, gpd.GeoDataFrame):
-                aoi_gdf = aoi_gdf[aoi_gdf.area > 0]
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="'GeoDataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'GeoDataFrame.transpose' instead.",
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message="'DataFrame.swapaxes' is deprecated and will be removed in a future version. Please use 'DataFrame.transpose' instead.",
-            )
-            chunks = np.array_split(aoi_gdf, num_chunks)
-
-        # Filter out cached chunks before processing
-        chunk_path = Path(self.output_dir) / "chunks"
-        chunks_to_process = []
-        skipped_chunks = 0
-        skipped_aois = 0
-        for i, batch in enumerate(chunks):
-            chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
-            outfile = chunk_path / f"rollup_{chunk_id}.parquet"
-            if not outfile.exists():
-                chunks_to_process.append((i, batch))
-            else:
-                skipped_chunks += 1
-                skipped_aois += len(batch)
-
-        if skipped_chunks > 0:
-            self.logger.info(
-                f"Found {skipped_chunks} cached chunks, will process {len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})"
-            )
-
-        # Initial estimate: 1 request per AOI (will grow if gridding occurs)
-        initial_request_estimate = len(aoi_gdf) - skipped_aois
-
-        # Create shared progress counters for tracking API requests across all workers
-        # Use Manager for cross-platform compatibility (works with both fork and spawn)
-        manager = multiprocessing.Manager()
-        progress_counters = manager.dict(
-            {
-                "total": initial_request_estimate,  # Initial estimate (1 request per AOI), grows if gridding occurs
-                "completed": 0,
-                "lock": manager.Lock(),  # Separate lock for thread-safe updates
-            }
+        # Split into chunks and process in parallel (using BaseExporter methods)
+        aoi_stem = Path(aoi_path).stem
+        chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
+            aoi_gdf, aoi_stem, check_cache=True
         )
 
-        # chunks were already split above for cache checking
-        processes = int(self.processes)
-        max_retries = 3
-        PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
+        # Calculate initial AOI count for progress tracking (excluding skipped)
+        initial_aoi_count = len(aoi_gdf) - skipped_aois
 
-        for attempt in range(max_retries):
-            try:
-                with ProcessPoolExecutor(max_workers=processes) as executor:
-                    try:
-                        for i, batch in chunks_to_process:
-                            chunk_id = f"{Path(aoi_path).stem}_{str(i).zfill(4)}"
-                            self.logger.debug(
-                                f"Parallel processing chunk {chunk_id} - min {batch.index.name} is {batch.index.min()}, max {AOI_ID_COLUMN_NAME} is {batch.index.max()}"
-                            )
-                            job = executor.submit(
-                                self.process_chunk,
-                                chunk_id,
-                                batch,
-                                classes_df,
-                                progress_counters,
-                            )
-                            jobs.append(job)
-                            job_to_chunk[job] = (
-                                chunk_id,
-                                i,
-                                batch.index.min(),
-                                batch.index.max(),
-                            )
-                        # Use request-based progress tracking with tqdm's native throttling
-                        completed_jobs = 0
-                        num_jobs = len(chunks_to_process)
-                        last_progress_check = time.time()
-                        PROGRESS_CHECK_INTERVAL = (
-                            0.5  # Check shared counters every 0.5 seconds
-                        )
-
-                        # Initialize progress bar with initial estimate
-                        with progress_counters["lock"]:
-                            initial_total = progress_counters["total"]
-
-                        # Progress bar tracks API requests (bar position and total), while description
-                        # shows chunk completion ("Chunks: X/Y"). This dual tracking is important because:
-                        # - Some chunks take very long (gridded AOIs may have 100+ requests)
-                        # - Request-level progress shows work is continuing even during long chunks
-                        # - Chunk-level progress shows overall job completion
-                        # The "+' in the format indicates total can increase during gridding
-                        with tqdm(
-                            total=initial_total,
-                            desc="API requests",
-                            file=sys.stdout,
-                            position=0,
-                            leave=True,
-                            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-                            mininterval=5.0,
-                            maxinterval=10.0,
-                            smoothing=0.1,
-                            unit=" requests",
-                        ) as pbar:
-
-                            while completed_jobs < num_jobs:
-                                # Check if any jobs have completed (non-blocking)
-                                done, pending = concurrent.futures.wait(
-                                    jobs,
-                                    timeout=0.1,
-                                    return_when=concurrent.futures.FIRST_COMPLETED,
-                                )
-
-                                for j in done:
-                                    if (
-                                        j in jobs
-                                    ):  # Make sure we haven't already processed this
-                                        try:
-                                            j.result()  # Block until result fully transferred and chunk written
-                                            completed_jobs += 1  # Only count as complete AFTER result received
-
-                                            # Update progress bar immediately to show chunk completion
-                                            # (Don't wait for periodic check)
-                                            lock_acquired = progress_counters[
-                                                "lock"
-                                            ].acquire(timeout=0.01)
-                                            if lock_acquired:
-                                                try:
-                                                    requests_completed = (
-                                                        progress_counters["completed"]
-                                                    )
-                                                    requests_total = progress_counters[
-                                                        "total"
-                                                    ]
-                                                finally:
-                                                    progress_counters["lock"].release()
-
-                                                if pbar.total != requests_total:
-                                                    pbar.total = requests_total
-                                                pbar.n = requests_completed
-
-                                            mem = psutil.virtual_memory()
-                                            used_gb = (mem.total - mem.available) / (
-                                                1024**3
-                                            )
-                                            total_gb = mem.total / (1024**3)
-                                            pbar.set_description(
-                                                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}"
-                                            )
-                                            pbar.refresh()
-
-                                        except BrokenProcessPool:
-                                            # Do cleanup before re-raising to outer handler
-                                            cleanup_thread_sessions(executor)
-                                            executor.shutdown(wait=False)
-                                            raise
-                                        except Exception as e:
-                                            chunk_info = job_to_chunk.get(
-                                                j, ("unknown", -1, -1, -1)
-                                            )
-                                            chunk_id, chunk_idx, min_aoi, max_aoi = (
-                                                chunk_info
-                                            )
-                                            completed_jobs += 1
-                                            # Log error with chunk information
-                                            logger.error(
-                                                f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} (index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, Error: {e}"
-                                            )
-                                            logger.error(
-                                                f"Traceback: {traceback.format_exc()}"
-                                            )
-                                            cleanup_thread_sessions(executor)
-                                            executor.shutdown(wait=False)
-                                            raise
-                                        finally:
-                                            jobs.remove(
-                                                j
-                                            )  # Remove from pending jobs list
-
-                                # Periodically check shared counters and update progress bar
-                                current_time = time.time()
-                                if (
-                                    current_time - last_progress_check
-                                    >= PROGRESS_CHECK_INTERVAL
-                                ):
-                                    # Try to acquire lock with timeout - don't block if workers are busy
-                                    lock_acquired = progress_counters["lock"].acquire(
-                                        timeout=0.1
-                                    )
-
-                                    if lock_acquired:
-                                        try:
-                                            requests_completed = progress_counters[
-                                                "completed"
-                                            ]
-                                            requests_total = progress_counters["total"]
-                                        finally:
-                                            progress_counters["lock"].release()
-
-                                        # Update total if it changed (due to gridding)
-                                        if pbar.total != requests_total:
-                                            pbar.total = requests_total
-
-                                        # Update position and description
-                                        mem = psutil.virtual_memory()
-                                        used_gb = (mem.total - mem.available) / (
-                                            1024**3
-                                        )
-                                        total_gb = mem.total / (1024**3)
-
-                                        pbar.n = requests_completed
-                                        pbar.set_description(
-                                            f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {completed_jobs}/{num_jobs}"
-                                        )
-
-                                    # IMPORTANT: Always refresh, even if we couldn't get the lock
-                                    # This keeps tqdm's timer updating so user knows it's not frozen
-                                    pbar.refresh()
-                                    last_progress_check = current_time
-
-                            # Final update to show 100% completion
-                            with progress_counters["lock"]:
-                                requests_completed = progress_counters["completed"]
-                                requests_total = progress_counters["total"]
-
-                            mem = psutil.virtual_memory()
-                            used_gb = (mem.total - mem.available) / (1024**3)
-                            total_gb = mem.total / (1024**3)
-
-                            pbar.n = requests_completed
-                            pbar.total = requests_total
-                            pbar.set_description(
-                                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | Chunks: {num_jobs}/{num_jobs}"
-                            )
-                            pbar.refresh()
-
-                        break  # Success - exit retry loop
-                    except KeyboardInterrupt:
-                        self.logger.warning(
-                            "Interrupted by user (Ctrl+C) - shutting down processes..."
-                        )
-                        # Cancel all pending jobs
-                        for job in jobs:
-                            job.cancel()
-                        # Force immediate shutdown
-                        cleanup_thread_sessions(executor)
-                        executor.shutdown(wait=False)
-                        cleanup_process_resources()
-                        raise
-                    finally:
-                        cleanup_thread_sessions(executor)
-                        executor.shutdown(wait=True)
-                        cleanup_process_resources()
-            except BrokenProcessPool as e:
-                # Gather diagnostic information when process pool fails
-                import resource
-
-                mem = psutil.virtual_memory()
-                swap = psutil.swap_memory()
-
-                # Get resource limits
-                soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-
-                # Count open file descriptors (Linux/Mac)
-                try:
-                    import os
-
-                    pid = os.getpid()
-                    if os.path.exists(f"/proc/{pid}/fd"):
-                        fd_count = len(os.listdir(f"/proc/{pid}/fd"))
-                    else:
-                        fd_count = "unknown"
-                except:
-                    fd_count = "unknown"
-
-                self.logger.error(f"BrokenProcessPool diagnostic info:")
-                self.logger.error(
-                    f"  Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)"
-                )
-                self.logger.error(
-                    f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)"
-                )
-                self.logger.error(
-                    f"  File descriptors: {fd_count} open (limit: {soft_limit})"
-                )
-                self.logger.error(f"  Active processes: {processes}")
-                self.logger.error(f"  Threads per process: {self.threads}")
-                self.logger.error(
-                    f"  Total potential connections: {processes * self.threads}"
-                )
-
-                if attempt < max_retries - 1:
-                    self.logger.warning(
-                        f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {PROCESS_POOL_RETRY_DELAY}s delay..."
-                    )
-                    cleanup_process_resources()
-                    time.sleep(PROCESS_POOL_RETRY_DELAY)
-                    jobs = []  # Reset jobs list for retry
-                    job_to_chunk = {}  # Reset job tracking for retry
-                else:
-                    self.logger.error(
-                        f"Process pool broken after {max_retries} attempts, giving up"
-                    )
-                    cleanup_process_resources()
-                    raise
+        # Run parallel processing with progress tracking
+        self.run_parallel(
+            chunks_to_process,
+            aoi_stem,
+            initial_aoi_count=initial_aoi_count,
+            use_progress_tracking=True,  # Enable progress counters for Feature API
+            classes_df=classes_df,  # Pass classes_df to process_chunk
+        )
 
         data = []
         data_features = []
@@ -1594,9 +1306,13 @@ class AOIExporter:
         self.logger.debug(
             f"Saving rollup data as {self.rollup_format} file to {outpath}"
         )
+
+        # Calculate total number of chunks (including cached ones)
+        num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
+
         for i in range(num_chunks):
             chunk_filename = f"rollup_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
-            cp = chunk_path / chunk_filename
+            cp = self.chunk_path / chunk_filename
             if cp.exists():
                 try:
                     chunk = gpd.read_parquet(cp)
@@ -1608,7 +1324,7 @@ class AOIExporter:
                 error_filename = (
                     f"errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
                 )
-                if (chunk_path / error_filename).exists():
+                if (self.chunk_path / error_filename).exists():
                     self.logger.debug(
                         f"Chunk {i} rollup file missing, but error file found."
                     )
@@ -1646,10 +1362,10 @@ class AOIExporter:
                         # If it has a to_wkt method but isn't a GeoSeries
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
-        outpath_errors = final_path / f"{Path(aoi_path).stem}_errors.csv"
-        outpath_errors_geoparquet = final_path / f"{Path(aoi_path).stem}_errors.parquet"
+        outpath_errors = self.final_path / f"{Path(aoi_path).stem}_errors.csv"
+        outpath_errors_geoparquet = self.final_path / f"{Path(aoi_path).stem}_errors.parquet"
         self.logger.debug(f"Saving error data as .csv to {outpath_errors}")
-        for cp in chunk_path.glob(f"errors_{Path(aoi_path).stem}_*.parquet"):
+        for cp in self.chunk_path.glob(f"errors_{Path(aoi_path).stem}_*.parquet"):
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
@@ -1727,7 +1443,7 @@ class AOIExporter:
             errors_gdf.to_parquet(outpath_errors_geoparquet, index=True)
         if self.save_features:
             feature_paths = [
-                p for p in chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
+                p for p in self.chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
             ]
             self.logger.info(
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
@@ -1744,7 +1460,7 @@ class AOIExporter:
                 )
                 # Define geoparquet path for buildings
                 outpath_buildings_geoparquet = (
-                    final_path / f"{Path(aoi_path).stem}_building_features.parquet"
+                    self.final_path / f"{Path(aoi_path).stem}_building_features.parquet"
                 )
 
                 buildings_gdf = parcels.extract_building_features(
