@@ -434,13 +434,28 @@ class RoofAgeExporter(BaseExporter):
                         lambda g: g.wkt if g is not None else None
                     )
 
-                # Filter to only public fields as defined in swagger spec
-                # Public fields: installationDate, untilDate, kind, trustScore, area, geometry
-                public_fields = ["installationDate", "untilDate", "kind", "trustScore", "area", "geometry"]
-                # Include AOI ID if present
-                if AOI_ID_COLUMN_NAME in roofs_df.columns:
-                    public_fields.insert(0, AOI_ID_COLUMN_NAME)
-                # Include aoi_geometry if present (from include_aoi_geometry flag)
+                # Define public-facing fields for CSV export based on swagger spec
+                # Excludes internal fields: hilbertId, timeline, resourceId, assessorDataDetails
+                public_fields = [
+                    AOI_ID_COLUMN_NAME,
+                    "kind",
+                    "installationDate",
+                    "untilDate",
+                    "trustScore",
+                    "area",  # Not in swagger but useful metric
+                    "evidenceType",
+                    "evidenceTypeDescription",
+                    "beforeInstallationCaptureDate",
+                    "afterInstallationCaptureDate",
+                    "minCaptureDate",
+                    "maxCaptureDate",
+                    "numberOfCaptures",
+                    "mapbrowserURL",  # API returns as mapbrowserURL (swagger spec has mapBrowserUrl)
+                    "assessorData",
+                    "relevantPermits",
+                    "geometry",
+                ]
+                # Include aoi_geometry at the end if present (from include_aoi_geometry flag)
                 if "aoi_geometry" in roofs_df.columns:
                     public_fields.append("aoi_geometry")
 
