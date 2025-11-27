@@ -71,9 +71,12 @@ class TestExporter:
         )
 
         data_rollup_api_errors = []
-        for cp in chunk_path_rollup_api.glob(f"errors_*.parquet"):
+        for cp in chunk_path_rollup_api.glob(f"feature_api_errors_*.parquet"):
             data_rollup_api_errors.append(pd.read_parquet(cp))
-        data_rollup_api_errors = pd.concat(data_rollup_api_errors)
+        if len(data_rollup_api_errors) > 0:
+            data_rollup_api_errors = pd.concat(data_rollup_api_errors)
+        else:
+            data_rollup_api_errors = pd.DataFrame()
 
         data_rollup_api = []
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
@@ -140,10 +143,13 @@ class TestExporter:
         data = pd.concat(data)
         data.to_csv(outpath, index=True)
 
-        outpath_errors = final_path / f"{tag}_errors.csv"
-        for cp in chunk_path.glob(f"errors_*.parquet"):
+        outpath_errors = final_path / f"{tag}_feature_api_errors.csv"
+        for cp in chunk_path.glob(f"feature_api_errors_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        errors = pd.concat(errors)
+        if len(errors) > 0:
+            errors = pd.concat(errors)
+        else:
+            errors = pd.DataFrame()
         errors.to_csv(outpath_errors, index=True)
 
         for cp in [p for p in chunk_path.glob(f"features_*.parquet")]:
@@ -453,9 +459,9 @@ class TestExporter:
                 country='au',
                 packs=['building'],
             )
-            
+
             assert exporter.aoi_file == 'data/examples/sydney_parcels.geojson'
-            assert exporter.output_dir == tmpdir
+            assert str(exporter.output_dir) == tmpdir  # output_dir may be Path object
             assert exporter.country == 'au'
             assert exporter.packs == ['building']
             assert exporter.processes > 0

@@ -43,6 +43,7 @@ from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    FEATURE_CLASS_DESCRIPTIONS,
     ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
@@ -58,6 +59,7 @@ from nmaipy.constants import (
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_AGE_UNTIL_DATE_FIELD,
     ROOF_AGE_URL_ROOT,
+    ROOF_INSTANCE_CLASS_ID,
 )
 
 logger = log.get_logger()
@@ -186,7 +188,7 @@ class RoofAgeApi(BaseApiClient):
             logger.debug(f"No roof features found for {aoi_id}")
             # Return empty GeoDataFrame with expected columns
             return gpd.GeoDataFrame(
-                columns=[AOI_ID_COLUMN_NAME, "geometry"] + [
+                columns=[AOI_ID_COLUMN_NAME, "class_id", "description", "geometry"] + [
                     ROOF_AGE_INSTALLATION_DATE_FIELD,
                     ROOF_AGE_TRUST_SCORE_FIELD,
                     ROOF_AGE_AREA_FIELD,
@@ -205,6 +207,12 @@ class RoofAgeApi(BaseApiClient):
             # Extract properties and add aoi_id
             props = feature.get("properties", {})
             props[AOI_ID_COLUMN_NAME] = aoi_id
+
+            # Add class_id and description for unified feature model
+            # This allows roof instances to be treated like any other feature class
+            # TODO: This is a temporary measure only for Roof Age API responses
+            props["class_id"] = ROOF_INSTANCE_CLASS_ID
+            props["description"] = FEATURE_CLASS_DESCRIPTIONS.get(ROOF_INSTANCE_CLASS_ID, "Roof Instance")
 
             # Serialize timeline to JSON string if present (for compatibility with CSV/Parquet)
             if ROOF_AGE_TIMELINE_FIELD in props:

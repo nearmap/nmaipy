@@ -1,362 +1,119 @@
-import warnings
-from pathlib import Path
-from typing import List, Optional, Union
+"""
+Parcel/AOI Processing and Rollup Utilities
+
+This module provides functions for:
+- Creating rollup summaries of AI features at the parcel/AOI level
+- Extracting building-style features for detailed export
+- Linking roof instances to parent roof objects (future)
+
+The rollup functions aggregate multiple features within each AOI into summary statistics
+and select "primary" features for detailed attribute extraction.
+"""
+from typing import Union
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.geometry import MultiPolygon, Polygon
 
 from nmaipy import log
+from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
 from nmaipy.constants import (
-    AOI_ID_COLUMN_NAME, 
+    AOI_ID_COLUMN_NAME,
     API_CRS,
-    AREA_CRS,
     BUILDING_ID,
-    BUILDING_NEW_ID,
     BUILDING_LIFECYCLE_ID,
-    BUILDING_UNDER_CONSTRUCTION_ID,
+    BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
     CLASSES_WITH_PRIMARY_FEATURE,
     IMPERIAL_COUNTRIES,
-    LAT_LONG_CRS,
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
-    METERS_TO_FEET,
     ROOF_ID,
-    VEG_MEDHIGH_ID,
-    VEG_WOODY_COMPOSITE_ID,
-    CLASS_1111_YARD_DEBRIS,
+    ROOF_INSTANCE_CLASS_ID,
     MeasurementUnits,
 )
-
-TRUE_STRING = "Y"
-FALSE_STRING = "N"
-PRIMARY_FEATURE_HIGH_CONF_THRESH = 0.9
-
-# All area values are in squared metres
-BUILDING_STYLE_CLASSE_IDS = [
-        BUILDING_LIFECYCLE_ID,
-        BUILDING_ID,
-        BUILDING_NEW_ID,
-        BUILDING_UNDER_CONSTRUCTION_ID,
-        ROOF_ID
-]
-
+from nmaipy.feature_attributes import (
+    TRUE_STRING,
+    FALSE_STRING,
+    flatten_building_attributes,
+    flatten_building_lifecycle_damage_attributes,
+    flatten_roof_attributes,
+    flatten_roof_instance_attributes,
+)
+from nmaipy.primary_feature_selection import (
+    DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH,
+    select_primary,
+)
 
 logger = log.get_logger()
 
+# Re-export for backwards compatibility
+__all__ = [
+    "read_from_file",
+    "parcel_rollup",
+    "extract_building_features",
+    "feature_attributes",
+    "link_roof_instances_to_roofs",
+    # Also re-export flattening functions for backwards compatibility
+    "flatten_building_attributes",
+    "flatten_building_lifecycle_damage_attributes",
+    "flatten_roof_attributes",
+    "flatten_roof_instance_attributes",
+]
 
-def read_from_file(
-    path: Path,
-    drop_empty: Optional[bool] = True,
-    id_column: Optional[str] = AOI_ID_COLUMN_NAME,
-    source_crs: Optional[str] = LAT_LONG_CRS,
-    target_crs: Optional[str] = LAT_LONG_CRS,
-) -> gpd.GeoDataFrame:
+
+def link_roof_instances_to_roofs(
+    roof_instances_gdf: gpd.GeoDataFrame,
+    roofs_gdf: gpd.GeoDataFrame,
+    aoi_gdf: gpd.GeoDataFrame,
+) -> pd.DataFrame:
     """
-    Read parcel data from a file. Supported formats are:
-     - CSV with geometries as WKTs
-     - GPKG
-     - GeoJSON
-     - Parquet with geometries as WKBs
+    Link roof instances from Roof Age API to their parent roof objects from Feature API.
+
+    This function spatially matches roof instances (temporal slices with installation dates)
+    to their corresponding roof polygons from the Feature API. This enables correlating
+    roof age information with roof characteristics (material, condition, etc.).
 
     Args:
-        path: Path to file
-        drop_empty: If true, rows with empty geometries will be dropped.
-        id_column: Unique identifier column name. This column will be renamed to the default AOI ID columns name,
-                   as used by other functions in this module.
-        source_crs: CRS of the sources data - defaults to lat/long. If the source data has a CRS set, this field is
-                    ignored.
-        target_crs: CRS of data being returned.
-
-    Returns: GeoDataFrame
-    """
-    if isinstance(path, str):
-        suffix = path.split(".")[-1]
-    elif isinstance(path, Path):
-        suffix = path.suffix[1:]
-    if suffix in ("csv", "psv", "tsv"):
-        # Determine separator based on file extension
-        if suffix == "csv":
-            sep = ","
-        elif suffix == "psv":
-            sep = "|"
-        elif suffix == "tsv":
-            sep = "\t"
-
-        # Read CSV with robust type handling:
-        # - Use low_memory=False to scan entire file for type inference
-        # - This prevents issues with mixed types (e.g., numeric street addresses with some text)
-        # - Ensures consistent typing even when chunking would see different types in different chunks
-        # - Keep geometry as regular dtype (object) since we'll convert it to actual geometries
-        dtype_overrides = None
-        if "geometry" in pd.read_csv(path, sep=sep, nrows=0).columns:
-            # If there's a geometry column, keep it as object dtype (not StringArray)
-            # so we can convert it to actual geometry objects later
-            dtype_overrides = {"geometry": "object"}
-
-        parcels_gdf = pd.read_csv(
-            path,
-            sep=sep,
-            low_memory=False,  # Scan whole file for proper type inference
-            dtype=dtype_overrides,  # Keep geometry as object if present
-        )
-
-        # Set the index only if the column exists
-        if id_column in parcels_gdf.columns:
-            parcels_gdf = parcels_gdf.set_index(id_column)
-    elif suffix == "parquet":
-        # Try geopandas first for geoparquet files with geometry columns
-        # Fall back to pandas for non-geo parquet (e.g., address-only files with explicit dtypes)
-        # This preserves explicit dtypes that may have been carefully specified
-        try:
-            parcels_gdf = gpd.read_parquet(path)
-            logger.info(f"Read geoparquet file with geometry using geopandas")
-        except (ValueError, Exception) as e:
-            # Handle both "Missing geo metadata" and other parquet reading issues
-            if "Missing geo metadata" in str(e) or "geo" in str(e).lower():
-                # Non-geo parquet file - read with pandas to preserve explicit dtypes
-                logger.info(f"Reading non-geo parquet file with pandas (preserves explicit dtypes)")
-                parcels_gdf = pd.read_parquet(path)
-            else:
-                # Unknown error - try pandas as fallback
-                logger.warning(f"geopandas read failed with: {e}. Trying pandas fallback.")
-                try:
-                    parcels_gdf = pd.read_parquet(path)
-                    logger.info(f"Successfully read parquet with pandas fallback")
-                except Exception as e2:
-                    logger.error(f"Both geopandas and pandas failed to read parquet file")
-                    raise e2
-    elif suffix in ("geojson", "gpkg"):
-        parcels_gdf = gpd.read_file(path)
-    else:
-        raise NotImplementedError(f"Source format not supported: {suffix=}")
-
-    if not "geometry" in parcels_gdf:
-        logger.warning(f"Input file has no AOI geometries - some operations will not work.")
-    else:
-        if not isinstance(parcels_gdf, gpd.GeoDataFrame):
-            # If from a tabular data source, try to convert to a GeoDataFrame (requires a geometry column)
-            geometry = gpd.GeoSeries.from_wkt(parcels_gdf.geometry.fillna("POLYGON(EMPTY)"))
-            parcels_gdf = gpd.GeoDataFrame(
-                parcels_gdf,
-                geometry=geometry,
-                crs=source_crs,
-            )
-    if "geometry" in parcels_gdf:
-        # Set CRS and project if data CRS is not equal to target CRS
-        if parcels_gdf.crs is None:
-            parcels_gdf.set_crs(source_crs)
-        if parcels_gdf.crs != target_crs:
-            parcels_gdf = parcels_gdf.to_crs(target_crs)
-
-        # Drop any empty geometries
-        if drop_empty:
-            num_dropped = len(parcels_gdf)
-            parcels_gdf = parcels_gdf.dropna(subset=["geometry"])
-            parcels_gdf = parcels_gdf[~parcels_gdf.is_empty]
-            parcels_gdf = parcels_gdf[parcels_gdf.is_valid]
-            # For this we only check if the shape has a non-zero area, the value doesn't matter, so the warning can be
-            # ignored.
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="Geometry is in a geographic CRS.")
-                parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
-            num_dropped -= len(parcels_gdf)
-            if num_dropped > 0:
-                logger.warning(f"Dropping {num_dropped} rows with empty or invalid geometries, or ones with zero area")
-
-    if len(parcels_gdf) == 0:
-        raise RuntimeError(f"No valid parcels in {path=}")
-
-    # Check that identifier is unique
-    if parcels_gdf.index.name != id_column:
-        # Bump the index to a column in case it's important
-        parcels_gdf = parcels_gdf.reset_index()
-        if id_column not in parcels_gdf:
-            logger.info(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
-            parcels_gdf.index.name = id_column  # Set a new unique ordered index for reference
-        else:  # The index must already be there as a column
-            logger.warning(f"Moving {AOI_ID_COLUMN_NAME} to be the index - generating unique IDs")
-            parcels_gdf = parcels_gdf.set_index(id_column)
-    if parcels_gdf.index.duplicated().any():
-        raise ValueError(f"Duplicate IDs found for {id_column=}")
-    return parcels_gdf
-
-
-def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
-    """
-    Flatten building attributes
-
-    Args:
-        buildings: List of building features with attributes
-        country: Country code for units (e.g. "US" for imperial, "EU" for metric)
-    """
-    flattened = {}
-    for building in buildings:
-        attribute = building["attributes"]
-        if "has3dAttributes" in attribute:
-            flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-            if attribute["has3dAttributes"]:
-                if country in IMPERIAL_COUNTRIES:
-                    flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
-                else:
-                    flattened["height_m"] = round(attribute["height"], 1)
-                for k, v in attribute["numStories"].items():
-                    flattened[f"num_storeys_{k}_confidence"] = v
-        if "fidelity" in attribute:
-            flattened["fidelity"] = attribute["fidelity"]
-    return flattened
-
-
-def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
-    """
-    Flatten roof attributes
-
-    Args:
-        roofs: List of roof features with attributes
-        country: Country code for units (e.g. "US" for imperial, "EU" for metric)
-    """
-    flattened = {}
-    
-    # Handle components and other attributes
-    for roof in roofs:
-        # Handle roofSpotlightIndex - check both camelCase and snake_case versions
-        rsi_data = roof.get("roofSpotlightIndex") or roof.get("roof_spotlight_index")
-        if rsi_data and isinstance(rsi_data, dict):
-            if "value" in rsi_data:
-                flattened["roof_spotlight_index"] = rsi_data["value"]
-            if "confidence" in rsi_data:
-                flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
-            if "modelVersion" in rsi_data:
-                flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
-
-        # Handle hurricaneScore - check both camelCase and snake_case versions
-        hurricane_score_data = roof.get("hurricaneScore") or roof.get("hurricane_score")
-        if hurricane_score_data and isinstance(hurricane_score_data, dict):
-            if "vulnerabilityScore" in hurricane_score_data:
-                flattened["hurricane_vulnerability_score"] = hurricane_score_data["vulnerabilityScore"]
-            if "vulnerabilityProbability" in hurricane_score_data:
-                flattened["hurricane_vulnerability_probability"] = hurricane_score_data["vulnerabilityProbability"]
-            if "vulnerabilityRateFactor" in hurricane_score_data:
-                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
-            # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
-
-        # Handle defensibleSpace - check both camelCase and snake_case versions
-        defensible_space_data = roof.get("defensibleSpace") or roof.get("defensible_space")
-        if defensible_space_data and isinstance(defensible_space_data, dict):
-            zones = defensible_space_data.get("zones", [])
-            for zone in zones:
-                zone_id = zone.get("zoneId")
-                if zone_id:
-                    # Flatten key metrics for each zone
-                    prefix = f"defensible_space_zone_{zone_id}"
-                    if country in IMPERIAL_COUNTRIES:
-                        if "zoneAreaSqft" in zone:
-                            flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
-                        if "defensibleSpaceAreaSqft" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
-                        if "totalRiskObjectAreaSqft" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
-                    else:
-                        if "zoneAreaSqm" in zone:
-                            flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
-                        if "defensibleSpaceAreaSqm" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
-                        if "totalRiskObjectAreaSqm" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
-
-                    if "defensibleSpaceCoverageRatio" in zone:
-                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
-
-        for attribute in roof["attributes"]:
-            if "components" in attribute:
-                for component in attribute["components"]:
-                    name = component["description"].lower().replace(" ", "_")
-                    if "Low confidence" in attribute["description"]:
-                        name = f"low_conf_{name}"
-                    flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                    if country in IMPERIAL_COUNTRIES:
-                        flattened[f"{name}_area_sqft"] = component["areaSqft"]
-                    else:
-                        flattened[f"{name}_area_sqm"] = component["areaSqm"]
-                    flattened[f"{name}_confidence"] = component["confidence"]
-                    if "dominant" in component:
-                        flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
-                    # Handle ratio field if present
-                    if "ratio" in component:
-                        flattened[f"{name}_ratio"] = component["ratio"]
-
-                    # Handle confidenceStats if present (from roofConditionConfidenceStats include parameter)
-                    if "confidenceStats" in component:
-                        confidence_stats = component["confidenceStats"]
-                        # Flatten histogram bins
-                        histograms = confidence_stats.get("histograms", [])
-                        for histogram in histograms:
-                            bin_type = histogram.get("binType", "unknown")
-                            ratios = histogram.get("ratios", [])
-                            # Create a column for each bin in the histogram
-                            for bin_idx, ratio_value in enumerate(ratios):
-                                flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
-            elif "has3dAttributes" in attribute:
-                flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-                if attribute["has3dAttributes"]:
-                    flattened["pitch_degrees"] = attribute["pitch"]
-    return flattened
-
-
-def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]) -> dict:
-    """
-    Flatten building lifecycle damage attributes
-
-    Args:
-        building_lifecycles: List of building lifecycle features with damage field
+        roof_instances_gdf: GeoDataFrame with roof instance features from Roof Age API.
+                           Must have aoi_id index and geometry column.
+        roofs_gdf: GeoDataFrame with roof features from Feature API.
+                   Must have aoi_id index, feature_id, and geometry columns.
+        aoi_gdf: GeoDataFrame with AOI boundaries. Used to scope the spatial matching.
 
     Returns:
-        Dictionary with flattened damage attributes
+        DataFrame with columns:
+            - aoi_id: AOI identifier
+            - roof_instance_id: ID of the roof instance (if available)
+            - parent_roof_feature_id: feature_id of the matched parent roof
+            - intersection_area_sqm: Area of intersection between instance and roof
+            - intersection_pct: Percentage of roof instance covered by parent roof
+
+    Note:
+        This is a stub for future implementation. The matching algorithm should:
+        1. For each AOI, find all roof instances and roofs
+        2. Calculate spatial intersections between instances and roofs
+        3. Match each instance to the roof with maximum intersection
+        4. Handle cases where instances don't match any roof (new construction, etc.)
+
+    Example:
+        >>> # Future usage
+        >>> links_df = link_roof_instances_to_roofs(roof_instances, roofs, aois)
+        >>> # Join to get both roof age and roof characteristics
+        >>> combined = roof_instances.merge(links_df, on='aoi_id')
+        >>> combined = combined.merge(roofs[['feature_id', 'material']],
+        ...                           left_on='parent_roof_feature_id', right_on='feature_id')
     """
-    flattened = {}
-
-    for building_lifecycle in building_lifecycles:
-        # Get damage data from top-level damage field
-        damage_data = building_lifecycle.get("damage")
-
-        if damage_data is None or not isinstance(damage_data, dict):
-            continue
-
-        # Extract confidences
-        confidences = damage_data.get("confidences")
-        if not isinstance(confidences, dict):
-            continue
-
-        # Process raw confidence scores (5 classes: Undamaged, Affected, Minor, Major, Destroyed)
-        raw_confidences = confidences.get("raw")
-        if isinstance(raw_confidences, dict) and len(raw_confidences) > 0:
-            x = pd.Series(raw_confidences)
-            flattened["damage_class"] = x.idxmax()
-            flattened["damage_class_confidence"] = x.max()
-            for damage_class, confidence in raw_confidences.items():
-                flattened[f"damage_class_{damage_class}_confidence"] = confidence
-
-        # Process 2tier confidences (UndamagedOrAffectedOrMinor vs MajorOrDestroyed)
-        tier2_confidences = confidences.get("2tier")
-        if isinstance(tier2_confidences, dict):
-            for tier2_class, confidence in tier2_confidences.items():
-                flattened[f"damage_2tier_{tier2_class}_confidence"] = confidence
-
-        # Process damage ratios (specific damage indicators)
-        ratios = damage_data.get("ratios")
-        if isinstance(ratios, list):
-            for ratio_item in ratios:
-                if isinstance(ratio_item, dict):
-                    description = ratio_item.get("description")
-                    ratio_value = ratio_item.get("ratioAbove50PctConf")
-                    if description is not None and ratio_value is not None:
-                        # Normalize description to valid column name
-                        normalized_desc = description.lower().replace(" ", "_")
-                        flattened[f"damage_ratio_{normalized_desc}"] = ratio_value
-
-    return flattened
+    # TODO: Implement spatial matching algorithm
+    # For now, return empty DataFrame with expected schema
+    logger.warning("link_roof_instances_to_roofs is not yet implemented - returning empty DataFrame")
+    return pd.DataFrame(columns=[
+        AOI_ID_COLUMN_NAME,
+        "roof_instance_id",
+        "parent_roof_feature_id",
+        "intersection_area_sqm",
+        "intersection_pct",
+    ])
 
 
 def feature_attributes(
@@ -424,35 +181,20 @@ def feature_attributes(
                 parcel[f"primary_{name}_confidence"] = None
                 continue
 
-            # Add primary feature attributes for discrete features if there are any
-            if primary_decision == "largest_intersection":
-                # NB: Sort first by clipped area (priority). However, sometimes clipped areas are zero (in the case of damage detection), so secondary sort on unclipped is necessary.
-                primary_feature = class_features_gdf.sort_values(
-                    ["clipped_area_sqm", "unclipped_area_sqm"], ascending=False
-                ).iloc[0]
-
-            elif primary_decision == "nearest":
-                primary_point = Point(primary_lon, primary_lat)
-                primary_point = gpd.GeoSeries(primary_point).set_crs("EPSG:4326").to_crs("EPSG:3857")[0]
-                class_features_gdf_top = class_features_gdf.query("confidence >= @PRIMARY_FEATURE_HIGH_CONF_THRESH")
-
-                if len(class_features_gdf_top) > 0:
-                    nearest_feature_idx = (
-                        class_features_gdf_top.set_geometry("geometry_feature")
-                        .to_crs("EPSG:3857")
-                        .distance(primary_point)
-                        .idxmin()
-                    )
-                else:
-                    nearest_feature_idx = (
-                        class_features_gdf.set_geometry("geometry_feature")
-                        .to_crs("EPSG:3857")
-                        .distance(primary_point)
-                        .idxmin()
-                    )
-                primary_feature = class_features_gdf.loc[nearest_feature_idx, :]
-            else:
-                raise NotImplementedError(f"Have not implemented primary_decision type '{primary_decision}'")
+            # Select primary feature using shared selection logic
+            # Note: For Feature API data, geometry_feature is the feature's own geometry
+            # (vs geometry which may be the AOI geometry after merging)
+            primary_feature = select_primary(
+                class_features_gdf,
+                method=primary_decision,
+                area_col="clipped_area_sqm",
+                secondary_area_col="unclipped_area_sqm",
+                target_lat=primary_lat,
+                target_lon=primary_lon,
+                confidence_col="confidence",
+                high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+                geometry_col="geometry_feature",
+            )
             if country in IMPERIAL_COUNTRIES:
                 parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
                 parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)

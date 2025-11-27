@@ -120,7 +120,21 @@ BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # New semantic buildin
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
 BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
 BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
-BUILDING_STYLE_CLASS_IDS = [BUILDING_LIFECYCLE_ID, BUILDING_NEW_ID, ROOF_ID, BUILDING_UNDER_CONSTRUCTION_ID, BUILDING_ID]
+
+# Roof Instance - a temporal slice of a roof from the Roof Age API
+# This is a "virtual" feature class that represents roof installation date information
+# Roof instances may spatially correspond to roof objects from the Feature API, but are
+# tracked separately as they come from different data sources with different semantics
+ROOF_INSTANCE_CLASS_ID = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+
+BUILDING_STYLE_CLASS_IDS = [
+    BUILDING_LIFECYCLE_ID,
+    BUILDING_NEW_ID,
+    ROOF_ID,
+    BUILDING_UNDER_CONSTRUCTION_ID,
+    BUILDING_ID,
+    ROOF_INSTANCE_CLASS_ID,
+]
 
 
 TRAMPOLINE_ID = "753621ee-0b9f-515e-9bcf-ea40b96612ab"
@@ -188,7 +202,17 @@ ROOF_CHAR_IDS = [
     TURRET_ROOF_ID,
     TREE_OVERHANG_ID,
 ]
-CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [POOL_ID] # Can add more where we particularly care about attributes for the largest feature
+CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [POOL_ID]  # Can add more where we particularly care about attributes for the largest feature
+
+# Human-readable descriptions for feature classes
+FEATURE_CLASS_DESCRIPTIONS = {
+    BUILDING_ID: "Building",
+    BUILDING_NEW_ID: "Building (new semantic)",
+    ROOF_ID: "Roof",
+    BUILDING_LIFECYCLE_ID: "Building Lifecycle",
+    BUILDING_UNDER_CONSTRUCTION_ID: "Building Under Construction",
+    ROOF_INSTANCE_CLASS_ID: "Roof Instance",
+}
 
 CONNECTED_CLASS_IDS = (
     SURFACES_IDS

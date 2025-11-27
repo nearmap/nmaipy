@@ -44,6 +44,7 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
+from nmaipy.roof_age_api import RoofAgeApi
 
 _process_feature_api = None
 
@@ -238,11 +239,16 @@ def parse_arguments():
     )
     parser.add_argument(
         "--packs",
-        help="List of AI packs",
+        help="List of AI packs (default: building)",
         type=str,
         nargs="+",
         required=False,
-        default=None,
+        default=["building"],
+    )
+    parser.add_argument(
+        "--roof-age",
+        help="Include Roof Age API data (US only). Adds roof instance features with installation dates.",
+        action="store_true",
     )
     parser.add_argument(
         "--classes",
@@ -469,7 +475,16 @@ def cleanup_thread_sessions(executor):
                         pass
 
 
-class AOIExporter(BaseExporter):
+class NearmapAIExporter(BaseExporter):
+    """
+    Unified exporter for Nearmap AI data from Feature API and Roof Age API.
+
+    Processes AOIs against both APIs in parallel, producing:
+    - AOI-level rollup with attributes from all feature classes
+    - Optional detailed feature exports (GeoParquet)
+    - Separate error tracking per API
+    """
+
     def __init__(
         self,
         aoi_file="default_aoi_file",
@@ -503,11 +518,12 @@ class AOIExporter(BaseExporter):
         system_version_prefix=None,
         system_version=None,
         log_level="INFO",
-        api_key=None,  # Add API key parameter
-        parcel_mode=True,  # Add parcel mode parameter with default True
+        api_key=None,
+        parcel_mode=True,
         rapid=False,
         order=None,
         exclude_tiles_with_occlusion=False,
+        roof_age=False,  # Include Roof Age API data
     ):
         # Initialize base exporter first
         super().__init__(
@@ -517,7 +533,7 @@ class AOIExporter(BaseExporter):
             log_level=log_level,
         )
 
-        # Assign AOIExporter-specific parameters to instance variables
+        # Assign NearmapAIExporter-specific parameters to instance variables
         self.aoi_file = aoi_file
         self.packs = packs
         self.classes = classes
@@ -551,6 +567,15 @@ class AOIExporter(BaseExporter):
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
+        self.roof_age = roof_age
+
+        # Validate roof_age usage
+        if self.roof_age and self.country.lower() != "us":
+            logger.warning(
+                f"Roof Age API is currently only available for US properties. "
+                f"Got country='{self.country}'. Roof age data will not be retrieved."
+            )
+            self.roof_age = False
 
         # Note: logger already configured by BaseExporter
 
@@ -759,6 +784,7 @@ class AOIExporter(BaseExporter):
         logger = log.get_logger()
 
         feature_api = None
+        roof_age_api = None
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
@@ -767,14 +793,18 @@ class AOIExporter(BaseExporter):
                     Path(self.cache_dir) if self.cache_dir else Path(self.output_dir)
                 )
 
+            # Separate cache paths for each API
             if not self.no_cache:
-                cache_path = cache_dir / "cache"
+                feature_api_cache_path = cache_dir / "cache" / "feature_api"
+                roof_age_cache_path = cache_dir / "cache" / "roof_age"
             else:
-                cache_path = None
+                feature_api_cache_path = None
+                roof_age_cache_path = None
 
             outfile = self.chunk_path / f"rollup_{chunk_id}.parquet"
             outfile_features = self.chunk_path / f"features_{chunk_id}.parquet"
-            outfile_errors = self.chunk_path / f"errors_{chunk_id}.parquet"
+            outfile_errors = self.chunk_path / f"feature_api_errors_{chunk_id}.parquet"
+            outfile_roof_age_errors = self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
             if outfile.exists():
                 return
 
@@ -784,10 +814,10 @@ class AOIExporter(BaseExporter):
                 aoi_gdf["query_aoi_lat"] = rep_point.y
                 aoi_gdf["query_aoi_lon"] = rep_point.x
 
-            # Get features
+            # Get features from Feature API
             feature_api = FeatureApi(
                 api_key=self.api_key(),
-                cache_dir=cache_path,
+                cache_dir=feature_api_cache_path,
                 overwrite_cache=self.overwrite_cache,
                 compress_cache=self.compress_cache,
                 threads=self.threads,
@@ -863,9 +893,60 @@ class AOIExporter(BaseExporter):
                         )
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
-                if len(errors_df) == len(aoi_gdf):
-                    errors_df.to_parquet(outfile_errors)
+                # Track Feature API success per AOI
+                feature_api_errors_df = errors_df.copy()
+                feature_api_success_aois = set(aoi_gdf.index) - set(errors_df.index) if len(errors_df) > 0 else set(aoi_gdf.index)
+
+                # Query Roof Age API if enabled
+                roof_age_gdf = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+                roof_age_errors_df = pd.DataFrame()
+
+                if self.roof_age:
+                    logger.debug(f"Chunk {chunk_id}: Querying Roof Age API for {len(aoi_gdf)} AOIs")
+                    try:
+                        roof_age_api = RoofAgeApi(
+                            api_key=self.api_key(),
+                            cache_dir=roof_age_cache_path,
+                            overwrite_cache=self.overwrite_cache,
+                            compress_cache=self.compress_cache,
+                            threads=self.threads,
+                        )
+                        roof_age_gdf, roof_age_metadata_df, roof_age_errors_df = roof_age_api.get_roof_age_bulk(
+                            aoi_gdf,
+                            max_allowed_error_pct=100,  # Allow all errors, we track them separately
+                        )
+                        logger.debug(
+                            f"Chunk {chunk_id}: Roof Age API returned {len(roof_age_gdf)} roof instances, "
+                            f"{len(roof_age_errors_df)} errors"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Chunk {chunk_id}: Roof Age API query failed: {e}")
+                        # Mark all AOIs as failed for roof age
+                        roof_age_errors_df = pd.DataFrame({
+                            AOI_ID_COLUMN_NAME: aoi_gdf.index.tolist(),
+                            "status_code": [-1] * len(aoi_gdf),
+                            "message": [str(e)] * len(aoi_gdf),
+                        }).set_index(AOI_ID_COLUMN_NAME)
+
+                # Track Roof Age API success per AOI
+                roof_age_success_aois = set(aoi_gdf.index) - set(roof_age_errors_df.index) if len(roof_age_errors_df) > 0 else set(aoi_gdf.index)
+
+                # If all Feature API requests failed, save errors and return
+                if len(feature_api_errors_df) == len(aoi_gdf):
+                    feature_api_errors_df.to_parquet(outfile_errors)
+                    if len(roof_age_errors_df) > 0:
+                        roof_age_errors_df.to_parquet(outfile_roof_age_errors)
                     return
+
+                # Combine features from both APIs (roof instances are treated as a feature class)
+                if len(roof_age_gdf) > 0:
+                    # Ensure roof instances have required columns for parcel_rollup
+                    if "confidence" not in roof_age_gdf.columns and "trustScore" in roof_age_gdf.columns:
+                        roof_age_gdf["confidence"] = roof_age_gdf["trustScore"]
+                    features_gdf = gpd.GeoDataFrame(
+                        pd.concat([features_gdf, roof_age_gdf], ignore_index=False),
+                        crs=API_CRS
+                    )
 
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
@@ -875,6 +956,23 @@ class AOIExporter(BaseExporter):
                     country=self.country,
                     primary_decision=self.primary_decision,
                 )
+
+                # Add API success columns (Y/N)
+                rollup_df["feature_api_success"] = rollup_df.index.map(
+                    lambda x: "Y" if x in feature_api_success_aois else "N"
+                )
+                if self.roof_age:
+                    rollup_df["roof_age_api_success"] = rollup_df.index.map(
+                        lambda x: "Y" if x in roof_age_success_aois else "N"
+                    )
+
+                # Save Roof Age API errors separately
+                if self.roof_age and len(roof_age_errors_df) > 0:
+                    roof_age_errors_df.to_parquet(outfile_roof_age_errors)
+
+                # Use Feature API errors as the main errors file
+                errors_df = feature_api_errors_df
+
             else:
                 self.logger.error(f"Not a valid endpoint selection: {self.endpoint}")
                 sys.exit(1)
@@ -1163,11 +1261,18 @@ class AOIExporter(BaseExporter):
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
             raise
         finally:
-            # Clean up feature API to close network connections
-            if "feature_api" in locals():
+            # Clean up API clients to close network connections
+            if "feature_api" in locals() and feature_api is not None:
                 try:
                     feature_api.cleanup()
                     del feature_api
+                except:
+                    pass
+
+            if "roof_age_api" in locals() and roof_age_api is not None:
+                try:
+                    roof_age_api.cleanup()
+                    del roof_age_api
                 except:
                     pass
 
@@ -1362,85 +1467,102 @@ class AOIExporter(BaseExporter):
                         # If it has a to_wkt method but isn't a GeoSeries
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
-        outpath_errors = self.final_path / f"{Path(aoi_path).stem}_errors.csv"
-        outpath_errors_geoparquet = self.final_path / f"{Path(aoi_path).stem}_errors.parquet"
-        self.logger.debug(f"Saving error data as .csv to {outpath_errors}")
-        for cp in self.chunk_path.glob(f"errors_{Path(aoi_path).stem}_*.parquet"):
-            errors.append(pd.read_parquet(cp))
-        if len(errors) > 0:
-            errors = pd.concat(errors)
+        # Collect and save Feature API errors
+        outpath_feature_api_errors = self.final_path / f"{Path(aoi_path).stem}_feature_api_errors.csv"
+        outpath_feature_api_errors_geoparquet = self.final_path / f"{Path(aoi_path).stem}_feature_api_errors.parquet"
+        self.logger.debug(f"Collecting Feature API errors")
+        feature_api_errors = []
+        for cp in self.chunk_path.glob(f"feature_api_errors_{Path(aoi_path).stem}_*.parquet"):
+            feature_api_errors.append(pd.read_parquet(cp))
+        if len(feature_api_errors) > 0:
+            feature_api_errors = pd.concat(feature_api_errors)
         else:
-            errors = pd.DataFrame()
+            feature_api_errors = pd.DataFrame()
 
-        # Check if we actually have error rows (not just empty DataFrames)
-        if len(errors) > 0 and AOI_ID_COLUMN_NAME in errors.columns:
-            # Merge with aoi_gdf to add geometry or address information for enhanced error output
-            # Use left join to preserve all errors even if aoi_id is missing
-            aoi_gdf_for_merge = aoi_gdf.reset_index()
+        # Collect and save Roof Age API errors (if roof_age was enabled)
+        roof_age_errors = pd.DataFrame()
+        if self.roof_age:
+            outpath_roof_age_errors = self.final_path / f"{Path(aoi_path).stem}_roof_age_errors.csv"
+            outpath_roof_age_errors_geoparquet = self.final_path / f"{Path(aoi_path).stem}_roof_age_errors.parquet"
+            self.logger.debug(f"Collecting Roof Age API errors")
+            roof_age_errors_list = []
+            for cp in self.chunk_path.glob(f"roof_age_errors_{Path(aoi_path).stem}_*.parquet"):
+                roof_age_errors_list.append(pd.read_parquet(cp))
+            if len(roof_age_errors_list) > 0:
+                roof_age_errors = pd.concat(roof_age_errors_list)
 
-            if isinstance(aoi_gdf, gpd.GeoDataFrame):
-                # Geometry mode: merge with geometry column for GeoParquet output
-                errors_with_context = errors.merge(
-                    aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]],
-                    on=AOI_ID_COLUMN_NAME,
-                    how="left",
-                )
-                # Convert to GeoDataFrame if we have geometry column
-                if "geometry" in errors_with_context.columns:
-                    errors_gdf = gpd.GeoDataFrame(
-                        errors_with_context, geometry="geometry", crs=aoi_gdf.crs
+        # Helper function to save errors
+        def save_errors_to_files(errors_df, outpath_csv, outpath_parquet, error_type):
+            if len(errors_df) > 0 and AOI_ID_COLUMN_NAME in errors_df.columns:
+                aoi_gdf_for_merge = aoi_gdf.reset_index()
+
+                if isinstance(aoi_gdf, gpd.GeoDataFrame):
+                    errors_with_context = errors_df.merge(
+                        aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]],
+                        on=AOI_ID_COLUMN_NAME,
+                        how="left",
+                    )
+                    if "geometry" in errors_with_context.columns:
+                        errors_gdf = gpd.GeoDataFrame(
+                            errors_with_context, geometry="geometry", crs=aoi_gdf.crs
+                        )
+                    else:
+                        errors_gdf = errors_with_context
+                else:
+                    merge_cols = [col for col in aoi_gdf_for_merge.columns if col != AOI_ID_COLUMN_NAME]
+                    if AOI_ID_COLUMN_NAME in aoi_gdf_for_merge.columns:
+                        merge_cols.insert(0, AOI_ID_COLUMN_NAME)
+                    errors_gdf = errors_df.merge(
+                        aoi_gdf_for_merge[merge_cols],
+                        on=AOI_ID_COLUMN_NAME,
+                        how="left",
+                    )
+
+                # Log error summary
+                error_summary = []
+                if "status_code" in errors_df.columns:
+                    status_counts = errors_df["status_code"].value_counts()
+                    error_summary.append(f"status codes: {status_counts.to_dict()}")
+                if "message" in errors_df.columns:
+                    message_counts = errors_df["message"].value_counts()
+                    error_summary.append(f"messages: {message_counts.to_dict()}")
+
+                if error_summary:
+                    self.logger.info(
+                        f"{error_type}: {len(errors_df)} failures - {', '.join(error_summary)}"
                     )
                 else:
-                    errors_gdf = errors_with_context
+                    self.logger.info(f"{error_type}: {len(errors_df)} failures")
+
+                # Save CSV
+                if isinstance(aoi_gdf, gpd.GeoDataFrame):
+                    errors_df.to_csv(outpath_csv, index=False)
+                else:
+                    errors_gdf.to_csv(outpath_csv, index=False)
+
+                # Save GeoParquet for geometry mode
+                if isinstance(errors_gdf, gpd.GeoDataFrame) and len(errors_gdf) > 0:
+                    self.logger.info(f"Saving {error_type} errors as geoparquet to {outpath_parquet}")
+                    errors_gdf.to_parquet(outpath_parquet, index=False)
             else:
-                # Address mode: merge with address columns for context
-                # Get all columns from aoi_gdf except aoi_id (which is already in errors)
-                merge_cols = [col for col in aoi_gdf_for_merge.columns if col != AOI_ID_COLUMN_NAME]
-                if AOI_ID_COLUMN_NAME in aoi_gdf_for_merge.columns:
-                    merge_cols.insert(0, AOI_ID_COLUMN_NAME)
-                errors_gdf = errors.merge(
-                    aoi_gdf_for_merge[merge_cols],
-                    on=AOI_ID_COLUMN_NAME,
-                    how="left",
-                )
+                self.logger.info(f"{error_type}: No failures")
 
-            # Count error types by status code and message
-            error_summary = []
-            if "status_code" in errors.columns:
-                status_counts = errors["status_code"].value_counts()
-                error_summary.append(f"status codes: {status_counts.to_dict()}")
-            if "message" in errors.columns:
-                message_counts = errors["message"].value_counts()
-                error_summary.append(f"messages: {message_counts.to_dict()}")
+        # Save Feature API errors
+        save_errors_to_files(
+            feature_api_errors,
+            outpath_feature_api_errors,
+            outpath_feature_api_errors_geoparquet,
+            "Feature API"
+        )
 
-            if error_summary:
-                self.logger.info(
-                    f"Processing completed with {len(errors)} total failures - {', '.join(error_summary)}"
-                )
-            else:
-                self.logger.info(
-                    f"Processing completed with {len(errors)} total failures"
-                )
-        else:
-            # No errors or errors DataFrame is empty/malformed
-            errors_gdf = errors
-            self.logger.info("Processing completed with no failures")
-
-        # Save CSV format (always - includes address fields if in address mode)
-        if isinstance(aoi_gdf, gpd.GeoDataFrame):
-            # Geometry mode: CSV without geometry for backward compatibility
-            errors.to_csv(outpath_errors, index=True)
-        else:
-            # Address mode: CSV with address fields merged in for easy viewing in Excel
-            errors_gdf.to_csv(outpath_errors, index=True)
-
-        # Save GeoParquet format only for geometry mode (for QGIS visualization)
-        # In address mode, users prefer CSV for Excel compatibility
-        if isinstance(errors_gdf, gpd.GeoDataFrame) and len(errors_gdf) > 0:
-            self.logger.info(
-                f"Saving error data with geometry as geoparquet to {outpath_errors_geoparquet}"
+        # Save Roof Age API errors
+        if self.roof_age:
+            save_errors_to_files(
+                roof_age_errors,
+                outpath_roof_age_errors,
+                outpath_roof_age_errors_geoparquet,
+                "Roof Age API"
             )
-            errors_gdf.to_parquet(outpath_errors_geoparquet, index=True)
         if self.save_features:
             feature_paths = [
                 p for p in self.chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
@@ -1513,6 +1635,10 @@ class AOIExporter(BaseExporter):
                     )
 
 
+# Backward compatibility alias
+AOIExporter = NearmapAIExporter
+
+
 def main():
     # Set higher file descriptor limits for running many processes in parallel.
     import resource
@@ -1541,7 +1667,7 @@ def main():
             except ValueError as e:
                 logger.warning(f"Could not increase file descriptor limits: {e}")
     args = parse_arguments()
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file=args.aoi_file,
         output_dir=args.output_dir,
         packs=args.packs,
@@ -1573,11 +1699,12 @@ def main():
         system_version_prefix=args.system_version_prefix,
         system_version=args.system_version,
         log_level=args.log_level,
-        api_key=args.api_key,  # Pass API key argument
-        parcel_mode=not args.no_parcel_mode,  # Default to True unless --no-parcel-mode is set
+        api_key=args.api_key,
+        parcel_mode=not args.no_parcel_mode,
         rapid=args.rapid,
         order=args.order,
         exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
+        roof_age=args.roof_age,
     )
     exporter.run()
 
