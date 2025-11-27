@@ -26,6 +26,14 @@ feature_exporter = AOIExporter(
     include_parcel_geometry=True,
 )
 
+roof_age_exporter = RoofAgeExporter(
+    aoi_file='tests/data/test_parcels_2.csv',  # Same New Jersey parcels
+    output_dir='data/outputs/roof_age',
+    country='us',
+    processes=2,  # Number of parallel processes (matches feature API)
+    output_format='both',  # Output both parquet and CSV
+)
+
 # Run the feature extraction
 if __name__ == "__main__":
     print("\nExtracting Nearmap AI features...")
@@ -36,14 +44,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Example 2: Extracting Roof Age Data (Roof Age API - US Only)")
     print("=" * 60)
-
-    roof_age_exporter = RoofAgeExporter(
-        aoi_file='tests/data/test_parcels_2.csv',  # Same New Jersey parcels
-        output_dir='data/outputs/roof_age',
-        country='us',
-        threads=2,
-        output_format='both',  # Output both parquet and CSV
-    )
 
     print("\nExtracting roof age predictions...")
     roof_age_exporter.run()
