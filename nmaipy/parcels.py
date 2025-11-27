@@ -359,34 +359,18 @@ def feature_attributes(
                 if class_id == ROOF_ID:
                     primary_attributes = flatten_roof_attributes([primary_feature], country=country)
                     primary_attributes["feature_id"] = primary_feature.feature_id
-
-                    # Add matched roof instance attributes if spatial matching was performed
-                    if "primary_roof_instance_feature_id" in primary_feature.index:
-                        matched_instance_id = primary_feature.get("primary_roof_instance_feature_id")
-                        matched_iou = primary_feature.get("iou_with_primary_instance", 0.0)
-                        if matched_instance_id is not None and pd.notna(matched_instance_id):
-                            primary_attributes["matched_roof_instance_feature_id"] = matched_instance_id
-                            primary_attributes["matched_roof_instance_iou"] = matched_iou
-
-                            # Look up the matched roof instance to get its attributes
-                            matched_instances = features_gdf[
-                                (features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID) &
-                                (features_gdf["feature_id"] == matched_instance_id)
-                            ]
-                            if len(matched_instances) > 0:
-                                matched_instance = matched_instances.iloc[0]
-                                matched_attrs = flatten_roof_instance_attributes(
-                                    matched_instance, country=country, prefix="matched_"
-                                )
-                                primary_attributes.update(matched_attrs)
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
-                elif class_id == ROOF_INSTANCE_CLASS_ID:
-                    primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
-                    primary_attributes["feature_id"] = primary_feature.feature_id
                 else:
                     primary_attributes = {}
 
+                for key, val in primary_attributes.items():
+                    parcel[f"primary_{name}_" + str(key)] = val
+
+            # Add roof instance attributes (separate from BUILDING_STYLE_CLASS_IDS)
+            elif class_id == ROOF_INSTANCE_CLASS_ID:
+                primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
+                primary_attributes["feature_id"] = primary_feature.feature_id
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
