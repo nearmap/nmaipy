@@ -101,8 +101,8 @@ def link_roof_instances_to_roofs(
     to their corresponding roof polygons from the Feature API using Intersection over Union (IoU).
 
     The matching is bidirectional:
-    - Each roof instance gets a parent_roof_feature_id (the roof with highest IoU)
-    - Each roof gets a primary_roof_instance_feature_id (the instance with highest IoU)
+    - Each roof instance gets a parent_id (the roof with highest IoU)
+    - Each roof gets a primary_child_roof_instance_feature_id (the instance with highest IoU)
       plus a list of ALL matched instances ordered by IoU
 
     Args:
@@ -114,18 +114,18 @@ def link_roof_instances_to_roofs(
     Returns:
         Tuple of (roof_instances_with_links, roofs_with_links):
             - roof_instances_with_links: Original GDF with added columns:
-                - parent_roof_feature_id: feature_id of best matching roof
-                - iou_with_parent: IoU score with parent roof
+                - parent_id: feature_id of best matching roof (parent of roof instance is always a roof)
+                - parent_iou: IoU score with parent roof
             - roofs_with_links: Original GDF with added columns:
-                - primary_roof_instance_feature_id: feature_id of best matching instance
-                - iou_with_primary_instance: IoU score with primary instance
+                - primary_child_roof_instance_feature_id: feature_id of best matching instance
+                - primary_child_roof_instance_iou: IoU score with primary instance
                 - child_roof_instances: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
 
     Example:
         >>> ri_linked, roofs_linked = link_roof_instances_to_roofs(roof_instances, roofs)
         >>> # Get primary roof instance for a roof
         >>> roof = roofs_linked.iloc[0]
-        >>> print(f"Primary instance: {roof.primary_roof_instance_feature_id}, IoU: {roof.iou_with_primary_instance}")
+        >>> print(f"Primary instance: {roof.primary_child_roof_instance_feature_id}, IoU: {roof.primary_child_roof_instance_iou}")
         >>> # Get all child instances
         >>> for child in roof.child_roof_instances:
         ...     print(f"  Instance {child['feature_id']}: IoU={child['iou']:.3f}")
@@ -136,12 +136,12 @@ def link_roof_instances_to_roofs(
     if len(roof_instances_gdf) == 0 or len(roofs_gdf) == 0:
         # Add empty columns and return
         ri_out = roof_instances_gdf.copy()
-        ri_out["parent_roof_feature_id"] = None
-        ri_out["iou_with_parent"] = 0.0
+        ri_out["parent_id"] = None
+        ri_out["parent_iou"] = 0.0
 
         rf_out = roofs_gdf.copy()
-        rf_out["primary_roof_instance_feature_id"] = None
-        rf_out["iou_with_primary_instance"] = 0.0
+        rf_out["primary_child_roof_instance_feature_id"] = None
+        rf_out["primary_child_roof_instance_iou"] = 0.0
         rf_out["child_roof_instances"] = "[]"  # JSON-serialized empty list
 
         return ri_out, rf_out
@@ -157,11 +157,11 @@ def link_roof_instances_to_roofs(
         rf_gdf = rf_gdf.reset_index()
 
     # Initialize output columns
-    ri_gdf["parent_roof_feature_id"] = None
-    ri_gdf["iou_with_parent"] = 0.0
+    ri_gdf["parent_id"] = None
+    ri_gdf["parent_iou"] = 0.0
 
-    rf_gdf["primary_roof_instance_feature_id"] = None
-    rf_gdf["iou_with_primary_instance"] = 0.0
+    rf_gdf["primary_child_roof_instance_feature_id"] = None
+    rf_gdf["primary_child_roof_instance_iou"] = 0.0
     rf_gdf["child_roof_instances"] = "[]"  # JSON-serialized empty list for parquet compatibility
 
     # Get unique AOIs that have both roof instances and roofs
@@ -234,8 +234,8 @@ def link_roof_instances_to_roofs(
 
             # Assign parent to roof instance
             if best_roof_idx is not None and best_iou > 0:
-                ri_gdf.at[ri_idx, "parent_roof_feature_id"] = best_roof_feature_id
-                ri_gdf.at[ri_idx, "iou_with_parent"] = round(best_iou, 4)
+                ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id
+                ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)
 
         # For each roof, sort instances by IoU and assign primary
         for roof_df_idx, instances in roof_to_instances.items():
@@ -247,16 +247,16 @@ def link_roof_instances_to_roofs(
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
             rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
-            rf_gdf.at[roof_df_idx, "primary_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
-            rf_gdf.at[roof_df_idx, "iou_with_primary_instance"] = sorted_instances[0]["iou"]
+            rf_gdf.at[roof_df_idx, "primary_child_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
+            rf_gdf.at[roof_df_idx, "primary_child_roof_instance_iou"] = sorted_instances[0]["iou"]
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
     rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
 
     logger.debug(
-        f"Linked {(ri_gdf['parent_roof_feature_id'].notna()).sum()} roof instances to parent roofs, "
-        f"{(rf_gdf['primary_roof_instance_feature_id'].notna()).sum()} roofs have primary instances"
+        f"Linked {(ri_gdf['parent_id'].notna()).sum()} roof instances to parent roofs, "
+        f"{(rf_gdf['primary_child_roof_instance_feature_id'].notna()).sum()} roofs have primary instances"
     )
 
     return ri_gdf, rf_gdf

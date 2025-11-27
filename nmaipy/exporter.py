@@ -272,6 +272,12 @@ def export_feature_class(
 
     # Add class-specific attributes for roof instances
     if class_id == ROOF_INSTANCE_CLASS_ID:
+        # Add roof instance linkage columns (parent_id = parent roof, parent_iou = IoU with parent)
+        for col in ["parent_id", "parent_iou"]:
+            if col in class_features.columns and col not in added_cols:
+                flat_df[col] = class_features[col].values
+                added_cols.add(col)
+
         try:
             from nmaipy.feature_attributes import flatten_roof_instance_attributes_vectorized
             attr_df = flatten_roof_instance_attributes_vectorized(class_features, country=country)
@@ -296,6 +302,13 @@ def export_feature_class(
                 flat_df = pd.concat([flat_df.reset_index(drop=True), attr_df.reset_index(drop=True)], axis=1)
         except Exception as e:
             logger.debug(f"Could not flatten roof instance attributes: {e}")
+
+    # Add class-specific linkage columns for roofs (linking to roof instances)
+    if class_id == ROOF_ID:
+        for col in ["primary_child_roof_instance_feature_id", "primary_child_roof_instance_iou", "child_roof_instances"]:
+            if col in class_features.columns and col not in added_cols:
+                flat_df[col] = class_features[col].values
+                added_cols.add(col)
 
     # Add geometry as WKT for CSV (vectorized)
     if include_geometry and "geometry" in class_features.columns:
@@ -1095,10 +1108,9 @@ class NearmapAIExporter(BaseExporter):
                 # and prepare for concat.
                 if len(roof_age_gdf) > 0:
                     # Add sqft columns for US (sqm columns are set in roof_age_api._parse_response)
+                    # Note: Roof instances only have 'area' (not clipped/unclipped distinction)
                     if self.country.lower() == "us" and "area_sqm" in roof_age_gdf.columns:
                         roof_age_gdf["area_sqft"] = roof_age_gdf["area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
-                        roof_age_gdf["clipped_area_sqft"] = roof_age_gdf["clipped_area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
-                        roof_age_gdf["unclipped_area_sqft"] = roof_age_gdf["unclipped_area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
 
                     # Ensure roof_age_gdf has aoi_id as index (Feature API returns index, Roof Age returns column)
                     if roof_age_gdf.index.name != AOI_ID_COLUMN_NAME and AOI_ID_COLUMN_NAME in roof_age_gdf.columns:

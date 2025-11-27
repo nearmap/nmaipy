@@ -255,17 +255,12 @@ class RoofAgeApi(BaseApiClient):
         if not features:
             logger.debug(f"No roof features found for {aoi_id}")
             # Return empty GeoDataFrame with expected columns
-            # Include stub columns for Feature API compatibility
             return gpd.GeoDataFrame(
                 columns=[AOI_ID_COLUMN_NAME, "class_id", "description", "geometry"] + [
                     ROOF_AGE_INSTALLATION_DATE_FIELD,
                     ROOF_AGE_TRUST_SCORE_FIELD,
                     ROOF_AGE_AREA_FIELD,
                     "area_sqm",
-                    "clipped_area_sqm",
-                    "unclipped_area_sqm",
-                    "confidence",
-                    "fidelity",
                 ],
                 crs=API_CRS
             )
@@ -301,14 +296,6 @@ class RoofAgeApi(BaseApiClient):
         # Note: Roof instances don't have clipped/unclipped distinction - they have a single 'area'
         if ROOF_AGE_AREA_FIELD in gdf.columns:
             gdf["area_sqm"] = gdf[ROOF_AGE_AREA_FIELD]
-
-        # Add stub null values for Feature API fields that don't exist in Roof Age API.
-        # This allows roof instances to be treated uniformly with Feature API results
-        # in exporter.py (e.g., for sqft conversion, filtering by confidence, etc.)
-        gdf["clipped_area_sqm"] = None
-        gdf["unclipped_area_sqm"] = None
-        gdf["confidence"] = None
-        gdf["fidelity"] = None
 
         # Use hilbertId as feature_id if available
         if ROOF_AGE_HILBERT_ID_FIELD in gdf.columns:
