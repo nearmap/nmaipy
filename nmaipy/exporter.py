@@ -218,19 +218,8 @@ def export_feature_class(
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
     """
-    from nmaipy.constants import (
-        BUILDING_ID,
-        BUILDING_LIFECYCLE_ID,
-        BUILDING_NEW_ID,
-        ROOF_ID,
-        ROOF_INSTANCE_CLASS_ID,
-    )
-    from nmaipy.feature_attributes import (
-        flatten_building_attributes,
-        flatten_building_lifecycle_damage_attributes,
-        flatten_roof_attributes,
-        flatten_roof_instance_attributes,
-    )
+    from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
+    from nmaipy.feature_attributes import flatten_roof_instance_attributes
 
     # Filter to this class
     class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
@@ -264,22 +253,14 @@ def export_feature_class(
             if col in feature.index:
                 record[col] = feature.get(col)
 
-        # Flatten class-specific attributes
-        try:
-            if class_id == ROOF_ID:
-                flat_attrs = flatten_roof_attributes([feature.to_dict()], country=country)
-                record.update(flat_attrs)
-            elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
-                flat_attrs = flatten_building_attributes([feature.to_dict()], country=country)
-                record.update(flat_attrs)
-            elif class_id == BUILDING_LIFECYCLE_ID:
-                flat_attrs = flatten_building_lifecycle_damage_attributes([feature.to_dict()])
-                record.update(flat_attrs)
-            elif class_id == ROOF_INSTANCE_CLASS_ID:
+        # Add class-specific attributes if available
+        # For roof instances, flatten from the feature's fields
+        if class_id == ROOF_INSTANCE_CLASS_ID:
+            try:
                 flat_attrs = flatten_roof_instance_attributes(feature, country=country)
                 record.update(flat_attrs)
-        except Exception as e:
-            logger.warning(f"Error flattening attributes for feature {feature.get('feature_id')}: {e}")
+            except Exception as e:
+                logger.debug(f"Could not flatten roof instance attributes: {e}")
 
         # Add geometry as WKT for CSV
         if include_geometry and hasattr(feature, "geometry") and feature.geometry is not None:
@@ -1076,10 +1057,6 @@ class NearmapAIExporter(BaseExporter):
                         roof_age_gdf["clipped_area_sqft"] = roof_age_gdf["clipped_area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
                         roof_age_gdf["unclipped_area_sqft"] = roof_age_gdf["unclipped_area_sqm"] * SQUARED_METERS_TO_SQUARED_FEET
 
-                    # Copy geometry to geometry_feature (used by select_primary)
-                    if "geometry_feature" not in roof_age_gdf.columns:
-                        roof_age_gdf["geometry_feature"] = roof_age_gdf.geometry
-
                     # Ensure roof_age_gdf has aoi_id as index (Feature API returns index, Roof Age returns column)
                     if roof_age_gdf.index.name != AOI_ID_COLUMN_NAME and AOI_ID_COLUMN_NAME in roof_age_gdf.columns:
                         roof_age_gdf = roof_age_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -1787,8 +1764,17 @@ class NearmapAIExporter(BaseExporter):
         if self.class_level_files:
             self.logger.info("Exporting per-feature-class CSV and GeoParquet files...")
 
-            # Load combined features from chunks if not already loaded
-            if not self.save_features:
+            # Load combined features for per-class export
+            features_gdf = None
+            if self.save_features and outpath_features.exists():
+                # Read from the final merged parquet we just created
+                try:
+                    features_gdf = gpd.read_parquet(outpath_features)
+                except Exception as e:
+                    self.logger.warning(f"Failed to read {outpath_features}: {e}")
+
+            if features_gdf is None:
+                # Fall back to reading from chunk files
                 feature_paths = [
                     p for p in self.chunk_path.glob(f"features_{Path(aoi_path).stem}_*.parquet")
                 ]
@@ -1806,10 +1792,6 @@ class NearmapAIExporter(BaseExporter):
                             pd.concat(all_features, ignore_index=False),
                             crs=API_CRS
                         )
-                    else:
-                        features_gdf = gpd.GeoDataFrame(columns=["class_id", "geometry"], crs=API_CRS)
-                else:
-                    features_gdf = gpd.GeoDataFrame(columns=["class_id", "geometry"], crs=API_CRS)
 
             if features_gdf is not None and len(features_gdf) > 0 and "class_id" in features_gdf.columns:
                 # Get unique classes in the data
