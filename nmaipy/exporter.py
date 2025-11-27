@@ -1479,6 +1479,16 @@ class NearmapAIExporter(BaseExporter):
         finally:
             feature_api.cleanup()
 
+        # Add Roof Instance class to classes_df when roof_age is enabled
+        # This allows parcel_rollup to generate rollup columns for roof instances
+        if self.roof_age:
+            from nmaipy.constants import FEATURE_CLASS_DESCRIPTIONS, ROOF_INSTANCE_CLASS_ID
+            roof_instance_row = pd.DataFrame(
+                {"description": [FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID]]},
+                index=[ROOF_INSTANCE_CLASS_ID],
+            )
+            classes_df = pd.concat([classes_df, roof_instance_row])
+
         # Modify output file paths using the AOI file name
         # Renamed from {stem}.csv to {stem}_aoi_rollup.csv for clarity
         outpath = self.final_path / f"{Path(aoi_path).stem}_aoi_rollup.{self.rollup_format}"

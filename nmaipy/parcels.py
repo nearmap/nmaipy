@@ -215,6 +215,9 @@ def feature_attributes(
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
+                elif class_id == ROOF_INSTANCE_CLASS_ID:
+                    primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
+                    primary_attributes["feature_id"] = primary_feature.feature_id
                 else:
                     primary_attributes = {}
 
