@@ -1097,10 +1097,13 @@ class NearmapAIExporter(BaseExporter):
                         f"Chunk {chunk_id}: Combining {len(features_gdf)} Feature API features with "
                         f"{len(roof_age_gdf)} Roof Age features"
                     )
-                    features_gdf = gpd.GeoDataFrame(
-                        pd.concat([features_gdf, roof_age_gdf], ignore_index=False),
-                        crs=API_CRS
-                    )
+                    # Filter out empty DataFrames to avoid FutureWarning about all-NA columns
+                    dfs_to_concat = [df for df in [features_gdf, roof_age_gdf] if len(df) > 0]
+                    if dfs_to_concat:
+                        features_gdf = gpd.GeoDataFrame(
+                            pd.concat(dfs_to_concat, ignore_index=False),
+                            crs=API_CRS
+                        )
                     logger.debug(f"Chunk {chunk_id}: Combined features_gdf has {len(features_gdf)} rows")
 
                     # Perform spatial matching between roof instances and roofs
@@ -1119,10 +1122,13 @@ class NearmapAIExporter(BaseExporter):
                             (features_gdf["class_id"] != ROOF_ID) &
                             (features_gdf["class_id"] != roof_age_gdf["class_id"].iloc[0])
                         ]
-                        features_gdf = gpd.GeoDataFrame(
-                            pd.concat([non_roof_features, roofs_gdf_linked, roof_age_gdf_linked], ignore_index=False),
-                            crs=API_CRS
-                        )
+                        # Filter out empty DataFrames to avoid FutureWarning
+                        dfs_to_concat = [df for df in [non_roof_features, roofs_gdf_linked, roof_age_gdf_linked] if len(df) > 0]
+                        if dfs_to_concat:
+                            features_gdf = gpd.GeoDataFrame(
+                                pd.concat(dfs_to_concat, ignore_index=False),
+                                crs=API_CRS
+                            )
                         logger.debug(
                             f"Chunk {chunk_id}: After linking, features_gdf has {len(features_gdf)} rows"
                         )
@@ -1383,10 +1389,19 @@ class NearmapAIExporter(BaseExporter):
                         # Apply to all object-dtype columns (potential dict containers) and let the function
                         # handle each value type appropriately - more robust than sampling
                         def serialize_include_param(val):
-                            if val is None or pd.isna(val):
+                            if val is None:
                                 return None
+                            # Handle scalar pd.isna check carefully - it returns array for array input
+                            try:
+                                if pd.isna(val):
+                                    return None
+                            except (TypeError, ValueError):
+                                # pd.isna fails on arrays/lists - handle below
+                                pass
                             if isinstance(val, dict):
                                 return json.dumps(val)
+                            if isinstance(val, (list, np.ndarray)):
+                                return json.dumps(val if isinstance(val, list) else val.tolist())
                             # Return other types as-is (strings, numbers, etc.)
                             return val
 

@@ -457,7 +457,7 @@ class RoofAgeApi(BaseApiClient):
             )
 
         mode = "address" if has_address_fields and not has_geom else "geometry"
-        logger.info(f"Getting roof age data for {len(aoi_gdf)} AOIs using {self.threads} threads ({mode} mode)")
+        logger.debug(f"Getting roof age data for {len(aoi_gdf)} AOIs using {self.threads} threads ({mode} mode)")
 
         roofs_list = []
         metadata_list = []
