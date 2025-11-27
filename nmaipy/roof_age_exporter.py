@@ -263,6 +263,7 @@ class RoofAgeExporter(BaseExporter):
                 overwrite_cache=self.overwrite_cache,
                 compress_cache=self.compress_cache,
                 threads=self.threads,
+                country=self.country,
             )
 
             # Query API for this chunk
@@ -289,6 +290,7 @@ class RoofAgeExporter(BaseExporter):
 
     def run(self):
         """Execute the roof age export workflow"""
+        self.logger.info(f"nmaipy version: {__version__}")
         self.logger.info(f"Starting roof age export from {self.aoi_file}")
         self.logger.info(f"Output directory: {self.output_dir}")
 
@@ -375,11 +377,14 @@ class RoofAgeExporter(BaseExporter):
         if error_count > 0:
             self.logger.warning(f"Failed queries: {error_count} / {len(aoi_gdf)}")
             # Log error details
+            if "status_code" in errors_df.columns:
+                status_counts = errors_df["status_code"].value_counts().to_dict()
+                self.logger.warning(f"Error status codes: {status_counts}")
             if "message" in errors_df.columns:
                 # Sanitize URLs in messages before aggregating (truncate query params)
                 sanitized_messages = errors_df["message"].apply(sanitize_error_message)
                 error_summary = sanitized_messages.value_counts().to_dict()
-                self.logger.warning(f"Error breakdown: {error_summary}")
+                self.logger.warning(f"Error messages: {error_summary}")
 
         # Merge with AOI attributes if requested
         if self.include_aoi_geometry and len(roofs_gdf) > 0:

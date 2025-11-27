@@ -81,6 +81,7 @@ class RoofAgeApi(BaseApiClient):
         compress_cache: Optional[bool] = False,
         threads: Optional[int] = 10,
         url_root: Optional[str] = None,
+        country: str = "us",
     ):
         """
         Initialize Roof Age API client.
@@ -92,6 +93,7 @@ class RoofAgeApi(BaseApiClient):
             compress_cache: Whether to use gzip compression for cache files
             threads: Number of threads for concurrent execution
             url_root: Override the default API root URL (for testing)
+            country: Country code for address queries (e.g., 'us', 'au')
         """
         super().__init__(
             api_key=api_key,
@@ -100,6 +102,9 @@ class RoofAgeApi(BaseApiClient):
             compress_cache=compress_cache,
             threads=threads,
         )
+
+        # Store country for address queries
+        self.country = country.upper()
 
         # Configure API endpoints
         if url_root is None:
@@ -142,7 +147,9 @@ class RoofAgeApi(BaseApiClient):
             for field in ADDRESS_FIELDS:
                 if field not in address:
                     raise ValueError(f"Address missing required field: {field}")
-            payload["address"] = address
+            # Add country field (required by API)
+            address_with_country = {**address, "country": self.country}
+            payload["address"] = address_with_country
 
         return payload
 
@@ -354,7 +361,6 @@ class RoofAgeApi(BaseApiClient):
     def get_roof_age_bulk(
         self,
         aoi_gdf: gpd.GeoDataFrame,
-        max_allowed_error_pct: float = 10.0
     ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Get roof age data for multiple AOIs in parallel.
@@ -366,7 +372,6 @@ class RoofAgeApi(BaseApiClient):
             aoi_gdf: GeoDataFrame with AOIs to query (must have aoi_id index)
                      For geometry mode: must have 'geometry' column
                      For address mode: must have streetAddress, city, state, zip columns
-            max_allowed_error_pct: Maximum percentage of AOIs that can fail before raising error
 
         Returns:
             Tuple of (roofs_gdf, metadata_df, errors_df):
@@ -375,7 +380,7 @@ class RoofAgeApi(BaseApiClient):
                 - errors_df: DataFrame with failed queries
 
         Raises:
-            ValueError: If error rate exceeds max_allowed_error_pct or required columns are missing
+            ValueError: If required columns are missing from aoi_gdf
         """
         if not isinstance(aoi_gdf.index, pd.Index) or aoi_gdf.index.name != AOI_ID_COLUMN_NAME:
             raise ValueError(f"aoi_gdf must have '{AOI_ID_COLUMN_NAME}' as index")
@@ -406,8 +411,8 @@ class RoofAgeApi(BaseApiClient):
                     # Geometry-based query
                     roofs_gdf = self.get_roof_age_by_aoi(row.geometry, aoi_id)
                 else:
-                    # Address-based query
-                    address = {f: row[f] for f in ADDRESS_FIELDS}
+                    # Address-based query - convert all values to strings for JSON serialization
+                    address = {f: str(row[f]) for f in ADDRESS_FIELDS}
                     roofs_gdf = self.get_roof_age_by_address(address, aoi_id)
 
                 # Extract metadata
@@ -455,13 +460,8 @@ class RoofAgeApi(BaseApiClient):
         if len(errors_df) > 0:
             errors_df = errors_df.set_index(AOI_ID_COLUMN_NAME)
 
-        # Check error rate
+        # Calculate error rate for logging
         error_pct = (len(errors_df) / len(aoi_gdf)) * 100 if len(aoi_gdf) > 0 else 0
-        if error_pct > max_allowed_error_pct:
-            raise ValueError(
-                f"Error rate {error_pct:.1f}% exceeds maximum allowed {max_allowed_error_pct}%. "
-                f"{len(errors_df)} of {len(aoi_gdf)} requests failed."
-            )
 
         logger.info(
             f"Roof age bulk query complete: {len(roofs_gdf)} roofs found, "

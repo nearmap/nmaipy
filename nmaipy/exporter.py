@@ -1023,10 +1023,10 @@ class NearmapAIExporter(BaseExporter):
                             overwrite_cache=self.overwrite_cache,
                             compress_cache=self.compress_cache,
                             threads=self.threads,
+                            country=self.country,
                         )
                         roof_age_gdf, roof_age_metadata_df, roof_age_errors_df = roof_age_api.get_roof_age_bulk(
                             aoi_gdf,
-                            max_allowed_error_pct=100,  # Allow all errors, we track them separately
                         )
                         logger.debug(
                             f"Chunk {chunk_id}: Roof Age API returned {len(roof_age_gdf)} roof instances, "
@@ -1425,6 +1425,7 @@ class NearmapAIExporter(BaseExporter):
                 pass
 
     def run(self):
+        self.logger.info(f"nmaipy version: {__version__}")
         self.logger.debug("Starting parcel rollup")
 
         # Process a single AOI file
