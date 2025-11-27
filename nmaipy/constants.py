@@ -26,6 +26,9 @@ ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD = "evidenceTypeDescription"
 ROOF_AGE_MIN_CAPTURE_DATE_FIELD = "minCaptureDate"
 ROOF_AGE_MAX_CAPTURE_DATE_FIELD = "maxCaptureDate"
 ROOF_AGE_NUM_CAPTURES_FIELD = "numberOfCaptures"
+ROOF_AGE_KIND_FIELD = "kind"
+ROOF_AGE_RELEVANT_PERMITS_FIELD = "relevantPermits"
+ROOF_AGE_ASSESSOR_DATA_FIELD = "assessorData"
 ROOF_AGE_TIMELINE_FIELD = "timeline"
 ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
 ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
@@ -116,11 +119,16 @@ SQUARED_METERS_TO_SQUARED_FEET = METERS_TO_FEET * METERS_TO_FEET
 ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
 
 # Class IDs
-BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # Legacy clone of roof semantic definition
-BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # New semantic building definition
+BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # DEPRECATED: Legacy clone of roof semantic
+BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # Current semantic building definition
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
 BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
 BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
+
+# Deprecated class IDs - filtered out early in processing
+DEPRECATED_CLASS_IDS = [
+    BUILDING_ID,  # Replaced by BUILDING_NEW_ID
+]
 
 # Roof Instance - a temporal slice of a roof from the Roof Age API
 # This is a "virtual" feature class that represents roof installation date information
@@ -135,7 +143,7 @@ BUILDING_STYLE_CLASS_IDS = [
     BUILDING_NEW_ID,
     ROOF_ID,
     BUILDING_UNDER_CONSTRUCTION_ID,
-    BUILDING_ID,
+    BUILDING_ID,  # Deprecated but still valid
     ROOF_INSTANCE_CLASS_ID,
 ]
 

@@ -1016,6 +1016,17 @@ class NearmapAIExporter(BaseExporter):
                         max_allowed_error_pct=100,
                     )
                 )
+
+                # Filter out deprecated feature classes early
+                if len(features_gdf) > 0 and "class_id" in features_gdf.columns:
+                    from nmaipy.constants import DEPRECATED_CLASS_IDS
+                    pre_filter_count = len(features_gdf)
+                    features_gdf = features_gdf[~features_gdf["class_id"].isin(DEPRECATED_CLASS_IDS)]
+                    if len(features_gdf) < pre_filter_count:
+                        logger.debug(
+                            f"Chunk {chunk_id}: Filtered {pre_filter_count - len(features_gdf)} deprecated features"
+                        )
+
                 mem = psutil.virtual_memory()
                 self.logger.debug(
                     f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
@@ -1524,6 +1535,10 @@ class NearmapAIExporter(BaseExporter):
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
             feature_api.cleanup()
+
+        # Filter out deprecated classes from rollups
+        from nmaipy.constants import DEPRECATED_CLASS_IDS
+        classes_df = classes_df[~classes_df.index.isin(DEPRECATED_CLASS_IDS)]
 
         # Add Roof Instance class to classes_df when roof_age is enabled
         # This allows parcel_rollup to generate rollup columns for roof instances

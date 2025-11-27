@@ -13,6 +13,7 @@ Feature Classes:
 - Building Lifecycle (Feature API): Damage scores and classifications
 - Roof Instance (Roof Age API): Installation dates, trust scores, evidence types
 """
+import json
 from typing import Dict, List, Optional, Union
 
 import pandas as pd
@@ -21,15 +22,18 @@ from nmaipy import log
 from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
-    ROOF_AGE_AREA_FIELD,
     ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
+    ROOF_AGE_AREA_FIELD,
+    ROOF_AGE_ASSESSOR_DATA_FIELD,
     ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_KIND_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
+    ROOF_AGE_RELEVANT_PERMITS_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_AGE_UNTIL_DATE_FIELD,
 )
@@ -314,11 +318,24 @@ def flatten_roof_instance_attributes(
     if num_captures is not None:
         flattened[f"{prefix}number_of_captures"] = num_captures
 
+    # Kind (roof type classification)
+    kind = get_value(ROOF_AGE_KIND_FIELD)
+    if kind is not None:
+        flattened[f"{prefix}kind"] = kind
+
+    # Relevant permits (JSON serialized for parquet compatibility)
+    relevant_permits = get_value(ROOF_AGE_RELEVANT_PERMITS_FIELD)
+    if relevant_permits is not None:
+        flattened[f"{prefix}relevant_permits"] = json.dumps(relevant_permits) if isinstance(relevant_permits, (dict, list)) else relevant_permits
+
+    # Assessor data (JSON serialized for parquet compatibility)
+    assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD)
+    if assessor_data is not None:
+        flattened[f"{prefix}assessor_data"] = json.dumps(assessor_data) if isinstance(assessor_data, (dict, list)) else assessor_data
+
     # Note: We intentionally exclude internal fields:
     # - timeline (detailed internal data, not public)
     # - hilbertId (internal spatial indexing)
     # - resourceId (internal reference)
-    # - assessorData (may be added in future if needed)
-    # - relevantPermits (may be added in future if needed)
 
     return flattened
