@@ -128,29 +128,12 @@ class RoofAgeApi(BaseApiClient):
         with self.progress_counters["lock"]:
             self.progress_counters["completed"] += 1
 
-    def _sanitize_path_component(self, text: str) -> str:
-        """
-        Sanitize a string for use as a path component.
-
-        Removes/replaces characters that are problematic in file paths.
-        """
-        if not text:
-            return "_empty_"
-        # Replace problematic characters with underscore
-        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(text))
-        # Replace multiple underscores with single
-        sanitized = re.sub(r'_+', '_', sanitized)
-        # Remove leading/trailing underscores and whitespace
-        sanitized = sanitized.strip('_ \t')
-        # Truncate to reasonable length
-        return sanitized[:50] if sanitized else "_empty_"
-
     def _get_cache_path(self, cache_key: str) -> Path:
         """
         Get the cache file path for a given key.
 
         For address-based queries, uses nested directories:
-        cache_dir/country/state/city/zip/<hash>.json
+        cache_dir/country/state/city/zip/<hash>.json (shared with Feature API)
 
         For AOI-based queries, uses flat structure with hash.
 
@@ -171,17 +154,14 @@ class RoofAgeApi(BaseApiClient):
             parts = cache_key.replace("roofage_address_", "").split("/")
             if len(parts) >= 4:
                 country, state, city, zipcode = parts[0], parts[1], parts[2], parts[3]
-                # Hash the full key for the filename (street address may have special chars)
-                key_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
-                cache_subdir = (
-                    self.cache_dir
-                    / self._sanitize_path_component(country)
-                    / self._sanitize_path_component(state)
-                    / self._sanitize_path_component(city)
-                    / self._sanitize_path_component(zipcode)
+                # Use shared address cache path method from BaseApiClient
+                return self._get_address_cache_path(
+                    country=country,
+                    state=state,
+                    city=city,
+                    zipcode=zipcode,
+                    cache_key=cache_key
                 )
-                cache_subdir.mkdir(parents=True, exist_ok=True)
-                return cache_subdir / f"{key_hash}{extension}"
 
         # Default: use hash-based flat structure (for AOI queries or fallback)
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()

@@ -1041,6 +1041,7 @@ class NearmapAIExporter(BaseExporter):
 
                 if self.roof_age:
                     logger.debug(f"Chunk {chunk_id}: Querying Roof Age API for {len(aoi_gdf)} AOIs")
+
                     try:
                         roof_age_api = RoofAgeApi(
                             api_key=self.api_key(),
@@ -1049,6 +1050,7 @@ class NearmapAIExporter(BaseExporter):
                             compress_cache=self.compress_cache,
                             threads=self.threads,
                             country=self.country,
+                            progress_counters=progress_counters,
                         )
                         roof_age_gdf, roof_age_metadata_df, roof_age_errors_df = roof_age_api.get_roof_age_bulk(
                             aoi_gdf,
@@ -1585,7 +1587,10 @@ class NearmapAIExporter(BaseExporter):
         )
 
         # Calculate initial AOI count for progress tracking (excluding skipped)
+        # If roof_age is enabled, each AOI gets both Feature API and Roof Age API queries
         initial_aoi_count = len(aoi_gdf) - skipped_aois
+        if self.roof_age:
+            initial_aoi_count *= 2
 
         # Run parallel processing with progress tracking
         self.run_parallel(

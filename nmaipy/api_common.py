@@ -525,6 +525,70 @@ class BaseApiClient:
         except Exception as e:
             logger.warning(f"Failed to save to cache: {e}")
 
+    def _sanitize_path_component(self, text: str) -> str:
+        """
+        Sanitize a string for use as a path component.
+
+        Removes/replaces characters that are problematic in file paths.
+
+        Args:
+            text: String to sanitize
+
+        Returns:
+            Safe string for use in file paths
+        """
+        if not text:
+            return "_empty_"
+        # Replace problematic characters with underscore
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(text))
+        # Replace multiple underscores with single
+        sanitized = re.sub(r'_+', '_', sanitized)
+        # Remove leading/trailing underscores and whitespace
+        sanitized = sanitized.strip('_ \t')
+        # Truncate to reasonable length
+        return sanitized[:50] if sanitized else "_empty_"
+
+    def _get_address_cache_path(
+        self,
+        country: str,
+        state: str,
+        city: str,
+        zipcode: str,
+        cache_key: str
+    ) -> Path:
+        """
+        Get cache path for address-based queries.
+
+        Uses nested directory structure: cache_dir/country/state/city/zip/<hash>.json
+
+        This structure is shared between Feature API and Roof Age API for consistency.
+
+        Args:
+            country: Country code (e.g., 'US', 'AU')
+            state: State/province code
+            city: City name
+            zipcode: Postal/zip code
+            cache_key: Full cache key to hash for filename
+
+        Returns:
+            Path to the cache file
+        """
+        if self.cache_dir is None:
+            raise ValueError("Cache directory not configured")
+
+        extension = ".json.gz" if self.compress_cache else ".json"
+        key_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
+
+        cache_subdir = (
+            self.cache_dir
+            / self._sanitize_path_component(country)
+            / self._sanitize_path_component(state)
+            / self._sanitize_path_component(city)
+            / self._sanitize_path_component(zipcode)
+        )
+        cache_subdir.mkdir(parents=True, exist_ok=True)
+        return cache_subdir / f"{key_hash}{extension}"
+
     def _clean_api_key(self, text: str) -> str:
         """
         Remove API keys from text for safe logging.

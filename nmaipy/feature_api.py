@@ -431,16 +431,23 @@ class FeatureApi(GriddedApiClient):
     def _post_request_cache_path(self, url: str, body: dict) -> Path:
         """
         Hash a POST request URL and body to create a cache path.
-        """
-        # Clean API key from URL
-        url = self._clean_api_key(url)
 
-        # Convert body to a stable string representation and hash
+        Uses lon/lat based caching for geometry queries, or country/state/city/zip
+        based caching for address-only queries (shared with Roof Age API).
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        # Clean API key from URL
+        clean_url = self._clean_api_key(url)
+
+        # Convert body to a stable string representation for cache key
         body_str = json.dumps(body, sort_keys=True)
-        combined_str = url + body_str
+        combined_str = clean_url + body_str
         request_hash = hashlib.md5(combined_str.encode()).hexdigest()
 
-        # Extract lon/lat from geometry for cache directory organization
+        ext = "json.gz" if self.compress_cache else "json"
+
+        # Check if there's geometry in the body - use lon/lat based caching
         if "aoi" in body and body["aoi"].get("type") in ["Polygon", "MultiPolygon"]:
             # Get first coordinate from first polygon
             if body["aoi"]["type"] == "Polygon":
@@ -449,12 +456,32 @@ class FeatureApi(GriddedApiClient):
                 coords = body["aoi"]["coordinates"][0][0][0]
 
             lon, lat = str(int(float(coords[0]))), str(int(float(coords[1])))
-        else:
-            # Fallback if no geometry or unexpected format
-            lon, lat = "0", "0"
+            cache_subdir = self.cache_dir / lon / lat
+            cache_subdir.mkdir(parents=True, exist_ok=True)
+            return cache_subdir / f"{request_hash}.{ext}"
 
-        ext = "json.gz" if self.compress_cache else "json"
-        return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
+        # No geometry - check for address fields in URL for address-based caching
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+
+        # Extract address components (params are lists, get first value)
+        country = params.get("country", [""])[0]
+        state = params.get("state", [""])[0]
+        city = params.get("city", [""])[0]
+        zipcode = params.get("zip", [""])[0]
+
+        # If we have address fields, use address-based caching (shared with Roof Age API)
+        if country or state or city or zipcode:
+            return self._get_address_cache_path(
+                country=country or "_unknown_",
+                state=state or "_unknown_",
+                city=city or "_unknown_",
+                zipcode=zipcode or "_unknown_",
+                cache_key=combined_str
+            )
+
+        # Fallback: hash-based flat structure
+        return self.cache_dir / f"{request_hash}.{ext}"
 
 
     def _handle_response_errors(self, response: requests.Response, request_string: str):
