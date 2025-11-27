@@ -29,6 +29,7 @@ import pandas as pd
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
+from nmaipy.api_common import sanitize_error_message
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.roof_age_api import RoofAgeApi
@@ -375,7 +376,9 @@ class RoofAgeExporter(BaseExporter):
             self.logger.warning(f"Failed queries: {error_count} / {len(aoi_gdf)}")
             # Log error details
             if "message" in errors_df.columns:
-                error_summary = errors_df["message"].value_counts().to_dict()
+                # Sanitize URLs in messages before aggregating (truncate query params)
+                sanitized_messages = errors_df["message"].apply(sanitize_error_message)
+                error_summary = sanitized_messages.value_counts().to_dict()
                 self.logger.warning(f"Error breakdown: {error_summary}")
 
         # Merge with AOI attributes if requested

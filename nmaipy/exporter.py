@@ -44,6 +44,7 @@ from nmaipy.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
 )
+from nmaipy.api_common import sanitize_error_message
 from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -963,7 +964,9 @@ class NearmapAIExporter(BaseExporter):
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
-                        error_counts = errors_df["message"].value_counts().to_dict()
+                        # Sanitize URLs in messages before aggregating (truncate query params)
+                        sanitized_messages = errors_df["message"].apply(sanitize_error_message)
+                        error_counts = sanitized_messages.value_counts().to_dict()
                         self.logger.debug(
                             f"Found {len(errors_df)} errors by type: {error_counts}"
                         )
@@ -995,7 +998,9 @@ class NearmapAIExporter(BaseExporter):
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
-                        error_counts = errors_df["message"].value_counts().to_dict()
+                        # Sanitize URLs in messages before aggregating (truncate query params)
+                        sanitized_messages = errors_df["message"].apply(sanitize_error_message)
+                        error_counts = sanitized_messages.value_counts().to_dict()
                         self.logger.debug(
                             f"Found {len(errors_df)} errors by type: {error_counts}"
                         )
@@ -1650,7 +1655,9 @@ class NearmapAIExporter(BaseExporter):
                     status_counts = errors_df["status_code"].value_counts()
                     error_summary.append(f"status codes: {status_counts.to_dict()}")
                 if "message" in errors_df.columns:
-                    message_counts = errors_df["message"].value_counts()
+                    # Sanitize URLs in messages before aggregating (truncate query params)
+                    sanitized_messages = errors_df["message"].apply(sanitize_error_message)
+                    message_counts = sanitized_messages.value_counts()
                     error_summary.append(f"messages: {message_counts.to_dict()}")
 
                 if error_summary:

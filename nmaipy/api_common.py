@@ -75,6 +75,30 @@ nmaipy_logger = logging.getLogger('nmaipy')
 nmaipy_logger.addFilter(APIKeyFilter())
 
 
+def sanitize_error_message(message: str) -> str:
+    """
+    Sanitize error messages for aggregation by truncating URL query parameters.
+
+    This allows grouping of similar errors that differ only in URL parameters
+    (e.g., different coordinates, timestamps) so they can be counted together
+    in error summaries.
+
+    Args:
+        message: Error message that may contain URLs
+
+    Returns:
+        Message with URL query parameters replaced by "..."
+
+    Example:
+        >>> sanitize_error_message("Error at https://api.example.com/endpoint?lat=1.23&lon=4.56")
+        'Error at https://api.example.com/endpoint?...'
+    """
+    if not message or not isinstance(message, str):
+        return message
+    # Match URLs and truncate after the "?"
+    return re.sub(r'(https?://[^\s?]+)\?[^\s]*', r'\1?...', message)
+
+
 class RetryRequest(Retry):
     """
     Inherited retry request with controlled backoff timing.
