@@ -39,6 +39,7 @@ from nmaipy.constants import (
     API_CRS,
     BUILDING_STYLE_CLASS_IDS,
     DEFAULT_URL_ROOT,
+    ROOF_ID,
     SINCE_COL_NAME,
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
@@ -1099,6 +1100,30 @@ class NearmapAIExporter(BaseExporter):
                         crs=API_CRS
                     )
                     logger.debug(f"Chunk {chunk_id}: Combined features_gdf has {len(features_gdf)} rows")
+
+                    # Perform spatial matching between roof instances and roofs
+                    roofs_gdf = features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
+                    if len(roofs_gdf) > 0 and len(roof_age_gdf) > 0:
+                        logger.debug(
+                            f"Chunk {chunk_id}: Linking {len(roof_age_gdf)} roof instances to {len(roofs_gdf)} roofs"
+                        )
+                        roof_age_gdf_linked, roofs_gdf_linked = parcels.link_roof_instances_to_roofs(
+                            roof_age_gdf, roofs_gdf
+                        )
+
+                        # Update features_gdf with linked data
+                        # Remove old roof instances and roofs, add linked versions
+                        non_roof_features = features_gdf[
+                            (features_gdf["class_id"] != ROOF_ID) &
+                            (features_gdf["class_id"] != roof_age_gdf["class_id"].iloc[0])
+                        ]
+                        features_gdf = gpd.GeoDataFrame(
+                            pd.concat([non_roof_features, roofs_gdf_linked, roof_age_gdf_linked], ignore_index=False),
+                            crs=API_CRS
+                        )
+                        logger.debug(
+                            f"Chunk {chunk_id}: After linking, features_gdf has {len(features_gdf)} rows"
+                        )
 
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(

@@ -9,6 +9,7 @@ This module provides functions for:
 The rollup functions aggregate multiple features within each AOI into summary statistics
 and select "primary" features for detailed attribute extraction.
 """
+import json
 from typing import Union
 
 import geopandas as gpd
@@ -62,58 +63,203 @@ __all__ = [
 ]
 
 
+def _compute_iou(geom_a, geom_b) -> float:
+    """
+    Compute Intersection over Union (IoU) between two geometries.
+
+    IoU = intersection_area / union_area
+
+    Args:
+        geom_a: First geometry (Shapely Polygon/MultiPolygon)
+        geom_b: Second geometry (Shapely Polygon/MultiPolygon)
+
+    Returns:
+        IoU value between 0.0 and 1.0
+    """
+    if geom_a is None or geom_b is None:
+        return 0.0
+    if geom_a.is_empty or geom_b.is_empty:
+        return 0.0
+    try:
+        intersection = geom_a.intersection(geom_b).area
+        if intersection == 0:
+            return 0.0
+        union = geom_a.union(geom_b).area
+        return intersection / union if union > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
 def link_roof_instances_to_roofs(
     roof_instances_gdf: gpd.GeoDataFrame,
     roofs_gdf: gpd.GeoDataFrame,
-    aoi_gdf: gpd.GeoDataFrame,
-) -> pd.DataFrame:
+) -> tuple:
     """
     Link roof instances from Roof Age API to their parent roof objects from Feature API.
 
     This function spatially matches roof instances (temporal slices with installation dates)
-    to their corresponding roof polygons from the Feature API. This enables correlating
-    roof age information with roof characteristics (material, condition, etc.).
+    to their corresponding roof polygons from the Feature API using Intersection over Union (IoU).
+
+    The matching is bidirectional:
+    - Each roof instance gets a parent_roof_feature_id (the roof with highest IoU)
+    - Each roof gets a primary_roof_instance_feature_id (the instance with highest IoU)
+      plus a list of ALL matched instances ordered by IoU
 
     Args:
         roof_instances_gdf: GeoDataFrame with roof instance features from Roof Age API.
-                           Must have aoi_id index and geometry column.
+                           Must have aoi_id as index or column, feature_id, and geometry.
         roofs_gdf: GeoDataFrame with roof features from Feature API.
-                   Must have aoi_id index, feature_id, and geometry columns.
-        aoi_gdf: GeoDataFrame with AOI boundaries. Used to scope the spatial matching.
+                   Must have aoi_id as index or column, feature_id, and geometry.
 
     Returns:
-        DataFrame with columns:
-            - aoi_id: AOI identifier
-            - roof_instance_id: ID of the roof instance (if available)
-            - parent_roof_feature_id: feature_id of the matched parent roof
-            - intersection_area_sqm: Area of intersection between instance and roof
-            - intersection_pct: Percentage of roof instance covered by parent roof
-
-    Note:
-        This is a stub for future implementation. The matching algorithm should:
-        1. For each AOI, find all roof instances and roofs
-        2. Calculate spatial intersections between instances and roofs
-        3. Match each instance to the roof with maximum intersection
-        4. Handle cases where instances don't match any roof (new construction, etc.)
+        Tuple of (roof_instances_with_links, roofs_with_links):
+            - roof_instances_with_links: Original GDF with added columns:
+                - parent_roof_feature_id: feature_id of best matching roof
+                - iou_with_parent: IoU score with parent roof
+            - roofs_with_links: Original GDF with added columns:
+                - primary_roof_instance_feature_id: feature_id of best matching instance
+                - iou_with_primary_instance: IoU score with primary instance
+                - child_roof_instances: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
 
     Example:
-        >>> # Future usage
-        >>> links_df = link_roof_instances_to_roofs(roof_instances, roofs, aois)
-        >>> # Join to get both roof age and roof characteristics
-        >>> combined = roof_instances.merge(links_df, on='aoi_id')
-        >>> combined = combined.merge(roofs[['feature_id', 'material']],
-        ...                           left_on='parent_roof_feature_id', right_on='feature_id')
+        >>> ri_linked, roofs_linked = link_roof_instances_to_roofs(roof_instances, roofs)
+        >>> # Get primary roof instance for a roof
+        >>> roof = roofs_linked.iloc[0]
+        >>> print(f"Primary instance: {roof.primary_roof_instance_feature_id}, IoU: {roof.iou_with_primary_instance}")
+        >>> # Get all child instances
+        >>> for child in roof.child_roof_instances:
+        ...     print(f"  Instance {child['feature_id']}: IoU={child['iou']:.3f}")
     """
-    # TODO: Implement spatial matching algorithm
-    # For now, return empty DataFrame with expected schema
-    logger.warning("link_roof_instances_to_roofs is not yet implemented - returning empty DataFrame")
-    return pd.DataFrame(columns=[
-        AOI_ID_COLUMN_NAME,
-        "roof_instance_id",
-        "parent_roof_feature_id",
-        "intersection_area_sqm",
-        "intersection_pct",
-    ])
+    from shapely.strtree import STRtree
+
+    # Handle empty inputs
+    if len(roof_instances_gdf) == 0 or len(roofs_gdf) == 0:
+        # Add empty columns and return
+        ri_out = roof_instances_gdf.copy()
+        ri_out["parent_roof_feature_id"] = None
+        ri_out["iou_with_parent"] = 0.0
+
+        rf_out = roofs_gdf.copy()
+        rf_out["primary_roof_instance_feature_id"] = None
+        rf_out["iou_with_primary_instance"] = 0.0
+        rf_out["child_roof_instances"] = "[]"  # JSON-serialized empty list
+
+        return ri_out, rf_out
+
+    # Ensure we have aoi_id as a column for grouping
+    ri_gdf = roof_instances_gdf.copy()
+    rf_gdf = roofs_gdf.copy()
+
+    # Handle index vs column for aoi_id
+    if ri_gdf.index.name == AOI_ID_COLUMN_NAME:
+        ri_gdf = ri_gdf.reset_index()
+    if rf_gdf.index.name == AOI_ID_COLUMN_NAME:
+        rf_gdf = rf_gdf.reset_index()
+
+    # Initialize output columns
+    ri_gdf["parent_roof_feature_id"] = None
+    ri_gdf["iou_with_parent"] = 0.0
+
+    rf_gdf["primary_roof_instance_feature_id"] = None
+    rf_gdf["iou_with_primary_instance"] = 0.0
+    rf_gdf["child_roof_instances"] = "[]"  # JSON-serialized empty list for parquet compatibility
+
+    # Get unique AOIs that have both roof instances and roofs
+    ri_aois = set(ri_gdf[AOI_ID_COLUMN_NAME].unique())
+    rf_aois = set(rf_gdf[AOI_ID_COLUMN_NAME].unique())
+    common_aois = ri_aois & rf_aois
+
+    logger.debug(f"Linking roof instances to roofs for {len(common_aois)} AOIs")
+
+    # Process per AOI for locality
+    for aoi_id in common_aois:
+        # Get roof instances and roofs for this AOI
+        ri_mask = ri_gdf[AOI_ID_COLUMN_NAME] == aoi_id
+        rf_mask = rf_gdf[AOI_ID_COLUMN_NAME] == aoi_id
+
+        aoi_instances = ri_gdf[ri_mask]
+        aoi_roofs = rf_gdf[rf_mask]
+
+        if len(aoi_instances) == 0 or len(aoi_roofs) == 0:
+            continue
+
+        # Build spatial index for roofs
+        roof_geoms = aoi_roofs.geometry.values
+        roof_tree = STRtree(roof_geoms)
+        roof_df_indices = aoi_roofs.index.values
+        roof_feature_ids = aoi_roofs["feature_id"].values
+
+        # Build mapping from roof df index to position in arrays
+        roof_idx_to_pos = {idx: pos for pos, idx in enumerate(roof_df_indices)}
+
+        # For each roof, collect all matching instances with IoU
+        roof_to_instances = {idx: [] for idx in roof_df_indices}
+
+        # For each roof instance, find best matching roof
+        for ri_idx, instance_row in aoi_instances.iterrows():
+            instance_geom = instance_row.geometry
+            instance_feature_id = instance_row["feature_id"]
+
+            if instance_geom is None or instance_geom.is_empty:
+                continue
+
+            # Get candidate roofs (those that intersect bounding box)
+            candidates = roof_tree.query(instance_geom)
+
+            if len(candidates) == 0:
+                continue
+
+            best_iou = 0.0
+            best_roof_idx = None
+            best_roof_feature_id = None
+
+            for candidate_pos in candidates:
+                roof_df_idx = roof_df_indices[candidate_pos]
+                roof_geom = roof_geoms[candidate_pos]
+                roof_fid = roof_feature_ids[candidate_pos]
+
+                iou = _compute_iou(instance_geom, roof_geom)
+
+                if iou > 0:
+                    # Record this match for the roof's child list
+                    roof_to_instances[roof_df_idx].append({
+                        "feature_id": instance_feature_id,
+                        "iou": round(iou, 4),
+                    })
+
+                if iou > best_iou:
+                    best_iou = iou
+                    best_roof_idx = roof_df_idx
+                    best_roof_feature_id = roof_fid
+
+            # Assign parent to roof instance
+            if best_roof_idx is not None and best_iou > 0:
+                ri_gdf.at[ri_idx, "parent_roof_feature_id"] = best_roof_feature_id
+                ri_gdf.at[ri_idx, "iou_with_parent"] = round(best_iou, 4)
+
+        # For each roof, sort instances by IoU and assign primary
+        for roof_df_idx, instances in roof_to_instances.items():
+            if len(instances) == 0:
+                continue
+
+            # Sort by IoU descending
+            sorted_instances = sorted(instances, key=lambda x: x["iou"], reverse=True)
+
+            # Assign to roof (JSON-serialize list for parquet compatibility)
+            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
+            rf_gdf.at[roof_df_idx, "primary_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
+            rf_gdf.at[roof_df_idx, "iou_with_primary_instance"] = sorted_instances[0]["iou"]
+
+    # Restore aoi_id as index
+    ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
+    rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
+
+    logger.debug(
+        f"Linked {(ri_gdf['parent_roof_feature_id'].notna()).sum()} roof instances to parent roofs, "
+        f"{(rf_gdf['primary_roof_instance_feature_id'].notna()).sum()} roofs have primary instances"
+    )
+
+    return ri_gdf, rf_gdf
 
 
 def feature_attributes(
@@ -213,6 +359,26 @@ def feature_attributes(
                 if class_id == ROOF_ID:
                     primary_attributes = flatten_roof_attributes([primary_feature], country=country)
                     primary_attributes["feature_id"] = primary_feature.feature_id
+
+                    # Add matched roof instance attributes if spatial matching was performed
+                    if "primary_roof_instance_feature_id" in primary_feature.index:
+                        matched_instance_id = primary_feature.get("primary_roof_instance_feature_id")
+                        matched_iou = primary_feature.get("iou_with_primary_instance", 0.0)
+                        if matched_instance_id is not None and pd.notna(matched_instance_id):
+                            primary_attributes["matched_roof_instance_feature_id"] = matched_instance_id
+                            primary_attributes["matched_roof_instance_iou"] = matched_iou
+
+                            # Look up the matched roof instance to get its attributes
+                            matched_instances = features_gdf[
+                                (features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID) &
+                                (features_gdf["feature_id"] == matched_instance_id)
+                            ]
+                            if len(matched_instances) > 0:
+                                matched_instance = matched_instances.iloc[0]
+                                matched_attrs = flatten_roof_instance_attributes(
+                                    matched_instance, country=country, prefix="matched_"
+                                )
+                                primary_attributes.update(matched_attrs)
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
                 elif class_id == ROOF_INSTANCE_CLASS_ID:
