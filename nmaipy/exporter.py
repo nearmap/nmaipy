@@ -209,6 +209,7 @@ def export_feature_class(
     country: str,
     output_stem: Path,
     include_geometry: bool = True,
+    aoi_columns: list = None,
 ) -> tuple:
     """
     Export features of a single class to CSV and GeoParquet.
@@ -220,6 +221,7 @@ def export_feature_class(
         country: Country code for units (us, au, etc.)
         output_stem: Base path for output files (without extension)
         include_geometry: Whether to include geometry in output
+        aoi_columns: Additional columns from the AOI input file to include (e.g., ["Property Id"])
 
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
@@ -254,6 +256,9 @@ def export_feature_class(
         "match_quality", "matchQuality",  # Geocoding quality
         "geocode_source", "geocodeSource",  # Geocoding source
     ]
+    # Add any additional AOI columns from the input file (e.g., "Property Id")
+    if aoi_columns:
+        metadata_cols = metadata_cols + [c for c in aoi_columns if c not in metadata_cols]
     for col in metadata_cols:
         if col in class_features.columns and col not in added_cols:
             flat_df[col] = class_features[col].values
@@ -2015,6 +2020,17 @@ class NearmapAIExporter(BaseExporter):
                     for class_id in classes_df.index:
                         class_descriptions[class_id] = classes_df.loc[class_id, "description"]
 
+                # Extract input-file columns from AOI (excluding system columns)
+                # These will be added to the per-class exports
+                system_columns = {
+                    AOI_ID_COLUMN_NAME, "geometry", SINCE_COL_NAME, UNTIL_COL_NAME,
+                    SURVEY_RESOURCE_ID_COL_NAME, "query_aoi_lat", "query_aoi_lon",
+                }
+                aoi_input_columns = [
+                    c for c in aoi_gdf.columns
+                    if c not in system_columns and c not in ADDRESS_FIELDS
+                ]
+
                 # Export each class
                 for class_id in unique_classes:
                     description = class_descriptions.get(class_id, f"class_{class_id[:8]}")
@@ -2025,6 +2041,7 @@ class NearmapAIExporter(BaseExporter):
                         country=self.country,
                         output_stem=output_stem,
                         include_geometry=True,
+                        aoi_columns=aoi_input_columns,
                     )
                     if csv_path:
                         self.logger.info(f"  Exported {description}: {csv_path.name}")
