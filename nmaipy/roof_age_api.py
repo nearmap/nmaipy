@@ -266,15 +266,21 @@ class RoofAgeApi(BaseApiClient):
             )
 
         # Parse features into records
+        # Filter to only include actual roof instances (kind == "roof")
+        # The API also returns "parcel" features which are property boundaries, not roofs
         records = []
         geometries = []
         for feature in features:
+            # Extract properties first to check kind
+            props = feature.get("properties", {})
+
+            # Skip non-roof features (e.g., "parcel" features are property boundaries)
+            if props.get("kind") != "roof":
+                continue
+
             # Extract geometry
             geom = shape(feature["geometry"])
             geometries.append(geom)
-
-            # Extract properties and add aoi_id
-            props = feature.get("properties", {})
             props[AOI_ID_COLUMN_NAME] = aoi_id
 
             # Add class_id and description for unified feature model
