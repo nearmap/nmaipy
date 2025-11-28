@@ -261,26 +261,33 @@ def flatten_roof_instance_attributes(
     """
     flattened = {}
 
-    # Helper to get value from dict or Series
-    def get_value(key):
+    # Helper to get value from dict or Series, checking both camelCase and snake_case
+    def get_value(camel_key, snake_key=None):
+        """Get value checking both camelCase (API default) and snake_case (potential conversion)."""
         if isinstance(roof_instance, dict):
-            return roof_instance.get(key)
+            val = roof_instance.get(camel_key)
+            if val is None and snake_key:
+                val = roof_instance.get(snake_key)
+            return val
         elif isinstance(roof_instance, pd.Series):
-            return roof_instance.get(key) if key in roof_instance.index else None
+            if camel_key in roof_instance.index:
+                return roof_instance.get(camel_key)
+            elif snake_key and snake_key in roof_instance.index:
+                return roof_instance.get(snake_key)
         return None
 
     # Installation date
-    installation_date = get_value(ROOF_AGE_INSTALLATION_DATE_FIELD)
+    installation_date = get_value(ROOF_AGE_INSTALLATION_DATE_FIELD, "installation_date")
     if installation_date is not None:
         flattened[f"{prefix}installation_date"] = installation_date
 
     # Until date (when this estimate is valid until)
-    until_date = get_value(ROOF_AGE_UNTIL_DATE_FIELD)
+    until_date = get_value(ROOF_AGE_UNTIL_DATE_FIELD, "until_date")
     if until_date is not None:
         flattened[f"{prefix}until_date"] = until_date
 
     # Trust score (confidence in the installation date)
-    trust_score = get_value(ROOF_AGE_TRUST_SCORE_FIELD)
+    trust_score = get_value(ROOF_AGE_TRUST_SCORE_FIELD, "trust_score")
     if trust_score is not None:
         flattened[f"{prefix}trust_score"] = trust_score
 
@@ -289,47 +296,47 @@ def flatten_roof_instance_attributes(
     # and exporter.py. Adding them here would create duplicate columns.
 
     # Evidence type and description
-    evidence_type = get_value(ROOF_AGE_EVIDENCE_TYPE_FIELD)
+    evidence_type = get_value(ROOF_AGE_EVIDENCE_TYPE_FIELD, "evidence_type")
     if evidence_type is not None:
         flattened[f"{prefix}evidence_type"] = evidence_type
 
-    evidence_desc = get_value(ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD)
+    evidence_desc = get_value(ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD, "evidence_type_description")
     if evidence_desc is not None:
         flattened[f"{prefix}evidence_type_description"] = evidence_desc
 
     # Capture date information
-    before_capture = get_value(ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD)
+    before_capture = get_value(ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD, "before_installation_capture_date")
     if before_capture is not None:
         flattened[f"{prefix}before_installation_capture_date"] = before_capture
 
-    after_capture = get_value(ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD)
+    after_capture = get_value(ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD, "after_installation_capture_date")
     if after_capture is not None:
         flattened[f"{prefix}after_installation_capture_date"] = after_capture
 
-    min_capture = get_value(ROOF_AGE_MIN_CAPTURE_DATE_FIELD)
+    min_capture = get_value(ROOF_AGE_MIN_CAPTURE_DATE_FIELD, "min_capture_date")
     if min_capture is not None:
         flattened[f"{prefix}min_capture_date"] = min_capture
 
-    max_capture = get_value(ROOF_AGE_MAX_CAPTURE_DATE_FIELD)
+    max_capture = get_value(ROOF_AGE_MAX_CAPTURE_DATE_FIELD, "max_capture_date")
     if max_capture is not None:
         flattened[f"{prefix}max_capture_date"] = max_capture
 
-    num_captures = get_value(ROOF_AGE_NUM_CAPTURES_FIELD)
+    num_captures = get_value(ROOF_AGE_NUM_CAPTURES_FIELD, "number_of_captures")
     if num_captures is not None:
         flattened[f"{prefix}number_of_captures"] = num_captures
 
     # Kind (roof type classification)
-    kind = get_value(ROOF_AGE_KIND_FIELD)
+    kind = get_value(ROOF_AGE_KIND_FIELD, "kind")
     if kind is not None:
         flattened[f"{prefix}kind"] = kind
 
     # Relevant permits (JSON serialized for parquet compatibility)
-    relevant_permits = get_value(ROOF_AGE_RELEVANT_PERMITS_FIELD)
+    relevant_permits = get_value(ROOF_AGE_RELEVANT_PERMITS_FIELD, "relevant_permits")
     if relevant_permits is not None:
         flattened[f"{prefix}relevant_permits"] = json.dumps(relevant_permits) if isinstance(relevant_permits, (dict, list)) else relevant_permits
 
     # Assessor data (JSON serialized for parquet compatibility)
-    assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD)
+    assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD, "assessor_data")
     if assessor_data is not None:
         flattened[f"{prefix}assessor_data"] = json.dumps(assessor_data) if isinstance(assessor_data, (dict, list)) else assessor_data
 

@@ -609,7 +609,17 @@ def parcel_rollup(
             primary_lon=primary_lon,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
-        parcel["mesh_date"] = group.mesh_date.iloc[0]
+        if "mesh_date" in group.columns:
+            parcel["mesh_date"] = group.mesh_date.iloc[0]
+
+        # Add metadata fields from parcels_gdf (address, coordinates, etc.)
+        parcel_row = parcels_gdf.loc[aoi_id]
+        for col in parcels_gdf.columns:
+            if col not in ["geometry"] and col not in parcel:
+                try:
+                    parcel[col] = parcel_row[col]
+                except (KeyError, IndexError):
+                    pass
         rollups.append(parcel)
     # Loop over parcels without features in them
     if country in IMPERIAL_COUNTRIES:
@@ -634,7 +644,14 @@ def parcel_rollup(
             parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
         )
-        parcel[AOI_ID_COLUMN_NAME] = row._asdict()["Index"]
+        row_dict = row._asdict()
+        parcel[AOI_ID_COLUMN_NAME] = row_dict["Index"]
+
+        # Add metadata fields from parcels_gdf (address, coordinates, etc.)
+        for col in parcels_gdf.columns:
+            if col not in ["geometry"] and col not in parcel:
+                if col in row_dict:
+                    parcel[col] = row_dict[col]
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)

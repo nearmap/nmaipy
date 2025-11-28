@@ -247,6 +247,18 @@ def export_feature_class(
         flat_df[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].values
         added_cols.add(AOI_ID_COLUMN_NAME)
 
+    # Add metadata columns (address fields, coordinates, etc.) if present
+    # These come from the merged features parquet which includes AOI metadata
+    metadata_cols = list(ADDRESS_FIELDS) + [
+        "lat", "lon", "latitude", "longitude",  # Coordinates
+        "match_quality", "matchQuality",  # Geocoding quality
+        "geocode_source", "geocodeSource",  # Geocoding source
+    ]
+    for col in metadata_cols:
+        if col in class_features.columns and col not in added_cols:
+            flat_df[col] = class_features[col].values
+            added_cols.add(col)
+
     # Add standard columns
     if "feature_id" in class_features.columns:
         flat_df["feature_id"] = class_features["feature_id"].values
@@ -368,9 +380,11 @@ def export_feature_class(
                 # Use survey_date for Feature API classes, installation_date for roof instances
                 date_val = None
                 if class_id == ROOF_INSTANCE_CLASS_ID:
-                    # Try to get installation_date from the flattened attributes or original columns
+                    # Try to get installation_date - check both camelCase (API) and snake_case
                     if ROOF_AGE_INSTALLATION_DATE_FIELD in row.index:
                         date_val = row[ROOF_AGE_INSTALLATION_DATE_FIELD]
+                    elif "installation_date" in row.index:
+                        date_val = row["installation_date"]
                 else:
                     if "survey_date" in row.index:
                         date_val = row["survey_date"]
