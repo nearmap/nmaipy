@@ -158,16 +158,6 @@ def link_roof_instances_to_roofs(
     if rf_gdf.index.name == AOI_ID_COLUMN_NAME:
         rf_gdf = rf_gdf.reset_index()
 
-    # Filter out "parcel" kind features from roof instances for spatial matching
-    # The Roof Age API returns both "roof" and "parcel" kind features.
-    # "parcel" features are property boundaries with attached roof age info when no roof instance exists.
-    # These should NOT be matched as children of Feature API roofs (they're not actual roof instances)
-    if "kind" in ri_gdf.columns:
-        parcel_mask = ri_gdf["kind"] == "parcel"
-        if parcel_mask.any():
-            logger.debug(f"Excluding {parcel_mask.sum()} 'parcel' kind features from roof instance matching")
-            ri_gdf = ri_gdf[~parcel_mask].copy()
-
     # Initialize output columns
     ri_gdf["parent_id"] = None
     ri_gdf["parent_iou"] = 0.0
@@ -235,9 +225,12 @@ def link_roof_instances_to_roofs(
 
                 if iou > 0:
                     # Record this match for the roof's child list
+                    # Include "kind" for sorting (prioritize "roof" over "parcel")
+                    instance_kind = instance_row.get("kind") if "kind" in instance_row.index else None
                     roof_to_instances[roof_df_idx].append({
                         "feature_id": instance_feature_id,
                         "iou": round(iou, 4),
+                        "kind": instance_kind,
                     })
 
                 if iou > best_iou:
@@ -255,8 +248,13 @@ def link_roof_instances_to_roofs(
             if len(instances) == 0:
                 continue
 
-            # Sort by IoU descending
-            sorted_instances = sorted(instances, key=lambda x: x["iou"], reverse=True)
+            # Sort by kind first (prioritize "roof" over "parcel"), then by IoU descending
+            # kind_priority: "roof"=0 (first), "parcel"=1, other/None=2
+            def instance_sort_key(x):
+                kind = x.get("kind")
+                kind_priority = 0 if kind == "roof" else (1 if kind == "parcel" else 2)
+                return (kind_priority, -x["iou"])
+            sorted_instances = sorted(instances, key=instance_sort_key)
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
             rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
