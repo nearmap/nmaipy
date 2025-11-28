@@ -158,6 +158,16 @@ def link_roof_instances_to_roofs(
     if rf_gdf.index.name == AOI_ID_COLUMN_NAME:
         rf_gdf = rf_gdf.reset_index()
 
+    # Filter out "parcel" kind features from roof instances for spatial matching
+    # The Roof Age API returns both "roof" and "parcel" kind features.
+    # "parcel" features are property boundaries with attached roof age info when no roof instance exists.
+    # These should NOT be matched as children of Feature API roofs (they're not actual roof instances)
+    if "kind" in ri_gdf.columns:
+        parcel_mask = ri_gdf["kind"] == "parcel"
+        if parcel_mask.any():
+            logger.debug(f"Excluding {parcel_mask.sum()} 'parcel' kind features from roof instance matching")
+            ri_gdf = ri_gdf[~parcel_mask].copy()
+
     # Initialize output columns
     ri_gdf["parent_id"] = None
     ri_gdf["parent_iou"] = 0.0

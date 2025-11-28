@@ -104,7 +104,9 @@ def test_build_request_payload_address(roof_age_api):
     payload = roof_age_api._build_request_payload(address=address)
 
     assert "address" in payload
-    assert payload["address"] == address
+    # The API adds a "country" field to the address
+    expected_address = {**address, "country": "US"}
+    assert payload["address"] == expected_address
 
 
 def test_build_request_payload_both_raises(roof_age_api, test_aoi_nj):
@@ -292,7 +294,7 @@ def test_bulk_query(roof_age_api, test_roof_age_response):
 
 
 def test_bulk_query_with_errors(roof_age_api):
-    """Test bulk query error handling"""
+    """Test bulk query error handling - errors are returned in errors_df, not raised"""
     # Create a small GeoDataFrame
     aois = [
         Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]),
@@ -320,14 +322,16 @@ def test_bulk_query_with_errors(roof_age_api):
 
         mock_get.side_effect = side_effect
 
-        roofs_gdf, metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf, max_allowed_error_pct=50)
+        # The bulk method returns errors in errors_df rather than raising exceptions
+        roofs_gdf, metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf)
 
         assert len(roofs_gdf) == 1  # One success
         assert len(errors_df) == 1  # One error
+        assert errors_df.index[0] == 1  # The failed AOI
 
 
-def test_bulk_query_too_many_errors(roof_age_api):
-    """Test that bulk query raises error if too many requests fail"""
+def test_bulk_query_all_errors(roof_age_api):
+    """Test that bulk query returns all errors when all requests fail"""
     aois = [Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]])]
     aoi_gdf = gpd.GeoDataFrame(
         geometry=aois,
@@ -339,5 +343,9 @@ def test_bulk_query_too_many_errors(roof_age_api):
     with patch.object(roof_age_api, 'get_roof_age_by_aoi') as mock_get:
         mock_get.side_effect = RoofAgeAPIError(None, "test_url", message="Test error")
 
-        with pytest.raises(ValueError, match="Error rate .* exceeds maximum"):
-            roof_age_api.get_roof_age_bulk(aoi_gdf, max_allowed_error_pct=10)
+        # All errors are returned in errors_df
+        roofs_gdf, metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf)
+
+        assert len(roofs_gdf) == 0  # No successes
+        assert len(errors_df) == 1  # One error
+        assert "message" in errors_df.columns

@@ -266,17 +266,13 @@ class RoofAgeApi(BaseApiClient):
             )
 
         # Parse features into records
-        # Filter to only include actual roof instances (kind == "roof")
-        # The API also returns "parcel" features which are property boundaries, not roofs
+        # Note: The API returns both "roof" and "parcel" kind features
+        # "parcel" features are property boundaries with attached roof age info when no roof instance exists
+        # We keep both, but "parcel" features should be excluded during parent/child matching with Feature API roofs
         records = []
         geometries = []
         for feature in features:
-            # Extract properties first to check kind
             props = feature.get("properties", {})
-
-            # Skip non-roof features (e.g., "parcel" features are property boundaries)
-            if props.get("kind") != "roof":
-                continue
 
             # Extract geometry
             geom = shape(feature["geometry"])
@@ -476,7 +472,8 @@ class RoofAgeApi(BaseApiClient):
                 metadata = {
                     AOI_ID_COLUMN_NAME: aoi_id,
                 }
-                if ROOF_AGE_RESOURCE_ID_FIELD in roofs_gdf.columns:
+                # Only extract resourceId if we have roofs (DataFrame may be empty after filtering)
+                if len(roofs_gdf) > 0 and ROOF_AGE_RESOURCE_ID_FIELD in roofs_gdf.columns:
                     metadata[ROOF_AGE_RESOURCE_ID_FIELD] = roofs_gdf[ROOF_AGE_RESOURCE_ID_FIELD].iloc[0]
 
                 return ("success", roofs_gdf, metadata, None)
