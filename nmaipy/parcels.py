@@ -29,6 +29,7 @@ from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
+    ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     MeasurementUnits,
@@ -299,18 +300,27 @@ def feature_attributes(
         # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
         parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(class_features_gdf)
-        if country in IMPERIAL_COUNTRIES:
-            parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum()
-            parcel[f"{name}_total_clipped_area_sqft"] = round(class_features_gdf.clipped_area_sqft.sum(), 1)
-            parcel[f"{name}_total_unclipped_area_sqft"] = round(class_features_gdf.unclipped_area_sqft.sum(), 1)
+
+        # Roof instances only have area (not clipped/unclipped) and trust_score (not confidence)
+        if class_id == ROOF_INSTANCE_CLASS_ID:
+            if country in IMPERIAL_COUNTRIES:
+                parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum() if "area_sqft" in class_features_gdf.columns else 0.0
+            else:
+                parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum() if "area_sqm" in class_features_gdf.columns else 0.0
         else:
-            parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum()
-            parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.clipped_area_sqm.sum(), 1)
-            parcel[f"{name}_total_unclipped_area_sqm"] = round(class_features_gdf.unclipped_area_sqm.sum(), 1)
-        if len(class_features_gdf) > 0:
-            parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
-        else:
-            parcel[f"{name}_confidence"] = None
+            # Standard Feature API classes have clipped/unclipped areas and confidence
+            if country in IMPERIAL_COUNTRIES:
+                parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum() if "area_sqft" in class_features_gdf.columns else 0.0
+                parcel[f"{name}_total_clipped_area_sqft"] = round(class_features_gdf.clipped_area_sqft.sum(), 1) if "clipped_area_sqft" in class_features_gdf.columns else 0.0
+                parcel[f"{name}_total_unclipped_area_sqft"] = round(class_features_gdf.unclipped_area_sqft.sum(), 1) if "unclipped_area_sqft" in class_features_gdf.columns else 0.0
+            else:
+                parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum() if "area_sqm" in class_features_gdf.columns else 0.0
+                parcel[f"{name}_total_clipped_area_sqm"] = round(class_features_gdf.clipped_area_sqm.sum(), 1) if "clipped_area_sqm" in class_features_gdf.columns else 0.0
+                parcel[f"{name}_total_unclipped_area_sqm"] = round(class_features_gdf.unclipped_area_sqm.sum(), 1) if "unclipped_area_sqm" in class_features_gdf.columns else 0.0
+            if len(class_features_gdf) > 0 and "confidence" in class_features_gdf.columns:
+                parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
+            else:
+                parcel[f"{name}_confidence"] = None
 
         if class_id in BUILDING_STYLE_CLASS_IDS:
             col = "multiparcel_feature"
@@ -319,37 +329,63 @@ def feature_attributes(
 
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:
+            # Roof instances have different columns than standard Feature API classes
+            is_roof_instance = (class_id == ROOF_INSTANCE_CLASS_ID)
+
             if len(class_features_gdf) == 0:
                 # Fill values if there are no features
-                parcel[f"primary_{name}_area_{area_units}"] = 0.0
-                parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
-                parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
-                parcel[f"primary_{name}_confidence"] = None
+                # Roof instances only have area (not clipped/unclipped) and no confidence
+                if is_roof_instance:
+                    parcel[f"primary_{name}_area_{area_units}"] = 0.0
+                else:
+                    parcel[f"primary_{name}_area_{area_units}"] = 0.0
+                    parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
+                    parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
+                    parcel[f"primary_{name}_confidence"] = None
                 continue
 
             # Select primary feature using shared selection logic
             # Note: For Feature API data, geometry_feature is the feature's own geometry
             # (vs geometry which may be the AOI geometry after merging)
-            primary_feature = select_primary(
-                class_features_gdf,
-                method=primary_decision,
-                area_col="clipped_area_sqm",
-                secondary_area_col="unclipped_area_sqm",
-                target_lat=primary_lat,
-                target_lon=primary_lon,
-                confidence_col="confidence",
-                high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
-                geometry_col="geometry_feature",
-            )
-            if country in IMPERIAL_COUNTRIES:
-                parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
-                parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
+            # Roof instances use area_sqm and trust_score instead of clipped_area_sqm and confidence
+            if is_roof_instance:
+                primary_feature = select_primary(
+                    class_features_gdf,
+                    method=primary_decision,
+                    area_col="area_sqm",
+                    secondary_area_col=None,
+                    target_lat=primary_lat,
+                    target_lon=primary_lon,
+                    confidence_col=ROOF_AGE_TRUST_SCORE_FIELD if ROOF_AGE_TRUST_SCORE_FIELD in class_features_gdf.columns else None,
+                    high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+                    geometry_col="geometry_feature" if "geometry_feature" in class_features_gdf.columns else "geometry",
+                )
+                # Roof instances only have area (not clipped/unclipped)
+                if country in IMPERIAL_COUNTRIES:
+                    parcel[f"primary_{name}_area_sqft"] = round(primary_feature.area_sqft, 1) if hasattr(primary_feature, "area_sqft") and primary_feature.area_sqft is not None else 0.0
+                else:
+                    parcel[f"primary_{name}_area_sqm"] = round(primary_feature.area_sqm, 1) if hasattr(primary_feature, "area_sqm") and primary_feature.area_sqm is not None else 0.0
             else:
-                parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
-                parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
-            parcel[f"primary_{name}_confidence"] = primary_feature.confidence
-            if class_id in BUILDING_STYLE_CLASS_IDS:
-                parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
+                primary_feature = select_primary(
+                    class_features_gdf,
+                    method=primary_decision,
+                    area_col="clipped_area_sqm",
+                    secondary_area_col="unclipped_area_sqm",
+                    target_lat=primary_lat,
+                    target_lon=primary_lon,
+                    confidence_col="confidence",
+                    high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+                    geometry_col="geometry_feature",
+                )
+                if country in IMPERIAL_COUNTRIES:
+                    parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
+                else:
+                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
+                parcel[f"primary_{name}_confidence"] = primary_feature.confidence
+                if class_id in BUILDING_STYLE_CLASS_IDS:
+                    parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
 
             # Add roof and building attributes
             if class_id in BUILDING_STYLE_CLASS_IDS:
@@ -368,7 +404,7 @@ def feature_attributes(
                     parcel[f"primary_{name}_" + str(key)] = val
 
             # Add roof instance attributes (separate from BUILDING_STYLE_CLASS_IDS)
-            elif class_id == ROOF_INSTANCE_CLASS_ID:
+            elif is_roof_instance:
                 primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
                 primary_attributes["feature_id"] = primary_feature.feature_id
                 for key, val in primary_attributes.items():

@@ -253,22 +253,32 @@ def export_feature_class(
     added_cols.add("class_id")
     flat_df["class_description"] = class_description
     added_cols.add("class_description")
-    if "confidence" in class_features.columns:
-        flat_df["confidence"] = class_features["confidence"].values
-        added_cols.add("confidence")
+
+    # Roof instances don't have confidence (they have trust_score instead)
+    # Only add confidence for non-roof-instance classes
+    if class_id != ROOF_INSTANCE_CLASS_ID:
+        if "confidence" in class_features.columns:
+            flat_df["confidence"] = class_features["confidence"].values
+            added_cols.add("confidence")
 
     # Add area fields (vectorized) - skip if already added
-    for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm",
-                "area_sqft", "clipped_area_sqft", "unclipped_area_sqft"]:
+    # Roof instances only have area_sqm (no clipped/unclipped distinction)
+    if class_id == ROOF_INSTANCE_CLASS_ID:
+        area_cols = ["area_sqm", "area_sqft"]
+    else:
+        area_cols = ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm",
+                     "area_sqft", "clipped_area_sqft", "unclipped_area_sqft"]
+    for col in area_cols:
         if col in class_features.columns and col not in added_cols:
             flat_df[col] = class_features[col].values
             added_cols.add(col)
 
-    # Add date fields (vectorized)
-    for col in ["survey_date", "mesh_date"]:
-        if col in class_features.columns and col not in added_cols:
-            flat_df[col] = class_features[col].values
-            added_cols.add(col)
+    # Add date fields (vectorized) - not applicable to roof instances
+    if class_id != ROOF_INSTANCE_CLASS_ID:
+        for col in ["survey_date", "mesh_date"]:
+            if col in class_features.columns and col not in added_cols:
+                flat_df[col] = class_features[col].values
+                added_cols.add(col)
 
     # Add class-specific attributes for roof instances
     if class_id == ROOF_INSTANCE_CLASS_ID:
@@ -309,6 +319,38 @@ def export_feature_class(
             if col in class_features.columns and col not in added_cols:
                 flat_df[col] = class_features[col].values
                 added_cols.add(col)
+
+        # Add flattened attributes of the primary child roof instance
+        # Look up roof instances from the full features_gdf and join on primary_child_roof_instance_feature_id
+        if "primary_child_roof_instance_feature_id" in class_features.columns:
+            # Get roof instances from the full features_gdf
+            roof_instances = features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID].copy()
+            if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
+                from nmaipy.feature_attributes import flatten_roof_instance_attributes
+
+                # Build a mapping from feature_id to flattened attributes
+                ri_attrs = {}
+                for _, ri_row in roof_instances.iterrows():
+                    try:
+                        attrs = flatten_roof_instance_attributes(ri_row, country=country, prefix="primary_child_roof_instance_")
+                        ri_attrs[ri_row["feature_id"]] = attrs
+                    except Exception:
+                        pass
+
+                # Add attributes for each roof based on its primary child
+                if ri_attrs:
+                    # Get all unique attribute keys
+                    all_attr_keys = set()
+                    for attrs in ri_attrs.values():
+                        all_attr_keys.update(attrs.keys())
+
+                    # Add columns for each attribute
+                    for attr_key in sorted(all_attr_keys):
+                        if attr_key not in added_cols:
+                            flat_df[attr_key] = class_features["primary_child_roof_instance_feature_id"].apply(
+                                lambda fid: ri_attrs.get(fid, {}).get(attr_key) if pd.notna(fid) else None
+                            ).values
+                            added_cols.add(attr_key)
 
     # Add geometry as WKT for CSV (vectorized)
     if include_geometry and "geometry" in class_features.columns:
