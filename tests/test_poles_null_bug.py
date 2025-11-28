@@ -132,12 +132,9 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
     
     # The belongs_to_parcel column should exist
     assert 'belongs_to_parcel' in gdf.columns, "belongs_to_parcel column not found in features"
-    # BUG: belongs_to_parcel has mixed types (bool and None) when poles are included
+    # Note: belongs_to_parcel has mixed types (bool and None) for poles - this is a known issue
     # Poles don't have belongsToParcel in the API response, so they get None values
-    # This causes the dtype to be 'object' instead of 'bool', which is incorrect
-    # The code should handle this by defaulting poles to False for belongs_to_parcel
-    assert gdf['belongs_to_parcel'].dtype == bool, \
-        f"belongs_to_parcel dtype should be bool, got {gdf['belongs_to_parcel'].dtype}"
+    assert gdf['belongs_to_parcel'].dtype == bool, "belongs_to_parcel dtype is not boolean"
 
     
         
