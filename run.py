@@ -23,7 +23,7 @@ if __name__ == "__main__":
         output_dir='data/outputs/features_only',
         country='us',
         packs=['building', 'vegetation'],  # Options: building, vegetation, surfaces, pools, damage, etc.
-        processes=2,
+        processes=4,
         save_features=True,
         include_parcel_geometry=True,
         roof_age=False,  # Feature API only
@@ -43,7 +43,7 @@ if __name__ == "__main__":
         output_dir='data/outputs/unified',
         country='us',
         packs=['building'],  # Default pack
-        processes=2,
+        processes=4,
         save_features=True,
         include_parcel_geometry=True,
         roof_age=True,  # Also query Roof Age API

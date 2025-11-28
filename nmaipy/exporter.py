@@ -329,7 +329,7 @@ def export_feature_class(
 
     # Add class-specific linkage columns for roofs (linking to roof instances)
     if class_id == ROOF_ID:
-        for col in ["primary_child_roof_instance_feature_id", "primary_child_roof_instance_iou", "child_roof_instances"]:
+        for col in ["primary_child_roof_instance_feature_id", "primary_child_roof_instance_iou", "child_roof_instances", "child_roof_instance_count"]:
             if col in class_features.columns and col not in added_cols:
                 flat_df[col] = class_features[col].values
                 added_cols.add(col)

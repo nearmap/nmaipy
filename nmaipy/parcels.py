@@ -144,6 +144,7 @@ def link_roof_instances_to_roofs(
         rf_out["primary_child_roof_instance_feature_id"] = None
         rf_out["primary_child_roof_instance_iou"] = 0.0
         rf_out["child_roof_instances"] = "[]"  # JSON-serialized empty list
+        rf_out["child_roof_instance_count"] = 0
 
         return ri_out, rf_out
 
@@ -164,6 +165,7 @@ def link_roof_instances_to_roofs(
     rf_gdf["primary_child_roof_instance_feature_id"] = None
     rf_gdf["primary_child_roof_instance_iou"] = 0.0
     rf_gdf["child_roof_instances"] = "[]"  # JSON-serialized empty list for parquet compatibility
+    rf_gdf["child_roof_instance_count"] = 0
 
     # Get unique AOIs that have both roof instances and roofs
     ri_aois = set(ri_gdf[AOI_ID_COLUMN_NAME].unique())
@@ -248,6 +250,7 @@ def link_roof_instances_to_roofs(
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
             rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
+            rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
             rf_gdf.at[roof_df_idx, "primary_child_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
             rf_gdf.at[roof_df_idx, "primary_child_roof_instance_iou"] = sorted_instances[0]["iou"]
 
@@ -397,16 +400,13 @@ def feature_attributes(
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
+                elif class_id == ROOF_INSTANCE_CLASS_ID:
+                    # Roof instances have different attributes than Feature API classes
+                    primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
+                    primary_attributes["feature_id"] = primary_feature.feature_id
                 else:
                     primary_attributes = {}
 
-                for key, val in primary_attributes.items():
-                    parcel[f"primary_{name}_" + str(key)] = val
-
-            # Add roof instance attributes (separate from BUILDING_STYLE_CLASS_IDS)
-            elif is_roof_instance:
-                primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
-                primary_attributes["feature_id"] = primary_feature.feature_id
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
