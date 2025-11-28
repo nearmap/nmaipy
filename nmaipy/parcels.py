@@ -307,17 +307,27 @@ def feature_attributes(
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
 
+        # For roof instances, filter to only "roof" kind for count/area aggregations
+        # "parcel" kind features are property boundaries, not actual roof instances
+        if class_id == ROOF_INSTANCE_CLASS_ID and "kind" in class_features_gdf.columns:
+            roof_kind_features = class_features_gdf[class_features_gdf["kind"] == "roof"]
+        else:
+            roof_kind_features = class_features_gdf
+
         # Add attributes that apply to all feature classes
         # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
-        parcel[f"{name}_present"] = TRUE_STRING if len(class_features_gdf) > 0 else FALSE_STRING
-        parcel[f"{name}_count"] = len(class_features_gdf)
+        # For roof instances, use filtered features (roof kind only) for count
+        features_for_count = roof_kind_features if class_id == ROOF_INSTANCE_CLASS_ID else class_features_gdf
+        parcel[f"{name}_present"] = TRUE_STRING if len(features_for_count) > 0 else FALSE_STRING
+        parcel[f"{name}_count"] = len(features_for_count)
 
         # Roof instances only have area (not clipped/unclipped) and trust_score (not confidence)
         if class_id == ROOF_INSTANCE_CLASS_ID:
+            # Use filtered features (roof kind only) for area aggregation
             if country in IMPERIAL_COUNTRIES:
-                parcel[f"{name}_total_area_sqft"] = class_features_gdf.area_sqft.sum() if "area_sqft" in class_features_gdf.columns else 0.0
+                parcel[f"{name}_total_area_sqft"] = roof_kind_features.area_sqft.sum() if "area_sqft" in roof_kind_features.columns else 0.0
             else:
-                parcel[f"{name}_total_area_sqm"] = class_features_gdf.area_sqm.sum() if "area_sqm" in class_features_gdf.columns else 0.0
+                parcel[f"{name}_total_area_sqm"] = roof_kind_features.area_sqm.sum() if "area_sqm" in roof_kind_features.columns else 0.0
         else:
             # Standard Feature API classes have clipped/unclipped areas and confidence
             if country in IMPERIAL_COUNTRIES:
@@ -360,16 +370,21 @@ def feature_attributes(
             # (vs geometry which may be the AOI geometry after merging)
             # Roof instances use area_sqm and trust_score instead of clipped_area_sqm and confidence
             if is_roof_instance:
+                # Prioritize "roof" kind over "parcel" kind for primary selection
+                # Use roof_kind_features if available, otherwise fall back to all features
+                # (roof_kind_features was computed earlier in this loop iteration)
+                features_for_selection = roof_kind_features if len(roof_kind_features) > 0 else class_features_gdf
+
                 primary_feature = select_primary(
-                    class_features_gdf,
+                    features_for_selection,
                     method=primary_decision,
                     area_col="area_sqm",
                     secondary_area_col=None,
                     target_lat=primary_lat,
                     target_lon=primary_lon,
-                    confidence_col=ROOF_AGE_TRUST_SCORE_FIELD if ROOF_AGE_TRUST_SCORE_FIELD in class_features_gdf.columns else None,
+                    confidence_col=ROOF_AGE_TRUST_SCORE_FIELD if ROOF_AGE_TRUST_SCORE_FIELD in features_for_selection.columns else None,
                     high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
-                    geometry_col="geometry_feature" if "geometry_feature" in class_features_gdf.columns else "geometry",
+                    geometry_col="geometry_feature" if "geometry_feature" in features_for_selection.columns else "geometry",
                 )
                 # Roof instances only have area (not clipped/unclipped)
                 if country in IMPERIAL_COUNTRIES:
