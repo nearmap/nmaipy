@@ -1777,7 +1777,12 @@ class NearmapAIExporter(BaseExporter):
 
         # Helper function to save errors
         def save_errors_to_files(errors_df, outpath_csv, outpath_parquet, error_type):
-            if len(errors_df) > 0 and AOI_ID_COLUMN_NAME in errors_df.columns:
+            # Handle both cases: AOI_ID_COLUMN_NAME as column or as index
+            has_aoi_id = AOI_ID_COLUMN_NAME in errors_df.columns or errors_df.index.name == AOI_ID_COLUMN_NAME
+            if len(errors_df) > 0 and has_aoi_id:
+                # If aoi_id is the index, reset it to be a column for merging
+                if errors_df.index.name == AOI_ID_COLUMN_NAME:
+                    errors_df = errors_df.reset_index()
                 aoi_gdf_for_merge = aoi_gdf.reset_index()
 
                 if isinstance(aoi_gdf, gpd.GeoDataFrame):
