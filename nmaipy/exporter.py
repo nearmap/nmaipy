@@ -39,7 +39,11 @@ from nmaipy.constants import (
     API_CRS,
     BUILDING_STYLE_CLASS_IDS,
     DEFAULT_URL_ROOT,
+    DEPRECATED_CLASS_IDS,
+    FEATURE_CLASS_DESCRIPTIONS,
+    ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
     SINCE_COL_NAME,
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
@@ -220,8 +224,6 @@ def export_feature_class(
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
     """
-    from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
-
     # Filter to this class
     class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
     if len(class_features) == 0:
@@ -352,6 +354,43 @@ def export_feature_class(
                             ).values
                             added_cols.add(attr_key)
 
+    # Add mapbrowser link column
+    # Uses geometry centroid for location and survey_date/installation_date for date
+    if "geometry" in class_features.columns:
+        def make_mapbrowser_link(row):
+            try:
+                geom = row.geometry
+                if geom is None or geom.is_empty:
+                    return None
+                centroid = geom.centroid
+                lat, lon = centroid.y, centroid.x
+
+                # Use survey_date for Feature API classes, installation_date for roof instances
+                date_val = None
+                if class_id == ROOF_INSTANCE_CLASS_ID:
+                    # Try to get installation_date from the flattened attributes or original columns
+                    if ROOF_AGE_INSTALLATION_DATE_FIELD in row.index:
+                        date_val = row[ROOF_AGE_INSTALLATION_DATE_FIELD]
+                else:
+                    if "survey_date" in row.index:
+                        date_val = row["survey_date"]
+
+                # Format date (remove dashes if present)
+                if date_val is not None and pd.notna(date_val):
+                    date_str = str(date_val).replace("-", "")[:8]  # YYYYMMDD format
+                else:
+                    date_str = ""
+
+                if date_str:
+                    return f"https://apps.nearmap.com/maps/#/@{lat},{lon},21.00z,0d/V/{date_str}?locationMarker"
+                else:
+                    return f"https://apps.nearmap.com/maps/#/@{lat},{lon},21.00z,0d?locationMarker"
+            except Exception:
+                return None
+
+        flat_df["link"] = class_features.apply(make_mapbrowser_link, axis=1).values
+        added_cols.add("link")
+
     # Add geometry as WKT for CSV (vectorized)
     if include_geometry and "geometry" in class_features.columns:
         flat_df["geometry_wkt"] = class_features.geometry.apply(
@@ -370,9 +409,9 @@ def export_feature_class(
             crs=API_CRS
         )
         try:
-            geo_df.to_parquet(parquet_path, schema_version="1.0.0")
+            geo_df.to_parquet(parquet_path, index=False, schema_version="1.0.0")
         except (TypeError, ValueError):
-            geo_df.to_parquet(parquet_path)
+            geo_df.to_parquet(parquet_path, index=False)
 
     return (csv_path, parquet_path)
 
@@ -1074,7 +1113,6 @@ class NearmapAIExporter(BaseExporter):
 
                 # Filter out deprecated feature classes early
                 if len(features_gdf) > 0 and "class_id" in features_gdf.columns:
-                    from nmaipy.constants import DEPRECATED_CLASS_IDS
                     pre_filter_count = len(features_gdf)
                     features_gdf = features_gdf[~features_gdf["class_id"].isin(DEPRECATED_CLASS_IDS)]
                     if len(features_gdf) < pre_filter_count:
@@ -1502,14 +1540,14 @@ class NearmapAIExporter(BaseExporter):
                         # Requires geopandas >= 1.1.0
                         try:
                             final_features_df.to_parquet(
-                                outfile_features, schema_version="1.0.0"
+                                outfile_features, index=False, schema_version="1.0.0"
                             )
                         except (TypeError, ValueError) as e:
                             # Fallback for older geopandas or pyarrow versions
                             self.logger.debug(
                                 f"Could not use schema_version parameter: {e}. Falling back to default."
                             )
-                            final_features_df.to_parquet(outfile_features)
+                            final_features_df.to_parquet(outfile_features, index=False)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
@@ -1591,13 +1629,11 @@ class NearmapAIExporter(BaseExporter):
             feature_api.cleanup()
 
         # Filter out deprecated classes from rollups
-        from nmaipy.constants import DEPRECATED_CLASS_IDS
         classes_df = classes_df[~classes_df.index.isin(DEPRECATED_CLASS_IDS)]
 
         # Add Roof Instance class to classes_df when roof_age is enabled
         # This allows parcel_rollup to generate rollup columns for roof instances
         if self.roof_age:
-            from nmaipy.constants import FEATURE_CLASS_DESCRIPTIONS, ROOF_INSTANCE_CLASS_ID
             roof_instance_row = pd.DataFrame(
                 {"description": [FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID]]},
                 index=[ROOF_INSTANCE_CLASS_ID],
@@ -1959,7 +1995,6 @@ class NearmapAIExporter(BaseExporter):
                 self.logger.debug(f"Found {len(unique_classes)} unique feature classes to export")
 
                 # Build class_id -> description mapping
-                from nmaipy.constants import FEATURE_CLASS_DESCRIPTIONS
                 class_descriptions = {**FEATURE_CLASS_DESCRIPTIONS}
                 # Add descriptions from classes_df if available
                 if classes_df is not None and "description" in classes_df.columns:
