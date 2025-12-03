@@ -789,6 +789,9 @@ class AOIExporter:
                 aoi_grid_inexact=self.aoi_grid_inexact,
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
+                rapid=self.rapid,
+                order=self.order,
+                exclude_tiles_with_occlusion=self.exclude_tiles_with_occlusion,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(
