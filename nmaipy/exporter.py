@@ -38,6 +38,7 @@ from nmaipy.constants import (
     API_CRS,
     BUILDING_STYLE_CLASS_IDS,
     DEFAULT_URL_ROOT,
+    MAX_RETRIES,
     SINCE_COL_NAME,
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
@@ -442,6 +443,13 @@ def parse_arguments():
         default="INFO",
         type=str,
     )
+    parser.add_argument(
+        "--maxretry",
+        help="Maximum number of retry attempts for failed API requests (default: 30)",
+        type=int,
+        required=False,
+        default=MAX_RETRIES,
+    )
     return parser.parse_args()
 
 
@@ -507,6 +515,7 @@ class AOIExporter:
         rapid=False,
         order=None,
         exclude_tiles_with_occlusion=False,
+        maxretry=MAX_RETRIES,  # Add maxretry parameter
     ):
         # Assign parameters to instance variables
         self.aoi_file = aoi_file
@@ -545,6 +554,7 @@ class AOIExporter:
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
+        self.maxretry = maxretry  # Store the maxretry parameter
 
         # Configure logger
         log.configure_logger(self.log_level)
@@ -792,6 +802,7 @@ class AOIExporter:
                 rapid=self.rapid,
                 order=self.order,
                 exclude_tiles_with_occlusion=self.exclude_tiles_with_occlusion,
+                maxretry=self.maxretry,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(
@@ -1203,6 +1214,7 @@ class AOIExporter:
             prerelease=self.prerelease,
             only3d=self.only3d,
             parcel_mode=self.parcel_mode,
+            maxretry=self.maxretry,
         )
         try:
             if self.packs is not None:
@@ -1865,6 +1877,7 @@ def main():
         rapid=args.rapid,
         order=args.order,
         exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
+        maxretry=args.maxretry,  # Pass maxretry argument
     )
     exporter.run()
 
