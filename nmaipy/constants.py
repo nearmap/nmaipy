@@ -69,6 +69,15 @@ SLOW_REQUEST_THRESHOLD_SECONDS = 60
 DUMMY_STATUS_CODE = -1
 
 # ============================================================================
+# Primary Feature Selection Configuration
+# ============================================================================
+
+# Distance tolerance in meters for "nearest" primary selection
+# If no feature contains the target point, the nearest non-small feature
+# within this tolerance is selected as primary
+NEAREST_TOLERANCE_METERS = 1.0
+
+# ============================================================================
 # Geometry Processing Configuration
 # ============================================================================
 

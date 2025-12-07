@@ -584,7 +584,9 @@ def parcel_rollup(
         raise Exception(
             f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
-    if primary_decision == "nearest":
+    # Methods that use lat/lon for primary feature selection
+    uses_lat_lon = primary_decision in ("nearest", "optimal")
+    if uses_lat_lon:
         merge_cols = [
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
@@ -600,7 +602,7 @@ def parcel_rollup(
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
-        if primary_decision == "nearest":
+        if uses_lat_lon:
             primary_lon = group[LON_PRIMARY_COL_NAME].unique()
             if len(primary_lon) == 1:
                 primary_lon = primary_lon[0]

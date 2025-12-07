@@ -423,6 +423,10 @@ class TestParcels:
 
         classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
 
+        # Test new "nearest" behavior: selects feature that contains target or is within 1m tolerance
+        # Feature 2's boundary touches the target point (lat=42.0005), so it's within tolerance
+        # Even though Feature 2 has lower confidence (0.85), it's selected because it's the only
+        # feature within the 1m tolerance threshold
         rollup_df = parcels.parcel_rollup(
             parcels_gdf, features_gdf, classes_df, country=country, primary_decision="nearest"
         )
@@ -435,15 +439,94 @@ class TestParcels:
                     "pool_total_clipped_area_sqft": 6883.7,
                     "pool_total_unclipped_area_sqft": 6883.7,
                     "pool_confidence": 0.99928,
-                    "primary_pool_clipped_area_sqft": 2717.3,
-                    "primary_pool_unclipped_area_sqft": 2717.3,
-                    "primary_pool_confidence": 0.94,
+                    # Feature 2 is selected (boundary touches target, within 1m tolerance)
+                    "primary_pool_clipped_area_sqft": 543.5,
+                    "primary_pool_unclipped_area_sqft": 543.5,
+                    "primary_pool_confidence": 0.85,
                     AOI_ID_COLUMN_NAME: 0,
                     "mesh_date": "2021-10-10",
                 }
             ]
         ).set_index(AOI_ID_COLUMN_NAME)
         pd.testing.assert_frame_equal(rollup_df, expected, atol=1e-3)
+
+    def test_optimal_primary(self):
+        """Test 'optimal' method: tries nearest first, falls back to largest when no feature within tolerance."""
+        # Target point is far from all features, so nearest should return None
+        # and optimal should fall back to selecting the largest feature
+        parcels_gdf = gpd.GeoDataFrame(
+            [
+                {
+                    AOI_ID_COLUMN_NAME: 0,
+                    "lat": 42.01,  # Far from all features
+                    "lon": -114.99,
+                    "geometry": loads("POLYGON ((-114.999 42, -114.999 42.02, -115 42.02, -115 42, -114.999 42))"),
+                }
+            ],
+            geometry="geometry",
+        ).set_index(AOI_ID_COLUMN_NAME)
+        parcels_gdf = parcels_gdf.set_crs("EPSG:4326")
+        country = "us"
+        features_gdf = gpd.GeoDataFrame(
+            [
+                # Smaller feature
+                {
+                    "feature_id": 0,
+                    AOI_ID_COLUMN_NAME: 0,
+                    "confidence": 0.94,
+                    "fidelity": 0.7,
+                    "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
+                    "mesh_date": "2021-10-10",
+                    "parent_id": None,
+                    "geometry": loads(
+                        "POLYGON ((-114.9996 42.0001, -114.9996 42.00040000000001, -114.9999 42.00040000000001, -114.9999 42.0001, -114.9996 42.0001))"
+                    ),
+                },
+                # Larger feature - should be selected by "optimal" (fallback to largest)
+                {
+                    "feature_id": 1,
+                    AOI_ID_COLUMN_NAME: 0,
+                    "confidence": 0.92,
+                    "fidelity": 0.7,
+                    "class_id": "0339726f-081e-5a6e-b9a9-42d95c1b5c8a",
+                    "mesh_date": "2021-10-10",
+                    "parent_id": 2,
+                    "geometry": loads(
+                        "POLYGON ((-114.9991 42.0001, -114.9991 42.00040000000001, -114.9995 42.00040000000001, -114.9995 42.0001, -114.9991 42.0001))"
+                    ),
+                },
+            ],
+        ).set_index(AOI_ID_COLUMN_NAME)
+        features_gdf = features_gdf.set_crs("EPSG:4326")
+
+        # Calculate areas
+        parcels_gdf = parcels_gdf.to_crs("esri:102003")
+        features_gdf = features_gdf.to_crs("esri:102003")
+        features_gdf["area_sqm"] = features_gdf.area
+        features_gdf["unclipped_area_sqm"] = features_gdf["area_sqm"]
+        gdf = features_gdf.join(parcels_gdf, how="left", lsuffix="_feature", rsuffix="_aoi")
+        gdf["clipped_area_sqm"] = gdf.apply(
+            lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
+        )
+        features_gdf = features_gdf.merge(
+            gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"]
+        )
+        for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
+            features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
+        parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
+        features_gdf = features_gdf.to_crs("EPSG:4326")
+
+        classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
+
+        # Test "optimal" method: target is far from all features, so falls back to largest
+        rollup_df = parcels.parcel_rollup(
+            parcels_gdf, features_gdf, classes_df, country=country, primary_decision="optimal"
+        )
+
+        # Feature 1 (larger) should be selected because nearest returns None and optimal falls back to largest
+        assert rollup_df["primary_pool_confidence"].iloc[0] == 0.92, "Optimal should select largest feature (feature 1)"
+        # Feature 1 is larger than feature 0
+        assert rollup_df["primary_pool_clipped_area_sqft"].iloc[0] > 3000, "Should select the larger feature"
 
     def test_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
         packs = ["building", "vegetation"]
