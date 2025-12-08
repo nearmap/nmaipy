@@ -41,6 +41,8 @@ from nmaipy.constants import (
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
+    LAT_PRIMARY_COL_NAME,
+    LON_PRIMARY_COL_NAME,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
@@ -508,7 +510,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--primary-decision",
-        help="Primary feature decision method: largest_intersection|nearest",
+        help="Primary feature decision method: largest_intersection|nearest|optimal",
         type=str,
         required=False,
         default="largest_intersection",
@@ -1690,6 +1692,22 @@ class NearmapAIExporter(BaseExporter):
                 if field not in aoi_gdf:
                     self.logger.error(f"Missing field {field} in parcel data")
                     sys.exit(1)
+
+        # Validate lat/lon columns exist for primary_decision modes that require them
+        if self.primary_decision in ("nearest", "optimal"):
+            missing_cols = []
+            if LAT_PRIMARY_COL_NAME not in aoi_gdf.columns:
+                missing_cols.append(LAT_PRIMARY_COL_NAME)
+            if LON_PRIMARY_COL_NAME not in aoi_gdf.columns:
+                missing_cols.append(LON_PRIMARY_COL_NAME)
+            if missing_cols:
+                self.logger.error(
+                    f"primary_decision='{self.primary_decision}' requires columns {missing_cols} "
+                    f"in the input AOI file. These columns should contain the lat/lon coordinates "
+                    f"of the point to use for primary feature selection. "
+                    f"Available columns: {list(aoi_gdf.columns)}"
+                )
+                sys.exit(1)
 
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in aoi_gdf:
