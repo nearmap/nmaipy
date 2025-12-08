@@ -590,12 +590,12 @@ def parcel_rollup(
         merge_cols = [
             LAT_PRIMARY_COL_NAME,
             LON_PRIMARY_COL_NAME,
-            "geometry",
         ]
     else:
         merge_cols = []
-        if "geometry" in parcels_gdf.columns:
-            merge_cols += ["geometry"]
+    # Only include geometry if it exists (address-based queries won't have it)
+    if "geometry" in parcels_gdf.columns:
+        merge_cols.append("geometry")
 
     df = features_gdf.merge(parcels_gdf[merge_cols], left_index=True, right_index=True, suffixes=["_feature", "_aoi"])
 
