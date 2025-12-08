@@ -275,12 +275,15 @@ def export_feature_class(
     flat_df["class_description"] = class_description
     added_cols.add("class_description")
 
-    # Roof instances don't have confidence (they have trust_score instead)
-    # Only add confidence for non-roof-instance classes
+    # Roof instances don't have confidence/fidelity (they have trust_score instead)
+    # Only add confidence and fidelity for non-roof-instance classes
     if class_id != ROOF_INSTANCE_CLASS_ID:
         if "confidence" in class_features.columns:
             flat_df["confidence"] = class_features["confidence"].values
             added_cols.add("confidence")
+        if "fidelity" in class_features.columns:
+            flat_df["fidelity"] = class_features["fidelity"].values
+            added_cols.add("fidelity")
 
     # Add area fields (vectorized) - skip if already added
     # Roof instances only have area_sqm (no clipped/unclipped distinction)
