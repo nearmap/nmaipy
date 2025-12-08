@@ -48,12 +48,14 @@ from nmaipy.constants import (
     FEATURE_CLASS_DESCRIPTIONS,
     ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_AREA_FIELD,
+    ROOF_AGE_DEFAULT_PAGE_LIMIT,
     ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
+    ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_RESOURCE_ENDPOINT,
     ROOF_AGE_RESOURCE_ID_FIELD,
@@ -170,7 +172,9 @@ class RoofAgeApi(BaseApiClient):
     def _build_request_payload(
         self,
         aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None
+        address: Optional[Dict[str, str]] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> Dict:
         """
         Build the request payload for the Roof Age API.
@@ -178,6 +182,8 @@ class RoofAgeApi(BaseApiClient):
         Args:
             aoi: Polygon geometry (mutually exclusive with address)
             address: Address dict with keys: streetAddress, city, state, zip
+            cursor: Pagination cursor from previous response (omit for first request)
+            limit: Maximum number of features per page (default: API default of 1000)
 
         Returns:
             Request payload dict
@@ -204,6 +210,12 @@ class RoofAgeApi(BaseApiClient):
             # Add country field (required by API)
             address_with_country = {**address, "country": self.country}
             payload["address"] = address_with_country
+
+        # Add pagination parameters if specified
+        if cursor is not None:
+            payload["cursor"] = cursor
+        if limit is not None:
+            payload["limit"] = limit
 
         return payload
 
@@ -311,19 +323,96 @@ class RoofAgeApi(BaseApiClient):
 
         return gdf
 
+    def _fetch_all_pages(
+        self,
+        url: str,
+        params: Dict,
+        aoi: Optional[Polygon] = None,
+        address: Optional[Dict[str, str]] = None,
+        limit: Optional[int] = None,
+    ) -> Dict:
+        """
+        Fetch all pages of results from the Roof Age API, handling pagination.
+
+        Makes repeated requests until no nextCursor is returned, accumulating
+        all features into a single merged response.
+
+        Args:
+            url: API endpoint URL
+            params: Query parameters (including API key)
+            aoi: Polygon geometry (mutually exclusive with address)
+            address: Address dict
+            limit: Maximum features per page
+
+        Returns:
+            Merged response dict with all features from all pages
+        """
+        all_features = []
+        cursor = None
+        page_count = 0
+        resource_id = None
+
+        while True:
+            page_count += 1
+            payload = self._build_request_payload(
+                aoi=aoi, address=address, cursor=cursor, limit=limit
+            )
+
+            with self._session_scope() as session:
+                response = session.post(url, json=payload, params=params, timeout=session._timeout)
+
+                if not response.ok:
+                    error_msg = f"Failed to get roof age data (page {page_count})"
+                    raise RoofAgeAPIError(response, self._clean_api_key(url), message=error_msg)
+
+                response_data = response.json()
+
+            # Accumulate features
+            features = response_data.get("features", [])
+            all_features.extend(features)
+
+            # Capture resource ID from first page
+            if resource_id is None and ROOF_AGE_RESOURCE_ID_FIELD in response_data:
+                resource_id = response_data[ROOF_AGE_RESOURCE_ID_FIELD]
+
+            # Check for next page
+            next_cursor = response_data.get(ROOF_AGE_NEXT_CURSOR_FIELD)
+            if next_cursor:
+                logger.debug(f"Fetching page {page_count + 1} (got {len(features)} features, total so far: {len(all_features)})")
+                cursor = next_cursor
+            else:
+                # No more pages
+                if page_count > 1:
+                    logger.debug(f"Pagination complete: {page_count} pages, {len(all_features)} total features")
+                break
+
+        # Build merged response
+        merged_response = {
+            "type": "FeatureCollection",
+            "features": all_features,
+        }
+        if resource_id is not None:
+            merged_response[ROOF_AGE_RESOURCE_ID_FIELD] = resource_id
+
+        return merged_response
+
     def get_roof_age_by_aoi(
         self,
         aoi: Polygon,
         aoi_id: str,
-        file_format: str = "json"
+        file_format: str = "json",
+        limit: Optional[int] = None,
     ) -> gpd.GeoDataFrame:
         """
         Get roof age data for an area of interest.
+
+        Automatically handles pagination if more than `limit` features exist.
 
         Args:
             aoi: Polygon defining the area of interest (in EPSG:4326)
             aoi_id: Unique identifier for this AOI
             file_format: Response format ("json" or "geojson")
+            limit: Maximum features per page (default: API default of 1000)
 
         Returns:
             GeoDataFrame with roof features, installation dates, and metadata
@@ -331,31 +420,24 @@ class RoofAgeApi(BaseApiClient):
         Raises:
             RoofAgeAPIError: If the API request fails
         """
-        # Build request
-        payload = self._build_request_payload(aoi=aoi)
         cache_key = self._build_cache_key(aoi=aoi)
 
-        # Check cache first
+        # Check cache first (caches the full merged result)
         cached_response = self._load_from_cache(cache_key)
         if cached_response is not None:
             logger.debug(f"Using cached roof age data for {aoi_id}")
             return self._parse_response(cached_response, aoi_id)
 
-        # Make API request
+        # Fetch all pages
         url = f"{self.base_url}.{file_format}"
         params = {"apikey": self.api_key}
 
         logger.debug(f"Requesting roof age data for {aoi_id}")
-        with self._session_scope() as session:
-            response = session.post(url, json=payload, params=params, timeout=session._timeout)
+        response_data = self._fetch_all_pages(
+            url=url, params=params, aoi=aoi, limit=limit
+        )
 
-            if not response.ok:
-                error_msg = f"Failed to get roof age data for {aoi_id}"
-                raise RoofAgeAPIError(response, self._clean_api_key(url), message=error_msg)
-
-            response_data = response.json()
-
-        # Cache the response
+        # Cache the merged response
         self._save_to_cache(cache_key, response_data)
 
         return self._parse_response(response_data, aoi_id)
@@ -364,10 +446,13 @@ class RoofAgeApi(BaseApiClient):
         self,
         address: Dict[str, str],
         aoi_id: str,
-        file_format: str = "json"
+        file_format: str = "json",
+        limit: Optional[int] = None,
     ) -> gpd.GeoDataFrame:
         """
         Get roof age data for a property address.
+
+        Automatically handles pagination if more than `limit` features exist.
 
         Args:
             address: Dict with keys: streetAddress, city, state, zip
@@ -375,6 +460,7 @@ class RoofAgeApi(BaseApiClient):
                               "state": "TX", "zip": "78701"}
             aoi_id: Unique identifier for this property
             file_format: Response format ("json" or "geojson")
+            limit: Maximum features per page (default: API default of 1000)
 
         Returns:
             GeoDataFrame with roof features, installation dates, and metadata
@@ -382,31 +468,24 @@ class RoofAgeApi(BaseApiClient):
         Raises:
             RoofAgeAPIError: If the API request fails
         """
-        # Build request
-        payload = self._build_request_payload(address=address)
         cache_key = self._build_cache_key(address=address)
 
-        # Check cache first
+        # Check cache first (caches the full merged result)
         cached_response = self._load_from_cache(cache_key)
         if cached_response is not None:
             logger.debug(f"Using cached roof age data for {aoi_id}")
             return self._parse_response(cached_response, aoi_id)
 
-        # Make API request
+        # Fetch all pages
         url = f"{self.base_url}.{file_format}"
         params = {"apikey": self.api_key}
 
         logger.debug(f"Requesting roof age data for {aoi_id} at {address.get('streetAddress', 'unknown')}")
-        with self._session_scope() as session:
-            response = session.post(url, json=payload, params=params, timeout=session._timeout)
+        response_data = self._fetch_all_pages(
+            url=url, params=params, address=address, limit=limit
+        )
 
-            if not response.ok:
-                error_msg = f"Failed to get roof age data for {aoi_id}"
-                raise RoofAgeAPIError(response, self._clean_api_key(url), message=error_msg)
-
-            response_data = response.json()
-
-        # Cache the response
+        # Cache the merged response
         self._save_to_cache(cache_key, response_data)
 
         return self._parse_response(response_data, aoi_id)

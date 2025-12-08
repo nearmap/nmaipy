@@ -21,6 +21,7 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_RESOURCE_ID_FIELD,
@@ -349,3 +350,148 @@ def test_bulk_query_all_errors(roof_age_api):
         assert len(roofs_gdf) == 0  # No successes
         assert len(errors_df) == 1  # One error
         assert "message" in errors_df.columns
+
+
+def test_pagination(roof_age_api, test_aoi_nj):
+    """Test that pagination correctly fetches all pages and merges results"""
+    # Create mock responses for multiple pages
+    page1_response = {
+        "type": "FeatureCollection",
+        "resourceId": "test-resource-123",
+        ROOF_AGE_NEXT_CURSOR_FIELD: "cursor_page_2",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [[[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]]},
+                "properties": {ROOF_AGE_INSTALLATION_DATE_FIELD: "2020-01-01", ROOF_AGE_TRUST_SCORE_FIELD: 80.0, ROOF_AGE_AREA_FIELD: 100.0, "kind": "roof"}
+            },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [[[-74.276, 40.643], [-74.275, 40.643], [-74.275, 40.642], [-74.276, 40.642], [-74.276, 40.643]]]},
+                "properties": {ROOF_AGE_INSTALLATION_DATE_FIELD: "2019-05-15", ROOF_AGE_TRUST_SCORE_FIELD: 75.0, ROOF_AGE_AREA_FIELD: 150.0, "kind": "roof"}
+            }
+        ]
+    }
+    page2_response = {
+        "type": "FeatureCollection",
+        "resourceId": "test-resource-123",
+        # No nextCursor - this is the last page
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [[[-74.277, 40.644], [-74.276, 40.644], [-74.276, 40.643], [-74.277, 40.643], [-74.277, 40.644]]]},
+                "properties": {ROOF_AGE_INSTALLATION_DATE_FIELD: "2018-08-20", ROOF_AGE_TRUST_SCORE_FIELD: 90.0, ROOF_AGE_AREA_FIELD: 200.0, "kind": "roof"}
+            }
+        ]
+    }
+
+    call_count = 0
+
+    def mock_post(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        mock_response = Mock()
+        mock_response.ok = True
+        if call_count == 1:
+            mock_response.json.return_value = page1_response
+        else:
+            mock_response.json.return_value = page2_response
+        return mock_response
+
+    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+        mock_session = Mock()
+        mock_session.post.side_effect = mock_post
+        mock_session._timeout = (120, 90)
+        mock_session_scope.return_value.__enter__.return_value = mock_session
+
+        gdf = roof_age_api.get_roof_age_by_aoi(test_aoi_nj, aoi_id="test_pagination")
+
+        # Should have made 2 API calls (2 pages)
+        assert call_count == 2
+
+        # Should have all 3 features (2 from page 1 + 1 from page 2)
+        assert len(gdf) == 3
+
+        # Verify features from both pages are present
+        dates = gdf[ROOF_AGE_INSTALLATION_DATE_FIELD].tolist()
+        assert "2020-01-01" in dates
+        assert "2019-05-15" in dates
+        assert "2018-08-20" in dates
+
+        # Verify resource ID was captured from first page
+        assert ROOF_AGE_RESOURCE_ID_FIELD in gdf.columns
+        assert gdf[ROOF_AGE_RESOURCE_ID_FIELD].iloc[0] == "test-resource-123"
+
+
+def test_pagination_with_limit(roof_age_api, test_aoi_nj):
+    """Test that limit parameter is passed correctly to API"""
+    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json.return_value = {
+            "type": "FeatureCollection",
+            "resourceId": "test-resource",
+            "features": []
+        }
+        mock_session.post.return_value = mock_response
+        mock_session._timeout = (120, 90)
+        mock_session_scope.return_value.__enter__.return_value = mock_session
+
+        roof_age_api.get_roof_age_by_aoi(test_aoi_nj, aoi_id="test_limit", limit=500)
+
+        # Check that limit was included in the request payload
+        call_args = mock_session.post.call_args
+        payload = call_args.kwargs.get('json', call_args[1].get('json', {}))
+        assert payload.get("limit") == 500
+
+
+def test_build_request_payload_with_pagination(roof_age_api, test_aoi_nj):
+    """Test that pagination parameters are included in payload"""
+    # Without pagination params
+    payload_basic = roof_age_api._build_request_payload(aoi=test_aoi_nj)
+    assert "cursor" not in payload_basic
+    assert "limit" not in payload_basic
+
+    # With cursor only
+    payload_cursor = roof_age_api._build_request_payload(aoi=test_aoi_nj, cursor="test_cursor_abc")
+    assert payload_cursor["cursor"] == "test_cursor_abc"
+    assert "limit" not in payload_cursor
+
+    # With limit only
+    payload_limit = roof_age_api._build_request_payload(aoi=test_aoi_nj, limit=100)
+    assert "cursor" not in payload_limit
+    assert payload_limit["limit"] == 100
+
+    # With both
+    payload_both = roof_age_api._build_request_payload(aoi=test_aoi_nj, cursor="cursor_xyz", limit=250)
+    assert payload_both["cursor"] == "cursor_xyz"
+    assert payload_both["limit"] == 250
+
+
+@pytest.mark.integration
+def test_pagination_real_api():
+    """
+    Integration test for pagination with real API.
+
+    Uses Breezy Point, NY which has >1000 roof instances, requiring pagination.
+
+    This test requires:
+    - Valid API_KEY environment variable
+    - Internet connection
+    """
+    api = RoofAgeApi()
+
+    address = {
+        "streetAddress": "21702 BREEZY POINT BLVD",
+        "city": "BREEZY POINT",
+        "state": "NY",
+        "zip": "11697",
+    }
+
+    gdf = api.get_roof_age_by_address(address, aoi_id="breezy_point_pagination_test")
+
+    # Breezy Point has >1000 roof instances, so pagination must have occurred
+    assert len(gdf) > 1000, f"Expected >1000 features (pagination required), got {len(gdf)}"
+    assert ROOF_AGE_INSTALLATION_DATE_FIELD in gdf.columns
+    assert ROOF_AGE_RESOURCE_ID_FIELD in gdf.columns

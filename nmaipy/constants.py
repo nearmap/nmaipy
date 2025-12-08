@@ -14,6 +14,10 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 ROOF_AGE_URL_ROOT = "api.nearmap.com/ai/roofage/v1"
 ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
 
+# Roof Age API pagination settings
+ROOF_AGE_DEFAULT_PAGE_LIMIT = 1000  # Default max features per page (API default)
+ROOF_AGE_NEXT_CURSOR_FIELD = "nextCursor"  # Field name for pagination cursor in response
+
 # Roof Age API response field names
 ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
 ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
