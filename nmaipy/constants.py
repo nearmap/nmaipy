@@ -54,7 +54,7 @@ ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
 # backoff (0.5s factor, min 2s, capped at 20s), retry delays are approximately:
 # 2s, 2s, 2s, 4s, 8s, 16s, 20s (capped), 20s, ...
 # This allows for more patience with transient failures.
-MAX_RETRIES = 30
+MAX_RETRIES = 10
 
 # Exponential backoff multiplier for retries
 # With factor 0.5, combined with BACKOFF_MIN=2s and BACKOFF_MAX=20s in RetryRequest class

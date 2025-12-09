@@ -1,10 +1,15 @@
+import os
+
+# Disable PROJ debug logging before importing pyproj/geopandas
+# This prevents UnicodeDecodeError from PROJ's internal logging with non-ASCII characters
+os.environ.setdefault("PROJ_DEBUG", "OFF")
+
 import argparse
 import concurrent.futures
 import gc
 import json
 import logging
 import multiprocessing
-import os
 import sys
 import traceback
 import warnings

@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   # Python version
-  - python>=3.12
+  - python>=3.14
 
   # Install nmaipy and its core dependencies from pyproject.toml
   - pip

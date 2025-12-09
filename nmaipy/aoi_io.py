@@ -18,7 +18,7 @@ import geopandas as gpd
 import pandas as pd
 
 from nmaipy import log
-from nmaipy.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS
+from nmaipy.constants import ADDRESS_FIELDS, AOI_ID_COLUMN_NAME, LAT_LONG_CRS
 
 logger = log.get_logger()
 
@@ -135,6 +135,15 @@ def read_from_file(
                 geometry=geometry,
                 crs=source_crs,
             )
+
+    # Check if both geometry and address fields are present - geometry will take priority
+    has_geometry = "geometry" in parcels_gdf.columns
+    has_address_fields = set(parcels_gdf.columns).issuperset(set(ADDRESS_FIELDS))
+    if has_geometry and has_address_fields:
+        logger.info(
+            f"Input has both geometry and address fields - geometry mode will be used where available. "
+            f"Address fields {ADDRESS_FIELDS} will be ignored for API queries if geometry is present (falling back to address mode if not)."
+        )
 
     if "geometry" in parcels_gdf:
         # Set CRS and project if data CRS is not equal to target CRS

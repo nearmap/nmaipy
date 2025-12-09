@@ -1631,7 +1631,7 @@ class FeatureApi(GriddedApiClient):
                         aoi_id=aoi_id,
                         since=since,
                         until=until,
-                        address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                        address_fields={f: row[f] for f in ADDRESS_FIELDS} if has_address_fields and not has_geom else None,
                         survey_resource_id=survey_resource_id,
                         fail_hard_regrid=fail_hard_regrid,
                         in_gridding_mode=in_gridding_mode,
@@ -1846,7 +1846,7 @@ class FeatureApi(GriddedApiClient):
                             aoi_id,
                             since,
                             until,
-                            {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields else None,
+                            {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields and not has_geom else None,
                             survey_resource_id,
                         )
                     )
