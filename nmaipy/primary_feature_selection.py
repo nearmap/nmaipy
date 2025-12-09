@@ -395,10 +395,11 @@ def select_primary(
         return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
     elif method == "nearest":
-        if target_lat is None or target_lon is None:
-            raise ValueError(
-                "For 'nearest' method, must provide both target_lat and target_lon"
+        if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
+            logger.debug(
+                "For 'nearest' method, lat/lon is required but was null - falling back to 'largest'"
             )
+            return select_primary_by_largest(gdf, area_col, secondary_area_col)
         return select_primary_by_nearest(
             gdf,
             target_lat,
@@ -412,10 +413,11 @@ def select_primary(
         )
 
     elif method == "optimal":
-        if target_lat is None or target_lon is None:
-            raise ValueError(
-                "For 'optimal' method, must provide both target_lat and target_lon"
+        if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
+            logger.debug(
+                "For 'optimal' method, lat/lon is required but was null - falling back to 'largest'"
             )
+            return select_primary_by_largest(gdf, area_col, secondary_area_col)
         return select_primary_optimal(
             gdf,
             target_lat,

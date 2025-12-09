@@ -290,21 +290,31 @@ class TestSelectPrimary:
         result = select_primary(gdf, method="largest", area_col="area_sqm")
         assert result["id"] == 2, "Should select largest by area"
 
-    def test_optimal_requires_lat_lon(self):
-        """Test 'optimal' method requires lat/lon."""
-        feature = Polygon([(-1, -1), (-1, 1), (1, 1), (1, -1), (-1, -1)])
-        gdf = self._create_test_gdf([{"id": 1, "area_sqm": 100, "geometry": feature}])
+    def test_optimal_falls_back_when_lat_lon_missing(self):
+        """Test 'optimal' method falls back to 'largest' when lat/lon is missing."""
+        feature1 = Polygon([(-1, -1), (-1, 1), (1, 1), (1, -1), (-1, -1)])
+        feature2 = Polygon([(-2, -2), (-2, 2), (2, 2), (2, -2), (-2, -2)])
+        gdf = self._create_test_gdf([
+            {"id": 1, "area_sqm": 100, "geometry": feature1},
+            {"id": 2, "area_sqm": 400, "geometry": feature2},
+        ])
 
-        with pytest.raises(ValueError, match="must provide both target_lat and target_lon"):
-            select_primary(gdf, method="optimal", area_col="area_sqm")
+        # Should fall back to largest when lat/lon is None
+        result = select_primary(gdf, method="optimal", area_col="area_sqm")
+        assert result["id"] == 2, "Should fall back to largest when lat/lon is missing"
 
-    def test_nearest_requires_lat_lon(self):
-        """Test 'nearest' method requires lat/lon."""
-        feature = Polygon([(-1, -1), (-1, 1), (1, 1), (1, -1), (-1, -1)])
-        gdf = self._create_test_gdf([{"id": 1, "area_sqm": 100, "geometry": feature}])
+    def test_nearest_falls_back_when_lat_lon_missing(self):
+        """Test 'nearest' method falls back to 'largest' when lat/lon is missing."""
+        feature1 = Polygon([(-1, -1), (-1, 1), (1, 1), (1, -1), (-1, -1)])
+        feature2 = Polygon([(-2, -2), (-2, 2), (2, 2), (2, -2), (-2, -2)])
+        gdf = self._create_test_gdf([
+            {"id": 1, "area_sqm": 100, "geometry": feature1},
+            {"id": 2, "area_sqm": 400, "geometry": feature2},
+        ])
 
-        with pytest.raises(ValueError, match="must provide both target_lat and target_lon"):
-            select_primary(gdf, method="nearest", area_col="area_sqm")
+        # Should fall back to largest when lat/lon is None
+        result = select_primary(gdf, method="nearest", area_col="area_sqm")
+        assert result["id"] == 2, "Should fall back to largest when lat/lon is missing"
 
     def test_invalid_method_raises_error(self):
         """Test invalid method raises ValueError."""
