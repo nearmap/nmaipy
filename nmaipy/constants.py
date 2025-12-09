@@ -18,6 +18,10 @@ ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
 ROOF_AGE_DEFAULT_PAGE_LIMIT = 1000  # Default max features per page (API default)
 ROOF_AGE_NEXT_CURSOR_FIELD = "nextCursor"  # Field name for pagination cursor in response
 
+# Minimum IoU threshold for roof-to-roof-instance matching
+# Matches below this threshold are not trusted and will not be assigned as parent/primary
+MIN_ROOF_INSTANCE_IOU_THRESHOLD = 0.005
+
 # Roof Age API response field names
 ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
 ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
@@ -50,7 +54,7 @@ ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
 # backoff (0.5s factor, min 2s, capped at 20s), retry delays are approximately:
 # 2s, 2s, 2s, 4s, 8s, 16s, 20s (capped), 20s, ...
 # This allows for more patience with transient failures.
-MAX_RETRIES = 10
+MAX_RETRIES = 30
 
 # Exponential backoff multiplier for retries
 # With factor 0.5, combined with BACKOFF_MIN=2s and BACKOFF_MAX=20s in RetryRequest class

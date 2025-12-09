@@ -29,6 +29,7 @@ from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
+    MIN_ROOF_INSTANCE_IOU_THRESHOLD,
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
@@ -102,9 +103,14 @@ def link_roof_instances_to_roofs(
     to their corresponding roof polygons from the Feature API using Intersection over Union (IoU).
 
     The matching is bidirectional:
-    - Each roof instance gets a parent_id (the roof with highest IoU)
-    - Each roof gets a primary_child_roof_instance_feature_id (the instance with highest IoU)
+    - Each roof instance gets a parent_id (the roof with highest IoU above threshold)
+    - Each roof gets a primary_child_roof_instance_feature_id (the instance with highest IoU above threshold)
       plus a list of ALL matched instances ordered by IoU
+
+    Note:
+        A minimum IoU threshold (MIN_ROOF_INSTANCE_IOU_THRESHOLD = 0.005) is applied.
+        Matches below this threshold are not trusted and will not be assigned as parent/primary.
+        The child_roof_instances list still contains all intersecting instances for reference.
 
     Args:
         roof_instances_gdf: GeoDataFrame with roof instance features from Roof Age API.
@@ -115,10 +121,10 @@ def link_roof_instances_to_roofs(
     Returns:
         Tuple of (roof_instances_with_links, roofs_with_links):
             - roof_instances_with_links: Original GDF with added columns:
-                - parent_id: feature_id of best matching roof (parent of roof instance is always a roof)
+                - parent_id: feature_id of best matching roof (None if IoU below threshold)
                 - parent_iou: IoU score with parent roof
             - roofs_with_links: Original GDF with added columns:
-                - primary_child_roof_instance_feature_id: feature_id of best matching instance
+                - primary_child_roof_instance_feature_id: feature_id of best matching instance (None if IoU below threshold)
                 - primary_child_roof_instance_iou: IoU score with primary instance
                 - child_roof_instances: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
 
@@ -238,8 +244,8 @@ def link_roof_instances_to_roofs(
                     best_roof_idx = roof_df_idx
                     best_roof_feature_id = roof_fid
 
-            # Assign parent to roof instance
-            if best_roof_idx is not None and best_iou > 0:
+            # Assign parent to roof instance (only if IoU meets threshold)
+            if best_roof_idx is not None and best_iou >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
                 ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id
                 ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)
 
@@ -259,8 +265,10 @@ def link_roof_instances_to_roofs(
             # Assign to roof (JSON-serialize list for parquet compatibility)
             rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
             rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
-            rf_gdf.at[roof_df_idx, "primary_child_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
-            rf_gdf.at[roof_df_idx, "primary_child_roof_instance_iou"] = sorted_instances[0]["iou"]
+            # Only assign primary if IoU meets threshold - below that we don't trust the match
+            if sorted_instances[0]["iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
+                rf_gdf.at[roof_df_idx, "primary_child_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_instance_iou"] = sorted_instances[0]["iou"]
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
