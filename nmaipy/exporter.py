@@ -1316,7 +1316,12 @@ class NearmapAIExporter(BaseExporter):
                     )
                     meta_data_columns.remove(meta_data_column)
 
-            final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(
+            # Use rollup_df as base to preserve all AOIs (including those where Feature API
+            # failed but Roof Age API succeeded). Left-merge with metadata_df to add
+            # survey metadata where available.
+            final_df = rollup_df.merge(
+                metadata_df, on=AOI_ID_COLUMN_NAME, how="left"
+            ).merge(
                 aoi_gdf, on=AOI_ID_COLUMN_NAME
             )
             parcel_columns = [c for c in aoi_gdf.columns if c != "geometry"]

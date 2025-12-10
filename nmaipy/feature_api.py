@@ -1681,7 +1681,9 @@ class FeatureApi(GriddedApiClient):
         if len(metadata) == 0:
             metadata_df.index.name = AOI_ID_COLUMN_NAME
             
-        errors_df = pd.DataFrame(errors) if len(errors) > 0 else pd.DataFrame([])
+        errors_df = pd.DataFrame(errors).set_index(AOI_ID_COLUMN_NAME) if len(errors) > 0 else pd.DataFrame([])
+        if len(errors) == 0:
+            errors_df.index.name = AOI_ID_COLUMN_NAME
         return features_gdf, metadata_df, errors_df
 
     def get_rollup_df(
@@ -1876,5 +1878,7 @@ class FeatureApi(GriddedApiClient):
         # to the NaNs, to an integer dtype, which then combines properly with the boolean dtype.
         rollup_df = pd.concat(data) if len(data) > 0 else None
         metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
-        errors_df = pd.DataFrame(errors)
+        errors_df = pd.DataFrame(errors).set_index(AOI_ID_COLUMN_NAME) if len(errors) > 0 else pd.DataFrame([])
+        if len(errors) == 0:
+            errors_df.index.name = AOI_ID_COLUMN_NAME
         return rollup_df, metadata_df, errors_df
