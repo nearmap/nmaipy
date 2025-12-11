@@ -71,7 +71,7 @@ class TestFeatureAPI:
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
@@ -107,7 +107,7 @@ class TestFeatureAPI:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
 
@@ -175,7 +175,7 @@ class TestFeatureAPI:
         aoi_id = "0"
 
         feature_api = FeatureApi(cache_dir=cache_directory, parcel_mode=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             large_adelaide_aoi, region=country, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id
         )
         # No error
@@ -225,7 +225,8 @@ class TestFeatureAPI:
             return (
                 gpd.GeoDataFrame({"test": ["data"]}, geometry=[test_polygon]),
                 {"test": "metadata"},
-                None
+                None,
+                None  # grid_errors_df
             )
         
         def mock_get_features(*args, **kwargs):
@@ -252,7 +253,7 @@ class TestFeatureAPI:
         assert not api_called, "Expected get_features to NOT be called for large AOI"
         
         # Verify the result structure
-        features_gdf, metadata, error = result
+        features_gdf, metadata, error, _ = result
         assert features_gdf is not None
         assert metadata is not None
         assert error is None
@@ -320,7 +321,7 @@ class TestFeatureAPI:
         assert not gridding_called, "Expected _attempt_gridding to NOT be called for small AOI"
         
         # Verify the result structure
-        features_gdf, metadata, error = result
+        features_gdf, metadata, error, _ = result
         assert features_gdf is not None
         assert metadata is not None
         assert error is None
@@ -340,7 +341,7 @@ class TestFeatureAPI:
         )
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory, maxretry=3)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, region=country)
         # No data
         assert features_gdf is None
         assert metadata is None
@@ -355,7 +356,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         assert error is None
@@ -364,7 +365,7 @@ class TestFeatureAPI:
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         # Check output
@@ -381,7 +382,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         assert error is None
@@ -390,7 +391,7 @@ class TestFeatureAPI:
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         # Check output
@@ -483,7 +484,7 @@ class TestFeatureAPI:
         )
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
         features_gdf[AOI_ID_COLUMN_NAME] = 0
         print(features_gdf.T)
         assert len(features_gdf) == 1  # 1 pole found
@@ -498,7 +499,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         assert error is None
         assert metadata is not None
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
@@ -525,7 +526,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
 
         print(metadata)
@@ -557,7 +558,7 @@ class TestFeatureAPI:
         aoi_id = "3"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
@@ -589,7 +590,7 @@ class TestFeatureAPI:
         aoi_id = 11
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
@@ -615,7 +616,7 @@ class TestFeatureAPI:
         aoi_id = 12
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
@@ -682,7 +683,7 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         
         # Test that including RSI and confidence stats doesn't break the API call
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             geometry=sydney_aoi, 
             region=country, 
             packs=packs, 
@@ -737,7 +738,7 @@ class TestFeatureAPI:
             # (normally you'd use the include parameter, but this tests param_dic)
             param_dic = {"include": "roofSpotlightIndex"}
 
-            features_gdf, metadata, error = feature_api.get_features_gdf(
+            features_gdf, metadata, error, _ = feature_api.get_features_gdf(
                 geometry=sydney_aoi,
                 region=country,
                 packs=packs,
@@ -1030,7 +1031,7 @@ class TestFeatureAPI:
 
             # Capture log messages
             with patch('nmaipy.feature_api.logger') as mock_logger:
-                features_gdf, metadata, error = api.get_features_gdf(
+                features_gdf, metadata, error, _ = api.get_features_gdf(
                     geometry=test_polygon,
                     region="au",
                     packs=["building"],

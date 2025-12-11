@@ -46,8 +46,10 @@ from nmaipy.constants import (
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
+    GRID_SIZE_DEGREES,
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
+    MAX_RETRIES,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
@@ -692,6 +694,20 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--grid-size",
+        help=f"Grid cell size in degrees for subdividing large AOIs (default: {GRID_SIZE_DEGREES}, approx 200m). Smaller values = finer grid.",
+        type=float,
+        required=False,
+        default=GRID_SIZE_DEGREES,
+    )
+    parser.add_argument(
+        "--max-retries",
+        help=f"Maximum number of retry attempts for failed API requests (default: {MAX_RETRIES})",
+        type=int,
+        required=False,
+        default=MAX_RETRIES,
+    )
+    parser.add_argument(
         "--api-key",
         help="API key to use (overrides API_KEY environment variable)",
         type=str,
@@ -780,6 +796,8 @@ class NearmapAIExporter(BaseExporter):
         exclude_tiles_with_occlusion=False,
         roof_age=False,  # Include Roof Age API data
         class_level_files=True,  # Export per-feature-class CSV and GeoParquet files
+        grid_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
+        max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
     ):
         # Initialize base exporter first
         super().__init__(
@@ -825,6 +843,8 @@ class NearmapAIExporter(BaseExporter):
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
         self.roof_age = roof_age
         self.class_level_files = class_level_files
+        self.grid_size = grid_size
+        self.max_retries = max_retries
 
         # Validate roof_age usage
         if self.roof_age and self.country.lower() != "us":
@@ -1089,6 +1109,8 @@ class NearmapAIExporter(BaseExporter):
                 aoi_grid_inexact=self.aoi_grid_inexact,
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
+                grid_size=self.grid_size,
+                maxretry=self.max_retries,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(
@@ -1353,7 +1375,13 @@ class NearmapAIExporter(BaseExporter):
                 f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
             )
             try:
-                errors_df.to_parquet(outfile_errors)
+                # Convert errors_df to GeoDataFrame if it has geometry (from failed grid squares)
+                # This ensures proper geoparquet output that can be read in GIS software
+                if "geometry" in errors_df.columns and len(errors_df) > 0:
+                    errors_gdf = gpd.GeoDataFrame(errors_df, geometry="geometry", crs=API_CRS)
+                    errors_gdf.to_parquet(outfile_errors)
+                else:
+                    errors_df.to_parquet(outfile_errors)
             except Exception as e:
                 self.logger.error(
                     f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
@@ -1843,7 +1871,12 @@ class NearmapAIExporter(BaseExporter):
         self.logger.debug(f"Collecting Feature API errors")
         feature_api_errors = []
         for cp in self.chunk_path.glob(f"feature_api_errors_{Path(aoi_path).stem}_*.parquet"):
-            feature_api_errors.append(pd.read_parquet(cp))
+            # Use geopandas to read to preserve geometry if present
+            try:
+                feature_api_errors.append(gpd.read_parquet(cp))
+            except Exception:
+                # Fall back to pandas if not a valid geoparquet
+                feature_api_errors.append(pd.read_parquet(cp))
         if len(feature_api_errors) > 0:
             feature_api_errors = pd.concat(feature_api_errors)
         else:
@@ -1872,17 +1905,34 @@ class NearmapAIExporter(BaseExporter):
                 aoi_gdf_for_merge = aoi_gdf.reset_index()
 
                 if isinstance(aoi_gdf, gpd.GeoDataFrame):
-                    errors_with_context = errors_df.merge(
-                        aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]],
-                        on=AOI_ID_COLUMN_NAME,
-                        how="left",
-                    )
-                    if "geometry" in errors_with_context.columns:
+                    # Check if errors_df already has geometry (from failed grid squares)
+                    # If so, preserve it and merge AOI geometry under a different name
+                    if "geometry" in errors_df.columns:
+                        # Errors already have grid cell geometry - merge AOI geometry as aoi_geometry
+                        errors_with_context = errors_df.merge(
+                            aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]].rename(
+                                columns={"geometry": "aoi_geometry"}
+                            ),
+                            on=AOI_ID_COLUMN_NAME,
+                            how="left",
+                        )
+                        # Use the grid cell geometry as primary (it's more specific for troubleshooting)
                         errors_gdf = gpd.GeoDataFrame(
-                            errors_with_context, geometry="geometry", crs=aoi_gdf.crs
+                            errors_with_context, geometry="geometry", crs=API_CRS
                         )
                     else:
-                        errors_gdf = errors_with_context
+                        # No geometry yet - merge AOI geometry
+                        errors_with_context = errors_df.merge(
+                            aoi_gdf_for_merge[[AOI_ID_COLUMN_NAME, "geometry"]],
+                            on=AOI_ID_COLUMN_NAME,
+                            how="left",
+                        )
+                        if "geometry" in errors_with_context.columns:
+                            errors_gdf = gpd.GeoDataFrame(
+                                errors_with_context, geometry="geometry", crs=aoi_gdf.crs
+                            )
+                        else:
+                            errors_gdf = errors_with_context
                 else:
                     merge_cols = [col for col in aoi_gdf_for_merge.columns if col != AOI_ID_COLUMN_NAME]
                     if AOI_ID_COLUMN_NAME in aoi_gdf_for_merge.columns:
@@ -2151,6 +2201,8 @@ def main():
         exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
         roof_age=args.roof_age,
         class_level_files=not args.no_class_level_files,
+        grid_size=args.grid_size,
+        max_retries=args.max_retries,
     )
     exporter.run()
 

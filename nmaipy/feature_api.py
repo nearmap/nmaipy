@@ -159,6 +159,7 @@ class FeatureApi(GriddedApiClient):
         order: Optional[str] = None,
         exclude_tiles_with_occlusion: Optional[bool] = False,
         progress_counters: Optional[dict] = None,
+        grid_size: Optional[float] = GRID_SIZE_DEGREES,
     ):
         """
         Initialize FeatureApi class
@@ -184,6 +185,7 @@ class FeatureApi(GriddedApiClient):
             order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
+            grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
         """
         # Initialize thread-safety attributes first
         self._sessions = []
@@ -234,7 +236,8 @@ class FeatureApi(GriddedApiClient):
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
-        
+        self.grid_size = grid_size
+
         # Semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened when many large AOIs grid simultaneously
         # 1/5th prevents file handle exhaustion while still allowing parallelism
@@ -1132,6 +1135,7 @@ class FeatureApi(GriddedApiClient):
                 until=until,
                 survey_resource_id=survey_resource_id,
                 aoi_grid_inexact=allow_inexact_gridding,
+                grid_size=self.grid_size,
                 reason=reason
             )
             error = None  # Reset error if we got here without an exception
@@ -1151,8 +1155,9 @@ class FeatureApi(GriddedApiClient):
                 "perspective": metadata_df["perspective"],
                 "postcat": metadata_df["postcat"],
             }
-            
-            return features_gdf, metadata, error
+
+            # Return grid cell errors as 4th element (may include geometry for failed grid squares)
+            return features_gdf, metadata, error, errors_df
 
         except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
             # Catch acceptable errors - these are complete grid failures
@@ -1166,7 +1171,7 @@ class FeatureApi(GriddedApiClient):
                 "request": "Grid error",
                 "failure_type": "grid",
             }
-            return features_gdf, metadata, error
+            return features_gdf, metadata, error, None
         except Exception as grid_error:
             logger.error(f"Gridding failed for AOI (id {aoi_id}): {grid_error}")
             error = {
@@ -1177,7 +1182,7 @@ class FeatureApi(GriddedApiClient):
                 "request": "Gridding failed",
                 "failure_type": "grid",
             }
-            return None, None, error
+            return None, None, error, None
 
     def get_features_gdf(
         self,
@@ -1236,7 +1241,7 @@ class FeatureApi(GriddedApiClient):
             
             if area_sqm > MAX_AOI_AREA_SQM_BEFORE_GRIDDING:
                 logger.debug(f"AOI (id {aoi_id}) area ({area_sqm:.0f} sqm) exceeds client threshold ({MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm). Forcing gridding...")
-                return self._attempt_gridding(
+                features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
                     geometry=geometry,
                     region=region,
                     packs=packs,
@@ -1249,9 +1254,10 @@ class FeatureApi(GriddedApiClient):
                     aoi_grid_inexact=self.aoi_grid_inexact,
                     reason=f"proactive - area {area_sqm:.0f} sqm > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm"
                 )
+                return features_gdf, metadata, error, grid_errors_df
         
         try:
-            features_gdf, metadata, error = None, None, None
+            features_gdf, metadata, error, grid_errors_df = None, None, None, None
             payload = self.get_features(
                 geometry=geometry,
                 region=region,
@@ -1315,7 +1321,7 @@ class FeatureApi(GriddedApiClient):
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
-                features_gdf, metadata, error = self._attempt_gridding(
+                features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
                     geometry=geometry,
                     region=region,
                     packs=packs,
@@ -1406,7 +1412,7 @@ class FeatureApi(GriddedApiClient):
         # Increment progress counter for completed request (uses batching)
         self._increment_progress()
 
-        return features_gdf, metadata, error
+        return features_gdf, metadata, error, grid_errors_df
 
     def get_features_gdf_gridded(
         self,
@@ -1641,9 +1647,10 @@ class FeatureApi(GriddedApiClient):
             data = []
             metadata = []
             errors = []
+            grid_errors = []  # Accumulate grid cell errors (DataFrames with geometry)
             # Use as_completed to process results as they finish, preventing blocking on slow requests
             for job in concurrent.futures.as_completed(jobs):
-                aoi_data, aoi_metadata, aoi_error = job.result()
+                aoi_data, aoi_metadata, aoi_error, aoi_grid_errors = job.result()
                 if aoi_data is not None:
                     if len(aoi_data) > 0:
                         data.append(aoi_data)
@@ -1659,6 +1666,9 @@ class FeatureApi(GriddedApiClient):
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
                     else:
                         errors.append(aoi_error)
+                # Collect grid cell errors (partial failures with geometry)
+                if aoi_grid_errors is not None and len(aoi_grid_errors) > 0:
+                    grid_errors.append(aoi_grid_errors)
         finally:
             # Only cleanup executor if we created it (not reusing from parent)
             if not external_executor:
@@ -1680,9 +1690,23 @@ class FeatureApi(GriddedApiClient):
         metadata_df = pd.DataFrame(metadata).set_index(AOI_ID_COLUMN_NAME) if len(metadata) > 0 else pd.DataFrame([])
         if len(metadata) == 0:
             metadata_df.index.name = AOI_ID_COLUMN_NAME
-            
-        errors_df = pd.DataFrame(errors).set_index(AOI_ID_COLUMN_NAME) if len(errors) > 0 else pd.DataFrame([])
-        if len(errors) == 0:
+
+        # Combine single-AOI errors (from dict) and grid cell errors (from DataFrames)
+        errors_dfs = []
+        if len(errors) > 0:
+            errors_dfs.append(pd.DataFrame(errors).set_index(AOI_ID_COLUMN_NAME))
+        if len(grid_errors) > 0:
+            # Grid errors are already DataFrames with geometry - concat them
+            grid_errors_combined = pd.concat(grid_errors, ignore_index=True)
+            # Ensure aoi_id is set as index if present
+            if AOI_ID_COLUMN_NAME in grid_errors_combined.columns:
+                grid_errors_combined = grid_errors_combined.set_index(AOI_ID_COLUMN_NAME)
+            errors_dfs.append(grid_errors_combined)
+
+        if len(errors_dfs) > 0:
+            errors_df = pd.concat(errors_dfs)
+        else:
+            errors_df = pd.DataFrame([])
             errors_df.index.name = AOI_ID_COLUMN_NAME
         return features_gdf, metadata_df, errors_df
 
