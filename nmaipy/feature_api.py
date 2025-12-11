@@ -399,7 +399,7 @@ class FeatureApi:
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
-        
+
         # Semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened when many large AOIs grid simultaneously
         # 1/5th prevents file handle exhaustion while still allowing parallelism
