@@ -40,6 +40,8 @@ ROOF_AGE_ASSESSOR_DATA_FIELD = "assessorData"
 ROOF_AGE_TIMELINE_FIELD = "timeline"
 ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
 ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
+ROOF_AGE_MAPBROWSER_URL_FIELD = "mapBrowserUrl"  # API field name (note: API uses mixed case)
+ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD = "roof_age_mapbrowser_url"  # Output field name (snake_case)
 
 
 # ============================================================================

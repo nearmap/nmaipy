@@ -21,6 +21,8 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_MAPBROWSER_URL_FIELD,
+    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_AGE_AREA_FIELD,
@@ -165,6 +167,12 @@ def test_parse_response(roof_age_api, test_roof_age_response):
     timeline_data = json.loads(gdf["timeline"].iloc[0])
     assert isinstance(timeline_data, list)
     assert len(timeline_data) == 2  # We have 2 timeline entries in the fixture
+
+    # Check that mapbrowserURL was renamed and has ?locationMarker appended
+    assert ROOF_AGE_MAPBROWSER_URL_FIELD not in gdf.columns, "Original mapbrowserURL should be removed"
+    assert ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD in gdf.columns, "roof_age_mapbrowser_url should be present"
+    url = gdf[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0]
+    assert url.endswith("?locationMarker"), f"URL should end with ?locationMarker, got: {url}"
 
 
 def test_parse_empty_response(roof_age_api):

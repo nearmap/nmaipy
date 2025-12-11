@@ -464,7 +464,7 @@ class RoofAgeExporter(BaseExporter):
                     "minCaptureDate",
                     "maxCaptureDate",
                     "numberOfCaptures",
-                    "mapbrowserURL",  # API returns as mapbrowserURL (swagger spec has mapBrowserUrl)
+                    "roof_age_mapbrowser_url",  # Renamed from mapBrowserUrl with ?locationMarker appended
                     "assessorData",
                     "relevantPermits",
                     "geometry",

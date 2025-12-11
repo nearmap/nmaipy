@@ -34,7 +34,7 @@
         "hilbertId": "3343279883872922341",
         "installationDate": "2001-07-09",
         "kind": "roof",
-        "mapbrowserURL": "https://apps.nearmap.com/maps/#/@40.642317,-74.275219,20z,0d/V/20140915]20250704",
+        "mapBrowserUrl": "https://apps.nearmap.com/maps/#/@40.642317,-74.275219,20z,0d/V/20140915]20250704",
         "maxCaptureDate": "2025-07-04",
         "minCaptureDate": "2014-09-15",
         "numberOfCaptures": 35,

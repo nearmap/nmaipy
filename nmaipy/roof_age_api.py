@@ -53,6 +53,8 @@ from nmaipy.constants import (
     ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_MAPBROWSER_URL_FIELD,
+    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
@@ -300,6 +302,13 @@ class RoofAgeApi(BaseApiClient):
             # Serialize timeline to JSON string if present (for compatibility with CSV/Parquet)
             if ROOF_AGE_TIMELINE_FIELD in props:
                 props[ROOF_AGE_TIMELINE_FIELD] = json.dumps(props[ROOF_AGE_TIMELINE_FIELD])
+
+            # Rename mapbrowserURL to roof_age_mapbrowser_url and add ?locationMarker if not present
+            if ROOF_AGE_MAPBROWSER_URL_FIELD in props:
+                url = props.pop(ROOF_AGE_MAPBROWSER_URL_FIELD)
+                if url and not url.endswith("?locationMarker"):
+                    url = f"{url}?locationMarker"
+                props[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD] = url
 
             records.append(props)
 

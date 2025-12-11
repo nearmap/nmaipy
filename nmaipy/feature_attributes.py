@@ -30,6 +30,7 @@ from nmaipy.constants import (
     ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_KIND_FIELD,
+    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
@@ -339,6 +340,11 @@ def flatten_roof_instance_attributes(
     assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD, "assessor_data")
     if assessor_data is not None:
         flattened[f"{prefix}assessor_data"] = json.dumps(assessor_data) if isinstance(assessor_data, (dict, list)) else assessor_data
+
+    # Roof Age mapbrowser URL (shows before/after comparison view)
+    mapbrowser_url = get_value(ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD)
+    if mapbrowser_url is not None:
+        flattened[f"{prefix}{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"] = mapbrowser_url
 
     # Note: We intentionally exclude internal fields:
     # - timeline (detailed internal data, not public)
