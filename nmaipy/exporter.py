@@ -217,11 +217,12 @@ def export_feature_class(
     class_description: str,
     country: str,
     output_stem: Path,
-    include_geometry: bool = True,
     aoi_columns: list = None,
+    export_csv: bool = True,
+    export_parquet: bool = True,
 ) -> tuple:
     """
-    Export features of a single class to CSV and GeoParquet.
+    Export features of a single class to CSV and/or GeoParquet.
 
     Args:
         features_gdf: GeoDataFrame with all features (will be filtered to class_id)
@@ -229,8 +230,9 @@ def export_feature_class(
         class_description: Human-readable description (used in filename)
         country: Country code for units (us, au, etc.)
         output_stem: Base path for output files (without extension)
-        include_geometry: Whether to include geometry in output
         aoi_columns: Additional columns from the AOI input file to include (e.g., ["Property Id"])
+        export_csv: Whether to export CSV files (attributes only, no geometry)
+        export_parquet: Whether to export GeoParquet files (with geometry)
 
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
@@ -422,20 +424,16 @@ def export_feature_class(
         flat_df["link"] = class_features.apply(make_mapbrowser_link, axis=1).values
         added_cols.add("link")
 
-    # Add geometry as WKT for CSV (vectorized)
-    if include_geometry and "geometry" in class_features.columns:
-        flat_df["geometry_wkt"] = class_features.geometry.apply(
-            lambda g: g.wkt if g is not None else None
-        ).values
+    # Save CSV (attributes only, no geometry)
+    if export_csv:
+        flat_df.to_csv(csv_path, index=False)
+    else:
+        csv_path = None
 
-    # Save CSV
-    flat_df.to_csv(csv_path, index=False)
-
-    # Save GeoParquet (with actual geometry, without WKT column)
-    if include_geometry and "geometry" in class_features.columns:
-        geo_df = flat_df.drop(columns=["geometry_wkt"], errors="ignore")
+    # Save GeoParquet (with geometry)
+    if export_parquet and "geometry" in class_features.columns:
         geo_df = gpd.GeoDataFrame(
-            geo_df,
+            flat_df.copy(),
             geometry=class_features.geometry.values,
             crs=API_CRS
         )
@@ -443,6 +441,8 @@ def export_feature_class(
             geo_df.to_parquet(parquet_path, index=False, schema_version="1.0.0")
         except (TypeError, ValueError):
             geo_df.to_parquet(parquet_path, index=False)
+    else:
+        parquet_path = None
 
     return (csv_path, parquet_path)
 
@@ -587,7 +587,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--no-class-level-files",
-        help="If set, disable per-feature-class CSV and GeoParquet exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
+        help="If set, disable per-feature-class CSV exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
         action="store_true",
     )
     parser.add_argument(
@@ -796,7 +796,7 @@ class NearmapAIExporter(BaseExporter):
         order=None,
         exclude_tiles_with_occlusion=False,
         roof_age=False,  # Include Roof Age API data
-        class_level_files=True,  # Export per-feature-class CSV and GeoParquet files
+        class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
     ):
         # Initialize base exporter first
@@ -2124,11 +2124,13 @@ class NearmapAIExporter(BaseExporter):
                         class_description=description,
                         country=self.country,
                         output_stem=output_stem,
-                        include_geometry=True,
                         aoi_columns=aoi_input_columns,
+                        export_csv=self.class_level_files,
+                        export_parquet=self.class_level_files and self.save_features,
                     )
-                    if csv_path:
-                        self.logger.info(f"  Exported {description}: {csv_path.name}")
+                    if csv_path or parquet_path:
+                        files = [f.name for f in [csv_path, parquet_path] if f]
+                        self.logger.info(f"  Exported {description}: {', '.join(files)}")
             else:
                 self.logger.info("No features found for per-class export")
 

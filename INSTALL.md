@@ -96,7 +96,7 @@ conda install --use-local nmaipy
 After installation, verify nmaipy is working:
 
 ```python
-python -c "from nmaipy.exporter import AOIExporter; print('nmaipy installed successfully')"
+python -c "from nmaipy.exporter import NearmapAIExporter; print('nmaipy installed successfully')"
 ```
 
 ## Troubleshooting

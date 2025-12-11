@@ -7,7 +7,8 @@ for various analysis scenarios.
 """
 
 import os
-from nmaipy.exporter import AOIExporter
+
+from nmaipy.exporter import NearmapAIExporter
 
 # Make sure you have your API key set
 # Option 1: Set in environment before running
@@ -21,7 +22,7 @@ def example_basic_extraction():
     """
     Basic example: Extract building and vegetation data for parcels.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/basic',
         country='au',
@@ -36,7 +37,7 @@ def example_damage_assessment():
     Extract damage classification data after a natural disaster.
     Perfect for insurance and emergency response analysis.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/us_parcels.geojson',
         output_dir='data/outputs/damage',
         country='us',
@@ -64,7 +65,7 @@ def example_urban_planning():
     Extract comprehensive data for urban planning analysis.
     Includes buildings, vegetation, surfaces, and solar panels.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/urban',
         country='au',
@@ -91,7 +92,7 @@ def example_vegetation_analysis():
     """
     Focused vegetation analysis for environmental studies.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/vegetation',
         country='au',
@@ -113,7 +114,7 @@ def example_pool_detection():
     """
     Detect swimming pools for compliance or market analysis.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/pools',
         country='au',
@@ -133,7 +134,7 @@ def example_large_area_extraction():
     """
     Handle large areas efficiently with gridding.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/large_area.geojson',
         output_dir='data/outputs/large',
         country='au',
@@ -159,21 +160,44 @@ def example_time_series():
     """
     Extract data for a specific time period for change detection.
     """
-    exporter = AOIExporter(
+    exporter = NearmapAIExporter(
         aoi_file='data/examples/sydney_parcels.geojson',
         output_dir='data/outputs/timeseries',
         country='au',
-        
+
         packs=['building', 'vegetation'],
-        
+
         # Specify date range
         since='2024-01-01',
         until='2024-06-30',
-        
+
         # Get earliest imagery in the range
         order='earliest',
-        
+
         save_features=True,
+        processes=4
+    )
+    exporter.run()
+
+
+def example_roof_age_unified():
+    """
+    Extract building features AND roof age predictions in one export (US only).
+    This is the recommended approach for combining Feature API and Roof Age API data.
+    """
+    exporter = NearmapAIExporter(
+        aoi_file='data/examples/us_parcels.geojson',
+        output_dir='data/outputs/roof_age',
+        country='us',  # Roof Age API is US only
+
+        packs=['building'],
+
+        # Include Roof Age API data
+        roof_age=True,
+
+        # Save individual features as GeoParquet
+        save_features=True,
+
         processes=4
     )
     exporter.run()
@@ -184,9 +208,9 @@ if __name__ == "__main__":
     print("-" * 40)
     print("Uncomment the example you want to run:")
     print()
-    
+
     # Uncomment the example you want to run:
-    
+
     # example_basic_extraction()
     # example_damage_assessment()
     # example_urban_planning()
@@ -194,5 +218,6 @@ if __name__ == "__main__":
     # example_pool_detection()
     # example_large_area_extraction()
     # example_time_series()
-    
+    # example_roof_age_unified()
+
     print("\nEdit this file and uncomment an example to run it.")

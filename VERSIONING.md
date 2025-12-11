@@ -7,14 +7,25 @@ Quick guide for updating nmaipy versions and deploying to PyPI.
 ### 1. Update Version Number
 Edit `nmaipy/__version__.py`:
 ```python
-__version__ = "3.2.7"  # Increment following semver
+__version__ = "4.0.1"  # Increment following semver
 ```
 
 **Semantic Versioning:**
-- MAJOR.MINOR.PATCH (e.g., 3.2.7)
+- MAJOR.MINOR.PATCH (e.g., 4.0.1)
 - MAJOR: Breaking API changes
 - MINOR: New features, backwards compatible
 - PATCH: Bug fixes, backwards compatible
+
+**Pre-release Versions (PEP 440):**
+- Alpha: `4.0.0a1`, `4.0.0a2` - early testing, API may change
+- Beta: `4.0.0b1` - feature complete, testing for bugs
+- Release Candidate: `4.0.0rc1` - final testing before release
+
+Pre-release versions are not installed by default with `pip install nmaipy`. Users must explicitly request them:
+```bash
+pip install nmaipy==4.0.0a2  # Specific version
+pip install --pre nmaipy     # Latest pre-release
+```
 
 ### 2. Run Tests
 ```bash
@@ -47,22 +58,23 @@ python -c "import nmaipy; print(nmaipy.__version__)"
 ```bash
 # Commit version change
 git add nmaipy/__version__.py
-git commit -m "Release version 3.2.7"
+git commit -m "Release version 4.0.1"
 
 # Tag
-git tag -a v3.2.7 -m "Release version 3.2.7"
+git tag -a v4.0.1 -m "Release version 4.0.1"
 
-# Push
+# Push (use your branch name - main for stable, feature branch for pre-releases)
 git push origin main
-git push origin v3.2.7
+git push origin v4.0.1
 ```
 
 ### 6. Create GitHub Release
 1. Go to https://github.com/nearmap/nmaipy/releases
 2. Click "Create a new release"
-3. Choose tag v3.2.7
+3. Choose tag v4.0.1
 4. Add release notes
-5. Publish release
+5. For pre-releases, check "Set as a pre-release" to prevent it showing as "Latest"
+6. Publish release
 
 ## Prerequisites
 
