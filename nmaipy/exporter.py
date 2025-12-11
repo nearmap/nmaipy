@@ -538,6 +538,13 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--aoi-grid-cell-size",
+        help=f"Grid cell size in degrees for subdividing large AOIs (default: {GRID_SIZE_DEGREES}, approx 200m). Smaller values = finer grid.",
+        type=float,
+        required=False,
+        default=GRID_SIZE_DEGREES,
+    )
+    parser.add_argument(
         "--processes",
         help="Number of processes",
         type=int,
@@ -694,13 +701,6 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
-        "--grid-size",
-        help=f"Grid cell size in degrees for subdividing large AOIs (default: {GRID_SIZE_DEGREES}, approx 200m). Smaller values = finer grid.",
-        type=float,
-        required=False,
-        default=GRID_SIZE_DEGREES,
-    )
-    parser.add_argument(
         "--max-retries",
         help=f"Maximum number of retry attempts for failed API requests (default: {MAX_RETRIES})",
         type=int,
@@ -766,6 +766,7 @@ class NearmapAIExporter(BaseExporter):
         primary_decision="largest_intersection",
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
+        aoi_grid_cell_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
@@ -796,7 +797,6 @@ class NearmapAIExporter(BaseExporter):
         exclude_tiles_with_occlusion=False,
         roof_age=False,  # Include Roof Age API data
         class_level_files=True,  # Export per-feature-class CSV and GeoParquet files
-        grid_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
     ):
         # Initialize base exporter first
@@ -815,6 +815,7 @@ class NearmapAIExporter(BaseExporter):
         self.primary_decision = primary_decision
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
+        self.aoi_grid_cell_size = aoi_grid_cell_size
         # Note: processes, chunk_size, log_level handled by BaseExporter
         self.threads = threads
         self.include_parcel_geometry = include_parcel_geometry
@@ -843,7 +844,6 @@ class NearmapAIExporter(BaseExporter):
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
         self.roof_age = roof_age
         self.class_level_files = class_level_files
-        self.grid_size = grid_size
         self.max_retries = max_retries
 
         # Validate roof_age usage
@@ -1109,8 +1109,11 @@ class NearmapAIExporter(BaseExporter):
                 aoi_grid_inexact=self.aoi_grid_inexact,
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
-                grid_size=self.grid_size,
+                grid_size=self.aoi_grid_cell_size,
                 maxretry=self.max_retries,
+                rapid=self.rapid,
+                order=self.order,
+                exclude_tiles_with_occlusion=self.exclude_tiles_with_occlusion,
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 self.logger.debug(
@@ -2201,7 +2204,7 @@ def main():
         exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
         roof_age=args.roof_age,
         class_level_files=not args.no_class_level_files,
-        grid_size=args.grid_size,
+        aoi_grid_cell_size=args.aoi_grid_cell_size,
         max_retries=args.max_retries,
     )
     exporter.run()
