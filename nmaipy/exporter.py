@@ -1494,48 +1494,36 @@ class NearmapAIExporter(BaseExporter):
 
                 # Apply flattening to attributes if present
                 if "attributes" in final_features_df.columns:
-                    # Apply flattening and create DataFrame - simpler approach that avoids index issues
-                    flattened_attrs = (
-                        final_features_df["attributes"]
-                        .apply(_flatten_attribute_list)
-                        .apply(pd.Series)
-                    )
-                    if not flattened_attrs.empty:
+                    # Use pd.DataFrame(list_of_dicts) instead of .apply(pd.Series) for 100x+ speedup
+                    flat_attr_list = final_features_df["attributes"].apply(_flatten_attribute_list).tolist()
+                    flattened_attrs = pd.DataFrame(flat_attr_list, index=final_features_df.index)
+                    if not flattened_attrs.empty and len(flattened_attrs.columns) > 0:
                         logger.debug(
-                            f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns from {final_features_df['attributes'].notna().sum()} features"
+                            f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns"
                         )
-                        # Drop the attributes column
-                        final_features_df = final_features_df.drop(
-                            columns=["attributes"]
-                        )
-                        # Add the flattened columns
-                        for col in flattened_attrs.columns:
-                            if col not in final_features_df.columns:
-                                final_features_df[col] = flattened_attrs[col]
+                        # Drop the attributes column and add flattened columns via concat (faster than loop)
+                        final_features_df = final_features_df.drop(columns=["attributes"])
+                        new_cols = [c for c in flattened_attrs.columns if c not in final_features_df.columns]
+                        if new_cols:
+                            final_features_df = pd.concat([final_features_df, flattened_attrs[new_cols]], axis=1)
                     else:
                         # No attributes to flatten, just drop the column
-                        final_features_df = final_features_df.drop(
-                            columns=["attributes"]
-                        )
+                        final_features_df = final_features_df.drop(columns=["attributes"])
 
                 # Apply flattening to damage if present
                 if "damage" in final_features_df.columns:
-                    # Apply flattening and create DataFrame
-                    flattened_damage = (
-                        final_features_df["damage"]
-                        .apply(_flatten_damage)
-                        .apply(pd.Series)
-                    )
-                    if not flattened_damage.empty:
+                    # Use pd.DataFrame(list_of_dicts) instead of .apply(pd.Series) for 100x+ speedup
+                    flat_damage_list = final_features_df["damage"].apply(_flatten_damage).tolist()
+                    flattened_damage = pd.DataFrame(flat_damage_list, index=final_features_df.index)
+                    if not flattened_damage.empty and len(flattened_damage.columns) > 0:
                         logger.debug(
-                            f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns from {final_features_df['damage'].notna().sum()} features"
+                            f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns"
                         )
-                        # Drop the damage column
+                        # Drop the damage column and add flattened columns via concat (faster than loop)
                         final_features_df = final_features_df.drop(columns=["damage"])
-                        # Add the flattened columns
-                        for col in flattened_damage.columns:
-                            if col not in final_features_df.columns:
-                                final_features_df[col] = flattened_damage[col]
+                        new_cols = [c for c in flattened_damage.columns if c not in final_features_df.columns]
+                        if new_cols:
+                            final_features_df = pd.concat([final_features_df, flattened_damage[new_cols]], axis=1)
                     else:
                         # No damage to flatten, just drop the column
                         final_features_df = final_features_df.drop(columns=["damage"])

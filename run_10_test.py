@@ -18,7 +18,7 @@ from nmaipy.exporter import NearmapAIExporter
 if __name__ == "__main__":
     exporter = NearmapAIExporter(
         # Input: CSV with aoi_id and geometry columns (WKT polygons)
-        aoi_file="tests/data/test_parcels_2.csv",
+        aoi_file="tests/data/10_row_test_set.csv",
         # Output directory (will be created if it doesn't exist)
         output_dir="data/outputs/quick_test",
         # Country code (us, au, nz, ca) - affects area units and API endpoints
@@ -30,6 +30,7 @@ if __name__ == "__main__":
         threads=4,
         # Save individual feature geometries (GeoParquet files)
         save_features=True,
+        class_level_files=True,
         # Include input parcel boundaries in output
         include_parcel_geometry=True,
         # Include Roof Age API data (US only) - adds roof installation date predictions
