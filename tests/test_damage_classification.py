@@ -306,7 +306,7 @@ class TestDamageClassification:
         feature_api = FeatureApi(cache_dir=cache_directory)
         
         # Make API request
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             test_area_geometry,
             country,
             packs,

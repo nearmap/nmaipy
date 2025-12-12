@@ -591,7 +591,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, threads=4)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             aoi, country, packs, None, None, aoi_id, #survey_resource_id=survey_resource_id
         )
         df = parcels.parcel_rollup(
@@ -644,7 +644,7 @@ class TestParcels:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
 
         df = parcels.parcel_rollup(
             parcels_gdf,

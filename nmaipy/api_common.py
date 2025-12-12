@@ -387,7 +387,7 @@ class BaseApiClient:
                 for session in self._sessions:
                     try:
                         session.close()
-                    except:
+                    except Exception:
                         pass
                 self._sessions.clear()
         else:  # Fallback if attributes don't exist
@@ -395,7 +395,7 @@ class BaseApiClient:
                 for session in self._sessions:
                     try:
                         session.close()
-                    except:
+                    except Exception:
                         pass
                 self._sessions.clear()
 
@@ -454,7 +454,7 @@ class BaseApiClient:
             # Always close the session to prevent resource leaks
             try:
                 session.close()
-            except:
+            except Exception:
                 pass
 
     def _get_cache_path(self, cache_key: str) -> Path:

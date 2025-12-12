@@ -77,7 +77,7 @@ def close_sessions(sessions):
     for session in sessions:
         try:
             session.close()
-        except:
+        except Exception:
             pass
 
 
@@ -95,7 +95,7 @@ def cleanup_executor(executor):
 
         # Shutdown the executor
         executor.shutdown(wait=True)
-    except:
+    except Exception:
         pass
 
 
@@ -256,7 +256,7 @@ class FeatureApi(GriddedApiClient):
                 for session in self._sessions:
                     try:
                         session.close()
-                    except:
+                    except Exception:
                         pass
                 self._sessions.clear()
         else:  # Fallback if attributes don't exist
@@ -264,7 +264,7 @@ class FeatureApi(GriddedApiClient):
                 for session in self._sessions:
                     try:
                         session.close()
-                    except:
+                    except Exception:
                         pass
                 self._sessions.clear()
 
@@ -316,7 +316,7 @@ class FeatureApi(GriddedApiClient):
             # Always close the session to prevent resource leaks
             try:
                 session.close()
-            except:
+            except Exception:
                 pass
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
@@ -410,7 +410,7 @@ class FeatureApi(GriddedApiClient):
                         urlencode(cleaned_params),
                         parsed.fragment
                     ))
-        except:
+        except Exception:
             pass  # If URL parsing fails, continue with simple replacement
 
         # Always do simple replacement as a catch-all

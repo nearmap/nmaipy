@@ -494,7 +494,7 @@ class BaseExporter(ABC):
                 fd_count = len(os.listdir(f"/proc/{pid}/fd"))
             else:
                 fd_count = "unknown"
-        except:
+        except Exception:
             fd_count = "unknown"
 
         self.logger.error(f"BrokenProcessPool diagnostic info:")

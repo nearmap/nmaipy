@@ -455,7 +455,7 @@ def cleanup_process_feature_api():
     if _process_feature_api is not None:
         try:
             _process_feature_api.cleanup()
-        except:
+        except Exception:
             pass
         _process_feature_api = None
 
@@ -742,7 +742,7 @@ def cleanup_thread_sessions(executor):
                 if hasattr(thread._local, "session"):
                     try:
                         thread._local.session.close()
-                    except:
+                    except Exception:
                         pass
 
 
@@ -1620,14 +1620,14 @@ class NearmapAIExporter(BaseExporter):
                 try:
                     feature_api.cleanup()
                     del feature_api
-                except:
+                except Exception:
                     pass
 
             if "roof_age_api" in locals() and roof_age_api is not None:
                 try:
                     roof_age_api.cleanup()
                     del roof_age_api
-                except:
+                except Exception:
                     pass
 
             # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
@@ -1644,10 +1644,10 @@ class NearmapAIExporter(BaseExporter):
                     if hasattr(pyproj, "_datadir"):
                         # Clear proj data directory cache
                         pyproj._datadir.clear_data_dir()
-                except:
+                except Exception:
                     pass
 
-            except:
+            except Exception:
                 pass
 
     def run(self):
