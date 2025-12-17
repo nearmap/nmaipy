@@ -52,7 +52,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 1 building
         building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].iloc[0, 0]
         assert (
@@ -78,7 +78,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 1
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
@@ -370,7 +370,7 @@ class TestFeatureAPI:
         )
         # Check output
         assert error is None
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         assert len(features_gdf) == 1
 
@@ -396,7 +396,7 @@ class TestFeatureAPI:
         )
         # Check output
         assert error is None
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         assert len(features_gdf) == 1
 
@@ -507,7 +507,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 4 roofs
         assert len(features_gdf) == 4
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 4
@@ -534,7 +534,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 7 roofs
         assert len(features_gdf) == 7  # Updated after testing
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 7
@@ -565,7 +565,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 1
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
@@ -597,7 +597,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get no buildings (inner gets discarded)
         assert len(features_gdf) == 0
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 0
@@ -622,7 +622,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get one piece of hollowed out asphalt
         assert len(features_gdf) == 3
         assert len(features_gdf[features_gdf.class_id == ASPHALT_ID]) == 1
@@ -696,7 +696,7 @@ class TestFeatureAPI:
         # Should not error out
         assert error is None
         assert metadata is not None
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         
         # Should still get roof features
         if features_gdf is not None and len(features_gdf) > 0:
@@ -726,11 +726,12 @@ class TestFeatureAPI:
             mock_response.json.return_value = {
                 "features": [],
                 "systemVersion": "test-version",
-                "link": "https://api.nearmap.com/ai/features/v4/au.json?since=2025-01-20&until=2025-01-20",
+                "link": "https://apps.nearmap.com/maps/#/@-33.8688,151.2093,20.00z,0d/V/20250120?locationMarker",
+                "surveyDate": "2025-01-20",
                 "surveyId": "test-survey-id",
                 "resourceId": "test-resource-id",
-                "perspective": "test-perspective",
-                "postcat": "test-postcat"
+                "perspective": "Vert",
+                "postcat": False
             }
             mock_post.return_value = mock_response
 

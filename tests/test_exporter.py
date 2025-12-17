@@ -338,7 +338,7 @@ class TestExporter:
 
         # Test metadata columns which should be identical
         pd.testing.assert_series_equal(
-            data_feature_api.loc[:, "date"],
+            data_feature_api.loc[:, "survey_date"],
             data_rollup_api.filter(like=ROLLUP_SURVEY_DATE_ID).iloc[:, 0],
             check_names=False,
         )
@@ -586,7 +586,7 @@ class TestExporter:
             chunk1_data = gpd.GeoDataFrame({
                 'system_version': ['gen6-'],
                 'link': ['http://example.com'],
-                'date': ['2024-11-06'],
+                'survey_date': ['2024-11-06'],
                 'survey_id': ['survey1'],
                 'survey_resource_id': ['resource1'],
                 'perspective': ['vertical'],
@@ -605,7 +605,7 @@ class TestExporter:
             chunk2_data = gpd.GeoDataFrame({
                 'system_version': [None],
                 'link': [None],
-                'date': [None],
+                'survey_date': [None],
                 'survey_id': [None],
                 'survey_resource_id': [None],
                 'perspective': [None],

@@ -920,14 +920,6 @@ class FeatureApi(GriddedApiClient):
                     self._handle_response_errors(response, request_info)
 
     @staticmethod
-    def link_to_date(link: str) -> str:
-        """
-        Parse the date from a Map Browser link.
-        """
-        date = link.split("/")[-1]
-        return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
-
-    @staticmethod
     def add_location_marker_to_link(link: str) -> str:
         """
         Check whether the link contains the location marker flag, and add it if not present.
@@ -960,7 +952,7 @@ class FeatureApi(GriddedApiClient):
         metadata = {
             "system_version": payload["systemVersion"],
             "link": cls.add_location_marker_to_link(payload["link"]),
-            "date": cls.link_to_date(payload["link"]),
+            "survey_date": payload["surveyDate"],
             "survey_id": payload["surveyId"],
             "survey_resource_id": payload["resourceId"],
             "perspective": payload["perspective"],
@@ -1064,7 +1056,7 @@ class FeatureApi(GriddedApiClient):
         metadata = {
             "system_version": df.filter(regex=ROLLUP_SYSTEM_VERSION_ID).iloc[0, 0],
             "link": "",  # TODO: Once link is returned in payloads, add in here.
-            "date": df.filter(regex=ROLLUP_SURVEY_DATE_ID).iloc[0, 0],
+            "survey_date": df.filter(regex=ROLLUP_SURVEY_DATE_ID).iloc[0, 0],
         }
 
         # Add AOI ID if specified
@@ -1149,7 +1141,7 @@ class FeatureApi(GriddedApiClient):
                 AOI_ID_COLUMN_NAME: metadata_df[AOI_ID_COLUMN_NAME],
                 "system_version": metadata_df["system_version"],
                 "link": metadata_df["link"],
-                "date": metadata_df["date"],
+                "survey_date": metadata_df["survey_date"],
                 "survey_id": metadata_df["survey_id"],
                 "survey_resource_id": metadata_df["survey_resource_id"],
                 "perspective": metadata_df["perspective"],
@@ -1490,10 +1482,8 @@ class FeatureApi(GriddedApiClient):
                     f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
                 )
                 raise AIFeatureAPIGridError(e.status_code)
-            if len(features_gdf) == 0:
-                # Got no data back from any grid square in the AOI.
-                raise AIFeatureAPIGridError(DUMMY_STATUS_CODE, message="No data returned from grid query for AOI.")
-            elif len(features_gdf["survey_date"].unique()) > 1:
+            # Check for multiple survey dates using metadata (works even with empty features)
+            if len(metadata_df) > 0 and len(metadata_df["survey_date"].unique()) > 1:
                 if aoi_grid_inexact:
                     logger.info(
                         f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
@@ -1505,7 +1495,7 @@ class FeatureApi(GriddedApiClient):
                     raise AIFeatureAPIGridError(
                         DUMMY_STATUS_CODE, message="Multiple dates on non survey resource ID query."
                     )
-            elif survey_resource_id is None:
+            elif len(metadata_df) > 0 and survey_resource_id is None:
                 logger.debug(
                     f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
                 )

@@ -350,7 +350,7 @@ class TestDamageClassification:
         
         # Check metadata
         assert metadata is not None, "No metadata returned"
-        assert 'survey_date' in metadata or 'date' in metadata, "No survey date in metadata"
+        assert 'survey_date' in metadata, "No survey_date in metadata"
         
         print(f"\nFound {len(features_gdf)} total features")
         if 'description' in features_gdf.columns:
