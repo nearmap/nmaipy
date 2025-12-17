@@ -1327,7 +1327,7 @@ class NearmapAIExporter(BaseExporter):
             meta_data_columns = [
                 "system_version",
                 "link",
-                "date",
+                "survey_date",
                 "survey_id",
                 "survey_resource_id",
                 "perspective",
@@ -1365,7 +1365,7 @@ class NearmapAIExporter(BaseExporter):
             columns = [c for c in columns if c in final_df.columns]
             date2str = lambda d: str(d).replace("-", "")
             make_link = (
-                lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.date)}?locationMarker"
+                lambda d: f"https://apps.nearmap.com/maps/#/@{d.query_aoi_lat},{d.query_aoi_lon},21.00z,0d/V/{date2str(d.survey_date)}?locationMarker"
             )
             if self.endpoint == Endpoint.ROLLUP.value:
                 if (
@@ -1373,7 +1373,7 @@ class NearmapAIExporter(BaseExporter):
                     and "query_aoi_lon" in final_df.columns
                 ):
                     final_df["link"] = final_df.apply(make_link, axis=1)
-                final_df = final_df.drop(columns=["system_version", "date"])
+                final_df = final_df.drop(columns=["system_version", "survey_date"])
             self.logger.debug(
                 f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
             )
