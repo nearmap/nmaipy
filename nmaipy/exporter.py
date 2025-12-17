@@ -281,8 +281,8 @@ def export_feature_class(
         added_cols.add("feature_id")
     flat_df["class_id"] = class_id
     added_cols.add("class_id")
-    flat_df["class_description"] = class_description
-    added_cols.add("class_description")
+    flat_df["description"] = class_description
+    added_cols.add("description")
 
     # Roof instances don't have confidence/fidelity (they have trust_score instead)
     # Only add confidence and fidelity for non-roof-instance classes

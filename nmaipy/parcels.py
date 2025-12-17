@@ -491,7 +491,7 @@ def extract_building_features(
             AOI_ID_COLUMN_NAME: aoi_id,
             "feature_id": building.feature_id,
             "class_id": building.class_id,
-            "class_description": building.description,
+            "description": building.description,
             "confidence": building.confidence,
             "fidelity": building.fidelity if hasattr(building, 'fidelity') else None,
             "area_sqm": building.area_sqm if hasattr(building, 'area_sqm') else None,
