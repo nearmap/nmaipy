@@ -57,6 +57,8 @@ from nmaipy.constants import (
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
+    ROOF_AGE_MODEL_VERSION_FIELD,
+    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_RESOURCE_ENDPOINT,
@@ -329,6 +331,8 @@ class RoofAgeApi(BaseApiClient):
         # Add metadata from top level
         if ROOF_AGE_RESOURCE_ID_FIELD in response_data:
             gdf[ROOF_AGE_RESOURCE_ID_FIELD] = response_data[ROOF_AGE_RESOURCE_ID_FIELD]
+        if ROOF_AGE_MODEL_VERSION_FIELD in response_data:
+            gdf[ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD] = response_data[ROOF_AGE_MODEL_VERSION_FIELD]
 
         return gdf
 
@@ -359,7 +363,7 @@ class RoofAgeApi(BaseApiClient):
         all_features = []
         cursor = None
         page_count = 0
-        resource_id = None
+        first_page_metadata = None
 
         while True:
             page_count += 1
@@ -380,9 +384,12 @@ class RoofAgeApi(BaseApiClient):
             features = response_data.get("features", [])
             all_features.extend(features)
 
-            # Capture resource ID from first page
-            if resource_id is None and ROOF_AGE_RESOURCE_ID_FIELD in response_data:
-                resource_id = response_data[ROOF_AGE_RESOURCE_ID_FIELD]
+            # Capture all top-level metadata from first page (except features and nextCursor)
+            if first_page_metadata is None:
+                first_page_metadata = {
+                    k: v for k, v in response_data.items()
+                    if k not in ("features", ROOF_AGE_NEXT_CURSOR_FIELD)
+                }
 
             # Check for next page
             next_cursor = response_data.get(ROOF_AGE_NEXT_CURSOR_FIELD)
@@ -395,13 +402,9 @@ class RoofAgeApi(BaseApiClient):
                     logger.debug(f"Pagination complete: {page_count} pages, {len(all_features)} total features")
                 break
 
-        # Build merged response
-        merged_response = {
-            "type": "FeatureCollection",
-            "features": all_features,
-        }
-        if resource_id is not None:
-            merged_response[ROOF_AGE_RESOURCE_ID_FIELD] = resource_id
+        # Build merged response: start with first page metadata, then set merged features
+        merged_response = first_page_metadata.copy() if first_page_metadata else {}
+        merged_response["features"] = all_features
 
         return merged_response
 
