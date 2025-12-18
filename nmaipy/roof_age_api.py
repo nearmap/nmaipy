@@ -91,6 +91,7 @@ class RoofAgeApi(BaseApiClient):
         url_root: Optional[str] = None,
         country: str = "us",
         progress_counters: Optional[dict] = None,
+        bulk_mode: bool = True,
     ):
         """
         Initialize Roof Age API client.
@@ -104,6 +105,7 @@ class RoofAgeApi(BaseApiClient):
             url_root: Override the default API root URL (for testing)
             country: Country code for address queries (e.g., 'us', 'au')
             progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
+            bulk_mode: When True, uses bulk API mode with higher rate limits (1000 rps vs 20 rps)
         """
         super().__init__(
             api_key=api_key,
@@ -119,12 +121,15 @@ class RoofAgeApi(BaseApiClient):
         # Store country for address queries
         self.country = country.upper()
 
+        # Store bulk mode setting
+        self.bulk_mode = bulk_mode
+
         # Configure API endpoints
         if url_root is None:
             url_root = ROOF_AGE_URL_ROOT
         self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_ENDPOINT}"
 
-        logger.debug(f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}")
+        logger.debug(f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, bulk_mode: {bulk_mode}")
 
     def _increment_progress(self):
         """Increment progress counter immediately after each request completes."""
@@ -443,6 +448,8 @@ class RoofAgeApi(BaseApiClient):
         # Fetch all pages
         url = f"{self.base_url}.{file_format}"
         params = {"apikey": self.api_key}
+        if self.bulk_mode:
+            params["bulk"] = "true"
 
         logger.debug(f"Requesting roof age data for {aoi_id}")
         response_data = self._fetch_all_pages(
@@ -491,6 +498,8 @@ class RoofAgeApi(BaseApiClient):
         # Fetch all pages
         url = f"{self.base_url}.{file_format}"
         params = {"apikey": self.api_key}
+        if self.bulk_mode:
+            params["bulk"] = "true"
 
         logger.debug(f"Requesting roof age data for {aoi_id} at {address.get('streetAddress', 'unknown')}")
         response_data = self._fetch_all_pages(

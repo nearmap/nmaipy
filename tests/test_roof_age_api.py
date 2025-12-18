@@ -70,6 +70,18 @@ def test_roof_age_api_initialization():
     assert "latest" in api.base_url
 
 
+def test_roof_age_api_bulk_mode_default():
+    """Test that RoofAgeApi defaults to bulk_mode=True"""
+    api = RoofAgeApi(api_key="test_key")
+    assert api.bulk_mode is True
+
+
+def test_roof_age_api_bulk_mode_disabled():
+    """Test that RoofAgeApi can disable bulk_mode"""
+    api = RoofAgeApi(api_key="test_key", bulk_mode=False)
+    assert api.bulk_mode is False
+
+
 def test_roof_age_api_missing_key():
     """Test that RoofAgeApi raises error when no API key is provided"""
     # Clear environment variable temporarily
@@ -503,3 +515,53 @@ def test_pagination_real_api():
     assert len(gdf) > 1000, f"Expected >1000 features (pagination required), got {len(gdf)}"
     assert ROOF_AGE_INSTALLATION_DATE_FIELD in gdf.columns
     assert ROOF_AGE_RESOURCE_ID_FIELD in gdf.columns
+
+
+def test_bulk_mode_parameter_included_in_request(cache_directory, test_aoi_nj):
+    """Test that bulk=true parameter is included in request when bulk_mode=True"""
+    api = RoofAgeApi(api_key="test_key", cache_dir=cache_directory, bulk_mode=True)
+
+    with patch.object(api, '_session_scope') as mock_session_scope:
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json.return_value = {
+            "type": "FeatureCollection",
+            "resourceId": "test-resource",
+            "features": []
+        }
+        mock_session.post.return_value = mock_response
+        mock_session._timeout = (120, 90)
+        mock_session_scope.return_value.__enter__.return_value = mock_session
+
+        api.get_roof_age_by_aoi(test_aoi_nj, aoi_id="test_bulk")
+
+        # Check that bulk=true was included in params
+        call_args = mock_session.post.call_args
+        params = call_args.kwargs.get('params', call_args[1].get('params', {}))
+        assert params.get("bulk") == "true", f"bulk param should be 'true', got {params}"
+
+
+def test_bulk_mode_parameter_not_included_when_disabled(cache_directory, test_aoi_nj):
+    """Test that bulk parameter is not included when bulk_mode=False"""
+    api = RoofAgeApi(api_key="test_key", cache_dir=cache_directory, bulk_mode=False)
+
+    with patch.object(api, '_session_scope') as mock_session_scope:
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json.return_value = {
+            "type": "FeatureCollection",
+            "resourceId": "test-resource",
+            "features": []
+        }
+        mock_session.post.return_value = mock_response
+        mock_session._timeout = (120, 90)
+        mock_session_scope.return_value.__enter__.return_value = mock_session
+
+        api.get_roof_age_by_aoi(test_aoi_nj, aoi_id="test_no_bulk")
+
+        # Check that bulk param is NOT included
+        call_args = mock_session.post.call_args
+        params = call_args.kwargs.get('params', call_args[1].get('params', {}))
+        assert "bulk" not in params, f"bulk param should not be present, got {params}"
