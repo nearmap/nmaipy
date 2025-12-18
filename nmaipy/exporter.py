@@ -1429,6 +1429,12 @@ class NearmapAIExporter(BaseExporter):
                     f"Error type: {type(e).__name__}, Error message: {str(e)}"
                 )
             if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
+                # Drop survey_date from metadata_df to avoid collision with features_gdf
+                # (features_gdf has per-feature survey_date which is more accurate for gridded AOIs)
+                metadata_cols_to_drop = [c for c in ["survey_date"] if c in metadata_df.columns and c in features_gdf.columns]
+                if metadata_cols_to_drop:
+                    metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
+
                 # Check for column name collisions between any two dataframes
                 final_features_df = aoi_gdf.rename(
                     columns=dict(geometry="aoi_geometry")
@@ -1452,12 +1458,6 @@ class NearmapAIExporter(BaseExporter):
                         f"Column name collisions detected. The following columns exist in multiple dataframes "
                         f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                     )
-
-                # Drop survey_date from metadata_df to avoid collision with features_gdf
-                # (features_gdf has per-feature survey_date which is more accurate for gridded AOIs)
-                metadata_cols_to_drop = [c for c in ["survey_date"] if c in metadata_df.columns and c in features_gdf.columns]
-                if metadata_cols_to_drop:
-                    metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
 
                 # First merge
                 merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
