@@ -940,6 +940,8 @@ class NearmapAIExporter(BaseExporter):
                     reference_schema = table.schema
 
                     # Create geoparquet metadata from the start
+                    # Use PROJJSON format for CRS to ensure QGIS compatibility
+                    crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
                     geo_metadata = {
                         "version": "1.0.0",
                         "primary_column": "geometry",
@@ -947,7 +949,7 @@ class NearmapAIExporter(BaseExporter):
                             "geometry": {
                                 "encoding": "WKB",
                                 "geometry_types": [],
-                                "crs": API_CRS,
+                                "crs": crs_projjson,
                                 "edges": "planar",
                                 "orientation": "counterclockwise",
                                 "bbox": None,

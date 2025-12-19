@@ -3,17 +3,36 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  # Python version
-  - python>=3.14
+  # Python version - 3.12 or 3.13 (3.14 not yet released)
+  - python >=3.12,<3.14
 
-  # Development tools (not in pyproject.toml)
-  - ipykernel
-  - matplotlib
-  - black
-  - isort
-  - pytest
+  # Core geo dependencies with version pins
+  - numpy >=2.3.5
+  - pandas >=2.3.3
+  - geopandas >=1.1.1
+  - shapely >=2.1.1
+  - pyproj >=3.7.2
+  - pyarrow >=20.0.0
+  - pyogrio >=0.11.0
+
+  # Other core dependencies
+  - requests >=2.32.5
+  - python-dotenv >=1.2.1
+  - tqdm >=4.67.1
+  - psutil >=7.1.3
+  - fsspec >=2025.3.0
+  - s3fs >=2025.3.0
+  - stringcase >=1.2.0
+
+  # Development tools
+  - ruff >=0.11.13,<0.11.14
+  - pytest >=9.0.2
+  - ipykernel >=7.1.0
+  - matplotlib >=3.10.8
+
+  # Build tools
+  - pip >=25.3.0
 
   # Install nmaipy and its dependencies from pyproject.toml
-  - pip
   - pip:
     - -e .[dev,notebooks]
