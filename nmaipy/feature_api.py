@@ -907,8 +907,8 @@ class FeatureApi(GriddedApiClient):
                     try:
                         error_data = json.loads(text)
                         error_code = error_data.get("code", "")
-                        if error_code in AIFeatureAPIRequestSizeError.status_codes:
-                            logger.debug(f"Raising AIFeatureAPIRequestSizeError from secondary status code {status_code=}")
+                        if error_code in AIFeatureAPIRequestSizeError.error_codes:
+                            logger.debug(f"Raising AIFeatureAPIRequestSizeError from error code {error_code=}")
                             raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
                     except (json.JSONDecodeError, KeyError):
                         pass

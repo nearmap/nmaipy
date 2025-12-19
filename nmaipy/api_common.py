@@ -273,6 +273,7 @@ class APIRequestSizeError(APIError):
     """
 
     status_codes = (HTTPStatus.GATEWAY_TIMEOUT, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+    error_codes = ("AOI_EXCEEDS_MAX_SIZE",)  # API error codes that indicate size issues
 
     def __str__(self):
         """Return a concise error message"""
