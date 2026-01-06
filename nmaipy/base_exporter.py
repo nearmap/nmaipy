@@ -11,6 +11,8 @@ Provides common infrastructure for exporters that need to:
 
 Subclasses implement process_chunk() to define API-specific processing logic.
 """
+
+import concurrent.futures
 import multiprocessing
 import sys
 import time
@@ -22,13 +24,18 @@ from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import concurrent.futures
 import geopandas as gpd
 import numpy as np
 import psutil
 from tqdm import tqdm
 
 from nmaipy import log
+from nmaipy.cgroup_memory import (
+    get_cgroup_memory_limit_gb,
+    get_cgroup_memory_usage_gb,
+    get_memory_info_cgroup_aware,
+    is_running_in_container,
+)
 
 logger = log.get_logger()
 
@@ -84,12 +91,7 @@ class BaseExporter(ABC):
         self.final_path.mkdir(parents=True, exist_ok=True)
 
     @abstractmethod
-    def process_chunk(
-        self,
-        chunk_id: str,
-        aoi_gdf: gpd.GeoDataFrame,
-        **kwargs
-    ):
+    def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, **kwargs):
         """
         Process a single chunk of AOI data.
 
@@ -125,10 +127,7 @@ class BaseExporter(ABC):
         pass
 
     def split_into_chunks(
-        self,
-        aoi_gdf: gpd.GeoDataFrame,
-        file_stem: str,
-        check_cache: bool = True
+        self, aoi_gdf: gpd.GeoDataFrame, file_stem: str, check_cache: bool = True
     ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int]:
         """
         Split a GeoDataFrame into chunks for parallel processing.
@@ -202,7 +201,7 @@ class BaseExporter(ABC):
         file_stem: str,
         initial_aoi_count: int,
         use_progress_tracking: bool = True,
-        **process_chunk_kwargs
+        **process_chunk_kwargs,
     ):
         """
         Process chunks in parallel using ProcessPoolExecutor.
@@ -235,14 +234,16 @@ class BaseExporter(ABC):
         if use_progress_tracking:
             manager = multiprocessing.Manager()
             # Estimate 1 request per AOI initially (may grow if gridding occurs)
-            progress_counters = manager.dict({
-                "total": initial_aoi_count,
-                "completed": 0,
-                "lock": manager.Lock(),
-            })
+            progress_counters = manager.dict(
+                {
+                    "total": initial_aoi_count,
+                    "completed": 0,
+                    "lock": manager.Lock(),
+                }
+            )
             # Add progress_counters to kwargs if subclass expects it
-            if 'progress_counters' not in process_chunk_kwargs:
-                process_chunk_kwargs['progress_counters'] = progress_counters
+            if "progress_counters" not in process_chunk_kwargs:
+                process_chunk_kwargs["progress_counters"] = progress_counters
 
         for attempt in range(max_retries):
             try:
@@ -259,7 +260,7 @@ class BaseExporter(ABC):
                                 self.process_chunk,
                                 chunk_id,
                                 batch,
-                                **process_chunk_kwargs
+                                **process_chunk_kwargs,
                             )
                             jobs.append(job)
                             job_to_chunk[job] = (
@@ -276,7 +277,7 @@ class BaseExporter(ABC):
                                 job_to_chunk,
                                 progress_counters,
                                 len(chunks_to_process),
-                                executor
+                                executor,
                             )
                         else:
                             self._monitor_progress_simple(jobs, job_to_chunk)
@@ -312,7 +313,7 @@ class BaseExporter(ABC):
         job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
         progress_counters: Dict[str, Any],
         num_jobs: int,
-        executor: ProcessPoolExecutor
+        executor: ProcessPoolExecutor,
     ):
         """
         Monitor job progress with dynamic tqdm progress bar.
@@ -357,7 +358,9 @@ class BaseExporter(ABC):
                             completed_jobs += 1
 
                             # Update progress bar immediately
-                            lock_acquired = progress_counters["lock"].acquire(timeout=0.01)
+                            lock_acquired = progress_counters["lock"].acquire(
+                                timeout=0.01
+                            )
                             if lock_acquired:
                                 try:
                                     requests_completed = progress_counters["completed"]
@@ -369,9 +372,7 @@ class BaseExporter(ABC):
                                     pbar.total = requests_total
                                 pbar.n = requests_completed
 
-                            mem = psutil.virtual_memory()
-                            used_gb = (mem.total - mem.available) / (1024**3)
-                            total_gb = mem.total / (1024**3)
+                            used_gb, total_gb = get_memory_info_cgroup_aware()
                             pbar.set_description(
                                 f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
                                 f"Chunks: {completed_jobs}/{num_jobs}"
@@ -411,9 +412,7 @@ class BaseExporter(ABC):
                             pbar.total = requests_total
 
                         # Update position and description
-                        mem = psutil.virtual_memory()
-                        used_gb = (mem.total - mem.available) / (1024**3)
-                        total_gb = mem.total / (1024**3)
+                        used_gb, total_gb = get_memory_info_cgroup_aware()
 
                         pbar.n = requests_completed
                         pbar.set_description(
@@ -430,9 +429,7 @@ class BaseExporter(ABC):
                 requests_completed = progress_counters["completed"]
                 requests_total = progress_counters["total"]
 
-            mem = psutil.virtual_memory()
-            used_gb = (mem.total - mem.available) / (1024**3)
-            total_gb = mem.total / (1024**3)
+            used_gb, total_gb = get_memory_info_cgroup_aware()
 
             pbar.n = requests_completed
             pbar.total = requests_total
@@ -445,7 +442,7 @@ class BaseExporter(ABC):
     def _monitor_progress_simple(
         self,
         jobs: List[concurrent.futures.Future],
-        job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]]
+        job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
     ):
         """
         Simple progress monitoring with tqdm over completed jobs.
@@ -463,11 +460,7 @@ class BaseExporter(ABC):
                 raise
 
     def _handle_broken_process_pool(
-        self,
-        error: Exception,
-        attempt: int,
-        max_retries: int,
-        retry_delay: int
+        self, error: Exception, attempt: int, max_retries: int, retry_delay: int
     ):
         """
         Handle BrokenProcessPool errors with diagnostic logging.
@@ -489,6 +482,7 @@ class BaseExporter(ABC):
         # Count open file descriptors (Linux/Mac)
         try:
             import os
+
             pid = os.getpid()
             if os.path.exists(f"/proc/{pid}/fd"):
                 fd_count = len(os.listdir(f"/proc/{pid}/fd"))
@@ -498,8 +492,18 @@ class BaseExporter(ABC):
             fd_count = "unknown"
 
         self.logger.error(f"BrokenProcessPool diagnostic info:")
+
+        # Log cgroup info if in container
+        if is_running_in_container():
+            cgroup_usage = get_cgroup_memory_usage_gb()
+            cgroup_limit = get_cgroup_memory_limit_gb()
+            if cgroup_usage is not None and cgroup_limit is not None:
+                cgroup_percent = (cgroup_usage / cgroup_limit) * 100
+                self.logger.error(
+                    f"  Container Memory: {cgroup_usage:.1f}GB used of {cgroup_limit:.1f}GB ({cgroup_percent:.1f}%)"
+                )
         self.logger.error(
-            f"  Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)"
+            f"  Host Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)"
         )
         self.logger.error(
             f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)"
