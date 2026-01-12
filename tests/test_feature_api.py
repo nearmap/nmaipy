@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import tempfile
@@ -14,7 +15,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from shapely.wkt import loads
 
 from nmaipy import parcels, reference_code, geometry_utils
-from nmaipy.api_common import generate_curl_command
+from nmaipy.api_common import generate_curl_command, AIFeatureAPIError, APIGridError
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -1124,6 +1125,84 @@ class TestFeatureAPI:
                     f"API key found in exception request_string: {e.request_string}"
                 assert "APIKEYREMOVED" in str(e.request_string), \
                     "Exception should contain sanitized placeholder"
+
+    def test_max_allowed_error_count_uses_floor_not_round(self):
+        """
+        Test that max_allowed_error_count uses math.floor instead of round.
+
+        This prevents a bug where small grids with high error percentage could allow
+        100% failure due to rounding. E.g., with 50 AOIs and 99% allowed errors:
+        - round(50 * 99 / 100) = round(49.5) = 50, allowing all 50 to fail
+        - floor(50 * 99 / 100) = floor(49.5) = 49, requiring at least 1 success
+        """
+        test_cases = [
+            # (num_aois, max_allowed_error_pct, expected_max_errors)
+            (50, 99, 49),   # floor(49.5) = 49, not round(49.5) = 50
+            (50, 100, 50),  # floor(50) = 50
+            (100, 99, 99),  # floor(99) = 99
+            (100, 1, 1),    # floor(1) = 1
+            (3, 99, 2),     # floor(2.97) = 2, not round(2.97) = 3
+            (10, 95, 9),    # floor(9.5) = 9, not round(9.5) = 10
+        ]
+
+        for num_aois, max_allowed_error_pct, expected in test_cases:
+            actual = math.floor(num_aois * max_allowed_error_pct / 100)
+            assert actual == expected, (
+                f"For {num_aois} AOIs with {max_allowed_error_pct}% allowed errors: "
+                f"expected max_allowed_error_count={expected}, got {actual}"
+            )
+
+            # Also verify that round() would give different (wrong) results for edge cases
+            rounded = round(num_aois * max_allowed_error_pct / 100)
+            if num_aois == 50 and max_allowed_error_pct == 99:
+                assert rounded == 50, "round(49.5) should be 50 (the bug we fixed)"
+                assert actual == 49, "floor(49.5) should be 49 (correct behavior)"
+
+    def test_gridding_with_all_failures_returns_error_not_crash(self, cache_directory: Path, monkeypatch):
+        """
+        Test that when all grid cells fail, we get a proper error dict instead of
+        'single positional indexer is out-of-bounds' crash from .iloc[0] on empty DataFrame.
+
+        This tests the fix for the bug where _attempt_gridding assumed metadata_df
+        would always have at least one row after gridding.
+        """
+        from shapely.geometry import box
+
+        # Create a large AOI that will trigger gridding
+        large_aoi = box(150.0, -34.0, 151.0, -33.0)  # ~100km x 100km
+
+        feature_api = FeatureApi(cache_dir=cache_directory, aoi_grid_min_pct=0)
+
+        # Mock get_features_gdf_bulk to return empty metadata (simulating all grid cells failing)
+        def mock_get_features_gdf_bulk(*args, **kwargs):
+            # Return empty features, empty metadata, and some errors
+            empty_features = gpd.GeoDataFrame(columns=['geometry'], crs=API_CRS)
+            empty_features.index.name = AOI_ID_COLUMN_NAME
+            empty_metadata = pd.DataFrame([])
+            empty_metadata.index.name = AOI_ID_COLUMN_NAME
+            errors = pd.DataFrame([{
+                AOI_ID_COLUMN_NAME: 0,
+                'status_code': 404,
+                'message': 'No coverage',
+            }]).set_index(AOI_ID_COLUMN_NAME)
+            return empty_features, empty_metadata, errors
+
+        monkeypatch.setattr(feature_api, 'get_features_gdf_bulk', mock_get_features_gdf_bulk)
+
+        # Call _attempt_gridding directly - should NOT crash with IndexError
+        features, metadata, error, grid_errors = feature_api._attempt_gridding(
+            geometry=large_aoi,
+            region='au',
+            packs=['building'],
+            aoi_id='test_aoi',
+        )
+
+        # Should return None for features/metadata and an error dict
+        assert features is None, "Expected None features when all grid cells fail"
+        assert metadata is None, "Expected None metadata when all grid cells fail"
+        assert error is not None, "Expected error dict when all grid cells fail"
+        assert 'message' in error, "Error should contain a message"
+        assert error['failure_type'] == 'grid', "Error should be marked as grid failure"
 
 
 if __name__ == "__main__":

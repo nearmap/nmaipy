@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -1135,6 +1136,10 @@ class FeatureApi(GriddedApiClient):
             # Recombine gridded features
             features_gdf = geometry_utils.combine_features_from_grid(features_gdf)
 
+            # Check for empty metadata (all grid cells failed)
+            if len(metadata_df) == 0:
+                raise AIFeatureAPIGridError(404, message="All grid cells failed - no coverage or data available")
+
             # Create metadata
             metadata_df = metadata_df.drop_duplicates().iloc[0]
             metadata = {
@@ -1579,7 +1584,10 @@ class FeatureApi(GriddedApiClient):
             API responses as feature GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
         try:
-            max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
+            # Use floor to ensure we don't allow more errors than intended due to rounding.
+            # E.g., with 50 AOIs and 99% allowed errors, round(49.5)=50 would allow 100% failure,
+            # but floor(49.5)=49 correctly requires at least 1 success.
+            max_allowed_error_count = math.floor(len(gdf) * max_allowed_error_pct / 100)
 
             # are address fields present?
             has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
@@ -1826,7 +1834,10 @@ class FeatureApi(GriddedApiClient):
         Returns:
             API responses as rollup csv GeoDataFrames, metadata DataFrame, and an error DataFrame
         """
-        max_allowed_error_count = round(len(gdf) * max_allowed_error_pct / 100)
+        # Use floor to ensure we don't allow more errors than intended due to rounding.
+        # E.g., with 50 AOIs and 99% allowed errors, round(49.5)=50 would allow 100% failure,
+        # but floor(49.5)=49 correctly requires at least 1 success.
+        max_allowed_error_count = math.floor(len(gdf) * max_allowed_error_pct / 100)
 
         # are address fields present?
         has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
