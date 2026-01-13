@@ -246,7 +246,7 @@ class RoofAgeExporter(BaseExporter):
             # Define chunk output files
             outfile_roofs = self.chunk_path / f"roofs_{chunk_id}.parquet"
             outfile_metadata = self.chunk_path / f"metadata_{chunk_id}.parquet"
-            outfile_errors = self.chunk_path / f"errors_{chunk_id}.parquet"
+            outfile_errors = self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
 
             # Check if chunk already processed
             if outfile_metadata.exists():
@@ -349,7 +349,7 @@ class RoofAgeExporter(BaseExporter):
                 metadata_list.append(pd.read_parquet(metadata_file))
 
             # Load errors
-            errors_file = self.chunk_path / f"errors_{chunk_id}.parquet"
+            errors_file = self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
             if errors_file.exists():
                 errors_list.append(pd.read_parquet(errors_file))
 

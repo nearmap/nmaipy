@@ -3,8 +3,8 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  # Python version
-  - python>=3.14
+  # Python version - 3.12 or 3.13 (3.14 not yet released)
+  - python >=3.12,<3.14
 
   # Install nmaipy and its core dependencies from pyproject.toml
   - pip

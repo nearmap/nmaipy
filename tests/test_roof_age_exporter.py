@@ -163,7 +163,7 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
         exporter.process_chunk("test_chunk_0000", aoi_gdf)
 
         # Verify error file was created
-        assert (exporter.chunk_path / "errors_test_chunk_0000.parquet").exists()
+        assert (exporter.chunk_path / "roof_age_errors_test_chunk_0000.parquet").exists()
 
 
 @pytest.mark.integration

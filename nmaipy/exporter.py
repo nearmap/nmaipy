@@ -1972,7 +1972,7 @@ class NearmapAIExporter(BaseExporter):
                     data.append(chunk)
             else:
                 error_filename = (
-                    f"errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
+                    f"feature_api_errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
                 )
                 if (self.chunk_path / error_filename).exists():
                     self.logger.debug(
@@ -1980,7 +1980,9 @@ class NearmapAIExporter(BaseExporter):
                     )
                 else:
                     self.logger.error(
-                        f"Chunk {i} rollup and error files missing. Try rerunning."
+                        f"Both error and data files for chunk {i} missing, indicating "
+                        f"files failed to write or have been deleted. "
+                        f"Check the '{self.chunk_path}' directory to diagnose."
                     )
                     sys.exit(1)
         if len(data) > 0:
