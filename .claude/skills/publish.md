@@ -28,23 +28,32 @@ Execute these steps in order, stopping if any step fails:
 
 3. **Run test suite**
    - Run `pytest` and verify all tests pass
-   - If any tests fail, stop and report failures
+   - If tests fail, attempt to fix failures where appropriate (obvious bugs, missing imports, etc.)
+   - Stage any fixes and present a suggested commit message for user review
+   - If fixes require user decision or failures are unclear, report and ask how to proceed
 
-4. **Determine release path**
+4. **Code review against last release**
+   - Get the diff since the last release tag: `git diff $(git describe --tags --abbrev=0)..HEAD`
+   - Use the code-reviewer agent to review all changes
+   - Focus on: correctness, breaking changes, security issues, missing tests
+   - Report any concerns to the user and ask whether to proceed
+   - This catches issues that may have bypassed proper PR review
+
+5. **Determine release path**
    - If on a feature branch (not main/master): Create a PR to main
    - If on main/master or PR already merged: Proceed to release
 
-5. **Build and publish to PyPI**
+6. **Build and publish to PyPI**
    - Clean old builds: `rm -rf dist/ build/ *.egg-info`
    - Build: `python -m build`
    - Verify: `twine check dist/*`
    - Upload: `twine upload dist/*`
 
-6. **Tag and push**
+7. **Tag and push**
    - Create annotated tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
    - Push tag: `git push origin vX.Y.Z`
 
-7. **Create GitHub release**
+8. **Create GitHub release**
    - Use `gh release create` with:
      - Tag name (vX.Y.Z)
      - Title (vX.Y.Z)
@@ -56,3 +65,5 @@ Execute these steps in order, stopping if any step fails:
 Report the final status with links to:
 - PyPI package page
 - GitHub release page
+
+**Note:** After the tag is pushed, a GitHub Actions workflow automatically runs to validate the release (runs tests, verifies version, attaches build artifacts to the release).

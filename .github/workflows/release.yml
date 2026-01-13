@@ -1,4 +1,4 @@
-name: Release
+name: Release Validation
 
 on:
   push:
@@ -6,27 +6,30 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  validate:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
-    
+        python-version: '3.12'
+        cache: 'pip'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install setuptools wheel twine
-        pip install -e .
-    
+        pip install -e ".[dev]"
+
+    - name: Run tests
+      run: pytest
+
     - name: Get version
       id: get_version
       run: |
         echo "VERSION=$(python -c 'from nmaipy import __version__; print(__version__)')" >> $GITHUB_OUTPUT
-    
+
     - name: Verify tag matches version
       run: |
         TAG_VERSION=${GITHUB_REF#refs/tags/v}
@@ -35,41 +38,31 @@ jobs:
           echo "Error: Tag version ($TAG_VERSION) doesn't match package version ($PACKAGE_VERSION)"
           exit 1
         fi
-    
+
     - name: Build package
-      run: |
-        python setup.py sdist bdist_wheel
-    
-    - name: Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: python -m build
+
+    - name: Upload artifacts to release
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ steps.get_version.outputs.VERSION }}
-        body: |
-          Release of nmaipy version ${{ steps.get_version.outputs.VERSION }}
-          
-          ## Installation
-          
-          ```bash
-          pip install -e .
-          ```
-          
-          Or with conda:
-          ```bash
-          conda env create -f environment.yaml
-          conda activate nmaipy
-          ```
-          
-          See [INSTALL.md](https://github.com/nearmap/nmaipy/blob/main/INSTALL.md) for more options.
-        draft: false
-        prerelease: false
-    
-    # Optional: Upload to PyPI (uncomment if you have PyPI configured)
-    # - name: Publish to PyPI
-    #   env:
-    #     TWINE_USERNAME: __token__
-    #     TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-    #   run: |
-    #     twine upload dist/*
+        files: dist/*
+        fail_on_unmatched_files: true
+
+    - name: Verify PyPI package
+      run: |
+        VERSION="${{ steps.get_version.outputs.VERSION }}"
+        echo "Checking for nmaipy $VERSION on PyPI..."
+        for i in 1 2 3; do
+          echo "Attempt $i/3..."
+          if pip index versions nmaipy 2>/dev/null | grep -q "$VERSION"; then
+            echo "Found nmaipy $VERSION on PyPI"
+            exit 0
+          fi
+          if [ $i -lt 3 ]; then
+            echo "Not found yet, waiting 30 seconds..."
+            sleep 30
+          fi
+        done
+        echo "ERROR: nmaipy $VERSION not found on PyPI after 3 attempts"
+        echo "Did you run /publish or manually upload to PyPI before pushing the tag?"
+        exit 1
