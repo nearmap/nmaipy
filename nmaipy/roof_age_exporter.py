@@ -433,6 +433,46 @@ class RoofAgeExporter(BaseExporter):
         """
         # Save roofs
         if len(roofs_gdf) > 0:
+            # Rename camelCase API fields to snake_case with roof_age_ prefix for consistency
+            # Note: asOfDate is the new API field name, untilDate is legacy (both map to roof_age_as_of_date)
+            column_rename_map = {
+                "kind": "roof_age_kind",
+                "installationDate": "roof_age_installation_date",
+                "asOfDate": "roof_age_as_of_date",
+                "untilDate": "roof_age_as_of_date",  # Legacy fallback
+                "trustScore": "roof_age_trust_score",
+                "area": "roof_age_area_sqm",
+                "evidenceType": "roof_age_evidence_type",
+                "evidenceTypeDescription": "roof_age_evidence_type_description",
+                "beforeInstallationCaptureDate": "roof_age_before_installation_capture_date",
+                "afterInstallationCaptureDate": "roof_age_after_installation_capture_date",
+                "minCaptureDate": "roof_age_min_capture_date",
+                "maxCaptureDate": "roof_age_max_capture_date",
+                "numberOfCaptures": "roof_age_number_of_captures",
+                "assessorData": "roof_age_assessor_data",
+                "relevantPermits": "roof_age_relevant_permits",
+            }
+            roofs_gdf = roofs_gdf.rename(columns=column_rename_map)
+
+            # Calculate roof_age_years_as_of_date
+            if "roof_age_installation_date" in roofs_gdf.columns and "roof_age_as_of_date" in roofs_gdf.columns:
+                from dateutil.parser import parse as parse_date
+
+                def calculate_years(row):
+                    try:
+                        install_str = row.get("roof_age_installation_date")
+                        as_of_str = row.get("roof_age_as_of_date")
+                        if install_str and as_of_str:
+                            install = parse_date(str(install_str))
+                            as_of = parse_date(str(as_of_str))
+                            years = (as_of - install).days / 365.25
+                            return round(years, 1)
+                    except Exception:
+                        pass
+                    return None
+
+                roofs_gdf["roof_age_years_as_of_date"] = roofs_gdf.apply(calculate_years, axis=1)
+
             if self.output_format in ["geoparquet", "both"]:
                 roofs_path = output_path / f"{file_stem}_roofs.parquet"
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
@@ -450,23 +490,26 @@ class RoofAgeExporter(BaseExporter):
 
                 # Define public-facing fields for CSV export based on swagger spec
                 # Excludes internal fields: hilbertId, timeline, resourceId, assessorDataDetails
+                # Uses snake_case with roof_age_ prefix for consistency
                 public_fields = [
                     AOI_ID_COLUMN_NAME,
-                    "kind",
-                    "installationDate",
-                    "untilDate",
-                    "trustScore",
-                    "area",  # Not in swagger but useful metric
-                    "evidenceType",
-                    "evidenceTypeDescription",
-                    "beforeInstallationCaptureDate",
-                    "afterInstallationCaptureDate",
-                    "minCaptureDate",
-                    "maxCaptureDate",
-                    "numberOfCaptures",
-                    "roof_age_mapbrowser_url",  # Renamed from mapBrowserUrl with ?locationMarker appended
-                    "assessorData",
-                    "relevantPermits",
+                    "roof_age_kind",
+                    "roof_age_installation_date",
+                    "roof_age_as_of_date",
+                    "roof_age_trust_score",
+                    "roof_age_area_sqm",
+                    "roof_age_evidence_type",
+                    "roof_age_evidence_type_description",
+                    "roof_age_before_installation_capture_date",
+                    "roof_age_after_installation_capture_date",
+                    "roof_age_min_capture_date",
+                    "roof_age_max_capture_date",
+                    "roof_age_number_of_captures",
+                    "roof_age_years_as_of_date",
+                    "roof_age_mapbrowser_url",
+                    "roof_age_assessor_data",
+                    "roof_age_relevant_permits",
+                    "roof_age_model_version",
                     "geometry",
                 ]
                 # Include aoi_geometry at the end if present (from include_aoi_geometry flag)

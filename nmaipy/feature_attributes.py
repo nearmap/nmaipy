@@ -16,6 +16,7 @@ Feature Classes:
 import json
 from typing import Dict, List, Optional, Union
 
+from dateutil.parser import parse as parse_date
 import pandas as pd
 
 from nmaipy import log
@@ -24,6 +25,7 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_AREA_FIELD,
+    ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_ASSESSOR_DATA_FIELD,
     ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
@@ -259,7 +261,7 @@ def flatten_roof_instance_attributes(
         >>> instance = {"installationDate": "2019-06", "trustScore": 0.85, "evidenceType": 1}
         >>> attrs = flatten_roof_instance_attributes(instance, country="us")
         >>> print(attrs)
-        {'installation_date': '2019-06', 'trust_score': 0.85, 'evidence_type': 1}
+        {'roof_age_installation_date': '2019-06', 'roof_age_trust_score': 0.85, 'roof_age_evidence_type': 1}
     """
     flattened = {}
 
@@ -281,17 +283,20 @@ def flatten_roof_instance_attributes(
     # Installation date
     installation_date = get_value(ROOF_AGE_INSTALLATION_DATE_FIELD, "installation_date")
     if installation_date is not None:
-        flattened[f"{prefix}installation_date"] = installation_date
+        flattened[f"{prefix}roof_age_installation_date"] = installation_date
 
-    # Until date (when this estimate is valid until)
-    until_date = get_value(ROOF_AGE_UNTIL_DATE_FIELD, "until_date")
-    if until_date is not None:
-        flattened[f"{prefix}until_date"] = until_date
+    # As-of date (when this estimate was computed)
+    # Try new API field name first (asOfDate), fall back to legacy (untilDate)
+    as_of_date = get_value(ROOF_AGE_AS_OF_DATE_FIELD, "as_of_date")
+    if as_of_date is None:
+        as_of_date = get_value(ROOF_AGE_UNTIL_DATE_FIELD, "until_date")
+    if as_of_date is not None:
+        flattened[f"{prefix}roof_age_as_of_date"] = as_of_date
 
     # Trust score (confidence in the installation date)
     trust_score = get_value(ROOF_AGE_TRUST_SCORE_FIELD, "trust_score")
     if trust_score is not None:
-        flattened[f"{prefix}trust_score"] = trust_score
+        flattened[f"{prefix}roof_age_trust_score"] = trust_score
 
     # Note: Area fields (area_sqm, area_sqft, etc.) are NOT added here because they're
     # already handled by the standard Feature API column mapping in roof_age_api._parse_response()
@@ -300,47 +305,47 @@ def flatten_roof_instance_attributes(
     # Evidence type and description
     evidence_type = get_value(ROOF_AGE_EVIDENCE_TYPE_FIELD, "evidence_type")
     if evidence_type is not None:
-        flattened[f"{prefix}evidence_type"] = evidence_type
+        flattened[f"{prefix}roof_age_evidence_type"] = evidence_type
 
     evidence_desc = get_value(ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD, "evidence_type_description")
     if evidence_desc is not None:
-        flattened[f"{prefix}evidence_type_description"] = evidence_desc
+        flattened[f"{prefix}roof_age_evidence_type_description"] = evidence_desc
 
     # Capture date information
     before_capture = get_value(ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD, "before_installation_capture_date")
     if before_capture is not None:
-        flattened[f"{prefix}before_installation_capture_date"] = before_capture
+        flattened[f"{prefix}roof_age_before_installation_capture_date"] = before_capture
 
     after_capture = get_value(ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD, "after_installation_capture_date")
     if after_capture is not None:
-        flattened[f"{prefix}after_installation_capture_date"] = after_capture
+        flattened[f"{prefix}roof_age_after_installation_capture_date"] = after_capture
 
     min_capture = get_value(ROOF_AGE_MIN_CAPTURE_DATE_FIELD, "min_capture_date")
     if min_capture is not None:
-        flattened[f"{prefix}min_capture_date"] = min_capture
+        flattened[f"{prefix}roof_age_min_capture_date"] = min_capture
 
     max_capture = get_value(ROOF_AGE_MAX_CAPTURE_DATE_FIELD, "max_capture_date")
     if max_capture is not None:
-        flattened[f"{prefix}max_capture_date"] = max_capture
+        flattened[f"{prefix}roof_age_max_capture_date"] = max_capture
 
     num_captures = get_value(ROOF_AGE_NUM_CAPTURES_FIELD, "number_of_captures")
     if num_captures is not None:
-        flattened[f"{prefix}number_of_captures"] = num_captures
+        flattened[f"{prefix}roof_age_number_of_captures"] = num_captures
 
     # Kind (roof type classification)
     kind = get_value(ROOF_AGE_KIND_FIELD, "kind")
     if kind is not None:
-        flattened[f"{prefix}kind"] = kind
+        flattened[f"{prefix}roof_age_kind"] = kind
 
     # Relevant permits (JSON serialized for parquet compatibility)
     relevant_permits = get_value(ROOF_AGE_RELEVANT_PERMITS_FIELD, "relevant_permits")
     if relevant_permits is not None:
-        flattened[f"{prefix}relevant_permits"] = json.dumps(relevant_permits) if isinstance(relevant_permits, (dict, list)) else relevant_permits
+        flattened[f"{prefix}roof_age_relevant_permits"] = json.dumps(relevant_permits) if isinstance(relevant_permits, (dict, list)) else relevant_permits
 
     # Assessor data (JSON serialized for parquet compatibility)
     assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD, "assessor_data")
     if assessor_data is not None:
-        flattened[f"{prefix}assessor_data"] = json.dumps(assessor_data) if isinstance(assessor_data, (dict, list)) else assessor_data
+        flattened[f"{prefix}roof_age_assessor_data"] = json.dumps(assessor_data) if isinstance(assessor_data, (dict, list)) else assessor_data
 
     # Roof Age mapbrowser URL (shows before/after comparison view)
     mapbrowser_url = get_value(ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD)
@@ -352,9 +357,14 @@ def flatten_roof_instance_attributes(
     if model_version is not None:
         flattened[f"{prefix}{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"] = model_version
 
-    # Note: We intentionally exclude internal fields:
-    # - timeline (detailed internal data, not public)
-    # - hilbertId (internal spatial indexing)
-    # - resourceId (internal reference)
-
+    # Calculate roof age in years as of as_of_date
+    if installation_date is not None and as_of_date is not None:
+        try:
+            install = parse_date(str(installation_date))
+            as_of = parse_date(str(as_of_date))
+            # Calculate years (approximate, using 365.25 days/year)
+            years = (as_of - install).days / 365.25
+            flattened[f"{prefix}roof_age_years_as_of_date"] = round(years, 1)
+        except Exception:
+            pass  # Skip if date parsing fails
     return flattened

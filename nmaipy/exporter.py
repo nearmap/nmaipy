@@ -385,8 +385,8 @@ def export_feature_class(
     # Add class-specific linkage columns for roofs (linking to roof instances)
     if class_id == ROOF_ID:
         for col in [
-            "primary_child_roof_instance_feature_id",
-            "primary_child_roof_instance_iou",
+            "primary_child_roof_age_feature_id",
+            "primary_child_roof_age_iou",
             "child_roof_instances",
             "child_roof_instance_count",
         ]:
@@ -395,8 +395,8 @@ def export_feature_class(
                 added_cols.add(col)
 
         # Add flattened attributes of the primary child roof instance
-        # Look up roof instances from the full features_gdf and join on primary_child_roof_instance_feature_id
-        if "primary_child_roof_instance_feature_id" in class_features.columns:
+        # Look up roof instances from the full features_gdf and join on primary_child_roof_age_feature_id
+        if "primary_child_roof_age_feature_id" in class_features.columns:
             # Get roof instances from the full features_gdf
             roof_instances = features_gdf[
                 features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
@@ -411,7 +411,7 @@ def export_feature_class(
                         attrs = flatten_roof_instance_attributes(
                             ri_row,
                             country=country,
-                            prefix="primary_child_roof_instance_",
+                            prefix="primary_child_",  # Results in primary_child_roof_age_* columns
                         )
                         ri_attrs[ri_row["feature_id"]] = attrs
                     except Exception:
@@ -428,7 +428,7 @@ def export_feature_class(
                     for attr_key in sorted(all_attr_keys):
                         if attr_key not in added_cols:
                             flat_df[attr_key] = (
-                                class_features["primary_child_roof_instance_feature_id"]
+                                class_features["primary_child_roof_age_feature_id"]
                                 .apply(
                                     lambda fid: (
                                         ri_attrs.get(fid, {}).get(attr_key)

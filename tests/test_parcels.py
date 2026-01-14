@@ -698,8 +698,8 @@ class TestLinkRoofInstancesToRoofs:
         ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(instances_gdf, roofs_gdf)
 
         # Primary should be None because IoU is below threshold
-        assert roofs_linked.loc["aoi-1", "primary_child_roof_instance_feature_id"] is None, \
-            f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_instance_feature_id']}"
+        assert roofs_linked.loc["aoi-1", "primary_child_roof_age_feature_id"] is None, \
+            f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_age_feature_id']}"
 
         # But the child list should still contain the instance for reference
         import json
@@ -738,8 +738,8 @@ class TestLinkRoofInstancesToRoofs:
         ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(instances_gdf, roofs_gdf)
 
         # Primary should be assigned because IoU is high
-        assert roofs_linked.loc["aoi-1", "primary_child_roof_instance_feature_id"] == "instance-1"
-        assert roofs_linked.loc["aoi-1", "primary_child_roof_instance_iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD
+        assert roofs_linked.loc["aoi-1", "primary_child_roof_age_feature_id"] == "instance-1"
+        assert roofs_linked.loc["aoi-1", "primary_child_roof_age_iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD
 
         # Parent should also be assigned
         assert ri_linked.loc["aoi-1", "parent_id"] == "roof-1"

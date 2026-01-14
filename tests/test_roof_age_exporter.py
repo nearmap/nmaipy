@@ -201,4 +201,4 @@ def test_exporter_integration(test_aoi_file, test_output_dir):
         roofs_gdf = gpd.read_parquet(roofs_file)
         assert len(roofs_gdf) >= 0
         if len(roofs_gdf) > 0:
-            assert "installationDate" in roofs_gdf.columns
+            assert "roof_age_installation_date" in roofs_gdf.columns

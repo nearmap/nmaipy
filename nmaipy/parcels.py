@@ -104,7 +104,7 @@ def link_roof_instances_to_roofs(
 
     The matching is bidirectional:
     - Each roof instance gets a parent_id (the roof with highest IoU above threshold)
-    - Each roof gets a primary_child_roof_instance_feature_id (the instance with highest IoU above threshold)
+    - Each roof gets a primary_child_roof_age_feature_id (the roof instance with highest IoU above threshold)
       plus a list of ALL matched instances ordered by IoU
 
     Note:
@@ -124,15 +124,15 @@ def link_roof_instances_to_roofs(
                 - parent_id: feature_id of best matching roof (None if IoU below threshold)
                 - parent_iou: IoU score with parent roof
             - roofs_with_links: Original GDF with added columns:
-                - primary_child_roof_instance_feature_id: feature_id of best matching instance (None if IoU below threshold)
-                - primary_child_roof_instance_iou: IoU score with primary instance
+                - primary_child_roof_age_feature_id: feature_id of best matching instance (None if IoU below threshold)
+                - primary_child_roof_age_iou: IoU score with primary instance
                 - child_roof_instances: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
 
     Example:
         >>> ri_linked, roofs_linked = link_roof_instances_to_roofs(roof_instances, roofs)
         >>> # Get primary roof instance for a roof
         >>> roof = roofs_linked.iloc[0]
-        >>> print(f"Primary instance: {roof.primary_child_roof_instance_feature_id}, IoU: {roof.primary_child_roof_instance_iou}")
+        >>> print(f"Primary roof age: {roof.primary_child_roof_age_feature_id}, IoU: {roof.primary_child_roof_age_iou}")
         >>> # Get all child instances
         >>> for child in roof.child_roof_instances:
         ...     print(f"  Instance {child['feature_id']}: IoU={child['iou']:.3f}")
@@ -147,8 +147,8 @@ def link_roof_instances_to_roofs(
         ri_out["parent_iou"] = 0.0
 
         rf_out = roofs_gdf.copy()
-        rf_out["primary_child_roof_instance_feature_id"] = None
-        rf_out["primary_child_roof_instance_iou"] = 0.0
+        rf_out["primary_child_roof_age_feature_id"] = None
+        rf_out["primary_child_roof_age_iou"] = 0.0
         rf_out["child_roof_instances"] = "[]"  # JSON-serialized empty list
         rf_out["child_roof_instance_count"] = 0
 
@@ -168,8 +168,8 @@ def link_roof_instances_to_roofs(
     ri_gdf["parent_id"] = None
     ri_gdf["parent_iou"] = 0.0
 
-    rf_gdf["primary_child_roof_instance_feature_id"] = None
-    rf_gdf["primary_child_roof_instance_iou"] = 0.0
+    rf_gdf["primary_child_roof_age_feature_id"] = None
+    rf_gdf["primary_child_roof_age_iou"] = 0.0
     rf_gdf["child_roof_instances"] = "[]"  # JSON-serialized empty list for parquet compatibility
     rf_gdf["child_roof_instance_count"] = 0
 
@@ -267,8 +267,8 @@ def link_roof_instances_to_roofs(
             rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
             # Only assign primary if IoU meets threshold - below that we don't trust the match
             if sorted_instances[0]["iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                rf_gdf.at[roof_df_idx, "primary_child_roof_instance_feature_id"] = sorted_instances[0]["feature_id"]
-                rf_gdf.at[roof_df_idx, "primary_child_roof_instance_iou"] = sorted_instances[0]["iou"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -276,7 +276,7 @@ def link_roof_instances_to_roofs(
 
     logger.debug(
         f"Linked {(ri_gdf['parent_id'].notna()).sum()} roof instances to parent roofs, "
-        f"{(rf_gdf['primary_child_roof_instance_feature_id'].notna()).sum()} roofs have primary instances"
+        f"{(rf_gdf['primary_child_roof_age_feature_id'].notna()).sum()} roofs have primary instances"
     )
 
     return ri_gdf, rf_gdf
