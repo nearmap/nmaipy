@@ -44,6 +44,7 @@ from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
@@ -411,7 +412,7 @@ def export_feature_class(
                         attrs = flatten_roof_instance_attributes(
                             ri_row,
                             country=country,
-                            prefix="primary_child_",  # Results in primary_child_roof_age_* columns
+                            prefix="primary_child_",  # Results in primary_child_roof_age_* columns. Technically they should be primary_child_roof_instance_roof_age_* columns, but that is excessively verbose.
                         )
                         ri_attrs[ri_row["feature_id"]] = attrs
                     except Exception:
@@ -439,6 +440,126 @@ def export_feature_class(
                                 .values
                             )
                             added_cols.add(attr_key)
+
+        # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
+        # These are from include parameters and the roof's own attributes array
+        try:
+            from nmaipy.feature_attributes import flatten_roof_attributes
+
+            attr_records = []
+            for _, row in class_features.iterrows():
+                try:
+                    # Pass as list (function expects list of features)
+                    attrs = flatten_roof_attributes([row], country=country)
+                    attr_records.append(attrs)
+                except Exception:
+                    attr_records.append({})
+
+            if attr_records:
+                attr_df = pd.DataFrame(attr_records)
+                # Remove columns that would be duplicates
+                attr_df = attr_df.drop(
+                    columns=[c for c in attr_df.columns if c in added_cols],
+                    errors="ignore",
+                )
+                if len(attr_df.columns) > 0:
+                    flat_df = pd.concat(
+                        [flat_df.reset_index(drop=True), attr_df.reset_index(drop=True)],
+                        axis=1,
+                    )
+                    added_cols.update(attr_df.columns)
+        except Exception as e:
+            logger.debug(f"Could not flatten roof attributes: {e}")
+
+    # Add class-specific attributes for buildings (link to child roofs and add RSI)
+    if class_id == BUILDING_NEW_ID:
+        # Get roofs from the full features_gdf
+        roofs = features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
+
+        if len(roofs) > 0:
+            try:
+                from nmaipy.parcels import link_roofs_to_buildings
+                from nmaipy.feature_attributes import flatten_roof_attributes
+
+                # Link roofs to buildings (spatial IoU)
+                roofs_linked, buildings_linked = link_roofs_to_buildings(roofs, class_features)
+
+                # Add linkage columns to flat_df
+                for col in ["primary_child_roof_id", "primary_child_roof_iou", "child_roofs", "child_roof_count"]:
+                    if col in buildings_linked.columns and col not in added_cols:
+                        # buildings_linked has aoi_id as index, need to align with flat_df
+                        flat_df[col] = buildings_linked[col].values
+                        added_cols.add(col)
+
+                # Build a mapping from roof feature_id to flattened attributes
+                roof_attrs = {}
+                for _, roof_row in roofs_linked.iterrows():
+                    try:
+                        attrs = flatten_roof_attributes([roof_row], country=country)
+                        roof_attrs[roof_row["feature_id"]] = attrs
+                    except Exception:
+                        pass
+
+                if roof_attrs:
+                    # Add primary child roof attributes with prefix
+                    all_attr_keys = set()
+                    for attrs in roof_attrs.values():
+                        all_attr_keys.update(attrs.keys())
+
+                    for attr_key in sorted(all_attr_keys):
+                        prefixed_key = f"primary_child_roof_{attr_key}"
+                        if prefixed_key not in added_cols:
+                            flat_df[prefixed_key] = (
+                                buildings_linked["primary_child_roof_id"]
+                                .apply(
+                                    lambda fid: (
+                                        roof_attrs.get(fid, {}).get(attr_key)
+                                        if pd.notna(fid)
+                                        else None
+                                    )
+                                )
+                                .values
+                            )
+                            added_cols.add(prefixed_key)
+
+                    # Add min/max RSI aggregation across all child roofs
+                    rsi_key = "roof_spotlight_index"
+                    if any(rsi_key in attrs for attrs in roof_attrs.values()):
+                        def get_child_rsi_values(child_roofs_json):
+                            """Extract RSI values from all child roofs."""
+                            if pd.isna(child_roofs_json) or child_roofs_json == "[]":
+                                return []
+                            try:
+                                child_list = json.loads(child_roofs_json) if isinstance(child_roofs_json, str) else child_roofs_json
+                                rsi_values = []
+                                for child in child_list:
+                                    fid = child.get("feature_id")
+                                    if fid and fid in roof_attrs:
+                                        rsi = roof_attrs[fid].get(rsi_key)
+                                        if rsi is not None:
+                                            rsi_values.append(rsi)
+                                return rsi_values
+                            except Exception:
+                                return []
+
+                        if "min_child_roof_spotlight_index" not in added_cols:
+                            flat_df["min_child_roof_spotlight_index"] = (
+                                buildings_linked["child_roofs"]
+                                .apply(lambda x: min(get_child_rsi_values(x)) if get_child_rsi_values(x) else None)
+                                .values
+                            )
+                            added_cols.add("min_child_roof_spotlight_index")
+
+                        if "max_child_roof_spotlight_index" not in added_cols:
+                            flat_df["max_child_roof_spotlight_index"] = (
+                                buildings_linked["child_roofs"]
+                                .apply(lambda x: max(get_child_rsi_values(x)) if get_child_rsi_values(x) else None)
+                                .values
+                            )
+                            added_cols.add("max_child_roof_spotlight_index")
+
+            except Exception as e:
+                logger.debug(f"Could not link roofs to buildings: {e}")
 
     # Add mapbrowser link column
     # Uses geometry centroid for location and survey_date/installation_date for date

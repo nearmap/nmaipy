@@ -57,6 +57,7 @@ __all__ = [
     "extract_building_features",
     "feature_attributes",
     "link_roof_instances_to_roofs",
+    "link_roofs_to_buildings",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
@@ -280,6 +281,180 @@ def link_roof_instances_to_roofs(
     )
 
     return ri_gdf, rf_gdf
+
+
+def link_roofs_to_buildings(
+    roofs_gdf: gpd.GeoDataFrame,
+    buildings_gdf: gpd.GeoDataFrame,
+    min_iou_threshold: float = MIN_ROOF_INSTANCE_IOU_THRESHOLD,
+) -> tuple:
+    """
+    Link roof features to building features using spatial IoU matching.
+
+    This function spatially matches roofs from the Feature API to their parent
+    buildings using Intersection over Union (IoU). The algorithm is identical to
+    link_roof_instances_to_roofs() but with different entity types.
+
+    The matching is bidirectional:
+    - Each roof gets a parent_building_id (the building with highest IoU above threshold)
+    - Each building gets a primary_child_roof_id (the roof with highest IoU above threshold)
+      plus a list of ALL matched roofs ordered by IoU
+
+    Note:
+        Buildings should already be filtered to BUILDING_NEW_ID class by the caller.
+        The API's parentId field on roofs points to deprecated Building class, not the
+        new Building class, so spatial matching is required.
+
+    Args:
+        roofs_gdf: GeoDataFrame with roof features from Feature API.
+                   Must have aoi_id as index or column, feature_id, and geometry.
+        buildings_gdf: GeoDataFrame with building features from Feature API.
+                       Must have aoi_id as index or column, feature_id, and geometry.
+        min_iou_threshold: Minimum IoU required to assign parent/primary (default: MIN_ROOF_INSTANCE_IOU_THRESHOLD)
+
+    Returns:
+        Tuple of (roofs_with_links, buildings_with_links):
+            - roofs_with_links: Original GDF with added columns:
+                - parent_building_id: feature_id of best matching building (None if IoU below threshold)
+                - parent_building_iou: IoU score with parent building
+            - buildings_with_links: Original GDF with added columns:
+                - primary_child_roof_id: feature_id of best matching roof (None if IoU below threshold)
+                - primary_child_roof_iou: IoU score with primary roof
+                - child_roofs: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
+                - child_roof_count: Number of matched child roofs
+    """
+    from shapely.strtree import STRtree
+
+    # Handle empty inputs
+    if len(roofs_gdf) == 0 or len(buildings_gdf) == 0:
+        # Add empty columns and return
+        rf_out = roofs_gdf.copy()
+        rf_out["parent_building_id"] = None
+        rf_out["parent_building_iou"] = 0.0
+
+        bldg_out = buildings_gdf.copy()
+        bldg_out["primary_child_roof_id"] = None
+        bldg_out["primary_child_roof_iou"] = 0.0
+        bldg_out["child_roofs"] = "[]"  # JSON-serialized empty list
+        bldg_out["child_roof_count"] = 0
+
+        return rf_out, bldg_out
+
+    # Ensure we have aoi_id as a column for grouping
+    rf_gdf = roofs_gdf.copy()
+    bldg_gdf = buildings_gdf.copy()
+
+    # Handle index vs column for aoi_id
+    if rf_gdf.index.name == AOI_ID_COLUMN_NAME:
+        rf_gdf = rf_gdf.reset_index()
+    if bldg_gdf.index.name == AOI_ID_COLUMN_NAME:
+        bldg_gdf = bldg_gdf.reset_index()
+
+    # Initialize output columns
+    rf_gdf["parent_building_id"] = None
+    rf_gdf["parent_building_iou"] = 0.0
+
+    bldg_gdf["primary_child_roof_id"] = None
+    bldg_gdf["primary_child_roof_iou"] = 0.0
+    bldg_gdf["child_roofs"] = "[]"  # JSON-serialized empty list for parquet compatibility
+    bldg_gdf["child_roof_count"] = 0
+
+    # Get unique AOIs that have both roofs and buildings
+    rf_aois = set(rf_gdf[AOI_ID_COLUMN_NAME].unique())
+    bldg_aois = set(bldg_gdf[AOI_ID_COLUMN_NAME].unique())
+    common_aois = rf_aois & bldg_aois
+
+    logger.debug(f"Linking roofs to buildings for {len(common_aois)} AOIs")
+
+    # Process per AOI for locality
+    for aoi_id in common_aois:
+        # Get roofs and buildings for this AOI
+        rf_mask = rf_gdf[AOI_ID_COLUMN_NAME] == aoi_id
+        bldg_mask = bldg_gdf[AOI_ID_COLUMN_NAME] == aoi_id
+
+        aoi_roofs = rf_gdf[rf_mask]
+        aoi_buildings = bldg_gdf[bldg_mask]
+
+        if len(aoi_roofs) == 0 or len(aoi_buildings) == 0:
+            continue
+
+        # Build spatial index for buildings
+        bldg_geoms = aoi_buildings.geometry.values
+        bldg_tree = STRtree(bldg_geoms)
+        bldg_df_indices = aoi_buildings.index.values
+        bldg_feature_ids = aoi_buildings["feature_id"].values
+
+        # For each building, collect all matching roofs with IoU
+        bldg_to_roofs = {idx: [] for idx in bldg_df_indices}
+
+        # For each roof, find best matching building
+        for rf_idx, roof_row in aoi_roofs.iterrows():
+            roof_geom = roof_row.geometry
+            roof_feature_id = roof_row["feature_id"]
+
+            if roof_geom is None or roof_geom.is_empty:
+                continue
+
+            # Get candidate buildings (those that intersect bounding box)
+            candidates = bldg_tree.query(roof_geom)
+
+            if len(candidates) == 0:
+                continue
+
+            best_iou = 0.0
+            best_bldg_idx = None
+            best_bldg_feature_id = None
+
+            for candidate_pos in candidates:
+                bldg_df_idx = bldg_df_indices[candidate_pos]
+                bldg_geom = bldg_geoms[candidate_pos]
+                bldg_fid = bldg_feature_ids[candidate_pos]
+
+                iou = _compute_iou(roof_geom, bldg_geom)
+
+                if iou > 0:
+                    # Record this match for the building's child list
+                    bldg_to_roofs[bldg_df_idx].append({
+                        "feature_id": roof_feature_id,
+                        "iou": round(iou, 4),
+                    })
+
+                if iou > best_iou:
+                    best_iou = iou
+                    best_bldg_idx = bldg_df_idx
+                    best_bldg_feature_id = bldg_fid
+
+            # Assign parent to roof (only if IoU meets threshold)
+            if best_bldg_idx is not None and best_iou >= min_iou_threshold:
+                rf_gdf.at[rf_idx, "parent_building_id"] = best_bldg_feature_id
+                rf_gdf.at[rf_idx, "parent_building_iou"] = round(best_iou, 4)
+
+        # For each building, sort roofs by IoU and assign primary
+        for bldg_df_idx, roofs in bldg_to_roofs.items():
+            if len(roofs) == 0:
+                continue
+
+            # Sort by IoU descending
+            sorted_roofs = sorted(roofs, key=lambda x: -x["iou"])
+
+            # Assign to building (JSON-serialize list for parquet compatibility)
+            bldg_gdf.at[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)
+            bldg_gdf.at[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)
+            # Only assign primary if IoU meets threshold
+            if sorted_roofs[0]["iou"] >= min_iou_threshold:
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]
+
+    # Restore aoi_id as index
+    rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
+    bldg_gdf = bldg_gdf.set_index(AOI_ID_COLUMN_NAME)
+
+    logger.debug(
+        f"Linked {(rf_gdf['parent_building_id'].notna()).sum()} roofs to parent buildings, "
+        f"{(bldg_gdf['primary_child_roof_id'].notna()).sum()} buildings have primary roofs"
+    )
+
+    return rf_gdf, bldg_gdf
 
 
 def feature_attributes(

@@ -49,6 +49,40 @@ TRUE_STRING = "Y"
 FALSE_STRING = "N"
 
 
+def _parse_include_param(val):
+    """
+    Parse an include parameter value, handling both dict and JSON string formats.
+
+    Include parameters like roofSpotlightIndex, hurricaneScore, and defensibleSpace
+    are returned as dicts from the API, but may be JSON-serialized to strings when
+    stored in Parquet files. This function handles both cases.
+
+    Args:
+        val: The value to parse - can be dict, JSON string, None, or NaN
+
+    Returns:
+        dict if successfully parsed, None otherwise
+    """
+    if val is None:
+        return None
+    # Handle pandas NaN values
+    if isinstance(val, float):
+        try:
+            if pd.isna(val):
+                return None
+        except (TypeError, ValueError):
+            pass
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return None
+
+
 def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     """
     Flatten building attributes from Feature API.
@@ -94,8 +128,10 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
     # Handle components and other attributes
     for roof in roofs:
         # Handle roofSpotlightIndex - check both camelCase and snake_case versions
-        rsi_data = roof.get("roofSpotlightIndex") or roof.get("roof_spotlight_index")
-        if rsi_data and isinstance(rsi_data, dict):
+        # Use _parse_include_param to handle both dict and JSON string formats
+        rsi_raw = roof.get("roofSpotlightIndex") or roof.get("roof_spotlight_index")
+        rsi_data = _parse_include_param(rsi_raw)
+        if rsi_data:
             if "value" in rsi_data:
                 flattened["roof_spotlight_index"] = rsi_data["value"]
             if "confidence" in rsi_data:
@@ -104,8 +140,10 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                 flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
 
         # Handle hurricaneScore - check both camelCase and snake_case versions
-        hurricane_score_data = roof.get("hurricaneScore") or roof.get("hurricane_score")
-        if hurricane_score_data and isinstance(hurricane_score_data, dict):
+        # Use _parse_include_param to handle both dict and JSON string formats
+        hurricane_raw = roof.get("hurricaneScore") or roof.get("hurricane_score")
+        hurricane_score_data = _parse_include_param(hurricane_raw)
+        if hurricane_score_data:
             if "vulnerabilityScore" in hurricane_score_data:
                 flattened["hurricane_vulnerability_score"] = hurricane_score_data["vulnerabilityScore"]
             if "vulnerabilityProbability" in hurricane_score_data:
@@ -115,8 +153,10 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
             # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
 
         # Handle defensibleSpace - check both camelCase and snake_case versions
-        defensible_space_data = roof.get("defensibleSpace") or roof.get("defensible_space")
-        if defensible_space_data and isinstance(defensible_space_data, dict):
+        # Use _parse_include_param to handle both dict and JSON string formats
+        defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
+        defensible_space_data = _parse_include_param(defensible_raw)
+        if defensible_space_data:
             zones = defensible_space_data.get("zones", [])
             for zone in zones:
                 zone_id = zone.get("zoneId")
