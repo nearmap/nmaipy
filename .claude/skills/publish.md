@@ -53,12 +53,23 @@ Execute these steps in order, stopping if any step fails:
    - Create annotated tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
    - Push tag: `git push origin vX.Y.Z`
 
-8. **Create GitHub release**
+8. **Write release notes**
+   - Review all changes since last release: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
+   - Write comprehensive release notes covering:
+     - **What's New**: One sentence summary of the release
+     - **Features**: Bullet points for new functionality (use `**bold**` for feature names)
+     - **Bug Fixes**: Any bugs fixed
+     - **Breaking Changes**: API or behavior changes (if any)
+     - **Notes**: Any caveats, pre-release warnings, or migration guidance
+   - Present draft release notes to user for review before creating the release
+   - Do NOT just use `--generate-notes` alone - that only shows commit titles
+
+9. **Create GitHub release**
    - Use `gh release create` with:
      - Tag name (vX.Y.Z)
      - Title (vX.Y.Z)
-     - Auto-generated release notes from commits since last release
-     - Mark as pre-release if version contains 'a', 'b', or 'rc'
+     - The release notes written in step 8 (use `--notes` with a heredoc)
+     - Mark as pre-release if version contains 'a', 'b', or 'rc' (`--prerelease` flag)
 
 ### Output
 
