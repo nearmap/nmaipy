@@ -13,7 +13,10 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 """
 
 import concurrent.futures
+import json
 import multiprocessing
+import platform
+import shutil
 import sys
 import time
 import traceback
@@ -21,6 +24,7 @@ import warnings
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -89,6 +93,67 @@ class BaseExporter(ABC):
         self.final_path = self.output_dir / "final"
         self.chunk_path.mkdir(parents=True, exist_ok=True)
         self.final_path.mkdir(parents=True, exist_ok=True)
+
+        # Copy README to final output directory
+        self._copy_readme_to_output()
+
+    def _copy_readme_to_output(self):
+        """
+        Copy the output README template to the final output directory.
+
+        This provides users with documentation about the output files they receive.
+        """
+        readme_template = Path(__file__).parent / "output_readme_template.md"
+        readme_dest = self.final_path / "README.md"
+
+        if readme_template.exists() and not readme_dest.exists():
+            try:
+                shutil.copy(readme_template, readme_dest)
+                self.logger.debug(f"Copied README to {readme_dest}")
+            except Exception as e:
+                self.logger.warning(f"Could not copy README to output: {e}")
+
+    def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
+        """
+        Save export configuration to the final output directory.
+
+        Creates a JSON file with all export parameters and metadata, useful for
+        reproducibility and debugging. Saved at the start of export so it's
+        available even if the export fails.
+
+        Args:
+            config: Dictionary of export parameters
+            config_name: Name of the config file (default: export_config.json)
+        """
+        try:
+            import nmaipy
+
+            nmaipy_version = getattr(nmaipy, "__version__", "unknown")
+        except Exception:
+            nmaipy_version = "unknown"
+
+        # Build metadata
+        metadata = {
+            "export_started_at": datetime.now(timezone.utc).isoformat(),
+            "nmaipy_version": nmaipy_version,
+            "python_version": platform.python_version(),
+            "platform": platform.platform(),
+        }
+
+        # Combine metadata and config
+        full_config = {
+            "_metadata": metadata,
+            "parameters": config,
+        }
+
+        config_path = self.final_path / config_name
+
+        try:
+            with open(config_path, "w") as f:
+                json.dump(full_config, f, indent=2, default=str)
+            self.logger.debug(f"Saved export config to {config_path}")
+        except Exception as e:
+            self.logger.warning(f"Could not save export config: {e}")
 
     @abstractmethod
     def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, **kwargs):

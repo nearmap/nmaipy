@@ -206,6 +206,24 @@ class RoofAgeExporter(BaseExporter):
         if not self.no_cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Save export configuration at start (before processing begins)
+        self._save_config(
+            {
+                "aoi_file": str(aoi_file),
+                "output_format": output_format,
+                "cache_dir": str(self.cache_dir),
+                "no_cache": no_cache,
+                "overwrite_cache": overwrite_cache,
+                "compress_cache": compress_cache,
+                "processes": processes,
+                "threads": threads,
+                "chunk_size": chunk_size,
+                "country": country,
+                "include_aoi_geometry": include_aoi_geometry,
+            },
+            config_name="roof_age_export_config.json",
+        )
+
     def get_chunk_output_file(self, chunk_id: str) -> Path:
         """
         Get the path to the main output file for a chunk.

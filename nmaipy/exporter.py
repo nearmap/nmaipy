@@ -1031,6 +1031,49 @@ class NearmapAIExporter(BaseExporter):
 
         # Note: logger already configured by BaseExporter
 
+        # Save export configuration at start (before processing begins)
+        self._save_config(
+            {
+                "aoi_file": str(aoi_file),
+                "packs": packs,
+                "classes": classes,
+                "include": include,
+                "primary_decision": primary_decision,
+                "aoi_grid_min_pct": aoi_grid_min_pct,
+                "aoi_grid_inexact": aoi_grid_inexact,
+                "aoi_grid_cell_size": aoi_grid_cell_size,
+                "processes": processes,
+                "threads": threads,
+                "chunk_size": chunk_size,
+                "include_parcel_geometry": include_parcel_geometry,
+                "save_features": save_features,
+                "save_buildings": save_buildings,
+                "rollup_format": rollup_format,
+                "cache_dir": str(cache_dir) if cache_dir else None,
+                "no_cache": no_cache,
+                "overwrite_cache": overwrite_cache,
+                "compress_cache": compress_cache,
+                "country": country,
+                "alpha": alpha,
+                "beta": beta,
+                "prerelease": prerelease,
+                "only3d": only3d,
+                "since": since,
+                "until": until,
+                "endpoint": endpoint,
+                "url_root": url_root,
+                "system_version_prefix": system_version_prefix,
+                "system_version": system_version,
+                "parcel_mode": parcel_mode,
+                "rapid": rapid,
+                "order": order,
+                "exclude_tiles_with_occlusion": exclude_tiles_with_occlusion,
+                "roof_age": self.roof_age,  # Use validated value
+                "class_level_files": class_level_files,
+                "max_retries": max_retries,
+            }
+        )
+
     def api_key(self) -> str:
         # Use provided API key if available, otherwise fall back to environment variable
         if hasattr(self, "api_key_param") and self.api_key_param is not None:
