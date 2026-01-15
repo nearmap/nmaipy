@@ -13,6 +13,7 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 """
 
 import concurrent.futures
+import importlib.resources as pkg_resources
 import json
 import multiprocessing
 import platform
@@ -102,16 +103,31 @@ class BaseExporter(ABC):
         Copy the output README template to the final output directory.
 
         This provides users with documentation about the output files they receive.
+        Uses importlib.resources for reliable path resolution in packaged/containerized
+        environments, with fallback to file-based path.
         """
-        readme_template = Path(__file__).parent / "output_readme_template.md"
         readme_dest = self.final_path / "README.md"
 
-        if readme_template.exists() and not readme_dest.exists():
+        if readme_dest.exists():
+            return  # Don't overwrite existing README
+
+        try:
+            # Try importlib.resources first (works in packages/containers)
             try:
+                readme_content = pkg_resources.read_text("nmaipy", "output_readme_template.md")
+                readme_dest.write_text(readme_content)
+                self.logger.debug(f"Copied README to {readme_dest}")
+                return
+            except (FileNotFoundError, TypeError):
+                pass
+
+            # Fall back to file-based path
+            readme_template = Path(__file__).parent / "output_readme_template.md"
+            if readme_template.exists():
                 shutil.copy(readme_template, readme_dest)
                 self.logger.debug(f"Copied README to {readme_dest}")
-            except Exception as e:
-                self.logger.warning(f"Could not copy README to output: {e}")
+        except Exception as e:
+            self.logger.warning(f"Could not copy README to output: {e}")
 
     def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
         """

@@ -44,6 +44,7 @@ from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
     DEFAULT_URL_ROOT,
@@ -560,6 +561,19 @@ def export_feature_class(
 
             except Exception as e:
                 logger.debug(f"Could not link roofs to buildings: {e}")
+
+    # Add class-specific attributes for building lifecycle (damage)
+    if class_id == BUILDING_LIFECYCLE_ID:
+        if "damage" in class_features.columns:
+            # Parse JSON and flatten damage columns for class-specific export
+            damage_data = class_features["damage"].apply(
+                lambda x: _flatten_damage(json.loads(x) if isinstance(x, str) else x)
+            )
+            flat_damage_df = pd.DataFrame(damage_data.tolist(), index=class_features.index)
+            for col in flat_damage_df.columns:
+                if col not in added_cols:
+                    flat_df[col] = flat_damage_df[col].values
+                    added_cols.add(col)
 
     # Add mapbrowser link column
     # Uses geometry centroid for location and survey_date/installation_date for date
@@ -1816,33 +1830,12 @@ class NearmapAIExporter(BaseExporter):
                             columns=["attributes"]
                         )
 
-                # Apply flattening to damage if present
+                # Serialize damage to JSON string (flattening happens in class-specific exports)
+                # This avoids column explosion in mixed-class parcel_features.parquet
                 if "damage" in final_features_df.columns:
-                    # Use pd.DataFrame(list_of_dicts) instead of .apply(pd.Series) for 100x+ speedup
-                    flat_damage_list = (
-                        final_features_df["damage"].apply(_flatten_damage).tolist()
+                    final_features_df["damage"] = final_features_df["damage"].apply(
+                        lambda x: json.dumps(x) if isinstance(x, dict) else x
                     )
-                    flattened_damage = pd.DataFrame(
-                        flat_damage_list, index=final_features_df.index
-                    )
-                    if not flattened_damage.empty and len(flattened_damage.columns) > 0:
-                        logger.debug(
-                            f"Chunk {chunk_id}: Flattened {len(flattened_damage.columns)} damage columns"
-                        )
-                        # Drop the damage column and add flattened columns via concat (faster than loop)
-                        final_features_df = final_features_df.drop(columns=["damage"])
-                        new_cols = [
-                            c
-                            for c in flattened_damage.columns
-                            if c not in final_features_df.columns
-                        ]
-                        if new_cols:
-                            final_features_df = pd.concat(
-                                [final_features_df, flattened_damage[new_cols]], axis=1
-                            )
-                    else:
-                        # No damage to flatten, just drop the column
-                        final_features_df = final_features_df.drop(columns=["damage"])
                 if len(final_features_df) > 0:
                     try:
                         if (

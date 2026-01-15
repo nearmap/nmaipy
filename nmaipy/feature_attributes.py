@@ -182,7 +182,15 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                         flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
                     # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
 
-        for attribute in roof["attributes"]:
+        # Safely access attributes - may not exist if dropped during process_chunk()
+        attributes = roof.get("attributes")
+        if attributes:
+            if isinstance(attributes, str):
+                try:
+                    attributes = json.loads(attributes)
+                except (json.JSONDecodeError, TypeError):
+                    attributes = []
+        for attribute in (attributes or []):
             if "components" in attribute:
                 for component in attribute["components"]:
                     name = component["description"].lower().replace(" ", "_")
