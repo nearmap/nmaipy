@@ -258,6 +258,62 @@ def flatten_roof_attributes(
                 flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
             # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
 
+        # Handle windScore - check both camelCase and snake_case versions
+        wind_raw = roof.get("windScore") or roof.get("wind_score")
+        wind_score_data = _parse_include_param(wind_raw)
+        if wind_score_data:
+            if "vulnerabilityScore" in wind_score_data:
+                flattened["wind_vulnerability_score"] = wind_score_data["vulnerabilityScore"]
+            if "vulnerabilityProbability" in wind_score_data:
+                flattened["wind_vulnerability_probability"] = wind_score_data["vulnerabilityProbability"]
+            if "vulnerabilityRateFactor" in wind_score_data:
+                flattened["wind_vulnerability_rate_factor"] = wind_score_data["vulnerabilityRateFactor"]
+            if "riskScore" in wind_score_data:
+                flattened["wind_risk_score"] = wind_score_data["riskScore"]
+            if "riskRateFactor" in wind_score_data:
+                flattened["wind_risk_rate_factor"] = wind_score_data["riskRateFactor"]
+            if "femaAnnualWindFrequency" in wind_score_data:
+                flattened["wind_fema_annual_frequency"] = wind_score_data["femaAnnualWindFrequency"]
+
+        # Handle hailScore - check both camelCase and snake_case versions
+        hail_raw = roof.get("hailScore") or roof.get("hail_score")
+        hail_score_data = _parse_include_param(hail_raw)
+        if hail_score_data:
+            if "vulnerabilityScore" in hail_score_data:
+                flattened["hail_vulnerability_score"] = hail_score_data["vulnerabilityScore"]
+            if "vulnerabilityProbability" in hail_score_data:
+                flattened["hail_vulnerability_probability"] = hail_score_data["vulnerabilityProbability"]
+            if "vulnerabilityRateFactor" in hail_score_data:
+                flattened["hail_vulnerability_rate_factor"] = hail_score_data["vulnerabilityRateFactor"]
+            if "riskScore" in hail_score_data:
+                flattened["hail_risk_score"] = hail_score_data["riskScore"]
+            if "riskRateFactor" in hail_score_data:
+                flattened["hail_risk_rate_factor"] = hail_score_data["riskRateFactor"]
+            if "femaAnnualHailFrequency" in hail_score_data:
+                flattened["hail_fema_annual_frequency"] = hail_score_data["femaAnnualHailFrequency"]
+
+        # Handle wildfireScore - check both camelCase and snake_case versions
+        wildfire_raw = roof.get("wildfireScore") or roof.get("wildfire_score")
+        wildfire_score_data = _parse_include_param(wildfire_raw)
+        if wildfire_score_data:
+            if "vulnerabilityScore" in wildfire_score_data:
+                flattened["wildfire_vulnerability_score"] = wildfire_score_data["vulnerabilityScore"]
+            if "vulnerabilityProbability" in wildfire_score_data:
+                flattened["wildfire_vulnerability_probability"] = wildfire_score_data["vulnerabilityProbability"]
+            if "vulnerabilityRateFactor" in wildfire_score_data:
+                flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data["vulnerabilityRateFactor"]
+            if "femaAnnualWildfireFrequency" in wildfire_score_data:
+                flattened["wildfire_fema_annual_frequency"] = wildfire_score_data["femaAnnualWildfireFrequency"]
+
+        # Handle windHailRiskScore - combined wind+hail risk score
+        wind_hail_raw = roof.get("windHailRiskScore") or roof.get("wind_hail_risk_score")
+        wind_hail_score_data = _parse_include_param(wind_hail_raw)
+        if wind_hail_score_data:
+            if "riskScore" in wind_hail_score_data:
+                flattened["wind_hail_risk_score"] = wind_hail_score_data["riskScore"]
+            if "riskRateFactor" in wind_hail_score_data:
+                flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data["riskRateFactor"]
+
         # Handle defensibleSpace - check both camelCase and snake_case versions
         # Use _parse_include_param to handle both dict and JSON string formats
         defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")

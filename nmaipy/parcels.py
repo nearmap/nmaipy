@@ -122,7 +122,7 @@ def calculate_child_feature_attributes(
     Returns:
         Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio)
     """
-    from nmaipy.constants import IMPERIAL_COUNTRIES, SQM_TO_SQFT
+    from nmaipy.constants import IMPERIAL_COUNTRIES, SQUARED_METERS_TO_SQUARED_FEET
 
     flattened = {}
     if parent_geometry is None or parent_geometry.is_empty:
@@ -162,7 +162,7 @@ def calculate_child_feature_attributes(
         if total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
             if country in IMPERIAL_COUNTRIES:
-                flattened[f"{name}_area_sqft"] = round(total_intersection_area * SQM_TO_SQFT, 1)
+                flattened[f"{name}_area_sqft"] = round(total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET, 1)
             else:
                 flattened[f"{name}_area_sqm"] = round(total_intersection_area, 1)
             flattened[f"{name}_ratio"] = round(total_intersection_area / parent_area, 4)
