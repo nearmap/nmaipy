@@ -58,6 +58,7 @@ __all__ = [
     "feature_attributes",
     "link_roof_instances_to_roofs",
     "link_roofs_to_buildings",
+    "calculate_child_feature_attributes",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
@@ -91,6 +92,86 @@ def _compute_iou(geom_a, geom_b) -> float:
         return intersection / union if union > 0 else 0.0
     except Exception:
         return 0.0
+
+
+def calculate_child_feature_attributes(
+    parent_geometry,
+    components: list,
+    child_features: gpd.GeoDataFrame,
+    country: str,
+) -> dict:
+    """
+    Calculate component attributes by spatial intersection for clipped features.
+
+    This is data-driven: it extracts classId values from the components list,
+    finds matching child features by class_id, and calculates areas/ratios based on
+    the parent's clipped geometry.
+
+    This function is used when a roof's geometry has been clipped by a parcel boundary.
+    The original component ratios from the API are based on the full roof, so we need
+    to recalculate them based on the clipped geometry.
+
+    Args:
+        parent_geometry: The clipped parent polygon (e.g., roof geometry)
+        components: List of component dicts with classId, description fields
+                   (from roof's attributes.components)
+        child_features: GeoDataFrame of all child features in the AOI (filtered
+                       by the function to only those with matching classIds)
+        country: Country code for units ("us" for imperial, "au" for metric)
+
+    Returns:
+        Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio)
+    """
+    from nmaipy.constants import IMPERIAL_COUNTRIES, SQM_TO_SQFT
+
+    flattened = {}
+    if parent_geometry is None or parent_geometry.is_empty:
+        return flattened
+    if not components or child_features is None or len(child_features) == 0:
+        return flattened
+
+    parent_area = parent_geometry.area
+    if parent_area <= 0:
+        return flattened
+
+    # Process each component - extract classId and find matching child features
+    for component in components:
+        class_id = component.get("classId")
+        description = component.get("description", "unknown")
+        if not class_id:
+            continue
+
+        # Find child features with matching class_id
+        matching_features = child_features[child_features.class_id == class_id]
+        if len(matching_features) == 0:
+            continue
+
+        # Calculate intersection area with clipped parent geometry
+        total_intersection_area = 0.0
+        max_confidence = None
+        for _, feat in matching_features.iterrows():
+            if feat.geometry is not None and feat.geometry.intersects(parent_geometry):
+                intersection = feat.geometry.intersection(parent_geometry)
+                total_intersection_area += intersection.area
+                if hasattr(feat, "confidence") and feat.confidence is not None:
+                    if max_confidence is None or feat.confidence > max_confidence:
+                        max_confidence = feat.confidence
+
+        # Build flattened attributes with same naming convention as flatten_roof_attributes
+        name = description.lower().replace(" ", "_")
+        if total_intersection_area > 0:
+            flattened[f"{name}_present"] = TRUE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = round(total_intersection_area * SQM_TO_SQFT, 1)
+            else:
+                flattened[f"{name}_area_sqm"] = round(total_intersection_area, 1)
+            flattened[f"{name}_ratio"] = round(total_intersection_area / parent_area, 4)
+            if max_confidence is not None:
+                flattened[f"{name}_confidence"] = max_confidence
+        else:
+            flattened[f"{name}_present"] = FALSE_STRING
+
+    return flattened
 
 
 def link_roof_instances_to_roofs(

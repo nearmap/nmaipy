@@ -447,11 +447,17 @@ def export_feature_class(
         try:
             from nmaipy.feature_attributes import flatten_roof_attributes
 
+            # Get all non-roof features as potential children for clipped roof recalculation
+            # The flatten_roof_attributes function will use classIds from the roof's own
+            # components to find matching child features - this is fully data-driven
+            child_features = features_gdf[features_gdf["class_id"] != ROOF_ID].copy()
+
             attr_records = []
             for _, row in class_features.iterrows():
                 try:
                     # Pass as list (function expects list of features)
-                    attrs = flatten_roof_attributes([row], country=country)
+                    # Child features are used to recalculate component attributes for clipped roofs
+                    attrs = flatten_roof_attributes([row], country=country, child_features=child_features)
                     attr_records.append(attrs)
                 except Exception:
                     attr_records.append({})
@@ -493,10 +499,12 @@ def export_feature_class(
                         added_cols.add(col)
 
                 # Build a mapping from roof feature_id to flattened attributes
+                # Get all non-roof features as potential children for clipped roof recalculation
+                child_features = features_gdf[features_gdf["class_id"] != ROOF_ID].copy()
                 roof_attrs = {}
                 for _, roof_row in roofs_linked.iterrows():
                     try:
-                        attrs = flatten_roof_attributes([roof_row], country=country)
+                        attrs = flatten_roof_attributes([roof_row], country=country, child_features=child_features)
                         roof_attrs[roof_row["feature_id"]] = attrs
                     except Exception:
                         pass

@@ -17,6 +17,7 @@ import json
 from typing import Dict, List, Optional, Union
 
 from dateutil.parser import parse as parse_date
+import geopandas as gpd
 import pandas as pd
 
 from nmaipy import log
@@ -83,6 +84,94 @@ def _parse_include_param(val):
     return None
 
 
+def _get_feature_value(feature, key):
+    """
+    Get a value from a feature, handling both dict and pandas Series.
+
+    Args:
+        feature: dict or pandas Series
+        key: The key to look up
+
+    Returns:
+        The value, or None if not found
+    """
+    if isinstance(feature, dict):
+        return feature.get(key)
+    elif isinstance(feature, pd.Series):
+        if key in feature.index:
+            val = feature.get(key)
+            # Handle NaN values
+            if pd.isna(val):
+                return None
+            return val
+    return None
+
+
+def _reconstruct_attributes_from_dot_notation(feature) -> list:
+    """
+    Reconstruct attributes list from dot-notation columns.
+
+    When features are processed through exporter.py's process_chunk(), the original
+    'attributes' array is transformed into dot-notation columns (e.g., 'Roof material.components')
+    and then the original 'attributes' column is dropped. This function reconstructs
+    the attributes list from those dot-notation columns.
+
+    This is fully data-driven - it dynamically discovers .components columns rather
+    than using a hardcoded list.
+
+    Args:
+        feature: dict or pandas Series representing a feature row
+
+    Returns:
+        List of attribute dicts in the original format expected by flatten_roof_attributes
+    """
+    attributes = []
+
+    # Get all column/key names from the feature
+    if isinstance(feature, pd.Series):
+        columns = feature.index.tolist()
+    elif isinstance(feature, dict):
+        columns = list(feature.keys())
+    else:
+        return attributes
+
+    # Find all .components columns dynamically
+    component_cols = [c for c in columns if isinstance(c, str) and c.endswith(".components")]
+
+    for col in component_cols:
+        description = col.rsplit(".", 1)[0]  # "Roof material.components" -> "Roof material"
+        value = _get_feature_value(feature, col)
+        if value:
+            # Parse JSON string if needed
+            if isinstance(value, str):
+                try:
+                    components = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            else:
+                components = value
+            if components:
+                attributes.append({"description": description, "components": components})
+
+    # Also handle 3D attributes (has3dAttributes, pitch)
+    for col in columns:
+        if not isinstance(col, str):
+            continue
+        if ".has3dAttributes" in col or ".pitch" in col:
+            description = col.rsplit(".", 1)[0]
+            key = col.rsplit(".", 1)[1]
+            value = _get_feature_value(feature, col)
+            if value is not None:
+                # Find existing attribute with same description or create new
+                existing = next((a for a in attributes if a.get("description") == description), None)
+                if existing:
+                    existing[key] = value
+                else:
+                    attributes.append({"description": description, key: value})
+
+    return attributes
+
+
 def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     """
     Flatten building attributes from Feature API.
@@ -111,18 +200,35 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     return flattened
 
 
-def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
+def flatten_roof_attributes(
+    roofs: List[dict],
+    country: str,
+    child_features: gpd.GeoDataFrame = None,
+) -> dict:
     """
     Flatten roof attributes from Feature API.
+
+    For clipped roofs (where clipped_area < unclipped_area), component attributes
+    are recalculated using spatial intersection with child features if available.
+    The classIds from the roof's own components are used to find matching child
+    features - this is fully data-driven with no hardcoded lists.
+
+    Note: "Includes" (RSI, hurricane, defensible space) are NOT recalculated
+    as they are already computed dynamically accounting for clipping.
 
     Args:
         roofs: List of roof features with attributes
         country: Country code for units (e.g. "us" for imperial, "au" for metric)
+        child_features: Optional GeoDataFrame of child features for clipped roof
+                       recalculation. If provided, component attributes will be
+                       recalculated for clipped roofs using spatial intersection.
 
     Returns:
         Flattened dictionary with roof attributes including material components,
         3D attributes, roof spotlight index, hurricane scores, and defensible space data.
     """
+    from nmaipy.parcels import calculate_child_feature_attributes
+
     flattened = {}
 
     # Handle components and other attributes
@@ -183,6 +289,7 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                     # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
 
         # Safely access attributes - may not exist if dropped during process_chunk()
+        # In that case, try to reconstruct from dot-notation columns
         attributes = roof.get("attributes")
         if attributes:
             if isinstance(attributes, str):
@@ -190,11 +297,57 @@ def flatten_roof_attributes(roofs: List[dict], country: str) -> dict:
                     attributes = json.loads(attributes)
                 except (json.JSONDecodeError, TypeError):
                     attributes = []
+        if not attributes:
+            # Try to reconstruct from dot-notation columns (created by exporter.py's process_chunk)
+            attributes = _reconstruct_attributes_from_dot_notation(roof)
+
+        # Detect if roof is clipped by comparing clipped vs unclipped area
+        # Use _get_feature_value to handle both dict and Series formats
+        clipped_area = _get_feature_value(roof, "clipped_area_sqm")
+        unclipped_area = _get_feature_value(roof, "unclipped_area_sqm")
+        is_clipped = (
+            clipped_area is not None
+            and unclipped_area is not None
+            and clipped_area < unclipped_area * 0.99  # 1% tolerance
+        )
+
         for attribute in (attributes or []):
             if "components" in attribute:
-                for component in attribute["components"]:
+                components = attribute["components"]
+
+                # For clipped roofs with child features, recalculate component attributes
+                # using spatial intersection - this is data-driven by classIds in components
+                if is_clipped and child_features is not None and len(child_features) > 0:
+                    geometry = _get_feature_value(roof, "geometry")
+                    if geometry is not None:
+                        recalc_attrs = calculate_child_feature_attributes(
+                            geometry, components, child_features, country
+                        )
+                        # Only use recalculated if we got results
+                        if recalc_attrs:
+                            flattened.update(recalc_attrs)
+                            # Still need to process non-area attributes (e.g., dominant, confidenceStats)
+                            for component in components:
+                                name = component["description"].lower().replace(" ", "_")
+                                if "Low confidence" in attribute.get("description", ""):
+                                    name = f"low_conf_{name}"
+                                if "dominant" in component:
+                                    flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
+                                # Handle confidenceStats if present
+                                if "confidenceStats" in component:
+                                    confidence_stats = component["confidenceStats"]
+                                    histograms = confidence_stats.get("histograms", [])
+                                    for histogram in histograms:
+                                        bin_type = histogram.get("binType", "unknown")
+                                        ratios = histogram.get("ratios", [])
+                                        for bin_idx, ratio_value in enumerate(ratios):
+                                            flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
+                            continue  # Skip original component processing
+
+                # Use original component data (unclipped or no child features available)
+                for component in components:
                     name = component["description"].lower().replace(" ", "_")
-                    if "Low confidence" in attribute["description"]:
+                    if "Low confidence" in attribute.get("description", ""):
                         name = f"low_conf_{name}"
                     flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                     if country in IMPERIAL_COUNTRIES:
