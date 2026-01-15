@@ -13,8 +13,8 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 """
 
 import concurrent.futures
-import importlib.resources as pkg_resources
 import json
+from importlib.resources import files
 import multiprocessing
 import platform
 import shutil
@@ -114,7 +114,7 @@ class BaseExporter(ABC):
         try:
             # Try importlib.resources first (works in packages/containers)
             try:
-                readme_content = pkg_resources.read_text("nmaipy", "output_readme_template.md")
+                readme_content = files("nmaipy").joinpath("output_readme_template.md").read_text()
                 readme_dest.write_text(readme_content)
                 self.logger.debug(f"Copied README to {readme_dest}")
                 return

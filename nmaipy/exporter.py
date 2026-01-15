@@ -1900,6 +1900,10 @@ class NearmapAIExporter(BaseExporter):
                                 API_CRS, allow_override=True
                             )
 
+                        # Reset index to preserve aoi_id as a column (needed for building-roof linking)
+                        if final_features_df.index.name == AOI_ID_COLUMN_NAME:
+                            final_features_df = final_features_df.reset_index()
+
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
                         try:
