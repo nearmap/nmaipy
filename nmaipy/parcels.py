@@ -941,4 +941,5 @@ def parcel_rollup(
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
-    return rollup_df
+    # Defragment DataFrame to avoid PerformanceWarning when callers add columns
+    return rollup_df.copy()
