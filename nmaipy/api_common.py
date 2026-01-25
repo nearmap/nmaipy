@@ -951,30 +951,25 @@ def compute_global_latency_stats(
     if not chunk_stats:
         return {}
 
-    # Merge histograms
     merged_hist = np.sum([np.array(s["histogram"]) for s in chunk_stats], axis=0)
     total_count = sum(s["count"] for s in chunk_stats)
 
     if total_count == 0:
         return {"count": 0}
 
-    # Weighted mean (exact)
     global_mean = sum(s["mean"] * s["count"] for s in chunk_stats) / total_count
 
-    # Percentiles from merged histogram
     global_p50 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 50)
     global_p90 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 90)
     global_p95 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 95)
     global_p99 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 99)
 
     # Bootstrap CIs: resample chunks, merge histograms, compute percentiles
-    # Seed RNG for reproducibility
     rng = np.random.default_rng(seed)
     p50_samples, p90_samples, p95_samples, p99_samples = [], [], [], []
     chunk_stats_arr = np.array(chunk_stats, dtype=object)
 
     for _ in range(n_bootstrap):
-        # Resample chunks with replacement
         indices = rng.integers(0, len(chunk_stats), size=len(chunk_stats))
         resampled = chunk_stats_arr[indices]
         hist = np.sum([np.array(s["histogram"]) for s in resampled], axis=0)
@@ -1015,7 +1010,6 @@ def _stats_to_row(stats: Dict) -> Dict:
     if stats is None:
         return None
 
-    # Calculate RPS: requests per second = count / (total_duration_ms / 1000)
     total_duration_ms = stats.get("total_duration_ms", 0)
     count = stats.get("count", 0)
     if total_duration_ms > 0 and count > 0:
@@ -1033,7 +1027,6 @@ def _stats_to_row(stats: Dict) -> Dict:
         "p99": stats.get("p99", 0),
         "min": stats.get("min", 0),
         "max": stats.get("max", 0),
-        # Additional metadata
         "retry_count": stats.get("retry_count", 0),
         "timeout_count": stats.get("timeout_count", 0),
         "cache_hits": stats.get("cache_hits", 0),
@@ -1044,7 +1037,6 @@ def _stats_to_row(stats: Dict) -> Dict:
         "rps": round(rps, 2),
     }
 
-    # Add histogram bucket counts
     histogram = stats.get("histogram", [0] * (len(LATENCY_BUCKETS) - 1))
     bucket_names = _get_latency_bucket_names()
     for name, count in zip(bucket_names, histogram):
@@ -1077,7 +1069,6 @@ def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
         return
 
     df = pd.DataFrame(rows)
-    # Ensure consistent column order
     columns = _get_latency_csv_columns()
     df = df[columns]
     df.to_csv(csv_path, index=False)
@@ -1116,13 +1107,10 @@ def combine_chunk_latency_stats(chunk_path: Path, file_stem: str, output_csv_pat
     Returns:
         List of latency stats dicts suitable for compute_global_latency_stats()
     """
-    # Find all latency parquet files for this file stem
     latency_files = list(chunk_path.glob(f"latency_{file_stem}_*.parquet"))
-
     if not latency_files:
         return []
 
-    # Read and combine all per-chunk stats
     dfs = []
     for lf in latency_files:
         try:
@@ -1135,16 +1123,11 @@ def combine_chunk_latency_stats(chunk_path: Path, file_stem: str, output_csv_pat
 
     combined_df = pd.concat(dfs, ignore_index=True)
 
-    # Ensure consistent column order
     columns = _get_latency_csv_columns()
-    # Only include columns that exist (for backward compatibility with older parquet files)
     available_columns = [c for c in columns if c in combined_df.columns]
     combined_df = combined_df[available_columns]
-
-    # Write combined CSV
     combined_df.to_csv(output_csv_path, index=False)
 
-    # Convert to list of dicts for global stats calculation
     bucket_names = _get_latency_bucket_names()
     stats_list = []
     for _, row in combined_df.iterrows():

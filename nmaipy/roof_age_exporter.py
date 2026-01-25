@@ -265,7 +265,6 @@ class RoofAgeExporter(BaseExporter):
         BaseExporter.configure_worker_logging(self.log_level)
         logger = log.get_logger()
 
-        # Track chunk timing for RPS calculation
         chunk_start_time = datetime.now(timezone.utc).isoformat()
         chunk_start_monotonic = time.monotonic()
 
@@ -316,17 +315,14 @@ class RoofAgeExporter(BaseExporter):
             if len(errors_df) > 0:
                 errors_df.to_parquet(outfile_errors)
 
-            # Get latency stats from API client
             latency_stats = api.get_latency_stats()
             if latency_stats is not None:
                 latency_stats["chunk_id"] = chunk_id
                 latency_stats["start_time"] = chunk_start_time
                 latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
                 latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
-                # Save per-chunk latency stats as sidecar file
                 save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
 
-            # Clean up API client
             api.cleanup()
 
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
@@ -360,13 +356,9 @@ class RoofAgeExporter(BaseExporter):
             aoi_gdf, aoi_stem, check_cache=True
         )
 
-        # Calculate initial AOI count for progress tracking (excluding skipped)
         initial_aoi_count = len(aoi_gdf) - skipped_aois
-
-        # Latency stats CSV path
         latency_csv_path = self.final_path / f"{aoi_stem}_latency_stats.csv"
 
-        # Run parallel processing with progress tracking
         self.run_parallel(
             chunks_to_process,
             aoi_stem,
@@ -374,7 +366,6 @@ class RoofAgeExporter(BaseExporter):
             use_progress_tracking=True,
         )
 
-        # Combine per-chunk latency files into final CSV
         all_latency_stats = combine_chunk_latency_stats(
             self.chunk_path, aoi_stem, latency_csv_path
         )

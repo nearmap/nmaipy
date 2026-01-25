@@ -1314,7 +1314,6 @@ class NearmapAIExporter(BaseExporter):
         feature_api = None
         roof_age_api = None
 
-        # Track chunk timing for RPS calculation
         chunk_start_time = datetime.now(timezone.utc).isoformat()
         chunk_start_monotonic = time.monotonic()
 
@@ -1525,7 +1524,6 @@ class NearmapAIExporter(BaseExporter):
                     feature_api_errors_df.to_parquet(outfile_errors)
                     if len(roof_age_errors_df) > 0:
                         roof_age_errors_df.to_parquet(outfile_roof_age_errors)
-                    # Collect latency stats from both APIs
                     chunk_end_time = datetime.now(timezone.utc).isoformat()
                     total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                     latency_stats = collect_latency_stats_from_apis(
@@ -1964,7 +1962,7 @@ class NearmapAIExporter(BaseExporter):
                             f"Error type: {type(e).__name__}, Error message: {str(e)}"
                         )
                         self.logger.error(e)
-            # Collect and log latency statistics
+
             chunk_end_time = datetime.now(timezone.utc).isoformat()
             total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
             latency_stats = collect_latency_stats_from_apis(
@@ -2156,10 +2154,8 @@ class NearmapAIExporter(BaseExporter):
         if self.roof_age:
             initial_aoi_count *= 2
 
-        # Latency stats CSV path
         latency_csv_path = self.final_path / f"{Path(aoi_path).stem}_latency_stats.csv"
 
-        # Run parallel processing with progress tracking
         self.run_parallel(
             chunks_to_process,
             aoi_stem,
@@ -2168,13 +2164,10 @@ class NearmapAIExporter(BaseExporter):
             classes_df=classes_df,  # Pass classes_df to process_chunk
         )
 
-        # Combine per-chunk latency files into final CSV
-        # This handles job resumption - previously completed chunks have their sidecar files
         all_latency_stats = combine_chunk_latency_stats(
             self.chunk_path, aoi_stem, latency_csv_path
         )
         if all_latency_stats:
-            # Compute and log global stats with confidence intervals
             global_stats = compute_global_latency_stats(all_latency_stats)
             if global_stats and global_stats.get("count", 0) > 0:
                 self.logger.info(

@@ -831,7 +831,6 @@ class FeatureApi(GriddedApiClient):
                         logger.error(f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}")
                         raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
-            # response_time_ms is set inside the loop for successful attempts
             # Use explicit None check to handle edge case of 0ms response time
             response_time_seconds = response_time_ms / 1000 if response_time_ms is not None else 0
 
