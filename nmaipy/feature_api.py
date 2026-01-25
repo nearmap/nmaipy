@@ -188,14 +188,23 @@ class FeatureApi(GriddedApiClient):
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
         """
-        # Initialize thread-safety attributes first
-        self._sessions = []
-        self._thread_local = threading.local()
-        self._lock = threading.Lock()
+        # Call parent class initialization
+        # GriddedApiClient handles: thread-safety (_sessions, _thread_local, _lock),
+        # API key validation, cache setup, latency tracking, and gridding semaphore
+        super().__init__(
+            api_key=api_key,
+            cache_dir=cache_dir,
+            overwrite_cache=overwrite_cache,
+            compress_cache=compress_cache,
+            threads=threads,
+            maxretry=maxretry,
+            grid_cell_size=grid_size,
+        )
 
         # Store progress counters for cross-process progress tracking
         self.progress_counters = progress_counters
 
+        # FeatureApi-specific: URL configuration
         if not bulk_mode:
             url_root = "api.nearmap.com/ai/features/v4"
 
@@ -206,23 +215,7 @@ class FeatureApi(GriddedApiClient):
         self.CLASSES_URL = URL_ROOT + "/classes.json"
         self.PACKS_URL = URL_ROOT + "/packs.json"
 
-        if api_key:
-            self.api_key = api_key
-        else:
-            self.api_key = os.environ.get("API_KEY", None)
-        if self.api_key is None:
-            raise ValueError(
-                "No API KEY provided. Provide a key when initializing FeatureApi or set an environmental " "variable"
-            )
-        self.cache_dir = cache_dir
-        if self.cache_dir is not None:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-        elif overwrite_cache:
-            raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
-
-        self.overwrite_cache = overwrite_cache
-        self.compress_cache = compress_cache
-        self.threads = threads
+        # FeatureApi-specific attributes
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
@@ -233,41 +226,12 @@ class FeatureApi(GriddedApiClient):
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.parcel_mode = parcel_mode
-        self.maxretry = maxretry
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
+
+        # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
-
-        # Semaphore to limit concurrent gridding operations
-        # This prevents too many file handles being opened when many large AOIs grid simultaneously
-        # 1/5th prevents file handle exhaustion while still allowing parallelism
-        max_concurrent_gridding = max(1, self.threads // 5)
-        self._gridding_semaphore = threading.Semaphore(max_concurrent_gridding)
-        logger.debug(f"Initialized gridding semaphore with limit of {max_concurrent_gridding} concurrent AOIs")
-
-    def __del__(self):
-        """Cleanup when instance is destroyed"""
-        self.cleanup()
-
-    def cleanup(self):
-        """Clean up all sessions"""
-        if hasattr(self, "_lock") and hasattr(self, "_sessions"):
-            with self._lock:
-                for session in self._sessions:
-                    try:
-                        session.close()
-                    except Exception:
-                        pass
-                self._sessions.clear()
-        else:  # Fallback if attributes don't exist
-            if hasattr(self, "_sessions"):
-                for session in self._sessions:
-                    try:
-                        session.close()
-                    except Exception:
-                        pass
-                self._sessions.clear()
 
     def _increment_progress(self):
         """Increment progress counter immediately after each request completes"""
@@ -795,12 +759,14 @@ class FeatureApi(GriddedApiClient):
                         with gzip.open(cache_path, "rt", encoding="utf-8") as f:
                             try:
                                 payload_str = f.read()
+                                self._cache_hits += 1
                                 return json.loads(payload_str)
                             except EOFError as e:
                                 logger.error(f"Error loading compressed cache file {cache_path}.")
                                 logger.error(f"Error: {e}")
                     else:
                         with open(cache_path, "r") as f:
+                            self._cache_hits += 1
                             return json.load(f)
 
             # Request data with retry loop for ChunkedEncodingError
@@ -808,20 +774,30 @@ class FeatureApi(GriddedApiClient):
             # retry loop exists to catch cases where the response is successfully received but
             # fails during reading. After exhausting retries, persistent ChunkedEncodingErrors
             # are treated as size errors to trigger gridding (the response may be too large).
-            t1 = time.monotonic()
             response = None
             request_info = None
+            response_time_ms = None
+
+            # Track this as a cache miss (we're making an API call)
+            self._cache_misses += 1
 
             for retry_attempt in range(MAX_RETRIES):
                 try:
                     headers = {'Content-Type': 'application/json'}
+                    t1 = time.monotonic()  # Start timing for THIS attempt
                     response = session.post(url, json=body, headers=headers, timeout=session._timeout)
+                    response_time_ms = (time.monotonic() - t1) * 1e3  # End timing immediately after response
+
+                    # Record per-attempt latency for statistics
+                    self._latencies.append(response_time_ms)
+
                     request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
 
                     # Log geometry if urllib3 performed any retries (check response history)
                     if hasattr(response, 'history') and len(response.history) > 0:
                         aoi_geom = body.get('aoi', {}) if body else {}
                         num_retries = len(response.history)
+                        self._retry_count += num_retries  # Track urllib3 retries
                         status = response.status_code if hasattr(response, 'status_code') else 'unknown'
                         logger.info(f"Request required {num_retries} urllib3 retry(ies), final status {status}, AOI geometry: {json.dumps(aoi_geom)}")
 
@@ -829,6 +805,7 @@ class FeatureApi(GriddedApiClient):
                 except requests.exceptions.ReadTimeout as e:
                     # Treat read timeout exactly like a 504 Gateway Timeout from the server
                     # This will trigger gridding for large requests that timeout
+                    self._timeout_count += 1
                     logger.debug(f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504")
 
                     # Create a mock 504 response object
@@ -845,6 +822,7 @@ class FeatureApi(GriddedApiClient):
                 except requests.exceptions.ChunkedEncodingError as e:
                     if retry_attempt < MAX_RETRIES - 1:
                         # Log debug message for retry attempts
+                        self._retry_count += 1
                         logger.debug(f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}")
                         time.sleep(CHUNKED_ENCODING_RETRY_DELAY)  # Brief pause before retry
                         continue
@@ -853,8 +831,8 @@ class FeatureApi(GriddedApiClient):
                         logger.error(f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}")
                         raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
-            response_time_ms = (time.monotonic() - t1) * 1e3
-            response_time_seconds = response_time_ms / 1000
+            # Use explicit None check to handle edge case of 0ms response time
+            response_time_seconds = response_time_ms / 1000 if response_time_ms is not None else 0
 
             # Log response at debug level (can be enabled when diagnosing issues)
             sanitized_url = self._clean_api_key(url)

@@ -111,6 +111,7 @@ def test_exporter_process_chunk_mocked(test_aoi_file, test_output_dir, data_dire
         errors_df = pd.DataFrame()
 
         mock_api.get_roof_age_bulk.return_value = (roofs_gdf, metadata_df, errors_df)
+        mock_api.get_latency_stats.return_value = None
 
         # Call process_chunk directly (bypasses multiprocessing)
         exporter.process_chunk("test_chunk_0000", aoi_gdf)
@@ -158,6 +159,7 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
         errors_df = errors_df.set_index(AOI_ID_COLUMN_NAME)
 
         mock_api.get_roof_age_bulk.return_value = (roofs_gdf, metadata_df, errors_df)
+        mock_api.get_latency_stats.return_value = None
 
         # Should complete without raising exception
         exporter.process_chunk("test_chunk_0000", aoi_gdf)

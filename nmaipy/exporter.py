@@ -31,13 +31,21 @@ import atexit
 import signal
 import time
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime, timezone
 from concurrent.futures.process import BrokenProcessPool
 
 import psutil
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
-from nmaipy.api_common import format_error_summary_table, sanitize_error_message
+from nmaipy.api_common import (
+    collect_latency_stats_from_apis,
+    combine_chunk_latency_stats,
+    compute_global_latency_stats,
+    format_error_summary_table,
+    sanitize_error_message,
+    save_chunk_latency_stats,
+)
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.cgroup_memory import get_memory_info_cgroup_aware
 from nmaipy.constants import (
@@ -1305,6 +1313,10 @@ class NearmapAIExporter(BaseExporter):
 
         feature_api = None
         roof_age_api = None
+
+        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_monotonic = time.monotonic()
+
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
@@ -1328,7 +1340,7 @@ class NearmapAIExporter(BaseExporter):
                 self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
             )
             if outfile.exists():
-                return
+                return {"chunk_id": chunk_id, "latency_stats": None}
 
             # Get additional parcel attributes from parcel geometry
             if isinstance(aoi_gdf, gpd.GeoDataFrame):
@@ -1395,7 +1407,14 @@ class NearmapAIExporter(BaseExporter):
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
                     errors_df.to_parquet(outfile_errors)
-                    return
+                    latency_stats = feature_api.get_latency_stats()
+                    if latency_stats:
+                        latency_stats["chunk_id"] = chunk_id
+                        latency_stats["start_time"] = chunk_start_time
+                        latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
+                        latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
+                        save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                    return {"chunk_id": chunk_id, "latency_stats": latency_stats}
             elif self.endpoint == Endpoint.FEATURE.value:
                 self.logger.debug(
                     f"Chunk {chunk_id}: Getting features for {len(aoi_gdf)} AOIs ({self.endpoint=})"
@@ -1505,7 +1524,18 @@ class NearmapAIExporter(BaseExporter):
                     feature_api_errors_df.to_parquet(outfile_errors)
                     if len(roof_age_errors_df) > 0:
                         roof_age_errors_df.to_parquet(outfile_roof_age_errors)
-                    return
+                    chunk_end_time = datetime.now(timezone.utc).isoformat()
+                    total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
+                    latency_stats = collect_latency_stats_from_apis(
+                        [feature_api, roof_age_api],
+                        chunk_id,
+                        chunk_start_time,
+                        chunk_end_time,
+                        total_duration_ms,
+                    )
+                    if latency_stats is not None:
+                        save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                    return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
                 # Combine features from both APIs (roof instances are treated as a feature class)
                 # Note: Most field mappings (area_sqm, confidence, fidelity, feature_id) are done
@@ -1932,7 +1962,21 @@ class NearmapAIExporter(BaseExporter):
                             f"Error type: {type(e).__name__}, Error message: {str(e)}"
                         )
                         self.logger.error(e)
+
+            chunk_end_time = datetime.now(timezone.utc).isoformat()
+            total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
+            latency_stats = collect_latency_stats_from_apis(
+                [feature_api, roof_age_api],
+                chunk_id,
+                chunk_start_time,
+                chunk_end_time,
+                total_duration_ms,
+            )
+            if latency_stats is not None:
+                save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+
             self.logger.debug(f"Finished saving chunk {chunk_id}")
+            return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
         except Exception as e:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
@@ -2110,7 +2154,8 @@ class NearmapAIExporter(BaseExporter):
         if self.roof_age:
             initial_aoi_count *= 2
 
-        # Run parallel processing with progress tracking
+        latency_csv_path = self.final_path / f"{Path(aoi_path).stem}_latency_stats.csv"
+
         self.run_parallel(
             chunks_to_process,
             aoi_stem,
@@ -2118,6 +2163,22 @@ class NearmapAIExporter(BaseExporter):
             use_progress_tracking=True,  # Enable progress counters for Feature API
             classes_df=classes_df,  # Pass classes_df to process_chunk
         )
+
+        all_latency_stats = combine_chunk_latency_stats(
+            self.chunk_path, aoi_stem, latency_csv_path
+        )
+        if all_latency_stats:
+            global_stats = compute_global_latency_stats(all_latency_stats)
+            if global_stats and global_stats.get("count", 0) > 0:
+                self.logger.info(
+                    f"Global latency stats: "
+                    f"mean={global_stats['mean']:.0f}ms, "
+                    f"P50={global_stats['p50']:.0f}ms [{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
+                    f"P90={global_stats['p90']:.0f}ms [{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
+                    f"P95={global_stats['p95']:.0f}ms [{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
+                    f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
+                    f"n={global_stats['count']}"
+                )
 
         data = []
         data_features = []

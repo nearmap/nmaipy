@@ -32,6 +32,7 @@ import concurrent.futures
 import hashlib
 import json
 import re
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -377,7 +378,15 @@ class RoofAgeApi(BaseApiClient):
             )
 
             with self._session_scope() as session:
+                t1 = time.monotonic()
                 response = session.post(url, json=payload, params=params, timeout=session._timeout)
+                response_time_ms = (time.monotonic() - t1) * 1e3
+
+                # Record per-request latency for statistics
+                self._latencies.append(response_time_ms)
+
+                # Debug log
+                logger.debug(f"Roof Age API response in {response_time_ms:.1f}ms (page {page_count})")
 
                 if not response.ok:
                     error_msg = f"Failed to get roof age data (page {page_count})"
@@ -442,10 +451,12 @@ class RoofAgeApi(BaseApiClient):
         # Check cache first (caches the full merged result)
         cached_response = self._load_from_cache(cache_key)
         if cached_response is not None:
+            self._cache_hits += 1
             logger.debug(f"Using cached roof age data for {aoi_id}")
             return self._parse_response(cached_response, aoi_id)
 
-        # Fetch all pages
+        # Fetch all pages (this is a cache miss)
+        self._cache_misses += 1
         url = f"{self.base_url}.{file_format}"
         params = {"apikey": self.api_key}
         if self.bulk_mode:
@@ -492,10 +503,12 @@ class RoofAgeApi(BaseApiClient):
         # Check cache first (caches the full merged result)
         cached_response = self._load_from_cache(cache_key)
         if cached_response is not None:
+            self._cache_hits += 1
             logger.debug(f"Using cached roof age data for {aoi_id}")
             return self._parse_response(cached_response, aoi_id)
 
-        # Fetch all pages
+        # Fetch all pages (this is a cache miss)
+        self._cache_misses += 1
         url = f"{self.base_url}.{file_format}"
         params = {"apikey": self.api_key}
         if self.bulk_mode:

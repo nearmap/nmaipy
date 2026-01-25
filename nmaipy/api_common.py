@@ -20,8 +20,10 @@ import threading
 from http import HTTPStatus
 from http.client import RemoteDisconnected
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+import pandas as pd
 import requests
 import urllib3
 from dotenv import load_dotenv
@@ -44,6 +46,13 @@ load_dotenv()
 API_KEY = os.getenv("API_KEY", "")
 
 logger = log.get_logger()
+
+# Latency histogram bucket boundaries in milliseconds
+# - Fine resolution <200ms (target response time)
+# - SLA boundary at 2s
+# - Slow request range 10-60s
+# - 60s+ for timeouts
+LATENCY_BUCKETS = [0, 50, 100, 150, 200, 300, 500, 1000, 2000, 5000, 10000, 30000, 60000, float("inf")]
 
 
 class APIKeyFilter(logging.Filter):
@@ -377,6 +386,15 @@ class BaseApiClient:
         self.threads = threads
         self.maxretry = maxretry
 
+        # Latency and request tracking
+        # Note: These are safe because each chunk runs in a separate process (ProcessPoolExecutor),
+        # so each API client instance is isolated - no cross-thread access occurs.
+        self._latencies = []
+        self._retry_count = 0
+        self._timeout_count = 0
+        self._cache_hits = 0
+        self._cache_misses = 0
+
     def __del__(self):
         """Cleanup when instance is destroyed"""
         self.cleanup()
@@ -602,6 +620,113 @@ class BaseApiClient:
         """
         return clean_api_key_from_string(text)
 
+    def get_latency_stats(self) -> Optional[Dict[str, Any]]:
+        """
+        Calculate latency statistics for this API client instance.
+
+        Returns a dict containing:
+        - mean: Arithmetic mean
+        - p50, p90, p95, p99: Percentiles
+        - min, max: Extremes
+        - count: Number of successful requests (latency samples)
+        - histogram: Bucket counts for aggregation across chunks
+        - retry_count: Number of retries that occurred
+        - timeout_count: Number of requests that timed out
+        - cache_hits: Number of cache hits
+        - cache_misses: Number of cache misses (API calls made)
+
+        Returns None if no latencies have been recorded.
+        """
+        if not self._latencies:
+            return None
+
+        arr = np.array(self._latencies)
+        n = len(arr)
+
+        # Histogram buckets for cross-chunk aggregation
+        hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
+
+        return {
+            "mean": float(np.mean(arr)),
+            "p50": float(np.percentile(arr, 50)),
+            "p90": float(np.percentile(arr, 90)),
+            "p95": float(np.percentile(arr, 95)),
+            "p99": float(np.percentile(arr, 99)),
+            "min": float(np.min(arr)),
+            "max": float(np.max(arr)),
+            "count": n,
+            "histogram": hist.tolist(),
+            "retry_count": self._retry_count,
+            "timeout_count": self._timeout_count,
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+        }
+
+
+def collect_latency_stats_from_apis(
+    api_clients: List[Optional["BaseApiClient"]],
+    chunk_id: str,
+    chunk_start_time: str,
+    chunk_end_time: str,
+    total_duration_ms: float,
+) -> Optional[Dict[str, Any]]:
+    """
+    Collect and combine latency statistics from multiple API clients.
+
+    This helper function aggregates latency data from one or more API client instances
+    (e.g., FeatureApi and RoofAgeApi) into a single stats dict suitable for saving.
+
+    Args:
+        api_clients: List of API client instances (None entries are skipped)
+        chunk_id: Identifier for this chunk
+        chunk_start_time: ISO format timestamp when chunk processing started
+        chunk_end_time: ISO format timestamp when chunk processing ended
+        total_duration_ms: Total wall-clock time for chunk processing in milliseconds
+
+    Returns:
+        Dict with combined latency stats, or None if no latencies were recorded
+    """
+    combined_latencies = []
+    combined_retry_count = 0
+    combined_timeout_count = 0
+    combined_cache_hits = 0
+    combined_cache_misses = 0
+
+    for api in api_clients:
+        if api is not None:
+            combined_latencies.extend(api._latencies)
+            combined_retry_count += api._retry_count
+            combined_timeout_count += api._timeout_count
+            combined_cache_hits += api._cache_hits
+            combined_cache_misses += api._cache_misses
+
+    if not combined_latencies:
+        return None
+
+    arr = np.array(combined_latencies)
+    n = len(arr)
+    hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
+
+    return {
+        "chunk_id": chunk_id,
+        "mean": float(np.mean(arr)),
+        "p50": float(np.percentile(arr, 50)),
+        "p90": float(np.percentile(arr, 90)),
+        "p95": float(np.percentile(arr, 95)),
+        "p99": float(np.percentile(arr, 99)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+        "count": n,
+        "histogram": hist.tolist(),
+        "retry_count": combined_retry_count,
+        "timeout_count": combined_timeout_count,
+        "cache_hits": combined_cache_hits,
+        "cache_misses": combined_cache_misses,
+        "start_time": chunk_start_time,
+        "end_time": chunk_end_time,
+        "total_duration_ms": total_duration_ms,
+    }
+
 
 class GriddedApiClient(BaseApiClient):
     """
@@ -760,3 +885,300 @@ def format_error_message(request_string: str, response: requests.Response) -> st
     """
     clean_request = clean_api_key_from_string(request_string)
     return f"\n{clean_request=}\n\n{response.status_code=}\n\n{response.text}\n\n"
+
+
+# =============================================================================
+# Latency Statistics Helper Functions
+# =============================================================================
+
+
+def percentile_from_histogram(hist: np.ndarray, buckets: List[float], percentile: float) -> float:
+    """
+    Compute percentile from histogram via linear interpolation.
+
+    Args:
+        hist: Array of bucket counts
+        buckets: Bucket boundaries (len = len(hist) + 1)
+        percentile: Percentile to compute (0-100)
+
+    Returns:
+        Estimated percentile value in milliseconds
+    """
+    cumsum = np.cumsum(hist)
+    total = cumsum[-1]
+    if total == 0:
+        return 0.0
+
+    target = total * percentile / 100
+
+    # Find bucket containing the percentile
+    idx = np.searchsorted(cumsum, target)
+    if idx >= len(hist):
+        idx = len(hist) - 1
+
+    # Linear interpolation within bucket
+    lower_cum = cumsum[idx - 1] if idx > 0 else 0
+    bucket_count = hist[idx]
+    if bucket_count > 0:
+        fraction = (target - lower_cum) / bucket_count
+    else:
+        fraction = 0
+
+    # Handle infinity in last bucket
+    lower_bound = buckets[idx]
+    upper_bound = buckets[idx + 1]
+    if upper_bound == float("inf"):
+        # For the infinity bucket, just return the lower bound
+        return float(lower_bound)
+
+    return float(lower_bound + fraction * (upper_bound - lower_bound))
+
+
+def compute_global_latency_stats(
+    chunk_stats: List[Dict], n_bootstrap: int = 1000, seed: Optional[int] = 42
+) -> Dict[str, Any]:
+    """
+    Compute global latency statistics from per-chunk stats with bootstrap confidence intervals.
+
+    Args:
+        chunk_stats: List of dicts from get_latency_stats() for each chunk
+        n_bootstrap: Number of bootstrap samples for confidence intervals
+        seed: Random seed for reproducibility (default: 42, None for non-deterministic)
+
+    Returns:
+        Dict with global mean, percentiles, and 95% confidence intervals
+    """
+    if not chunk_stats:
+        return {}
+
+    merged_hist = np.sum([np.array(s["histogram"]) for s in chunk_stats], axis=0)
+    total_count = sum(s["count"] for s in chunk_stats)
+
+    if total_count == 0:
+        return {"count": 0}
+
+    global_mean = sum(s["mean"] * s["count"] for s in chunk_stats) / total_count
+
+    global_p50 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 50)
+    global_p90 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 90)
+    global_p95 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 95)
+    global_p99 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 99)
+
+    # Bootstrap CIs: resample chunks, merge histograms, compute percentiles
+    rng = np.random.default_rng(seed)
+    p50_samples, p90_samples, p95_samples, p99_samples = [], [], [], []
+    chunk_stats_arr = np.array(chunk_stats, dtype=object)
+
+    for _ in range(n_bootstrap):
+        indices = rng.integers(0, len(chunk_stats), size=len(chunk_stats))
+        resampled = chunk_stats_arr[indices]
+        hist = np.sum([np.array(s["histogram"]) for s in resampled], axis=0)
+        p50_samples.append(percentile_from_histogram(hist, LATENCY_BUCKETS, 50))
+        p90_samples.append(percentile_from_histogram(hist, LATENCY_BUCKETS, 90))
+        p95_samples.append(percentile_from_histogram(hist, LATENCY_BUCKETS, 95))
+        p99_samples.append(percentile_from_histogram(hist, LATENCY_BUCKETS, 99))
+
+    return {
+        "mean": global_mean,
+        "p50": global_p50,
+        "p90": global_p90,
+        "p95": global_p95,
+        "p99": global_p99,
+        "p50_ci": (float(np.percentile(p50_samples, 2.5)), float(np.percentile(p50_samples, 97.5))),
+        "p90_ci": (float(np.percentile(p90_samples, 2.5)), float(np.percentile(p90_samples, 97.5))),
+        "p95_ci": (float(np.percentile(p95_samples, 2.5)), float(np.percentile(p95_samples, 97.5))),
+        "p99_ci": (float(np.percentile(p99_samples, 2.5)), float(np.percentile(p99_samples, 97.5))),
+        "count": total_count,
+    }
+
+
+def _get_latency_bucket_names() -> List[str]:
+    """Get histogram bucket column names based on LATENCY_BUCKETS."""
+    bucket_names = []
+    for i in range(len(LATENCY_BUCKETS) - 1):
+        lower = int(LATENCY_BUCKETS[i])
+        upper = LATENCY_BUCKETS[i + 1]
+        if upper == float("inf"):
+            bucket_names.append(f"bucket_{lower}_plus")
+        else:
+            bucket_names.append(f"bucket_{lower}_{int(upper)}")
+    return bucket_names
+
+
+def _stats_to_row(stats: Dict) -> Dict:
+    """Convert a latency stats dict to a flat row dict for DataFrame."""
+    if stats is None:
+        return None
+
+    total_duration_ms = stats.get("total_duration_ms", 0)
+    count = stats.get("count", 0)
+    if total_duration_ms > 0 and count > 0:
+        rps = count / (total_duration_ms / 1000)
+    else:
+        rps = 0.0
+
+    row = {
+        "chunk_id": stats.get("chunk_id", ""),
+        "count": count,
+        "mean": stats.get("mean", 0),
+        "p50": stats.get("p50", 0),
+        "p90": stats.get("p90", 0),
+        "p95": stats.get("p95", 0),
+        "p99": stats.get("p99", 0),
+        "min": stats.get("min", 0),
+        "max": stats.get("max", 0),
+        "retry_count": stats.get("retry_count", 0),
+        "timeout_count": stats.get("timeout_count", 0),
+        "cache_hits": stats.get("cache_hits", 0),
+        "cache_misses": stats.get("cache_misses", 0),
+        "start_time": stats.get("start_time", ""),
+        "end_time": stats.get("end_time", ""),
+        "total_duration_ms": total_duration_ms,
+        "rps": round(rps, 2),
+    }
+
+    histogram = stats.get("histogram", [0] * (len(LATENCY_BUCKETS) - 1))
+    bucket_names = _get_latency_bucket_names()
+    for name, count in zip(bucket_names, histogram):
+        row[name] = count
+
+    return row
+
+
+def _get_latency_csv_columns() -> List[str]:
+    """Get the ordered list of columns for latency CSV files."""
+    bucket_names = _get_latency_bucket_names()
+    return (
+        ["chunk_id", "count", "mean", "p50", "p90", "p95", "p99", "min", "max"]
+        + ["retry_count", "timeout_count", "cache_hits", "cache_misses"]
+        + ["start_time", "end_time", "total_duration_ms", "rps"]
+        + bucket_names
+    )
+
+
+def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
+    """
+    Write per-chunk latency statistics to a CSV file using pandas.
+
+    Args:
+        chunk_stats: List of dicts with chunk_id and latency stats
+        csv_path: Path to write the CSV file
+    """
+    rows = [_stats_to_row(s) for s in chunk_stats if s is not None]
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows)
+    columns = _get_latency_csv_columns()
+    df = df[columns]
+    df.to_csv(csv_path, index=False)
+
+
+def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> None:
+    """
+    Save latency stats for a single chunk to a sidecar parquet file.
+
+    Args:
+        stats: Dict with latency stats from a single chunk
+        chunk_path: Path to the chunk directory
+        chunk_id: Identifier for this chunk
+    """
+    if stats is None:
+        return
+
+    row = _stats_to_row(stats)
+    if row is None:
+        return
+
+    df = pd.DataFrame([row])
+    outfile = chunk_path / f"latency_{chunk_id}.parquet"
+    df.to_parquet(outfile, index=False)
+
+
+def combine_chunk_latency_stats(chunk_path: Path, file_stem: str, output_csv_path: Path) -> List[Dict]:
+    """
+    Combine per-chunk latency parquet files into a final CSV and return stats list.
+
+    Args:
+        chunk_path: Path to directory containing per-chunk latency files
+        file_stem: Base filename stem for matching latency files (e.g., "mydata")
+        output_csv_path: Path to write the combined CSV file
+
+    Returns:
+        List of latency stats dicts suitable for compute_global_latency_stats()
+    """
+    latency_files = list(chunk_path.glob(f"latency_{file_stem}_*.parquet"))
+    if not latency_files:
+        return []
+
+    dfs = []
+    for lf in latency_files:
+        try:
+            dfs.append(pd.read_parquet(lf))
+        except Exception:
+            pass  # Skip corrupted files
+
+    if not dfs:
+        return []
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    columns = _get_latency_csv_columns()
+    available_columns = [c for c in columns if c in combined_df.columns]
+    combined_df = combined_df[available_columns]
+    combined_df.to_csv(output_csv_path, index=False)
+
+    bucket_names = _get_latency_bucket_names()
+    stats_list = []
+    for _, row in combined_df.iterrows():
+        stats = {
+            "chunk_id": row["chunk_id"],
+            "count": int(row["count"]),
+            "mean": float(row["mean"]),
+            "p50": float(row["p50"]),
+            "p90": float(row["p90"]),
+            "p95": float(row["p95"]),
+            "p99": float(row["p99"]),
+            "min": float(row["min"]),
+            "max": float(row["max"]),
+            "histogram": [int(row[name]) for name in bucket_names if name in row],
+        }
+        stats_list.append(stats)
+
+    return stats_list
+
+
+def read_latency_csv(csv_path) -> List[Dict]:
+    """
+    Read latency stats from a CSV file and convert to list of dicts.
+
+    Args:
+        csv_path: Path to the CSV file
+
+    Returns:
+        List of latency stats dicts suitable for compute_global_latency_stats()
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        return []
+
+    df = pd.read_csv(csv_path)
+    bucket_names = _get_latency_bucket_names()
+
+    stats_list = []
+    for _, row in df.iterrows():
+        stats = {
+            "chunk_id": row["chunk_id"],
+            "count": int(row["count"]),
+            "mean": float(row["mean"]),
+            "p50": float(row["p50"]),
+            "p90": float(row["p90"]),
+            "p95": float(row["p95"]),
+            "p99": float(row["p99"]),
+            "min": float(row["min"]),
+            "max": float(row["max"]),
+            "histogram": [int(row[name]) for name in bucket_names if name in row],
+        }
+        stats_list.append(stats)
+
+    return stats_list
