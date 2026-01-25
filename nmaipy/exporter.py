@@ -39,7 +39,7 @@ import psutil
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
 from nmaipy.api_common import (
-    LATENCY_BUCKETS,
+    collect_latency_stats_from_apis,
     combine_chunk_latency_stats,
     compute_global_latency_stats,
     format_error_summary_table,
@@ -1528,43 +1528,14 @@ class NearmapAIExporter(BaseExporter):
                     # Collect latency stats from both APIs
                     chunk_end_time = datetime.now(timezone.utc).isoformat()
                     total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
-
-                    combined_latencies = list(feature_api._latencies)
-                    combined_retry_count = feature_api._retry_count
-                    combined_timeout_count = feature_api._timeout_count
-                    combined_cache_hits = feature_api._cache_hits
-                    combined_cache_misses = feature_api._cache_misses
-                    if roof_age_api is not None:
-                        combined_latencies.extend(roof_age_api._latencies)
-                        combined_retry_count += roof_age_api._retry_count
-                        combined_timeout_count += roof_age_api._timeout_count
-                        combined_cache_hits += roof_age_api._cache_hits
-                        combined_cache_misses += roof_age_api._cache_misses
-
-                    latency_stats = None
-                    if combined_latencies:
-                        arr = np.array(combined_latencies)
-                        n = len(arr)
-                        hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
-                        latency_stats = {
-                            "chunk_id": chunk_id,
-                            "mean": float(np.mean(arr)),
-                            "p50": float(np.percentile(arr, 50)),
-                            "p90": float(np.percentile(arr, 90)),
-                            "p95": float(np.percentile(arr, 95)),
-                            "p99": float(np.percentile(arr, 99)),
-                            "min": float(np.min(arr)),
-                            "max": float(np.max(arr)),
-                            "count": n,
-                            "histogram": hist.tolist(),
-                            "retry_count": combined_retry_count,
-                            "timeout_count": combined_timeout_count,
-                            "cache_hits": combined_cache_hits,
-                            "cache_misses": combined_cache_misses,
-                            "start_time": chunk_start_time,
-                            "end_time": chunk_end_time,
-                            "total_duration_ms": total_duration_ms,
-                        }
+                    latency_stats = collect_latency_stats_from_apis(
+                        [feature_api, roof_age_api],
+                        chunk_id,
+                        chunk_start_time,
+                        chunk_end_time,
+                        total_duration_ms,
+                    )
+                    if latency_stats is not None:
                         save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
                     return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
@@ -1996,52 +1967,14 @@ class NearmapAIExporter(BaseExporter):
             # Collect and log latency statistics
             chunk_end_time = datetime.now(timezone.utc).isoformat()
             total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
-
-            latency_stats = None
-            combined_latencies = []
-            combined_retry_count = 0
-            combined_timeout_count = 0
-            combined_cache_hits = 0
-            combined_cache_misses = 0
-
-            if feature_api is not None:
-                combined_latencies.extend(feature_api._latencies)
-                combined_retry_count += feature_api._retry_count
-                combined_timeout_count += feature_api._timeout_count
-                combined_cache_hits += feature_api._cache_hits
-                combined_cache_misses += feature_api._cache_misses
-            if roof_age_api is not None:
-                combined_latencies.extend(roof_age_api._latencies)
-                combined_retry_count += roof_age_api._retry_count
-                combined_timeout_count += roof_age_api._timeout_count
-                combined_cache_hits += roof_age_api._cache_hits
-                combined_cache_misses += roof_age_api._cache_misses
-
-            if combined_latencies:
-                arr = np.array(combined_latencies)
-                n = len(arr)
-                hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
-
-                latency_stats = {
-                    "chunk_id": chunk_id,
-                    "mean": float(np.mean(arr)),
-                    "p50": float(np.percentile(arr, 50)),
-                    "p90": float(np.percentile(arr, 90)),
-                    "p95": float(np.percentile(arr, 95)),
-                    "p99": float(np.percentile(arr, 99)),
-                    "min": float(np.min(arr)),
-                    "max": float(np.max(arr)),
-                    "count": n,
-                    "histogram": hist.tolist(),
-                    "retry_count": combined_retry_count,
-                    "timeout_count": combined_timeout_count,
-                    "cache_hits": combined_cache_hits,
-                    "cache_misses": combined_cache_misses,
-                    "start_time": chunk_start_time,
-                    "end_time": chunk_end_time,
-                    "total_duration_ms": total_duration_ms,
-                }
-                # Save per-chunk latency stats as sidecar file
+            latency_stats = collect_latency_stats_from_apis(
+                [feature_api, roof_age_api],
+                chunk_id,
+                chunk_start_time,
+                chunk_end_time,
+                total_duration_ms,
+            )
+            if latency_stats is not None:
                 save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
 
             self.logger.debug(f"Finished saving chunk {chunk_id}")

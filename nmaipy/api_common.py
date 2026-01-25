@@ -386,7 +386,9 @@ class BaseApiClient:
         self.threads = threads
         self.maxretry = maxretry
 
-        # Latency and request tracking (thread-safe via GIL, no lock needed for list.append)
+        # Latency and request tracking
+        # Note: These are safe because each chunk runs in a separate process (ProcessPoolExecutor),
+        # so each API client instance is isolated - no cross-thread access occurs.
         self._latencies = []
         self._retry_count = 0
         self._timeout_count = 0
@@ -661,6 +663,71 @@ class BaseApiClient:
         }
 
 
+def collect_latency_stats_from_apis(
+    api_clients: List[Optional["BaseApiClient"]],
+    chunk_id: str,
+    chunk_start_time: str,
+    chunk_end_time: str,
+    total_duration_ms: float,
+) -> Optional[Dict[str, Any]]:
+    """
+    Collect and combine latency statistics from multiple API clients.
+
+    This helper function aggregates latency data from one or more API client instances
+    (e.g., FeatureApi and RoofAgeApi) into a single stats dict suitable for saving.
+
+    Args:
+        api_clients: List of API client instances (None entries are skipped)
+        chunk_id: Identifier for this chunk
+        chunk_start_time: ISO format timestamp when chunk processing started
+        chunk_end_time: ISO format timestamp when chunk processing ended
+        total_duration_ms: Total wall-clock time for chunk processing in milliseconds
+
+    Returns:
+        Dict with combined latency stats, or None if no latencies were recorded
+    """
+    combined_latencies = []
+    combined_retry_count = 0
+    combined_timeout_count = 0
+    combined_cache_hits = 0
+    combined_cache_misses = 0
+
+    for api in api_clients:
+        if api is not None:
+            combined_latencies.extend(api._latencies)
+            combined_retry_count += api._retry_count
+            combined_timeout_count += api._timeout_count
+            combined_cache_hits += api._cache_hits
+            combined_cache_misses += api._cache_misses
+
+    if not combined_latencies:
+        return None
+
+    arr = np.array(combined_latencies)
+    n = len(arr)
+    hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
+
+    return {
+        "chunk_id": chunk_id,
+        "mean": float(np.mean(arr)),
+        "p50": float(np.percentile(arr, 50)),
+        "p90": float(np.percentile(arr, 90)),
+        "p95": float(np.percentile(arr, 95)),
+        "p99": float(np.percentile(arr, 99)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+        "count": n,
+        "histogram": hist.tolist(),
+        "retry_count": combined_retry_count,
+        "timeout_count": combined_timeout_count,
+        "cache_hits": combined_cache_hits,
+        "cache_misses": combined_cache_misses,
+        "start_time": chunk_start_time,
+        "end_time": chunk_end_time,
+        "total_duration_ms": total_duration_ms,
+    }
+
+
 class GriddedApiClient(BaseApiClient):
     """
     Base class for API clients that support automatic gridding of large AOIs.
@@ -867,13 +934,16 @@ def percentile_from_histogram(hist: np.ndarray, buckets: List[float], percentile
     return float(lower_bound + fraction * (upper_bound - lower_bound))
 
 
-def compute_global_latency_stats(chunk_stats: List[Dict], n_bootstrap: int = 1000) -> Dict[str, Any]:
+def compute_global_latency_stats(
+    chunk_stats: List[Dict], n_bootstrap: int = 1000, seed: Optional[int] = 42
+) -> Dict[str, Any]:
     """
     Compute global latency statistics from per-chunk stats with bootstrap confidence intervals.
 
     Args:
         chunk_stats: List of dicts from get_latency_stats() for each chunk
         n_bootstrap: Number of bootstrap samples for confidence intervals
+        seed: Random seed for reproducibility (default: 42, None for non-deterministic)
 
     Returns:
         Dict with global mean, percentiles, and 95% confidence intervals
@@ -898,12 +968,14 @@ def compute_global_latency_stats(chunk_stats: List[Dict], n_bootstrap: int = 100
     global_p99 = percentile_from_histogram(merged_hist, LATENCY_BUCKETS, 99)
 
     # Bootstrap CIs: resample chunks, merge histograms, compute percentiles
+    # Seed RNG for reproducibility
+    rng = np.random.default_rng(seed)
     p50_samples, p90_samples, p95_samples, p99_samples = [], [], [], []
     chunk_stats_arr = np.array(chunk_stats, dtype=object)
 
     for _ in range(n_bootstrap):
         # Resample chunks with replacement
-        indices = np.random.randint(0, len(chunk_stats), size=len(chunk_stats))
+        indices = rng.integers(0, len(chunk_stats), size=len(chunk_stats))
         resampled = chunk_stats_arr[indices]
         hist = np.sum([np.array(s["histogram"]) for s in resampled], axis=0)
         p50_samples.append(percentile_from_histogram(hist, LATENCY_BUCKETS, 50))
@@ -1122,7 +1194,7 @@ def read_latency_csv(csv_path) -> List[Dict]:
             "p99": float(row["p99"]),
             "min": float(row["min"]),
             "max": float(row["max"]),
-            "histogram": [int(row[name]) for name in bucket_names],
+            "histogram": [int(row[name]) for name in bucket_names if name in row],
         }
         stats_list.append(stats)
 

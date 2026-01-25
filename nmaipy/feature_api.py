@@ -832,7 +832,8 @@ class FeatureApi(GriddedApiClient):
                         raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
             # response_time_ms is set inside the loop for successful attempts
-            response_time_seconds = response_time_ms / 1000 if response_time_ms else 0
+            # Use explicit None check to handle edge case of 0ms response time
+            response_time_seconds = response_time_ms / 1000 if response_time_ms is not None else 0
 
             # Log response at debug level (can be enabled when diagnosing issues)
             sanitized_url = self._clean_api_key(url)
