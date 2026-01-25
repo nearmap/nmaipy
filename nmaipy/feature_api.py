@@ -188,14 +188,23 @@ class FeatureApi(GriddedApiClient):
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
         """
-        # Initialize thread-safety attributes first
-        self._sessions = []
-        self._thread_local = threading.local()
-        self._lock = threading.Lock()
+        # Call parent class initialization
+        # GriddedApiClient handles: thread-safety (_sessions, _thread_local, _lock),
+        # API key validation, cache setup, latency tracking, and gridding semaphore
+        super().__init__(
+            api_key=api_key,
+            cache_dir=cache_dir,
+            overwrite_cache=overwrite_cache,
+            compress_cache=compress_cache,
+            threads=threads,
+            maxretry=maxretry,
+            grid_cell_size=grid_size,
+        )
 
         # Store progress counters for cross-process progress tracking
         self.progress_counters = progress_counters
 
+        # FeatureApi-specific: URL configuration
         if not bulk_mode:
             url_root = "api.nearmap.com/ai/features/v4"
 
@@ -206,23 +215,7 @@ class FeatureApi(GriddedApiClient):
         self.CLASSES_URL = URL_ROOT + "/classes.json"
         self.PACKS_URL = URL_ROOT + "/packs.json"
 
-        if api_key:
-            self.api_key = api_key
-        else:
-            self.api_key = os.environ.get("API_KEY", None)
-        if self.api_key is None:
-            raise ValueError(
-                "No API KEY provided. Provide a key when initializing FeatureApi or set an environmental " "variable"
-            )
-        self.cache_dir = cache_dir
-        if self.cache_dir is not None:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-        elif overwrite_cache:
-            raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
-
-        self.overwrite_cache = overwrite_cache
-        self.compress_cache = compress_cache
-        self.threads = threads
+        # FeatureApi-specific attributes
         self.bulk_mode = bulk_mode
         self.alpha = alpha
         self.beta = beta
@@ -233,41 +226,12 @@ class FeatureApi(GriddedApiClient):
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.parcel_mode = parcel_mode
-        self.maxretry = maxretry
         self.rapid = rapid
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
+
+        # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
-
-        # Semaphore to limit concurrent gridding operations
-        # This prevents too many file handles being opened when many large AOIs grid simultaneously
-        # 1/5th prevents file handle exhaustion while still allowing parallelism
-        max_concurrent_gridding = max(1, self.threads // 5)
-        self._gridding_semaphore = threading.Semaphore(max_concurrent_gridding)
-        logger.debug(f"Initialized gridding semaphore with limit of {max_concurrent_gridding} concurrent AOIs")
-
-    def __del__(self):
-        """Cleanup when instance is destroyed"""
-        self.cleanup()
-
-    def cleanup(self):
-        """Clean up all sessions"""
-        if hasattr(self, "_lock") and hasattr(self, "_sessions"):
-            with self._lock:
-                for session in self._sessions:
-                    try:
-                        session.close()
-                    except Exception:
-                        pass
-                self._sessions.clear()
-        else:  # Fallback if attributes don't exist
-            if hasattr(self, "_sessions"):
-                for session in self._sessions:
-                    try:
-                        session.close()
-                    except Exception:
-                        pass
-                self._sessions.clear()
 
     def _increment_progress(self):
         """Increment progress counter immediately after each request completes"""
