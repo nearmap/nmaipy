@@ -795,12 +795,14 @@ class FeatureApi(GriddedApiClient):
                         with gzip.open(cache_path, "rt", encoding="utf-8") as f:
                             try:
                                 payload_str = f.read()
+                                self._cache_hits += 1
                                 return json.loads(payload_str)
                             except EOFError as e:
                                 logger.error(f"Error loading compressed cache file {cache_path}.")
                                 logger.error(f"Error: {e}")
                     else:
                         with open(cache_path, "r") as f:
+                            self._cache_hits += 1
                             return json.load(f)
 
             # Request data with retry loop for ChunkedEncodingError
@@ -808,20 +810,30 @@ class FeatureApi(GriddedApiClient):
             # retry loop exists to catch cases where the response is successfully received but
             # fails during reading. After exhausting retries, persistent ChunkedEncodingErrors
             # are treated as size errors to trigger gridding (the response may be too large).
-            t1 = time.monotonic()
             response = None
             request_info = None
+            response_time_ms = None
+
+            # Track this as a cache miss (we're making an API call)
+            self._cache_misses += 1
 
             for retry_attempt in range(MAX_RETRIES):
                 try:
                     headers = {'Content-Type': 'application/json'}
+                    t1 = time.monotonic()  # Start timing for THIS attempt
                     response = session.post(url, json=body, headers=headers, timeout=session._timeout)
+                    response_time_ms = (time.monotonic() - t1) * 1e3  # End timing immediately after response
+
+                    # Record per-attempt latency for statistics
+                    self._latencies.append(response_time_ms)
+
                     request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
 
                     # Log geometry if urllib3 performed any retries (check response history)
                     if hasattr(response, 'history') and len(response.history) > 0:
                         aoi_geom = body.get('aoi', {}) if body else {}
                         num_retries = len(response.history)
+                        self._retry_count += num_retries  # Track urllib3 retries
                         status = response.status_code if hasattr(response, 'status_code') else 'unknown'
                         logger.info(f"Request required {num_retries} urllib3 retry(ies), final status {status}, AOI geometry: {json.dumps(aoi_geom)}")
 
@@ -829,6 +841,7 @@ class FeatureApi(GriddedApiClient):
                 except requests.exceptions.ReadTimeout as e:
                     # Treat read timeout exactly like a 504 Gateway Timeout from the server
                     # This will trigger gridding for large requests that timeout
+                    self._timeout_count += 1
                     logger.debug(f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504")
 
                     # Create a mock 504 response object
@@ -845,6 +858,7 @@ class FeatureApi(GriddedApiClient):
                 except requests.exceptions.ChunkedEncodingError as e:
                     if retry_attempt < MAX_RETRIES - 1:
                         # Log debug message for retry attempts
+                        self._retry_count += 1
                         logger.debug(f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}")
                         time.sleep(CHUNKED_ENCODING_RETRY_DELAY)  # Brief pause before retry
                         continue
@@ -853,8 +867,8 @@ class FeatureApi(GriddedApiClient):
                         logger.error(f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}")
                         raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
-            response_time_ms = (time.monotonic() - t1) * 1e3
-            response_time_seconds = response_time_ms / 1000
+            # response_time_ms is set inside the loop for successful attempts
+            response_time_seconds = response_time_ms / 1000 if response_time_ms else 0
 
             # Log response at debug level (can be enabled when diagnosing issues)
             sanitized_url = self._clean_api_key(url)

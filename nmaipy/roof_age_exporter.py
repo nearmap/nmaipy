@@ -22,6 +22,8 @@ Note: The Roof Age API is currently available for US properties only.
 """
 import argparse
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import geopandas as gpd
@@ -29,7 +31,13 @@ import pandas as pd
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
-from nmaipy.api_common import format_error_summary_table, sanitize_error_message
+from nmaipy.api_common import (
+    combine_chunk_latency_stats,
+    compute_global_latency_stats,
+    format_error_summary_table,
+    sanitize_error_message,
+    save_chunk_latency_stats,
+)
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.roof_age_api import RoofAgeApi
@@ -257,6 +265,10 @@ class RoofAgeExporter(BaseExporter):
         BaseExporter.configure_worker_logging(self.log_level)
         logger = log.get_logger()
 
+        # Track chunk timing for RPS calculation
+        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_monotonic = time.monotonic()
+
         try:
             # Ensure chunk output directory exists (BaseExporter creates self.chunk_path)
             self.chunk_path.mkdir(parents=True, exist_ok=True)
@@ -304,6 +316,21 @@ class RoofAgeExporter(BaseExporter):
             if len(errors_df) > 0:
                 errors_df.to_parquet(outfile_errors)
 
+            # Get latency stats from API client
+            latency_stats = api.get_latency_stats()
+            if latency_stats is not None:
+                latency_stats["chunk_id"] = chunk_id
+                latency_stats["start_time"] = chunk_start_time
+                latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
+                latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
+                # Save per-chunk latency stats as sidecar file
+                save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+
+            # Clean up API client
+            api.cleanup()
+
+            return {"chunk_id": chunk_id, "latency_stats": latency_stats}
+
         except Exception as e:
             logger.error(f"Chunk {chunk_id} failed: {e}")
             import traceback
@@ -336,6 +363,9 @@ class RoofAgeExporter(BaseExporter):
         # Calculate initial AOI count for progress tracking (excluding skipped)
         initial_aoi_count = len(aoi_gdf) - skipped_aois
 
+        # Latency stats CSV path
+        latency_csv_path = self.final_path / f"{aoi_stem}_latency_stats.csv"
+
         # Run parallel processing with progress tracking
         self.run_parallel(
             chunks_to_process,
@@ -343,6 +373,23 @@ class RoofAgeExporter(BaseExporter):
             initial_aoi_count=initial_aoi_count,
             use_progress_tracking=True,
         )
+
+        # Combine per-chunk latency files into final CSV
+        all_latency_stats = combine_chunk_latency_stats(
+            self.chunk_path, aoi_stem, latency_csv_path
+        )
+        if all_latency_stats:
+            global_stats = compute_global_latency_stats(all_latency_stats)
+            if global_stats and global_stats.get("count", 0) > 0:
+                self.logger.info(
+                    f"Global latency stats: "
+                    f"mean={global_stats['mean']:.0f}ms, "
+                    f"P50={global_stats['p50']:.0f}ms [{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
+                    f"P90={global_stats['p90']:.0f}ms [{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
+                    f"P95={global_stats['p95']:.0f}ms [{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
+                    f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
+                    f"n={global_stats['count']}"
+                )
 
         # Combine chunk results
         self.logger.info("Combining chunk results...")

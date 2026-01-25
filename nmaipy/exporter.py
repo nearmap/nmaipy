@@ -31,13 +31,21 @@ import atexit
 import signal
 import time
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime, timezone
 from concurrent.futures.process import BrokenProcessPool
 
 import psutil
 
 from nmaipy import log, parcels
 from nmaipy.__version__ import __version__
-from nmaipy.api_common import format_error_summary_table, sanitize_error_message
+from nmaipy.api_common import (
+    LATENCY_BUCKETS,
+    combine_chunk_latency_stats,
+    compute_global_latency_stats,
+    format_error_summary_table,
+    sanitize_error_message,
+    save_chunk_latency_stats,
+)
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.cgroup_memory import get_memory_info_cgroup_aware
 from nmaipy.constants import (
@@ -1305,6 +1313,11 @@ class NearmapAIExporter(BaseExporter):
 
         feature_api = None
         roof_age_api = None
+
+        # Track chunk timing for RPS calculation
+        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_monotonic = time.monotonic()
+
         try:
             if self.cache_dir is None and not self.no_cache:
                 cache_dir = Path(self.output_dir)
@@ -1328,7 +1341,7 @@ class NearmapAIExporter(BaseExporter):
                 self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
             )
             if outfile.exists():
-                return
+                return {"chunk_id": chunk_id, "latency_stats": None}
 
             # Get additional parcel attributes from parcel geometry
             if isinstance(aoi_gdf, gpd.GeoDataFrame):
@@ -1395,7 +1408,14 @@ class NearmapAIExporter(BaseExporter):
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
                     errors_df.to_parquet(outfile_errors)
-                    return
+                    latency_stats = feature_api.get_latency_stats()
+                    if latency_stats:
+                        latency_stats["chunk_id"] = chunk_id
+                        latency_stats["start_time"] = chunk_start_time
+                        latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
+                        latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
+                        save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                    return {"chunk_id": chunk_id, "latency_stats": latency_stats}
             elif self.endpoint == Endpoint.FEATURE.value:
                 self.logger.debug(
                     f"Chunk {chunk_id}: Getting features for {len(aoi_gdf)} AOIs ({self.endpoint=})"
@@ -1505,7 +1525,48 @@ class NearmapAIExporter(BaseExporter):
                     feature_api_errors_df.to_parquet(outfile_errors)
                     if len(roof_age_errors_df) > 0:
                         roof_age_errors_df.to_parquet(outfile_roof_age_errors)
-                    return
+                    # Collect latency stats from both APIs
+                    chunk_end_time = datetime.now(timezone.utc).isoformat()
+                    total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
+
+                    combined_latencies = list(feature_api._latencies)
+                    combined_retry_count = feature_api._retry_count
+                    combined_timeout_count = feature_api._timeout_count
+                    combined_cache_hits = feature_api._cache_hits
+                    combined_cache_misses = feature_api._cache_misses
+                    if roof_age_api is not None:
+                        combined_latencies.extend(roof_age_api._latencies)
+                        combined_retry_count += roof_age_api._retry_count
+                        combined_timeout_count += roof_age_api._timeout_count
+                        combined_cache_hits += roof_age_api._cache_hits
+                        combined_cache_misses += roof_age_api._cache_misses
+
+                    latency_stats = None
+                    if combined_latencies:
+                        arr = np.array(combined_latencies)
+                        n = len(arr)
+                        hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
+                        latency_stats = {
+                            "chunk_id": chunk_id,
+                            "mean": float(np.mean(arr)),
+                            "p50": float(np.percentile(arr, 50)),
+                            "p90": float(np.percentile(arr, 90)),
+                            "p95": float(np.percentile(arr, 95)),
+                            "p99": float(np.percentile(arr, 99)),
+                            "min": float(np.min(arr)),
+                            "max": float(np.max(arr)),
+                            "count": n,
+                            "histogram": hist.tolist(),
+                            "retry_count": combined_retry_count,
+                            "timeout_count": combined_timeout_count,
+                            "cache_hits": combined_cache_hits,
+                            "cache_misses": combined_cache_misses,
+                            "start_time": chunk_start_time,
+                            "end_time": chunk_end_time,
+                            "total_duration_ms": total_duration_ms,
+                        }
+                        save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                    return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
                 # Combine features from both APIs (roof instances are treated as a feature class)
                 # Note: Most field mappings (area_sqm, confidence, fidelity, feature_id) are done
@@ -1932,7 +1993,59 @@ class NearmapAIExporter(BaseExporter):
                             f"Error type: {type(e).__name__}, Error message: {str(e)}"
                         )
                         self.logger.error(e)
+            # Collect and log latency statistics
+            chunk_end_time = datetime.now(timezone.utc).isoformat()
+            total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
+
+            latency_stats = None
+            combined_latencies = []
+            combined_retry_count = 0
+            combined_timeout_count = 0
+            combined_cache_hits = 0
+            combined_cache_misses = 0
+
+            if feature_api is not None:
+                combined_latencies.extend(feature_api._latencies)
+                combined_retry_count += feature_api._retry_count
+                combined_timeout_count += feature_api._timeout_count
+                combined_cache_hits += feature_api._cache_hits
+                combined_cache_misses += feature_api._cache_misses
+            if roof_age_api is not None:
+                combined_latencies.extend(roof_age_api._latencies)
+                combined_retry_count += roof_age_api._retry_count
+                combined_timeout_count += roof_age_api._timeout_count
+                combined_cache_hits += roof_age_api._cache_hits
+                combined_cache_misses += roof_age_api._cache_misses
+
+            if combined_latencies:
+                arr = np.array(combined_latencies)
+                n = len(arr)
+                hist, _ = np.histogram(arr, bins=LATENCY_BUCKETS)
+
+                latency_stats = {
+                    "chunk_id": chunk_id,
+                    "mean": float(np.mean(arr)),
+                    "p50": float(np.percentile(arr, 50)),
+                    "p90": float(np.percentile(arr, 90)),
+                    "p95": float(np.percentile(arr, 95)),
+                    "p99": float(np.percentile(arr, 99)),
+                    "min": float(np.min(arr)),
+                    "max": float(np.max(arr)),
+                    "count": n,
+                    "histogram": hist.tolist(),
+                    "retry_count": combined_retry_count,
+                    "timeout_count": combined_timeout_count,
+                    "cache_hits": combined_cache_hits,
+                    "cache_misses": combined_cache_misses,
+                    "start_time": chunk_start_time,
+                    "end_time": chunk_end_time,
+                    "total_duration_ms": total_duration_ms,
+                }
+                # Save per-chunk latency stats as sidecar file
+                save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+
             self.logger.debug(f"Finished saving chunk {chunk_id}")
+            return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
         except Exception as e:
             self.logger.error(f"Error processing chunk {chunk_id}: {e}")
@@ -2110,6 +2223,9 @@ class NearmapAIExporter(BaseExporter):
         if self.roof_age:
             initial_aoi_count *= 2
 
+        # Latency stats CSV path
+        latency_csv_path = self.final_path / f"{Path(aoi_path).stem}_latency_stats.csv"
+
         # Run parallel processing with progress tracking
         self.run_parallel(
             chunks_to_process,
@@ -2118,6 +2234,25 @@ class NearmapAIExporter(BaseExporter):
             use_progress_tracking=True,  # Enable progress counters for Feature API
             classes_df=classes_df,  # Pass classes_df to process_chunk
         )
+
+        # Combine per-chunk latency files into final CSV
+        # This handles job resumption - previously completed chunks have their sidecar files
+        all_latency_stats = combine_chunk_latency_stats(
+            self.chunk_path, aoi_stem, latency_csv_path
+        )
+        if all_latency_stats:
+            # Compute and log global stats with confidence intervals
+            global_stats = compute_global_latency_stats(all_latency_stats)
+            if global_stats and global_stats.get("count", 0) > 0:
+                self.logger.info(
+                    f"Global latency stats: "
+                    f"mean={global_stats['mean']:.0f}ms, "
+                    f"P50={global_stats['p50']:.0f}ms [{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
+                    f"P90={global_stats['p90']:.0f}ms [{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
+                    f"P95={global_stats['p95']:.0f}ms [{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
+                    f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
+                    f"n={global_stats['count']}"
+                )
 
         data = []
         data_features = []

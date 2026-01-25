@@ -283,7 +283,7 @@ class BaseExporter(ABC):
         initial_aoi_count: int,
         use_progress_tracking: bool = True,
         **process_chunk_kwargs,
-    ):
+    ) -> List[Dict[str, Any]]:
         """
         Process chunks in parallel using ProcessPoolExecutor.
 
@@ -293,6 +293,7 @@ class BaseExporter(ABC):
         - Retry logic for BrokenProcessPool
         - Memory usage monitoring
         - Per-chunk error tracking
+        - Latency statistics collection
 
         Args:
             chunks_to_process: List of (chunk_index, chunk_gdf) tuples
@@ -300,10 +301,13 @@ class BaseExporter(ABC):
             initial_aoi_count: Total number of AOIs (for initial progress estimate)
             use_progress_tracking: Enable shared progress counters and dynamic tqdm
             **process_chunk_kwargs: Additional kwargs to pass to process_chunk()
+
+        Returns:
+            List of latency_stats dicts from each chunk (None entries for chunks without stats)
         """
         if len(chunks_to_process) == 0:
             self.logger.info("No chunks to process (all cached or empty)")
-            return
+            return []
 
         jobs = []
         job_to_chunk = {}  # Track which chunk each job corresponds to
@@ -353,7 +357,7 @@ class BaseExporter(ABC):
 
                         # Process jobs with progress tracking
                         if use_progress_tracking and progress_counters is not None:
-                            self._monitor_progress_with_tqdm(
+                            all_latency_stats = self._monitor_progress_with_tqdm(
                                 jobs,
                                 job_to_chunk,
                                 progress_counters,
@@ -361,9 +365,9 @@ class BaseExporter(ABC):
                                 executor,
                             )
                         else:
-                            self._monitor_progress_simple(jobs, job_to_chunk)
+                            all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
 
-                        break  # Success - exit retry loop
+                        return all_latency_stats  # Success - exit retry loop
 
                     except KeyboardInterrupt:
                         self.logger.warning(
@@ -388,6 +392,9 @@ class BaseExporter(ABC):
                 else:
                     raise
 
+        # Should not reach here (either returns on success or raises on failure)
+        return []
+
     def _monitor_progress_with_tqdm(
         self,
         jobs: List[concurrent.futures.Future],
@@ -395,15 +402,20 @@ class BaseExporter(ABC):
         progress_counters: Dict[str, Any],
         num_jobs: int,
         executor: ProcessPoolExecutor,
-    ):
+    ) -> List[Dict[str, Any]]:
         """
         Monitor job progress with dynamic tqdm progress bar.
 
         Updates progress based on shared counters that can grow during gridding.
+
+        Returns:
+            List of latency_stats dicts from each completed chunk
         """
         completed_jobs = 0
         last_progress_check = time.time()
         PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
+        all_latency_stats = []  # Collect latency stats from each chunk
+        latest_latency_stats = None  # Track latest for progress bar display
 
         # Get initial total
         with progress_counters["lock"]:
@@ -435,8 +447,15 @@ class BaseExporter(ABC):
                 for j in done:
                     if j in jobs:  # Make sure we haven't already processed this
                         try:
-                            j.result()  # Block until result fully transferred
+                            result = j.result()  # Block until result fully transferred
                             completed_jobs += 1
+
+                            # Collect latency stats from chunk result
+                            if isinstance(result, dict) and "latency_stats" in result:
+                                latency_stats = result.get("latency_stats")
+                                if latency_stats is not None:
+                                    all_latency_stats.append(latency_stats)
+                                    latest_latency_stats = latency_stats
 
                             # Update progress bar immediately
                             lock_acquired = progress_counters["lock"].acquire(
@@ -453,9 +472,16 @@ class BaseExporter(ABC):
                                     pbar.total = requests_total
                                 pbar.n = requests_completed
 
+                            # Build latency string for progress bar
+                            if latest_latency_stats:
+                                lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
+                            else:
+                                lat_str = "Lat: ---"
+
                             used_gb, total_gb = get_memory_info_cgroup_aware()
                             pbar.set_description(
                                 f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
+                                f"{lat_str} | "
                                 f"Chunks: {completed_jobs}/{num_jobs}"
                             )
                             pbar.refresh()
@@ -492,12 +518,19 @@ class BaseExporter(ABC):
                         if pbar.total != requests_total:
                             pbar.total = requests_total
 
+                        # Build latency string for progress bar
+                        if latest_latency_stats:
+                            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
+                        else:
+                            lat_str = "Lat: ---"
+
                         # Update position and description
                         used_gb, total_gb = get_memory_info_cgroup_aware()
 
                         pbar.n = requests_completed
                         pbar.set_description(
                             f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
+                            f"{lat_str} | "
                             f"Chunks: {completed_jobs}/{num_jobs}"
                         )
 
@@ -510,35 +543,54 @@ class BaseExporter(ABC):
                 requests_completed = progress_counters["completed"]
                 requests_total = progress_counters["total"]
 
+            # Build final latency string
+            if latest_latency_stats:
+                lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
+            else:
+                lat_str = "Lat: ---"
+
             used_gb, total_gb = get_memory_info_cgroup_aware()
 
             pbar.n = requests_completed
             pbar.total = requests_total
             pbar.set_description(
                 f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
+                f"{lat_str} | "
                 f"Chunks: {num_jobs}/{num_jobs}"
             )
             pbar.refresh()
+
+        return all_latency_stats
 
     def _monitor_progress_simple(
         self,
         jobs: List[concurrent.futures.Future],
         job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
-    ):
+    ) -> List[Dict[str, Any]]:
         """
         Simple progress monitoring with tqdm over completed jobs.
 
         Used when progress tracking is disabled or not supported.
+
+        Returns:
+            List of latency_stats dicts from each completed chunk
         """
         self.logger.info(f"Processing {len(jobs)} chunks...")
+        all_latency_stats = []
         for job, _ in tqdm(list(zip(jobs, range(len(jobs)))), desc="Processing chunks"):
             try:
-                job.result()  # Wait for completion and raise any exceptions
+                result = job.result()  # Wait for completion and raise any exceptions
+                # Collect latency stats from chunk result
+                if isinstance(result, dict) and "latency_stats" in result:
+                    latency_stats = result.get("latency_stats")
+                    if latency_stats is not None:
+                        all_latency_stats.append(latency_stats)
             except Exception as e:
                 chunk_info = job_to_chunk.get(job, ("unknown", -1, -1, -1))
                 chunk_id = chunk_info[0]
                 self.logger.error(f"Chunk {chunk_id} failed: {e}")
                 raise
+        return all_latency_stats
 
     def _handle_broken_process_pool(
         self, error: Exception, attempt: int, max_retries: int, retry_delay: int
