@@ -8,6 +8,8 @@ These tests verify:
 - Caching behavior
 """
 import json
+import os
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -16,18 +18,21 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
-from nmaipy.roof_age_api import RoofAgeApi, RoofAgeAPIError
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    FEATURE_CLASS_DESCRIPTIONS,
+    ROOF_AGE_AREA_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
-    ROOF_AGE_TRUST_SCORE_FIELD,
-    ROOF_AGE_AREA_FIELD,
     ROOF_AGE_RESOURCE_ID_FIELD,
+    ROOF_AGE_TRUST_SCORE_FIELD,
+    ROOF_INSTANCE_CLASS_ID,
 )
+from nmaipy.exporter import export_feature_class
+from nmaipy.roof_age_api import RoofAgeApi, RoofAgeAPIError
 
 
 @pytest.fixture
@@ -565,3 +570,57 @@ def test_bulk_mode_parameter_not_included_when_disabled(cache_directory, test_ao
         call_args = mock_session.post.call_args
         params = call_args.kwargs.get('params', call_args[1].get('params', {}))
         assert "bulk" not in params, f"bulk param should not be present, got {params}"
+
+
+@pytest.mark.integration
+def test_bulk_export_with_parcels_2(parcels_2_gdf):
+    """
+    Integration test for bulk roof age query and export with 100 NJ parcels.
+
+    Fetches roof instances from the Roof Age API and exports them via
+    export_feature_class, verifying the output contains expected columns.
+    """
+    if not os.environ.get("API_KEY"):
+        pytest.skip("API_KEY not set")
+
+    api = RoofAgeApi()
+    roofs_gdf, metadata_df, errors_df = api.get_roof_age_bulk(parcels_2_gdf)
+
+    if len(roofs_gdf) == 0:
+        pytest.skip("No roof instances returned from API")
+
+    print(f"\nGot {len(roofs_gdf)} roof instances from {len(parcels_2_gdf)} parcels")
+
+    roofs_gdf = roofs_gdf.reset_index()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        csv_path, _ = export_feature_class(
+            features_gdf=roofs_gdf,
+            class_id=ROOF_INSTANCE_CLASS_ID,
+            class_description=FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID],
+            output_stem=f"{tmpdir}/test",
+            export_csv=True,
+            export_parquet=False,
+            country="us",
+        )
+
+        assert csv_path is not None
+        assert csv_path.exists()
+
+        result_df = pd.read_csv(csv_path)
+
+        assert len(result_df) == len(roofs_gdf)
+
+        expected_cols = ["roof_age_installation_date", "roof_age_trust_score", "roof_age_evidence_type"]
+        for col in expected_cols:
+            assert col in result_df.columns, f"Missing column: {col}"
+
+        # Most roof instances should have installation dates (>90%)
+        install_date_coverage = result_df["roof_age_installation_date"].notna().mean()
+        assert install_date_coverage > 0.9, f"Only {install_date_coverage:.0%} have installation dates"
+
+        # Check evidence types are present
+        evidence_types = result_df["roof_age_evidence_type"].value_counts()
+        print(f"\nEvidence types: {dict(evidence_types)}")
+        print(f"Installation date coverage: {install_date_coverage:.0%}")
+        print(f"Exported {len(result_df)} rows with {len(result_df.columns)} columns")
