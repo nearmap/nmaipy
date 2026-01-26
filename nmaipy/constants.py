@@ -46,6 +46,26 @@ ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD = "roof_age_mapbrowser_url"  # Output field
 ROOF_AGE_MODEL_VERSION_FIELD = "modelVersion"  # API field name (top-level response metadata)
 ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD = "roof_age_model_version"  # Output field name (snake_case)
 
+# Roof Age API field mapping: API field -> output column name
+# Note: Both asOfDate and untilDate map to the same output column because
+# different API versions use different field names for the same concept.
+ROOF_AGE_FIELD_MAP = {
+    ROOF_AGE_INSTALLATION_DATE_FIELD: "roof_age_installation_date",
+    ROOF_AGE_AS_OF_DATE_FIELD: "roof_age_as_of_date",
+    ROOF_AGE_UNTIL_DATE_FIELD: "roof_age_as_of_date",
+    ROOF_AGE_TRUST_SCORE_FIELD: "roof_age_trust_score",
+    ROOF_AGE_EVIDENCE_TYPE_FIELD: "roof_age_evidence_type",
+    ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD: "roof_age_evidence_type_description",
+    ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD: "roof_age_before_installation_capture_date",
+    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD: "roof_age_after_installation_capture_date",
+    ROOF_AGE_MIN_CAPTURE_DATE_FIELD: "roof_age_min_capture_date",
+    ROOF_AGE_MAX_CAPTURE_DATE_FIELD: "roof_age_max_capture_date",
+    ROOF_AGE_NUM_CAPTURES_FIELD: "roof_age_number_of_captures",
+    ROOF_AGE_KIND_FIELD: "roof_age_kind",
+    ROOF_AGE_MAPBROWSER_URL_FIELD: ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
+    ROOF_AGE_MODEL_VERSION_FIELD: ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
+}
+
 
 # ============================================================================
 # HTTP Request Configuration

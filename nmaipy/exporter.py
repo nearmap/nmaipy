@@ -63,6 +63,7 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MAX_RETRIES,
+    ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
@@ -249,26 +250,6 @@ def export_feature_class(
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
     """
-    # Roof Age API field mapping: API field -> output column
-    # Note: Both asOfDate and untilDate map to the same output column because
-    # different API versions use different field names for the same concept.
-    ROOF_AGE_FIELD_MAP = {
-        "installationDate": "roof_age_installation_date",
-        "asOfDate": "roof_age_as_of_date",
-        "untilDate": "roof_age_as_of_date",
-        "trustScore": "roof_age_trust_score",
-        "evidenceType": "roof_age_evidence_type",
-        "evidenceTypeDescription": "roof_age_evidence_type_description",
-        "beforeInstallationCaptureDate": "roof_age_before_installation_capture_date",
-        "afterInstallationCaptureDate": "roof_age_after_installation_capture_date",
-        "minCaptureDate": "roof_age_min_capture_date",
-        "maxCaptureDate": "roof_age_max_capture_date",
-        "numberOfCaptures": "roof_age_number_of_captures",
-        "kind": "roof_age_kind",
-        "mapBrowserUrl": "roof_age_mapbrowser_url",
-        "modelVersion": "roof_age_model_version",
-    }
-
     # Filter to this class
     class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
     if len(class_features) == 0:
