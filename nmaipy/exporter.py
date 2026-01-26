@@ -10,6 +10,7 @@ import gc
 import json
 import logging
 import multiprocessing
+import re
 import sys
 import traceback
 import warnings
@@ -249,10 +250,12 @@ def export_feature_class(
         Tuple of (csv_path, parquet_path) or (None, None) if no features
     """
     # Roof Age API field mapping: API field -> output column
+    # Note: Both asOfDate and untilDate map to the same output column because
+    # different API versions use different field names for the same concept.
     ROOF_AGE_FIELD_MAP = {
         "installationDate": "roof_age_installation_date",
         "asOfDate": "roof_age_as_of_date",
-        "untilDate": "roof_age_as_of_date",  # Fallback if API renames to asOfDate
+        "untilDate": "roof_age_as_of_date",
         "trustScore": "roof_age_trust_score",
         "evidenceType": "roof_age_evidence_type",
         "evidenceTypeDescription": "roof_age_evidence_type_description",
@@ -272,7 +275,8 @@ def export_feature_class(
         return (None, None)
 
     # Normalize class description for filename (sanitize characters that break paths)
-    class_name = class_description.lower().replace(" ", "_").replace("-", "_").replace("/", "_")
+    # Replace any non-alphanumeric characters with underscores (handles /, \, :, etc.)
+    class_name = re.sub(r"[^a-z0-9]+", "_", class_description.lower()).strip("_")
     csv_path = Path(f"{output_stem}_{class_name}.csv")
     parquet_path = Path(f"{output_stem}_{class_name}_features.parquet")
 

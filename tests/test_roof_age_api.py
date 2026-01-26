@@ -589,8 +589,6 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
     if len(roofs_gdf) == 0:
         pytest.skip("No roof instances returned from API")
 
-    print(f"\nGot {len(roofs_gdf)} roof instances from {len(parcels_2_gdf)} parcels")
-
     roofs_gdf = roofs_gdf.reset_index()
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -620,7 +618,4 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
         assert install_date_coverage > 0.9, f"Only {install_date_coverage:.0%} have installation dates"
 
         # Check evidence types are present
-        evidence_types = result_df["roof_age_evidence_type"].value_counts()
-        print(f"\nEvidence types: {dict(evidence_types)}")
-        print(f"Installation date coverage: {install_date_coverage:.0%}")
-        print(f"Exported {len(result_df)} rows with {len(result_df.columns)} columns")
+        assert result_df["roof_age_evidence_type"].notna().any(), "No evidence types present"
