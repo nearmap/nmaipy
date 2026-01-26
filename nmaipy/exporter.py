@@ -271,8 +271,8 @@ def export_feature_class(
     if len(class_features) == 0:
         return (None, None)
 
-    # Normalize class description for filename
-    class_name = class_description.lower().replace(" ", "_").replace("-", "_")
+    # Normalize class description for filename (sanitize characters that break paths)
+    class_name = class_description.lower().replace(" ", "_").replace("-", "_").replace("/", "_")
     csv_path = Path(f"{output_stem}_{class_name}.csv")
     parquet_path = Path(f"{output_stem}_{class_name}_features.parquet")
 
