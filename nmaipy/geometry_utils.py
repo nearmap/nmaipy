@@ -216,24 +216,8 @@ def combine_features_from_grid(
         empty_gdf.index.name = AOI_ID_COLUMN_NAME
         return empty_gdf
 
-    # Columns that don't require aggregation (take first value)
-    agg_cols_first = [
-        AOI_ID_COLUMN_NAME,
-        "class_id",
-        "description",
-        "confidence",
-        "parent_id",
-        "unclipped_area_sqm",
-        "unclipped_area_sqft",
-        "attributes",
-        "damage",
-        "belongs_to_parcel",
-        "survey_date",
-        "mesh_date",
-        "fidelity",
-    ]
-
     # Columns with clipped areas that should be summed when geometries are merged
+    # These are the only columns that need special aggregation
     agg_cols_sum = [
         "area_sqm",
         "area_sqft",
@@ -241,32 +225,55 @@ def combine_features_from_grid(
         "clipped_area_sqft",
     ]
 
-    # Filter to only existing columns
-    existing_agg_cols_first = [col for col in agg_cols_first if col in features_gdf.columns]
-    existing_agg_cols_sum = [col for col in agg_cols_sum if col in features_gdf.columns]
+    # Get all columns present in the input data
+    all_columns = features_gdf.columns.tolist()
+
+    # Identify which sum columns are actually present
+    existing_agg_cols_sum = [col for col in agg_cols_sum if col in all_columns]
+
+    # All other columns (except geometry and feature_id) should be aggregated with "first"
+    # This preserves include parameter columns (defensible_space, hurricane_score, etc.)
+    # and any other custom columns without dropping them
+    special_cols = {"geometry", "feature_id"} | set(existing_agg_cols_sum)
+    existing_agg_cols_first = [col for col in all_columns if col not in special_cols]
 
     # Remove duplicate geometries, then dissolve remaining features by feature_id
+    # Now we preserve ALL columns instead of filtering to a hardcoded list
     features_gdf_dissolved = (
         features_gdf
         .drop_duplicates(["feature_id", "geometry"])
-        .filter(existing_agg_cols_first + ["geometry", "feature_id"], axis=1)
+        # Don't filter - keep all columns for the dissolve operation
         .dissolve(by="feature_id", aggfunc="first")
         .reset_index()
         .set_index("feature_id")
     )
 
-    # Sum clipped areas for merged features
-    features_gdf_summed = (
-        features_gdf
-        .filter(existing_agg_cols_sum + ["feature_id"], axis=1)
-        .groupby("feature_id")
-        .aggregate(dict([c, "sum"] for c in existing_agg_cols_sum))
-    )
+    # Sum clipped areas for merged features (if any exist)
+    if existing_agg_cols_sum:
+        features_gdf_summed = (
+            features_gdf
+            .filter(existing_agg_cols_sum + ["feature_id"], axis=1)
+            .groupby("feature_id")
+            .aggregate({col: "sum" for col in existing_agg_cols_sum})
+        )
+    else:
+        # No sum columns to aggregate
+        features_gdf_summed = None
 
-    # Join dissolved geometries with summed areas
+    # Join dissolved geometries with summed areas (if we have any)
+    if features_gdf_summed is not None:
+        # Update the sum columns in the dissolved dataframe
+        # Use update instead of join to overwrite the "first" values with the summed values
+        for col in existing_agg_cols_sum:
+            if col in features_gdf_summed.columns:
+                features_gdf_dissolved[col] = features_gdf_summed[col]
+        features_gdf_out = features_gdf_dissolved
+    else:
+        features_gdf_out = features_gdf_dissolved
+
+    # Reset index to make feature_id a column, then set AOI_ID as index
     features_gdf_out = (
-        features_gdf_dissolved
-        .join(features_gdf_summed)
+        features_gdf_out
         .reset_index()
         .set_index(AOI_ID_COLUMN_NAME)
     )
