@@ -21,7 +21,7 @@ import pandas as pd
 from shapely.geometry import Point
 
 from nmaipy import log
-from nmaipy.constants import NEAREST_TOLERANCE_METERS
+from nmaipy.constants import API_CRS, NEAREST_TOLERANCE_METERS
 from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = log.get_logger()
@@ -78,9 +78,10 @@ def select_primary_by_nearest(
     gdf: gpd.GeoDataFrame,
     target_lat: float,
     target_lon: float,
+    geometry_projected_col: str,
+    projected_crs: str,
     confidence_col: Optional[str] = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
-    geometry_col: str = "geometry",
     area_col: str = "area",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
     distance_tolerance: float = NEAREST_TOLERANCE_METERS,
@@ -98,12 +99,13 @@ def select_primary_by_nearest(
     Within each step, high-confidence features are preferred if confidence_col is provided.
 
     Args:
-        gdf: GeoDataFrame containing features to select from (must be in EPSG:4326)
+        gdf: GeoDataFrame containing features to select from
         target_lat: Target latitude (EPSG:4326)
         target_lon: Target longitude (EPSG:4326)
+        geometry_projected_col: Name of column containing pre-projected geometries (required)
+        projected_crs: CRS of the pre-projected geometries (e.g., "EPSG:3857" or country-specific)
         confidence_col: Optional name of confidence column (0-1 scale). Set to None to disable.
         high_confidence_threshold: Threshold for "high confidence" (default: 0.9)
-        geometry_col: Name of geometry column to use for containment/distance calculation
         area_col: Name of area column for filtering small features (in square meters)
         small_area_threshold: Features at or below this area are considered "small" and
                              deprioritized (default: 30 sqm from BUILDING_SMALL_MAX_AREA_SQM)
@@ -115,59 +117,28 @@ def select_primary_by_nearest(
         feature found by the nearest/containment criteria.
 
     Raises:
-        ValueError: If gdf is empty or geometries are invalid
-
-    Example:
-        >>> roofs_gdf = gpd.GeoDataFrame({...})  # Multiple roofs near a geocoded point
-        >>> primary_roof = select_primary_by_nearest(
-        ...     roofs_gdf, target_lat=37.7749, target_lon=-122.4194,
-        ...     confidence_col="trustScore", area_col="area"
-        ... )
-        >>> if primary_roof is None:
-        ...     # Fall back to largest method
-        ...     primary_roof = select_primary_by_largest(roofs_gdf, area_col="area")
+        ValueError: If gdf is empty or geometry_projected_col not found
 
     Notes:
-        - Input geometries must be in EPSG:4326 (WGS84)
-        - Distance calculations are performed in EPSG:3857 (Web Mercator) for accuracy
+        - Distance calculations are performed in the projected CRS
         - "Small" features (e.g., sheds, outbuildings) are excluded from primary selection
+        - Caller must pre-project geometries before calling this function
     """
     if len(gdf) == 0:
         raise ValueError("Cannot select primary feature from empty GeoDataFrame")
 
-    # Create target point in EPSG:4326, then convert to EPSG:3857 for distance calculation
+    if geometry_projected_col not in gdf.columns:
+        raise ValueError(
+            f"geometry_projected_col '{geometry_projected_col}' not found in GeoDataFrame. "
+            f"Caller must pre-project geometries. Available columns: {list(gdf.columns)}"
+        )
+
+    # Create target point in EPSG:4326, then convert to projected CRS for distance calculation
     target_point = Point(target_lon, target_lat)
-    target_point_3857 = gpd.GeoSeries([target_point], crs="EPSG:4326").to_crs("EPSG:3857")[0]
+    target_point_projected = gpd.GeoSeries([target_point], crs=API_CRS).to_crs(projected_crs)[0]
 
-    # Handle geometry column - may be named differently (e.g., "geometry_feature")
-    if geometry_col not in gdf.columns:
-        # Try to find an appropriate geometry column
-        if "geometry" in gdf.columns:
-            geometry_col = "geometry"
-        else:
-            # Look for any geometry column
-            geom_cols = [c for c in gdf.columns if "geometry" in c.lower()]
-            if geom_cols:
-                geometry_col = geom_cols[0]
-                logger.debug(f"Using geometry column: {geometry_col}")
-            else:
-                raise ValueError(f"No valid geometry column found. Available columns: {list(gdf.columns)}")
-
-    # Convert features to EPSG:3857 for distance calculation
-    # Check if the GeoDataFrame has an active geometry and if it matches what we need
-    try:
-        active_geom_name = gdf.geometry.name
-        gdf_for_distance = gdf if active_geom_name == geometry_col else gdf.set_geometry(geometry_col)
-    except AttributeError:
-        # No active geometry column, set it explicitly
-        gdf_for_distance = gdf.set_geometry(geometry_col)
-
-    # Ensure we have a valid CRS
-    if gdf_for_distance.crs is None:
-        logger.warning("GeoDataFrame has no CRS set, assuming EPSG:4326")
-        gdf_for_distance = gdf_for_distance.set_crs("EPSG:4326")
-
-    gdf_3857 = gdf_for_distance.to_crs("EPSG:3857")
+    # Use pre-projected geometry
+    gdf_projected = gdf.set_geometry(geometry_projected_col)
 
     # Filter to non-small features based on area
     # Prefer pre-computed area column (more accurate), fall back to geometry-based calculation
@@ -178,7 +149,7 @@ def select_primary_by_nearest(
         # Note: EPSG:3857 has area distortion (~20-30% at mid-latitudes), but acceptable
         # for the small building threshold check. For accurate areas, use pre-computed column.
         logger.debug(f"Area column '{area_col}' not found, calculating area from geometry (EPSG:3857)")
-        areas_sqm = gdf_3857.geometry.area
+        areas_sqm = gdf_projected.geometry.area
         non_small_mask = areas_sqm > small_area_threshold
 
     if not non_small_mask.any():
@@ -186,8 +157,8 @@ def select_primary_by_nearest(
         return None
 
     # Step 1: Check if target point falls within any non-small feature
-    gdf_3857_non_small = gdf_3857[non_small_mask]
-    contains_mask = gdf_3857_non_small.geometry.contains(target_point_3857)
+    gdf_projected_non_small = gdf_projected[non_small_mask]
+    contains_mask = gdf_projected_non_small.geometry.contains(target_point_projected)
 
     if contains_mask.any():
         # Target point is within at least one non-small feature
@@ -201,7 +172,7 @@ def select_primary_by_nearest(
         return gdf.loc[selected_idx]
 
     # Step 2: Check if nearest non-small feature is within tolerance
-    distances = gdf_3857_non_small.geometry.distance(target_point_3857)
+    distances = gdf_projected_non_small.geometry.distance(target_point_projected)
 
     within_tolerance_mask = distances <= distance_tolerance
     if within_tolerance_mask.any():
@@ -266,6 +237,8 @@ def select_primary_optimal(
     gdf: gpd.GeoDataFrame,
     target_lat: float,
     target_lon: float,
+    geometry_projected_col: str,
+    projected_crs: str,
     area_col: str = "area",
     secondary_area_col: Optional[str] = None,
     confidence_col: Optional[str] = "confidence",
@@ -286,7 +259,7 @@ def select_primary_optimal(
     geocode (lat/lon) but want to ensure we always return a primary feature.
 
     Args:
-        gdf: GeoDataFrame containing features to select from (must be in EPSG:4326)
+        gdf: GeoDataFrame containing features to select from
         target_lat: Target latitude (EPSG:4326)
         target_lon: Target longitude (EPSG:4326)
         area_col: Name of area column for size filtering and largest fallback
@@ -296,6 +269,9 @@ def select_primary_optimal(
         geometry_col: Name of geometry column to use for containment/distance calculation
         small_area_threshold: Features at or below this area are considered "small"
         distance_tolerance: Maximum distance in meters for nearest selection
+        geometry_projected_col: Name of column containing pre-projected geometries for distance
+                               calculations (e.g., in AREA_CRS for the relevant country).
+        projected_crs: CRS of the pre-projected geometries (e.g., "esri:102003" for US).
 
     Returns:
         pandas Series representing the selected primary feature (always returns a result)
@@ -313,14 +289,20 @@ def select_primary_optimal(
     if len(gdf) == 0:
         raise ValueError("Cannot select primary feature from empty GeoDataFrame")
 
+    if geometry_projected_col not in gdf.columns:
+        raise ValueError(
+            f"geometry_projected_col='{geometry_projected_col}' must exist in the GeoDataFrame"
+        )
+
     # Try nearest method first (containment/proximity with non-small filtering)
     result = select_primary_by_nearest(
         gdf,
         target_lat,
         target_lon,
+        geometry_projected_col=geometry_projected_col,
+        projected_crs=projected_crs,
         confidence_col=confidence_col,
         high_confidence_threshold=high_confidence_threshold,
-        geometry_col=geometry_col,
         area_col=area_col,
         small_area_threshold=small_area_threshold,
         distance_tolerance=distance_tolerance,
@@ -346,6 +328,8 @@ def select_primary(
     geometry_col: str = "geometry",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
     distance_tolerance: float = NEAREST_TOLERANCE_METERS,
+    geometry_projected_col: Optional[str] = None,
+    projected_crs: Optional[str] = None,
 ) -> Optional[pd.Series]:
     """
     Convenience function to select primary feature using specified method.
@@ -365,6 +349,10 @@ def select_primary(
         geometry_col: Geometry column name (for "nearest" and "optimal" methods)
         small_area_threshold: Features at or below this area are considered "small"
         distance_tolerance: Maximum distance in meters for nearest selection
+        geometry_projected_col: Name of column containing pre-projected geometries for distance
+                               calculations. Required for "nearest" and "optimal" methods.
+        projected_crs: CRS of the pre-projected geometries (e.g., AREA_CRS[country]).
+                      Required when geometry_projected_col is provided.
 
     Returns:
         pandas Series representing the selected primary feature.
@@ -400,16 +388,26 @@ def select_primary(
                 "For 'nearest' method, lat/lon is required but was null - falling back to 'largest'"
             )
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
+
+        if not geometry_projected_col or geometry_projected_col not in gdf.columns:
+            raise ValueError(
+                f"geometry_projected_col='{geometry_projected_col}' is required for 'nearest' method "
+                "and must exist in the GeoDataFrame"
+            )
+        if not projected_crs:
+            raise ValueError("projected_crs is required for 'nearest' method")
+
         return select_primary_by_nearest(
             gdf,
             target_lat,
             target_lon,
-            confidence_col,
-            high_confidence_threshold,
-            geometry_col,
-            area_col,
-            small_area_threshold,
-            distance_tolerance,
+            geometry_projected_col=geometry_projected_col,
+            projected_crs=projected_crs,
+            confidence_col=confidence_col,
+            high_confidence_threshold=high_confidence_threshold,
+            area_col=area_col,
+            small_area_threshold=small_area_threshold,
+            distance_tolerance=distance_tolerance,
         )
 
     elif method == "optimal":
@@ -418,17 +416,28 @@ def select_primary(
                 "For 'optimal' method, lat/lon is required but was null - falling back to 'largest'"
             )
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
+
+        if not geometry_projected_col or geometry_projected_col not in gdf.columns:
+            raise ValueError(
+                f"geometry_projected_col='{geometry_projected_col}' is required for 'optimal' method "
+                "and must exist in the GeoDataFrame"
+            )
+        if not projected_crs:
+            raise ValueError("projected_crs is required for 'optimal' method")
+
         return select_primary_optimal(
             gdf,
             target_lat,
             target_lon,
-            area_col,
-            secondary_area_col,
-            confidence_col,
-            high_confidence_threshold,
-            geometry_col,
-            small_area_threshold,
-            distance_tolerance,
+            geometry_projected_col,
+            projected_crs,
+            area_col=area_col,
+            secondary_area_col=secondary_area_col,
+            confidence_col=confidence_col,
+            high_confidence_threshold=high_confidence_threshold,
+            geometry_col=geometry_col,
+            small_area_threshold=small_area_threshold,
+            distance_tolerance=distance_tolerance,
         )
 
     else:

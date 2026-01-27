@@ -21,6 +21,7 @@ from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibilit
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
     BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
@@ -546,6 +547,8 @@ def feature_attributes(
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,
+    geometry_projected_col: str = None,
+    projected_crs: str = None,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -558,6 +561,9 @@ def feature_attributes(
         primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
+        geometry_projected_col: Optional name of a column containing pre-projected geometries
+                               for performance optimization in distance-based primary selection.
+        projected_crs: CRS of the pre-projected geometries (required if geometry_projected_col provided).
 
     Returns: Flat dictionary
 
@@ -649,6 +655,8 @@ def feature_attributes(
                     confidence_col=ROOF_AGE_TRUST_SCORE_FIELD if ROOF_AGE_TRUST_SCORE_FIELD in features_for_selection.columns else None,
                     high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
                     geometry_col="geometry_feature" if "geometry_feature" in features_for_selection.columns else "geometry",
+                    geometry_projected_col=geometry_projected_col,
+                    projected_crs=projected_crs,
                 )
                 # Roof instances only have area (not clipped/unclipped)
                 if country in IMPERIAL_COUNTRIES:
@@ -666,6 +674,8 @@ def feature_attributes(
                     confidence_col="confidence",
                     high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
                     geometry_col="geometry_feature",
+                    geometry_projected_col=geometry_projected_col,
+                    projected_crs=projected_crs,
                 )
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
@@ -863,6 +873,24 @@ def parcel_rollup(
 
     df = features_gdf.merge(parcels_gdf[merge_cols], left_index=True, right_index=True, suffixes=["_feature", "_aoi"])
 
+    # Pre-project feature geometries to country-appropriate CRS for distance-based primary selection
+    # This avoids repeated CRS transformations inside select_primary_by_nearest()
+    # Use Albers Equal Area projection for accurate distance calculations
+    geometry_projected_col = None
+    projected_crs = AREA_CRS[country.lower()]
+    if uses_lat_lon:
+        # Determine geometry column (after merge with suffixes, it may be geometry_feature)
+        geom_col = "geometry_feature" if "geometry_feature" in df.columns else "geometry"
+        if geom_col in df.columns:
+            # Create a temporary GeoDataFrame for projection
+            temp_gdf = gpd.GeoDataFrame(
+                {"idx": df.index},
+                geometry=df[geom_col].values,
+                crs=features_gdf.crs or API_CRS
+            )
+            df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.values
+            geometry_projected_col = "_geometry_projected"
+
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
@@ -896,6 +924,8 @@ def parcel_rollup(
             primary_decision=primary_decision,
             primary_lat=primary_lat,
             primary_lon=primary_lon,
+            geometry_projected_col=geometry_projected_col,
+            projected_crs=projected_crs,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         parcel["mesh_date"] = group.mesh_date.iloc[0]

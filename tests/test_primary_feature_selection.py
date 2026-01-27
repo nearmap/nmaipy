@@ -17,9 +17,11 @@ class TestSelectPrimaryByNearest:
     """Tests for the select_primary_by_nearest function."""
 
     def _create_test_gdf(self, features: list) -> gpd.GeoDataFrame:
-        """Create a test GeoDataFrame from feature definitions."""
+        """Create a test GeoDataFrame from feature definitions with pre-projected geometry."""
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
         gdf = gdf.set_crs("EPSG:4326")
+        # Pre-project to EPSG:3857 for select_primary_by_nearest
+        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.values
         return gdf
 
     def test_containment_selects_feature_containing_target(self):
@@ -43,6 +45,8 @@ class TestSelectPrimaryByNearest:
         # Target inside containing_feature
         result = select_primary_by_nearest(
             gdf, target_lat=37.775, target_lon=-122.415,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 
@@ -70,6 +74,8 @@ class TestSelectPrimaryByNearest:
         # Target on the boundary of feature_on_boundary (distance ~0, within 1m tolerance)
         result = select_primary_by_nearest(
             gdf, target_lat=37.7750, target_lon=-122.4200,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 
@@ -94,6 +100,8 @@ class TestSelectPrimaryByNearest:
         # Target far from both features
         result = select_primary_by_nearest(
             gdf, target_lat=37.80, target_lon=-122.50,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 
@@ -120,6 +128,8 @@ class TestSelectPrimaryByNearest:
         # Target inside small_containing, but it should be ignored
         result = select_primary_by_nearest(
             gdf, target_lat=37.775, target_lon=-122.415,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 
@@ -141,6 +151,8 @@ class TestSelectPrimaryByNearest:
         # No area_sqm column - should calculate from geometry
         result = select_primary_by_nearest(
             gdf, target_lat=37.775, target_lon=-122.415,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm",  # Not present in gdf
             confidence_col="confidence"
         )
@@ -166,6 +178,8 @@ class TestSelectPrimaryByNearest:
 
         result = select_primary_by_nearest(
             gdf, target_lat=37.775, target_lon=-122.415,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence",
             high_confidence_threshold=0.9
         )
@@ -185,6 +199,8 @@ class TestSelectPrimaryByNearest:
 
         result = select_primary_by_nearest(
             gdf, target_lat=37.775, target_lon=-122.415,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="clipped_area_sqm", confidence_col="confidence"
         )
 
@@ -195,9 +211,10 @@ class TestSelectPrimaryOptimal:
     """Tests for the select_primary_optimal function."""
 
     def _create_test_gdf(self, features: list) -> gpd.GeoDataFrame:
-        """Create a test GeoDataFrame from feature definitions."""
+        """Create a test GeoDataFrame from feature definitions with pre-projected geometry."""
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
         gdf = gdf.set_crs("EPSG:4326")
+        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.values
         return gdf
 
     def test_uses_nearest_when_feature_contains_target(self):
@@ -218,6 +235,8 @@ class TestSelectPrimaryOptimal:
 
         result = select_primary_optimal(
             gdf, target_lat=37.775, target_lon=-122.415,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 
@@ -242,6 +261,8 @@ class TestSelectPrimaryOptimal:
         # Target far from both
         result = select_primary_optimal(
             gdf, target_lat=37.80, target_lon=-122.50,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 
@@ -261,6 +282,8 @@ class TestSelectPrimaryOptimal:
         # Target very far from feature
         result = select_primary_optimal(
             gdf, target_lat=40.0, target_lon=-120.0,
+            geometry_projected_col="_geometry_projected",
+            projected_crs="EPSG:3857",
             area_col="area_sqm", confidence_col="confidence"
         )
 

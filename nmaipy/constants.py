@@ -131,7 +131,7 @@ AREA_CRS = {
     "nz": "epsg:3577",
     "us": "esri:102003",
 }
-API_CRS = "epsg:4326"
+API_CRS = "EPSG:4326"
 
 IMPERIAL_COUNTRIES = ["us"]
 
