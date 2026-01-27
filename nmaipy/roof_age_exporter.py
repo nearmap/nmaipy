@@ -489,13 +489,17 @@ class RoofAgeExporter(BaseExporter):
         """
         # Save roofs
         if len(roofs_gdf) > 0:
+            # Drop untilDate if asOfDate is present (both map to same output, prefer asOfDate)
+            if "asOfDate" in roofs_gdf.columns and "untilDate" in roofs_gdf.columns:
+                roofs_gdf = roofs_gdf.drop(columns=["untilDate"])
+
             # Rename camelCase API fields to snake_case with roof_age_ prefix for consistency
-            # Note: asOfDate is the new API field name, untilDate is legacy (both map to roof_age_as_of_date)
+            # Note: asOfDate is the new API field name, untilDate is legacy fallback
             column_rename_map = {
                 "kind": "roof_age_kind",
                 "installationDate": "roof_age_installation_date",
                 "asOfDate": "roof_age_as_of_date",
-                "untilDate": "roof_age_as_of_date",  # Legacy fallback
+                "untilDate": "roof_age_as_of_date",  # Legacy fallback (only used if asOfDate absent)
                 "trustScore": "roof_age_trust_score",
                 "area": "roof_age_area_sqm",
                 "evidenceType": "roof_age_evidence_type",
@@ -506,7 +510,9 @@ class RoofAgeExporter(BaseExporter):
                 "maxCaptureDate": "roof_age_max_capture_date",
                 "numberOfCaptures": "roof_age_number_of_captures",
                 "assessorData": "roof_age_assessor_data",
+                "assessorDataDetails": "roof_age_assessor_data_details",
                 "relevantPermits": "roof_age_relevant_permits",
+                "relevantPermitsDetails": "roof_age_relevant_permits_details",
             }
             roofs_gdf = roofs_gdf.rename(columns=column_rename_map)
 

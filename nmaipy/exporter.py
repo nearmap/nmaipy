@@ -63,8 +63,10 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MAX_RETRIES,
+    ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_UNTIL_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     SINCE_COL_NAME,
@@ -394,13 +396,20 @@ def export_feature_class(
             ]
             if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
                 # Build lookup table with prefixed column names
+                # Track destination columns to prevent duplicates (asOfDate and untilDate
+                # both map to roof_age_as_of_date - prefer asOfDate if both present)
                 ri_cols = ["feature_id"]
                 col_rename = {}
+                ri_dst_cols = set()
                 for src, dst in ROOF_AGE_FIELD_MAP.items():
                     prefixed_dst = f"primary_child_{dst}"
-                    if src in roof_instances.columns and prefixed_dst not in added_cols:
+                    # Skip untilDate if asOfDate is present (both map to same destination)
+                    if src == ROOF_AGE_UNTIL_DATE_FIELD and ROOF_AGE_AS_OF_DATE_FIELD in roof_instances.columns:
+                        continue
+                    if src in roof_instances.columns and prefixed_dst not in added_cols and prefixed_dst not in ri_dst_cols:
                         ri_cols.append(src)
                         col_rename[src] = prefixed_dst
+                        ri_dst_cols.add(prefixed_dst)
 
                 if len(ri_cols) > 1:  # More than just feature_id
                     ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
