@@ -3,11 +3,15 @@ Test that combine_features_from_grid preserves include parameter columns.
 
 This test verifies the fix for the bug where defensibleSpace and other
 include parameter columns were being dropped during grid consolidation.
+
+Also tests the conflict resolution logic where larger area portions win
+when the same feature_id has different values across grid cells.
 """
 import pytest
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon
+from unittest.mock import patch
 
 from nmaipy.geometry_utils import combine_features_from_grid
 from nmaipy.constants import API_CRS, AOI_ID_COLUMN_NAME
@@ -156,3 +160,114 @@ def test_combine_features_area_summing():
 
     # Verify non-area columns took first value
     assert feature_1['confidence'] == 0.9, "confidence should take first value, not be summed"
+
+
+def test_larger_clipped_area_wins_conflict():
+    """Test that when same feature_id has different values, larger area portion wins."""
+
+    # Feature 1 appears in 2 grid cells with different include param values
+    # The cell with larger clipped_area (100) should win
+    test_features = gpd.GeoDataFrame({
+        'feature_id': [1, 1, 2],
+        'geometry': [
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
+            Polygon([(0, 1), (1, 1), (1, 2), (0, 2)]),
+        ],
+        AOI_ID_COLUMN_NAME: ['aoi1', 'aoi1', 'aoi1'],
+        'class_id': [13, 13, 13],
+        'clipped_area_sqm': [100.0, 50.0, 75.0],  # First chunk is larger for feature 1
+        'area_sqm': [100.0, 50.0, 75.0],
+        # Conflicting values for feature 1: different hurricane_score
+        'hurricane_score': [8.5, 7.0, 6.5],
+        'rsi_score': [90, 85, 80],
+    }, crs=API_CRS)
+
+    result = combine_features_from_grid(test_features)
+
+    # Feature 1 should have values from larger chunk (100 sqm)
+    result_reset = result.reset_index()
+    feature_1 = result_reset[result_reset['feature_id'] == 1].iloc[0]
+
+    assert feature_1['hurricane_score'] == 8.5, "Should use value from larger clipped_area chunk"
+    assert feature_1['rsi_score'] == 90, "Should use value from larger clipped_area chunk"
+
+    # Area should be summed
+    assert feature_1['clipped_area_sqm'] == pytest.approx(150.0), "Areas should be summed: 100 + 50"
+
+
+def test_conflict_warning_logged():
+    """Test that warning is logged when conflicting values detected for same feature_id."""
+
+    test_features = gpd.GeoDataFrame({
+        'feature_id': [1, 1],
+        'geometry': [
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
+        ],
+        AOI_ID_COLUMN_NAME: ['aoi1', 'aoi1'],
+        'class_id': [13, 13],
+        'clipped_area_sqm': [100.0, 50.0],
+        'area_sqm': [100.0, 50.0],
+        'hurricane_score': [8.5, 7.0],  # Conflict!
+    }, crs=API_CRS)
+
+    with patch('nmaipy.geometry_utils.logger') as mock_logger:
+        combine_features_from_grid(test_features)
+        # Should have logged a warning about conflicting values
+        mock_logger.warning.assert_called()
+        warning_msg = mock_logger.warning.call_args[0][0]
+        assert "different attribute values" in warning_msg, "Warning should explain the conflict"
+        assert "1" in warning_msg, "Warning should mention the feature_id with conflict"
+
+
+def test_fallback_to_area_sqm_when_clipped_area_missing():
+    """Test that sorting falls back to area_sqm when clipped_area_sqm is missing."""
+
+    # Feature 1 appears twice with different values, but no clipped_area_sqm column
+    # Should fall back to using area_sqm for sorting
+    test_features = gpd.GeoDataFrame({
+        'feature_id': [1, 1, 2],
+        'geometry': [
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
+            Polygon([(0, 1), (1, 1), (1, 2), (0, 2)]),
+        ],
+        AOI_ID_COLUMN_NAME: ['aoi1', 'aoi1', 'aoi1'],
+        'class_id': [13, 13, 13],
+        # Only area_sqm, no clipped_area_sqm
+        'area_sqm': [100.0, 50.0, 75.0],  # First chunk is larger
+        'hurricane_score': [8.5, 7.0, 6.5],  # Conflict for feature 1
+    }, crs=API_CRS)
+
+    result = combine_features_from_grid(test_features)
+
+    # Feature 1 should have value from larger area_sqm chunk
+    result_reset = result.reset_index()
+    feature_1 = result_reset[result_reset['feature_id'] == 1].iloc[0]
+
+    assert feature_1['hurricane_score'] == 8.5, "Should use value from larger area_sqm chunk when clipped_area_sqm missing"
+
+
+def test_no_warning_when_values_identical():
+    """Test that no warning is logged when same feature_id has identical values."""
+
+    test_features = gpd.GeoDataFrame({
+        'feature_id': [1, 1],
+        'geometry': [
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
+        ],
+        AOI_ID_COLUMN_NAME: ['aoi1', 'aoi1'],
+        'class_id': [13, 13],
+        'clipped_area_sqm': [100.0, 50.0],
+        'area_sqm': [100.0, 50.0],
+        # Same values for both instances - no conflict
+        'hurricane_score': [8.5, 8.5],
+        'rsi_score': [90, 90],
+    }, crs=API_CRS)
+
+    with patch('nmaipy.geometry_utils.logger') as mock_logger:
+        combine_features_from_grid(test_features)
+        # Should NOT have logged any warnings since values are identical
+        mock_logger.warning.assert_not_called()

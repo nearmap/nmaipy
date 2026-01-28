@@ -659,11 +659,12 @@ class TestParcels:
         # str(parcels_gdf.geometry.union_all())
         # str(features_gdf.query("confidence >= 0.65 & fidelity >= 0.15").union_all())
 
-        # Building count increased from 25 to 39 - needs manual inspection to verify
-        # This could be due to improved gridding at 1sqkm and/or parcelMode changes
+        # Building count increased from 25 -> 39 -> 40
+        # The latest increase (39 to 40) is because parcel_mode is now disabled during gridding
+        # to ensure consistent include parameter values across grid cells.
         assert (
-            df.loc[11179800001006, "building_count"] == 39
-        )  # Updated count with new gridding threshold and parcelMode behavior.
+            df.loc[11179800001006, "building_count"] == 40
+        )  # Updated count with parcel_mode disabled during gridding.
 
 
 class TestLinkRoofInstancesToRoofs:

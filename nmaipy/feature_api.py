@@ -499,10 +499,15 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         region: Optional[str] = None,
         param_dic: Optional[Dict[str, str]] = None,
+        disable_parcel_mode: bool = False,
     ) -> Tuple[str, dict, bool]:
         """
         Create parameters for a POST request with given parameters
         base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
+
+        Args:
+            disable_parcel_mode: If True, disables parcel_mode for this request regardless of self.parcel_mode.
+                                  Used to disable parcel_mode during gridding.
 
         Returns:
             - url: The URL to send the POST request to
@@ -533,8 +538,9 @@ class FeatureApi(GriddedApiClient):
             url += "&prerelease=true"
         if self.only3d:
             url += "&3dCoverage=true"
-        if self.parcel_mode:
-            url += "&parcelMode=true"
+        # Explicitly set parcelMode in URL (don't rely on API default)
+        effective_parcel_mode = self.parcel_mode and not disable_parcel_mode
+        url += f"&parcelMode={'true' if effective_parcel_mode else 'false'}"
         if self.system_version_prefix is not None:
             url += f"&systemVersionPrefix={self.system_version_prefix}"
         if self.system_version is not None:
@@ -619,6 +625,7 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
+        disable_parcel_mode: bool = False,
     ):
         """
         Get features for the provided geometry.
@@ -650,6 +657,7 @@ class FeatureApi(GriddedApiClient):
             result_type=self.API_TYPE_FEATURES,
             in_gridding_mode=in_gridding_mode,
             param_dic=param_dic,
+            disable_parcel_mode=disable_parcel_mode,
         )
         return data
 
@@ -710,6 +718,7 @@ class FeatureApi(GriddedApiClient):
         result_type: str = API_TYPE_FEATURES,
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
+        disable_parcel_mode: bool = False,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -749,6 +758,7 @@ class FeatureApi(GriddedApiClient):
                 survey_resource_id=survey_resource_id,
                 region=region,
                 param_dic=param_dic,
+                disable_parcel_mode=disable_parcel_mode,
             )
             cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
                 
@@ -1013,6 +1023,11 @@ class FeatureApi(GriddedApiClient):
         else:
             gdf = df
 
+        # Ensure belongs_to_parcel column exists - when parcel_mode is disabled during gridding,
+        # the API may not return this field, but downstream code expects it to exist
+        if "belongs_to_parcel" not in gdf.columns and len(gdf) > 0:
+            gdf["belongs_to_parcel"] = True
+
         return gdf, metadata
 
     @classmethod
@@ -1095,6 +1110,10 @@ class FeatureApi(GriddedApiClient):
         try:
             # Use the provided aoi_grid_inexact parameter, or fall back to the instance default
             allow_inexact_gridding = aoi_grid_inexact if aoi_grid_inexact is not None else self.aoi_grid_inexact
+
+            # Disable parcel_mode during gridding to ensure consistent include parameter values.
+            # When parcel_mode is on, features get clipped at grid boundaries, which can cause
+            # include parameters (defensibleSpace, RSI, etc.) to be computed on arbitrary portions.
             features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
                 geometry=geometry,
                 region=region,
@@ -1107,7 +1126,8 @@ class FeatureApi(GriddedApiClient):
                 survey_resource_id=survey_resource_id,
                 aoi_grid_inexact=allow_inexact_gridding,
                 grid_size=self.grid_size,
-                reason=reason
+                reason=reason,
+                disable_parcel_mode=True,  # Disable parcel_mode for grid sub-requests
             )
             error = None  # Reset error if we got here without an exception
 
@@ -1174,6 +1194,7 @@ class FeatureApi(GriddedApiClient):
         fail_hard_regrid: Optional[bool] = False,
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
+        disable_parcel_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1233,6 +1254,8 @@ class FeatureApi(GriddedApiClient):
         
         try:
             features_gdf, metadata, error, grid_errors_df = None, None, None, None
+            # Determine effective parcel_mode: use override if provided, else instance setting
+            effective_parcel_mode = self.parcel_mode and not disable_parcel_mode
             payload = self.get_features(
                 geometry=geometry,
                 region=region,
@@ -1244,9 +1267,10 @@ class FeatureApi(GriddedApiClient):
                 address_fields=address_fields,
                 survey_resource_id=survey_resource_id,
                 in_gridding_mode=in_gridding_mode,
-                param_dic=param_dic
+                param_dic=param_dic,
+                disable_parcel_mode=disable_parcel_mode,
             )
-            features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
+            features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
@@ -1270,7 +1294,7 @@ class FeatureApi(GriddedApiClient):
                             survey_resource_id=survey_resource_id,
                             in_gridding_mode=in_gridding_mode
                         )
-                        features_gdf, metadata = self.payload_gdf(payload, aoi_id, self.parcel_mode)
+                        features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
                         error = None
                         logger.info(f"Geometry simplification successful for aoi_id {aoi_id}")
                     except Exception as simplify_error:
@@ -1338,6 +1362,7 @@ class FeatureApi(GriddedApiClient):
                     since=since,
                     until=until,
                     survey_resource_id=survey_resource_id,
+                    disable_parcel_mode=disable_parcel_mode,
                 )
                 logger.debug(f"Failed request URL: {self._clean_api_key(url)}")
                 logger.debug("To reproduce this request, use the following curl command:")
@@ -1365,6 +1390,7 @@ class FeatureApi(GriddedApiClient):
                     since=since,
                     until=until,
                     survey_resource_id=survey_resource_id,
+                    disable_parcel_mode=disable_parcel_mode,
                 )
                 logger.debug(f"Timeout on request URL: {self._clean_api_key(url)}")
                 logger.debug("To reproduce this request, use the following curl command:")
@@ -1402,7 +1428,8 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = False,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        disable_parcel_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -1425,6 +1452,15 @@ class FeatureApi(GriddedApiClient):
         # Acquire semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened simultaneously
         with self._gridding_semaphore:
+            # Defensive warning: parcel_mode should be disabled during gridding
+            # to avoid computing include parameters on arbitrarily clipped portions
+            effective_parcel_mode = self.parcel_mode and not disable_parcel_mode
+            if effective_parcel_mode:
+                logger.warning(
+                    f"Gridding AOI {aoi_id} with parcelMode enabled. Include parameter values "
+                    "may be computed on arbitrarily clipped portions at grid boundaries."
+                )
+
             df_gridded = geometry_utils.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
             reason_str = f" (reason: {reason})" if reason else ""
@@ -1448,17 +1484,18 @@ class FeatureApi(GriddedApiClient):
                 # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
                 # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
                 features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
-                gdf=df_gridded,
-                region=region,
-                packs=packs,
-                classes=classes,
-                include=include,
-                since_bulk=since,
-                until_bulk=until,
-                survey_resource_id_bulk=survey_resource_id,
-                max_allowed_error_pct=100 - self.aoi_grid_min_pct,
-                fail_hard_regrid=True,
-                in_gridding_mode=True,
+                    gdf=df_gridded,
+                    region=region,
+                    packs=packs,
+                    classes=classes,
+                    include=include,
+                    since_bulk=since,
+                    until_bulk=until,
+                    survey_resource_id_bulk=survey_resource_id,
+                    max_allowed_error_pct=100 - self.aoi_grid_min_pct,
+                    fail_hard_regrid=True,
+                    in_gridding_mode=True,
+                    disable_parcel_mode=disable_parcel_mode,
                 )
             except AIFeatureAPIError as e:
                 logger.debug(
@@ -1541,6 +1578,7 @@ class FeatureApi(GriddedApiClient):
         max_allowed_error_pct: Optional[int] = 100,
         fail_hard_regrid: Optional[bool] = False,
         in_gridding_mode: bool = False,
+        disable_parcel_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
@@ -1617,6 +1655,7 @@ class FeatureApi(GriddedApiClient):
                         survey_resource_id=survey_resource_id,
                         fail_hard_regrid=fail_hard_regrid,
                         in_gridding_mode=in_gridding_mode,
+                        disable_parcel_mode=disable_parcel_mode,
                     )
                 )
             
