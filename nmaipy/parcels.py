@@ -768,7 +768,8 @@ def extract_building_features(
             "unclipped_area_sqft": building.unclipped_area_sqft if hasattr(building, 'unclipped_area_sqft') else None,
             "survey_date": building.survey_date if hasattr(building, 'survey_date') else None,
             "mesh_date": building.mesh_date if hasattr(building, 'mesh_date') else None,
-            "geometry": building.geometry
+            "geometry": building.geometry,
+            "is_primary": building.is_primary if hasattr(building, 'is_primary') else False,
         }
         if hasattr(building, "parent_id"):
             building_record["parent_id"] = building.parent_id

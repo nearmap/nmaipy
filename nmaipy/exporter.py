@@ -63,6 +63,7 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MAX_RETRIES,
+    PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
@@ -76,6 +77,76 @@ from nmaipy.constants import (
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi
+
+
+def _add_is_primary_column(
+    features_gdf: gpd.GeoDataFrame,
+    rollup_df: pd.DataFrame,
+) -> gpd.GeoDataFrame:
+    """
+    Add is_primary column to features based on primary feature IDs in rollup.
+
+    Matches on (aoi_id, feature_id, class_id) to ensure class-specific primary:
+    - Roofs are marked primary based on primary_roof_feature_id
+    - Buildings are marked primary based on primary_building_(new_semantic)_feature_id
+
+    Args:
+        features_gdf: GeoDataFrame with features to mark
+        rollup_df: DataFrame with primary_*_feature_id columns from parcel rollup
+
+    Returns:
+        features_gdf with is_primary column added
+    """
+    if rollup_df is None or len(rollup_df) == 0:
+        features_gdf["is_primary"] = False
+        return features_gdf
+
+    if "feature_id" not in features_gdf.columns or "class_id" not in features_gdf.columns:
+        features_gdf["is_primary"] = False
+        return features_gdf
+
+    # Build DataFrame of primary features: (aoi_id, feature_id, class_id)
+    primary_records = []
+    for col, class_id in PRIMARY_FEATURE_COLUMN_TO_CLASS.items():
+        if col in rollup_df.columns:
+            for aoi_id, feature_id in rollup_df[col].dropna().items():
+                primary_records.append({
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "feature_id": str(feature_id),
+                    "class_id": class_id,
+                })
+
+    if not primary_records:
+        features_gdf["is_primary"] = False
+        return features_gdf
+
+    primary_df = pd.DataFrame(primary_records)
+
+    # Ensure feature_id is string for consistent matching
+    features_gdf["feature_id"] = features_gdf["feature_id"].astype(str)
+
+    # Get aoi_id as column (may be index)
+    if features_gdf.index.name == AOI_ID_COLUMN_NAME:
+        features_gdf = features_gdf.reset_index()
+        reset_index = True
+    else:
+        reset_index = False
+
+    # Merge to mark primary features
+    features_gdf = features_gdf.merge(
+        primary_df.assign(_is_primary=True),
+        on=[AOI_ID_COLUMN_NAME, "feature_id", "class_id"],
+        how="left",
+    )
+    features_gdf["is_primary"] = features_gdf["_is_primary"].notna()
+    features_gdf = features_gdf.drop(columns=["_is_primary"])
+
+    # Restore index if needed
+    if reset_index:
+        features_gdf = features_gdf.set_index(AOI_ID_COLUMN_NAME)
+
+    return features_gdf
+
 
 _process_feature_api = None
 
@@ -308,6 +379,11 @@ def export_feature_class(
     added_cols.add("class_id")
     flat_df["description"] = class_description
     added_cols.add("description")
+
+    # Add is_primary column if present (only for classes with primary selection)
+    if "is_primary" in class_features.columns and "is_primary" not in added_cols:
+        flat_df["is_primary"] = class_features["is_primary"].values
+        added_cols.add("is_primary")
 
     # Roof instances don't have confidence/fidelity (they have trust_score instead)
     # Only add confidence and fidelity for non-roof-instance classes
@@ -2377,6 +2453,10 @@ class NearmapAIExporter(BaseExporter):
                 feature_paths, outpath_features
             )
 
+            # Add is_primary column based on rollup primary feature IDs
+            if features_gdf is not None and len(features_gdf) > 0:
+                features_gdf = _add_is_primary_column(features_gdf, data)
+
             # If buildings export is enabled, process building features
             if self.save_buildings:
                 self.logger.info(
@@ -2476,6 +2556,9 @@ class NearmapAIExporter(BaseExporter):
                 and len(features_gdf) > 0
                 and "class_id" in features_gdf.columns
             ):
+                # Add is_primary column based on rollup primary feature IDs
+                features_gdf = _add_is_primary_column(features_gdf, data)
+
                 # Get unique classes in the data
                 unique_classes = features_gdf["class_id"].dropna().unique()
                 self.logger.debug(
