@@ -261,6 +261,15 @@ ROOF_CHAR_IDS = [
 ]
 CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [POOL_ID, ROOF_INSTANCE_CLASS_ID]  # Can add more where we particularly care about attributes for the largest feature
 
+# Map rollup column names to class IDs for is_primary merge
+# Used to mark which features are primary in per-class exports
+PRIMARY_FEATURE_COLUMN_TO_CLASS = {
+    "primary_roof_feature_id": ROOF_ID,
+    "primary_building_(new_semantic)_feature_id": BUILDING_NEW_ID,
+    "primary_building_feature_id": BUILDING_ID,
+    "primary_roof_instance_feature_id": ROOF_INSTANCE_CLASS_ID,
+}
+
 # Human-readable descriptions for feature classes
 FEATURE_CLASS_DESCRIPTIONS = {
     BUILDING_ID: "Building",
