@@ -108,7 +108,7 @@ def test_single_address_export(api_key, single_address_csv, tmp_path):
     exporter.run()
 
     # Check for errors
-    error_files = list((output_dir / "chunks").glob("errors_*.parquet"))
+    error_files = list((output_dir / "chunks").glob("feature_api_errors_*.parquet"))
     if error_files:
         df_errors = pd.read_parquet(error_files[0])
         if len(df_errors) > 0:

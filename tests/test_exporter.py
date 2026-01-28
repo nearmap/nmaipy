@@ -71,9 +71,12 @@ class TestExporter:
         )
 
         data_rollup_api_errors = []
-        for cp in chunk_path_rollup_api.glob(f"errors_*.parquet"):
+        for cp in chunk_path_rollup_api.glob(f"feature_api_errors_*.parquet"):
             data_rollup_api_errors.append(pd.read_parquet(cp))
-        data_rollup_api_errors = pd.concat(data_rollup_api_errors)
+        if len(data_rollup_api_errors) > 0:
+            data_rollup_api_errors = pd.concat(data_rollup_api_errors)
+        else:
+            data_rollup_api_errors = pd.DataFrame()
 
         data_rollup_api = []
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
@@ -140,10 +143,13 @@ class TestExporter:
         data = pd.concat(data)
         data.to_csv(outpath, index=True)
 
-        outpath_errors = final_path / f"{tag}_errors.csv"
-        for cp in chunk_path.glob(f"errors_*.parquet"):
+        outpath_errors = final_path / f"{tag}_feature_api_errors.csv"
+        for cp in chunk_path.glob(f"feature_api_errors_*.parquet"):
             errors.append(pd.read_parquet(cp))
-        errors = pd.concat(errors)
+        if len(errors) > 0:
+            errors = pd.concat(errors)
+        else:
+            errors = pd.DataFrame()
         errors.to_csv(outpath_errors, index=True)
 
         for cp in [p for p in chunk_path.glob(f"features_*.parquet")]:
@@ -332,7 +338,7 @@ class TestExporter:
 
         # Test metadata columns which should be identical
         pd.testing.assert_series_equal(
-            data_feature_api.loc[:, "date"],
+            data_feature_api.loc[:, "survey_date"],
             data_rollup_api.filter(like=ROLLUP_SURVEY_DATE_ID).iloc[:, 0],
             check_names=False,
         )
@@ -390,10 +396,11 @@ class TestExporter:
         final_path = output_dir / "final"
         chunk_path = output_dir / "chunks"
         
-        expected_rollup_file = final_path / "test_aoi.csv"
+        # Note: Output filename changed from test_aoi.csv to test_aoi_aoi_rollup.csv
+        expected_rollup_file = final_path / "test_aoi_aoi_rollup.csv"
         expected_features_file = final_path / "test_aoi_features.parquet"
-        
-        assert expected_rollup_file.exists(), "Rollup CSV file was not created"
+
+        assert expected_rollup_file.exists(), f"Rollup CSV file was not created at {expected_rollup_file}. Found files: {list(final_path.glob('*'))}"
         assert expected_features_file.exists(), "Features parquet file was not created"
         
         # Verify chunk files were created
@@ -453,9 +460,9 @@ class TestExporter:
                 country='au',
                 packs=['building'],
             )
-            
+
             assert exporter.aoi_file == 'data/examples/sydney_parcels.geojson'
-            assert exporter.output_dir == tmpdir
+            assert str(exporter.output_dir) == tmpdir  # output_dir may be Path object
             assert exporter.country == 'au'
             assert exporter.packs == ['building']
             assert exporter.processes > 0
@@ -579,7 +586,7 @@ class TestExporter:
             chunk1_data = gpd.GeoDataFrame({
                 'system_version': ['gen6-'],
                 'link': ['http://example.com'],
-                'date': ['2024-11-06'],
+                'survey_date': ['2024-11-06'],
                 'survey_id': ['survey1'],
                 'survey_resource_id': ['resource1'],
                 'perspective': ['vertical'],
@@ -598,7 +605,7 @@ class TestExporter:
             chunk2_data = gpd.GeoDataFrame({
                 'system_version': [None],
                 'link': [None],
-                'date': [None],
+                'survey_date': [None],
                 'survey_id': [None],
                 'survey_resource_id': [None],
                 'perspective': [None],

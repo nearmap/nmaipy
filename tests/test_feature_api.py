@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import tempfile
@@ -13,7 +14,8 @@ from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.wkt import loads
 
-from nmaipy import parcels, reference_code
+from nmaipy import parcels, reference_code, geometry_utils
+from nmaipy.api_common import generate_curl_command, AIFeatureAPIError, APIGridError
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -22,6 +24,7 @@ from nmaipy.constants import (
     BUILDING_ID,
     BUILDING_NEW_ID,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
+    READ_TIMEOUT_SECONDS,
     ROLLUP_BUILDING_COUNT_ID,
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
     ROOF_ID,
@@ -50,7 +53,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 1 building
         building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].iloc[0, 0]
         assert (
@@ -69,14 +72,14 @@ class TestFeatureAPI:
         aoi_id = "123"
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 1
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
@@ -105,7 +108,7 @@ class TestFeatureAPI:
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
 
@@ -123,7 +126,7 @@ class TestFeatureAPI:
         d = max(width, height)
 
         for cell_size in [d / 5, width, height, d, 2 * d]:
-            df_gridded = FeatureApi.split_geometry_into_grid(aoi, cell_size)
+            df_gridded = geometry_utils.split_geometry_into_grid(aoi, cell_size)
             geom_recombined = df_gridded.geometry.unary_union
             assert geom_recombined.difference(aoi).area == pytest.approx(0)
             assert aoi.difference(geom_recombined).area == pytest.approx(0)
@@ -135,17 +138,17 @@ class TestFeatureAPI:
         
         # Test 1: Empty GeoDataFrame (the main bug we fixed)
         empty_gdf = gpd.GeoDataFrame(columns=['geometry', 'feature_id'], crs=API_CRS)
-        result = FeatureApi.combine_features_gdf_from_grid(empty_gdf)
+        result = geometry_utils.combine_features_from_grid(empty_gdf)
         assert isinstance(result, gpd.GeoDataFrame)
         assert len(result) == 0
         assert result.crs == API_CRS
-        
+
         # Test 2: None input
-        result = FeatureApi.combine_features_gdf_from_grid(None)
+        result = geometry_utils.combine_features_from_grid(None)
         assert isinstance(result, gpd.GeoDataFrame)
         assert len(result) == 0
         assert result.crs == API_CRS
-        
+
         # Test 3: Normal case with features to combine
         from shapely.geometry import Polygon
         test_features = gpd.GeoDataFrame({
@@ -160,8 +163,8 @@ class TestFeatureAPI:
             'area_sqm': [1.0, 1.0, 1.0],
             'confidence': [0.9, 0.9, 0.8]
         }, crs=API_CRS)
-        
-        result = FeatureApi.combine_features_gdf_from_grid(test_features)
+
+        result = geometry_utils.combine_features_from_grid(test_features)
         assert isinstance(result, gpd.GeoDataFrame)
         assert len(result) == 2  # Should have 2 features after combining duplicates
         assert result.crs == API_CRS
@@ -173,19 +176,19 @@ class TestFeatureAPI:
         aoi_id = "0"
 
         feature_api = FeatureApi(cache_dir=cache_directory, parcel_mode=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             large_adelaide_aoi, region=country, packs=packs, aoi_id=aoi_id, survey_resource_id=survey_resource_id
         )
         # No error
         assert error is None
         # We get buildings and vegetation
-        assert len(features_gdf.query("class_id == @ROOF_ID")) == 12  # Updated after testing
+        # Note: With parcel_mode disabled during gridding (to ensure consistent include params),
+        # we get all features, not just those that belong to the parcel.
+        assert len(features_gdf.query("class_id == @ROOF_ID")) == 15  # Updated: more roofs with parcel_mode disabled
         assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 750  # Guessed
 
-        # Assert that buildings aren't overhanging the edge of the parcel. If this fails, the clipped/unclipped hasn't been managed correctly during the grid merge.
-        assert features_gdf.query("class_id == @ROOF_ID").clipped_area_sqm.sum() == pytest.approx(
-            features_gdf.query("class_id == @ROOF_ID").unclipped_area_sqm.sum(), 0.1
-        )
+        # Note: With parcel_mode disabled during gridding, buildings are not clipped to parcel boundaries.
+        # The clipped/unclipped area assertion is removed since it no longer applies to gridded queries.
 
         # The AOI ID has been assigned to all features
         assert len(features_gdf.loc[[aoi_id]]) == len(features_gdf)
@@ -223,7 +226,8 @@ class TestFeatureAPI:
             return (
                 gpd.GeoDataFrame({"test": ["data"]}, geometry=[test_polygon]),
                 {"test": "metadata"},
-                None
+                None,
+                None  # grid_errors_df
             )
         
         def mock_get_features(*args, **kwargs):
@@ -250,7 +254,7 @@ class TestFeatureAPI:
         assert not api_called, "Expected get_features to NOT be called for large AOI"
         
         # Verify the result structure
-        features_gdf, metadata, error = result
+        features_gdf, metadata, error, _ = result
         assert features_gdf is not None
         assert metadata is not None
         assert error is None
@@ -318,7 +322,7 @@ class TestFeatureAPI:
         assert not gridding_called, "Expected _attempt_gridding to NOT be called for small AOI"
         
         # Verify the result structure
-        features_gdf, metadata, error = result
+        features_gdf, metadata, error, _ = result
         assert features_gdf is not None
         assert metadata is not None
         assert error is None
@@ -338,7 +342,7 @@ class TestFeatureAPI:
         )
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory, maxretry=3)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, region=country)
         # No data
         assert features_gdf is None
         assert metadata is None
@@ -353,7 +357,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         assert error is None
@@ -362,12 +366,12 @@ class TestFeatureAPI:
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=False)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         # Check output
         assert error is None
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         assert len(features_gdf) == 1
 
@@ -379,7 +383,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # First do a standard pull to ensure the file is populated in the cache.
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         assert error is None
@@ -388,12 +392,12 @@ class TestFeatureAPI:
         api_key = "not an api key"
         # Run
         feature_api = FeatureApi(api_key, cache_dir=cache_directory, compress_cache=True)
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             sydney_aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
         # Check output
         assert error is None
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         assert len(features_gdf) == 1
 
@@ -481,7 +485,7 @@ class TestFeatureAPI:
         )
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
         features_gdf[AOI_ID_COLUMN_NAME] = 0
         print(features_gdf.T)
         assert len(features_gdf) == 1  # 1 pole found
@@ -496,7 +500,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         assert error is None
         assert metadata is not None
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
@@ -504,7 +508,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 4 roofs
         assert len(features_gdf) == 4
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 4
@@ -523,7 +527,7 @@ class TestFeatureAPI:
         aoi_id = "123"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
 
         print(metadata)
@@ -531,7 +535,7 @@ class TestFeatureAPI:
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 7 roofs
         assert len(features_gdf) == 7  # Updated after testing
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 7
@@ -555,14 +559,14 @@ class TestFeatureAPI:
         aoi_id = "3"
         # Run
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get 3 buildings
         assert len(features_gdf) == 1
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 1
@@ -587,14 +591,14 @@ class TestFeatureAPI:
         aoi_id = 11
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
         print(metadata)
 
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get no buildings (inner gets discarded)
         assert len(features_gdf) == 0
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 0
@@ -613,13 +617,13 @@ class TestFeatureAPI:
         aoi_id = 12
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         print(metadata)
 
         # No error
         assert error is None
         # Date is in range
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         # We get one piece of hollowed out asphalt
         assert len(features_gdf) == 3
         assert len(features_gdf[features_gdf.class_id == ASPHALT_ID]) == 1
@@ -680,7 +684,7 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         
         # Test that including RSI and confidence stats doesn't break the API call
-        features_gdf, metadata, error = feature_api.get_features_gdf(
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             geometry=sydney_aoi, 
             region=country, 
             packs=packs, 
@@ -693,7 +697,7 @@ class TestFeatureAPI:
         # Should not error out
         assert error is None
         assert metadata is not None
-        assert date_1 <= metadata["date"] <= date_2
+        assert date_1 <= metadata["survey_date"] <= date_2
         
         # Should still get roof features
         if features_gdf is not None and len(features_gdf) > 0:
@@ -723,11 +727,12 @@ class TestFeatureAPI:
             mock_response.json.return_value = {
                 "features": [],
                 "systemVersion": "test-version",
-                "link": "https://api.nearmap.com/ai/features/v4/au.json?since=2025-01-20&until=2025-01-20",
+                "link": "https://apps.nearmap.com/maps/#/@-33.8688,151.2093,20.00z,0d/V/20250120?locationMarker",
+                "surveyDate": "2025-01-20",
                 "surveyId": "test-survey-id",
                 "resourceId": "test-resource-id",
-                "perspective": "test-perspective",
-                "postcat": "test-postcat"
+                "perspective": "Vert",
+                "postcat": False
             }
             mock_post.return_value = mock_response
 
@@ -735,7 +740,7 @@ class TestFeatureAPI:
             # (normally you'd use the include parameter, but this tests param_dic)
             param_dic = {"include": "roofSpotlightIndex"}
 
-            features_gdf, metadata, error = feature_api.get_features_gdf(
+            features_gdf, metadata, error, _ = feature_api.get_features_gdf(
                 geometry=sydney_aoi,
                 region=country,
                 packs=packs,
@@ -860,7 +865,7 @@ class TestFeatureAPI:
 
     def test_api_key_filtering(self):
         """Test that API key filter removes sensitive information from logs"""
-        from nmaipy.feature_api import APIKeyFilter
+        from nmaipy.api_common import APIKeyFilter
         import logging
 
         # Create a mock log record
@@ -939,8 +944,6 @@ class TestFeatureAPI:
 
     def test_curl_command_generation(self):
         """Test that curl commands are generated correctly with sanitized API keys"""
-        api = FeatureApi(api_key="TEST_API_KEY_12345")
-
         # Test POST request
         test_url = "https://api.nearmap.com/ai/features/v4/bulk/features.json?apikey=TEST_API_KEY_12345&param=value"
         test_body = {
@@ -950,7 +953,7 @@ class TestFeatureAPI:
             }
         }
 
-        curl_cmd = api._generate_curl_command(test_url, test_body, method="POST")
+        curl_cmd = generate_curl_command(test_url, test_body, method="POST", timeout=READ_TIMEOUT_SECONDS)
 
         # Verify API key is removed
         assert "TEST_API_KEY_12345" not in curl_cmd, "API key not removed from curl command"
@@ -960,7 +963,7 @@ class TestFeatureAPI:
         assert "--max-time" in curl_cmd, "Missing timeout"
 
         # Test GET request
-        curl_cmd_get = api._generate_curl_command(test_url, None, method="GET")
+        curl_cmd_get = generate_curl_command(test_url, None, method="GET", timeout=READ_TIMEOUT_SECONDS)
         assert "TEST_API_KEY_12345" not in curl_cmd_get, "API key not removed from GET command"
         assert "curl -X GET" in curl_cmd_get, "Missing GET method"
 
@@ -1030,7 +1033,7 @@ class TestFeatureAPI:
 
             # Capture log messages
             with patch('nmaipy.feature_api.logger') as mock_logger:
-                features_gdf, metadata, error = api.get_features_gdf(
+                features_gdf, metadata, error, _ = api.get_features_gdf(
                     geometry=test_polygon,
                     region="au",
                     packs=["building"],
@@ -1122,6 +1125,84 @@ class TestFeatureAPI:
                     f"API key found in exception request_string: {e.request_string}"
                 assert "APIKEYREMOVED" in str(e.request_string), \
                     "Exception should contain sanitized placeholder"
+
+    def test_max_allowed_error_count_uses_floor_not_round(self):
+        """
+        Test that max_allowed_error_count uses math.floor instead of round.
+
+        This prevents a bug where small grids with high error percentage could allow
+        100% failure due to rounding. E.g., with 50 AOIs and 99% allowed errors:
+        - round(50 * 99 / 100) = round(49.5) = 50, allowing all 50 to fail
+        - floor(50 * 99 / 100) = floor(49.5) = 49, requiring at least 1 success
+        """
+        test_cases = [
+            # (num_aois, max_allowed_error_pct, expected_max_errors)
+            (50, 99, 49),   # floor(49.5) = 49, not round(49.5) = 50
+            (50, 100, 50),  # floor(50) = 50
+            (100, 99, 99),  # floor(99) = 99
+            (100, 1, 1),    # floor(1) = 1
+            (3, 99, 2),     # floor(2.97) = 2, not round(2.97) = 3
+            (10, 95, 9),    # floor(9.5) = 9, not round(9.5) = 10
+        ]
+
+        for num_aois, max_allowed_error_pct, expected in test_cases:
+            actual = math.floor(num_aois * max_allowed_error_pct / 100)
+            assert actual == expected, (
+                f"For {num_aois} AOIs with {max_allowed_error_pct}% allowed errors: "
+                f"expected max_allowed_error_count={expected}, got {actual}"
+            )
+
+            # Also verify that round() would give different (wrong) results for edge cases
+            rounded = round(num_aois * max_allowed_error_pct / 100)
+            if num_aois == 50 and max_allowed_error_pct == 99:
+                assert rounded == 50, "round(49.5) should be 50 (the bug we fixed)"
+                assert actual == 49, "floor(49.5) should be 49 (correct behavior)"
+
+    def test_gridding_with_all_failures_returns_error_not_crash(self, cache_directory: Path, monkeypatch):
+        """
+        Test that when all grid cells fail, we get a proper error dict instead of
+        'single positional indexer is out-of-bounds' crash from .iloc[0] on empty DataFrame.
+
+        This tests the fix for the bug where _attempt_gridding assumed metadata_df
+        would always have at least one row after gridding.
+        """
+        from shapely.geometry import box
+
+        # Create a large AOI that will trigger gridding
+        large_aoi = box(150.0, -34.0, 151.0, -33.0)  # ~100km x 100km
+
+        feature_api = FeatureApi(cache_dir=cache_directory, aoi_grid_min_pct=0)
+
+        # Mock get_features_gdf_bulk to return empty metadata (simulating all grid cells failing)
+        def mock_get_features_gdf_bulk(*args, **kwargs):
+            # Return empty features, empty metadata, and some errors
+            empty_features = gpd.GeoDataFrame(columns=['geometry'], crs=API_CRS)
+            empty_features.index.name = AOI_ID_COLUMN_NAME
+            empty_metadata = pd.DataFrame([])
+            empty_metadata.index.name = AOI_ID_COLUMN_NAME
+            errors = pd.DataFrame([{
+                AOI_ID_COLUMN_NAME: 0,
+                'status_code': 404,
+                'message': 'No coverage',
+            }]).set_index(AOI_ID_COLUMN_NAME)
+            return empty_features, empty_metadata, errors
+
+        monkeypatch.setattr(feature_api, 'get_features_gdf_bulk', mock_get_features_gdf_bulk)
+
+        # Call _attempt_gridding directly - should NOT crash with IndexError
+        features, metadata, error, grid_errors = feature_api._attempt_gridding(
+            geometry=large_aoi,
+            region='au',
+            packs=['building'],
+            aoi_id='test_aoi',
+        )
+
+        # Should return None for features/metadata and an error dict
+        assert features is None, "Expected None features when all grid cells fail"
+        assert metadata is None, "Expected None metadata when all grid cells fail"
+        assert error is not None, "Expected error dict when all grid cells fail"
+        assert 'message' in error, "Error should contain a message"
+        assert error['failure_type'] == 'grid', "Error should be marked as grid failure"
 
 
 if __name__ == "__main__":

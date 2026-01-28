@@ -8,6 +8,68 @@ SURVEY_RESOURCE_ID_COL_NAME = "survey_resource_id"
 
 DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 
+# ============================================================================
+# Roof Age API Configuration
+# ============================================================================
+ROOF_AGE_URL_ROOT = "api.nearmap.com/ai/roofage/v1"
+ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
+
+# Roof Age API pagination settings
+ROOF_AGE_DEFAULT_PAGE_LIMIT = 1000  # Default max features per page (API default)
+ROOF_AGE_NEXT_CURSOR_FIELD = "nextCursor"  # Field name for pagination cursor in response
+
+# Minimum IoU threshold for roof-to-roof-instance matching
+# Matches below this threshold are not trusted and will not be assigned as parent/primary
+MIN_ROOF_INSTANCE_IOU_THRESHOLD = 0.005
+
+# Roof Age API response field names
+ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
+ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
+ROOF_AGE_AS_OF_DATE_FIELD = "asOfDate"  # New API field name (replacing untilDate)
+ROOF_AGE_UNTIL_DATE_FIELD = "untilDate"  # Legacy API field name (fallback until API change is complete)
+ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD = "afterInstallationCaptureDate"
+ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD = "beforeInstallationCaptureDate"
+ROOF_AGE_AREA_FIELD = "area"
+ROOF_AGE_EVIDENCE_TYPE_FIELD = "evidenceType"
+ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD = "evidenceTypeDescription"
+ROOF_AGE_MIN_CAPTURE_DATE_FIELD = "minCaptureDate"
+ROOF_AGE_MAX_CAPTURE_DATE_FIELD = "maxCaptureDate"
+ROOF_AGE_NUM_CAPTURES_FIELD = "numberOfCaptures"
+ROOF_AGE_KIND_FIELD = "kind"
+ROOF_AGE_RELEVANT_PERMITS_FIELD = "relevantPermits"
+ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD = "relevantPermitsDetails"
+ROOF_AGE_ASSESSOR_DATA_FIELD = "assessorData"
+ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD = "assessorDataDetails"
+ROOF_AGE_TIMELINE_FIELD = "timeline"
+ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
+ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
+ROOF_AGE_MAPBROWSER_URL_FIELD = "mapBrowserUrl"  # API field name (note: API uses mixed case)
+ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD = "roof_age_mapbrowser_url"  # Output field name (snake_case)
+ROOF_AGE_MODEL_VERSION_FIELD = "modelVersion"  # API field name (top-level response metadata)
+ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD = "roof_age_model_version"  # Output field name (snake_case)
+
+# Roof Age API field mapping: API field -> output column name
+# Note: Both asOfDate and untilDate map to the same output column because
+# different API versions use different field names for the same concept.
+ROOF_AGE_FIELD_MAP = {
+    ROOF_AGE_INSTALLATION_DATE_FIELD: "roof_age_installation_date",
+    ROOF_AGE_AS_OF_DATE_FIELD: "roof_age_as_of_date",
+    ROOF_AGE_UNTIL_DATE_FIELD: "roof_age_as_of_date",
+    ROOF_AGE_TRUST_SCORE_FIELD: "roof_age_trust_score",
+    ROOF_AGE_EVIDENCE_TYPE_FIELD: "roof_age_evidence_type",
+    ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD: "roof_age_evidence_type_description",
+    ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD: "roof_age_before_installation_capture_date",
+    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD: "roof_age_after_installation_capture_date",
+    ROOF_AGE_MIN_CAPTURE_DATE_FIELD: "roof_age_min_capture_date",
+    ROOF_AGE_MAX_CAPTURE_DATE_FIELD: "roof_age_max_capture_date",
+    ROOF_AGE_NUM_CAPTURES_FIELD: "roof_age_number_of_captures",
+    ROOF_AGE_KIND_FIELD: "roof_age_kind",
+    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD: "roof_age_relevant_permits_details",
+    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD: "roof_age_assessor_data_details",
+    ROOF_AGE_MAPBROWSER_URL_FIELD: ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
+    ROOF_AGE_MODEL_VERSION_FIELD: ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
+}
+
 
 # ============================================================================
 # HTTP Request Configuration
@@ -21,7 +83,7 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 # backoff (0.5s factor, min 2s, capped at 20s), retry delays are approximately:
 # 2s, 2s, 2s, 4s, 8s, 16s, 20s (capped), 20s, ...
 # This allows for more patience with transient failures.
-MAX_RETRIES = 30
+MAX_RETRIES = 10
 
 # Exponential backoff multiplier for retries
 # With factor 0.5, combined with BACKOFF_MIN=2s and BACKOFF_MAX=20s in RetryRequest class
@@ -44,12 +106,21 @@ SLOW_REQUEST_THRESHOLD_SECONDS = 60
 DUMMY_STATUS_CODE = -1
 
 # ============================================================================
+# Primary Feature Selection Configuration
+# ============================================================================
+
+# Distance tolerance in meters for "nearest" primary selection
+# If no feature contains the target point, the nearest non-small feature
+# within this tolerance is selected as primary
+NEAREST_TOLERANCE_METERS = 1.0
+
+# ============================================================================
 # Geometry Processing Configuration
 # ============================================================================
 
 # Grid cell size when subdividing large AOIs for parallel processing
-# Approximately 200m at the equator
-GRID_SIZE_DEGREES = 0.002
+# Approximately 500m at the equator
+GRID_SIZE_DEGREES = 0.005
 
 # Maximum AOI area in square meters before forcing gridding
 # This threshold (1 sq km) prevents backend API issues that occurred when the limit 
@@ -64,7 +135,7 @@ AREA_CRS = {
     "nz": "epsg:3577",
     "us": "esri:102003",
 }
-API_CRS = "epsg:4326"
+API_CRS = "EPSG:4326"
 
 IMPERIAL_COUNTRIES = ["us"]
 
@@ -94,12 +165,33 @@ SQUARED_METERS_TO_SQUARED_FEET = METERS_TO_FEET * METERS_TO_FEET
 ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
 
 # Class IDs
-BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # Legacy clone of roof semantic definition
-BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # New semantic building definition
+BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # DEPRECATED: Legacy clone of roof semantic
+BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # Current semantic building definition
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
 BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
 BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
-BUILDING_STYLE_CLASS_IDS = [BUILDING_LIFECYCLE_ID, BUILDING_NEW_ID, ROOF_ID, BUILDING_UNDER_CONSTRUCTION_ID, BUILDING_ID]
+
+# Deprecated class IDs - filtered out early in processing
+DEPRECATED_CLASS_IDS = [
+    BUILDING_ID,  # Replaced by BUILDING_NEW_ID
+]
+
+# Roof Instance - a temporal slice of a roof from the Roof Age API
+# This is a "virtual" feature class that represents roof installation date information
+# Roof instances may spatially correspond to roof objects from the Feature API, but are
+# tracked separately as they come from different data sources with different semantics
+# Note: This is a synthetic UUID (not a real Feature API class_id) but valid format
+# f00f = "roof", 1a9e = "age" in hex-speak
+ROOF_INSTANCE_CLASS_ID = "f00f1a9e-0001-4000-a000-000000000001"
+
+BUILDING_STYLE_CLASS_IDS = [
+    BUILDING_LIFECYCLE_ID,
+    BUILDING_NEW_ID,
+    ROOF_ID,
+    BUILDING_UNDER_CONSTRUCTION_ID,
+    BUILDING_ID,  # Deprecated but still valid
+    ROOF_INSTANCE_CLASS_ID,
+]
 
 
 TRAMPOLINE_ID = "753621ee-0b9f-515e-9bcf-ea40b96612ab"
@@ -167,7 +259,17 @@ ROOF_CHAR_IDS = [
     TURRET_ROOF_ID,
     TREE_OVERHANG_ID,
 ]
-CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [POOL_ID] # Can add more where we particularly care about attributes for the largest feature
+CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [POOL_ID, ROOF_INSTANCE_CLASS_ID]  # Can add more where we particularly care about attributes for the largest feature
+
+# Human-readable descriptions for feature classes
+FEATURE_CLASS_DESCRIPTIONS = {
+    BUILDING_ID: "Building",
+    BUILDING_NEW_ID: "Building (new semantic)",
+    ROOF_ID: "Roof",
+    BUILDING_LIFECYCLE_ID: "Building Lifecycle",
+    BUILDING_UNDER_CONSTRUCTION_ID: "Building Under Construction",
+    ROOF_INSTANCE_CLASS_ID: "Roof Instance",
+}
 
 CONNECTED_CLASS_IDS = (
     SURFACES_IDS

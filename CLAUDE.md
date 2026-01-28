@@ -50,13 +50,14 @@ isort nmaipy tests
 
 ### Export Data
 
-The project provides a command-line tool to export data from Nearmap AI APIs:
+The project provides command-line tools to export data from Nearmap AI APIs:
 
+#### Feature API Export
 ```bash
 # Set up API key
 export API_KEY=your_api_key_here
 
-# Run the exporter
+# Run the feature exporter
 python nmaipy/exporter.py \
     --aoi-file "path/to/aoi.geojson" \
     --output-dir "data/outputs" \
@@ -68,33 +69,93 @@ python nmaipy/exporter.py \
     --save-features
 ```
 
+#### Unified Feature + Roof Age Export (US Only)
+```bash
+python nmaipy/exporter.py \
+    --aoi-file "path/to/us_properties.geojson" \
+    --output-dir "data/outputs" \
+    --country us \
+    --packs building \
+    --roof-age \
+    --save-features
+```
+
+#### Roof Age API Export (US Only)
+```bash
+# Set up API key
+export API_KEY=your_api_key_here
+
+# Run the roof age exporter
+python -m nmaipy.roof_age_exporter \
+    --aoi-file "path/to/us_properties.geojson" \
+    --output-dir "data/roof_age_outputs" \
+    --country us \
+    --threads 10 \
+    --output-format both
+```
+
 ## Code Architecture
 
 ### Core Components
 
-1. **exporter.py**: Main command-line tool for exporting data from Nearmap AI APIs
+1. **exporter.py**: Main command-line tool and `NearmapAIExporter` class
+   - Unified exporter for Feature API and Roof Age API
    - Uses parallel processing to handle large exports efficiently
    - Supports chunking to manage memory usage for large exports
    - Creates both rollup summary data and detailed feature exports
+   - `AOIExporter` is a backward-compatible alias for `NearmapAIExporter`
 
-2. **feature_api.py**: Client for interacting with Nearmap AI API endpoints
+2. **base_exporter.py**: Abstract base class for all exporters
+   - Defines common interface and shared functionality
+   - Output directory management and logging setup
+
+3. **roof_age_exporter.py**: Standalone exporter for Roof Age API
+   - Specialized exporter for roof age predictions (US only)
+   - Parallel processing of multiple AOIs
+   - Outputs roof geometries with installation dates and confidence scores
+   - Follows similar patterns to exporter.py for consistency
+
+4. **feature_api.py**: Client for interacting with Nearmap AI Feature API
    - Handles authentication and API requests
    - Provides caching to reduce API calls
    - Supports different API endpoints and versions
+   - Uses shared infrastructure from api_common.py
 
-3. **parcels.py**: Functions to process property boundaries and features
-   - Reads parcel data from different file formats
-   - Filters features within parcels 
+5. **roof_age_api.py**: Client for interacting with Nearmap Roof Age API
+   - Simpler API surface than Feature API (no packs, classes, system versions)
+   - Supports both AOI and address-based queries
+   - Returns GeoJSON with roof polygons and age predictions
+   - Built on shared BaseApiClient from api_common.py
+
+6. **api_common.py**: Shared infrastructure for all API clients
+   - BaseApiClient with session management, caching, and retry logic
+   - RetryRequest class with exponential backoff
+   - APIKeyFilter for secure logging (removes API keys from logs)
+   - Error handling classes (APIError, AIFeatureAPIError, RoofAgeAPIError)
+   - Reusable across different Nearmap API products
+
+7. **aoi_io.py**: AOI file reading and format handling
+   - Reads GeoJSON, CSV, and Parquet input files
+   - Handles coordinate system transformations
+   - Validates input geometries
+
+8. **parcels.py**: Functions to process property boundaries and features
+   - Filters features within parcels
    - Creates summary statistics (rollups) for features within parcels
 
-4. **constants.py**: Contains important constants used throughout the project
-   - Feature class IDs
-   - CRS definitions
-   - Default filtering parameters
+9. **geometry_utils.py**: Geometry processing utilities
+   - Grid generation for large AOIs
+   - Spatial operations and transformations
+
+10. **constants.py**: Contains important constants used throughout the project
+    - Feature class IDs
+    - CRS definitions
+    - Default filtering parameters
+    - Roof Age API configuration and field names
 
 ### Data Flow
 
-1. User provides a GeoJSON or CSV file with AOIs (Areas of Interest)
+1. User provides a GeoJSON, CSV, or Parquet file with AOIs (Areas of Interest)
 2. The exporter divides work into chunks for parallel processing
 3. For each AOI, the feature API fetches relevant AI features
 4. These features are filtered based on intersection with AOI boundaries
@@ -112,7 +173,46 @@ export API_KEY=your_api_key_here
 Alternatively, the API key can be provided as a command-line argument:
 ```bash
 python nmaipy/exporter.py --api-key your_api_key_here [other arguments]
+python -m nmaipy.roof_age_exporter --api-key your_api_key_here [other arguments]
 ```
+
+### API Client Architecture
+
+The library uses a modular architecture with shared infrastructure:
+
+#### Shared Components (api_common.py)
+- **BaseApiClient**: Base class providing common functionality:
+  - Session management with connection pooling
+  - Request retry logic with exponential backoff
+  - File-based caching (with optional gzip compression)
+  - API key handling and secure logging
+
+- **RetryRequest**: Configurable retry strategy for HTTP requests
+  - Handles transient errors (429, 500, 502, 503, 504)
+  - Exponential backoff with configurable min/max delays
+  - Retries on connection errors and timeouts
+
+- **Error Classes**: Hierarchical error handling
+  - APIError (base class)
+  - AIFeatureAPIError (for Feature API)
+  - RoofAgeAPIError (for Roof Age API)
+
+#### API-Specific Clients
+- **FeatureApi**: Complex API with packs, classes, system versions
+  - Supports bulk requests, address queries, gridding for large AOIs
+  - Feature filtering and rollup calculations
+  - Date range and survey resource queries
+
+- **RoofAgeApi**: Simpler API focused on roof age predictions
+  - AOI or address-based queries
+  - Returns GeoJSON with roof polygons and installation dates
+  - US-only currently, may expand to other regions
+
+#### Design Principles
+- **Code Reuse**: Common infrastructure factored into api_common.py
+- **Separation of Concerns**: API-specific logic in separate modules
+- **Consistency**: Similar patterns across different API clients
+- **Extensibility**: Easy to add new API clients using BaseApiClient
 
 ## Version Management & Deployment
 

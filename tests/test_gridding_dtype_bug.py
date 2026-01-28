@@ -87,9 +87,13 @@ class TestGriddingDtypeBug:
             # If we got here without an exception, the bug is fixed!
             # Check that data structures are consistent
             if len(errors_df) > 0:
-                assert AOI_ID_COLUMN_NAME in errors_df.columns
-                # aoi_id should be the original integer, not grid cell IDs
-                assert (errors_df[AOI_ID_COLUMN_NAME] == aoi_id).all()
+                # aoi_id may be the index or a column - check both
+                if AOI_ID_COLUMN_NAME in errors_df.columns:
+                    assert (errors_df[AOI_ID_COLUMN_NAME] == aoi_id).all()
+                elif errors_df.index.name == AOI_ID_COLUMN_NAME:
+                    assert (errors_df.index == aoi_id).all()
+                else:
+                    pytest.fail(f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}")
             else:
                 # Test still passes (no dtype error), but we couldn't verify error handling
                 pytest.skip(
@@ -138,8 +142,15 @@ class TestGriddingDtypeBug:
 
             # Check dtype consistency
             if len(errors_df) > 0:
-                assert errors_df[AOI_ID_COLUMN_NAME].dtype == aoi_gdf.index.dtype
-                assert (errors_df[AOI_ID_COLUMN_NAME] == aoi_id).all()
+                # aoi_id may be the index or a column - check both
+                if AOI_ID_COLUMN_NAME in errors_df.columns:
+                    assert errors_df[AOI_ID_COLUMN_NAME].dtype == aoi_gdf.index.dtype
+                    assert (errors_df[AOI_ID_COLUMN_NAME] == aoi_id).all()
+                elif errors_df.index.name == AOI_ID_COLUMN_NAME:
+                    assert errors_df.index.dtype == aoi_gdf.index.dtype
+                    assert (errors_df.index == aoi_id).all()
+                else:
+                    pytest.fail(f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}")
             else:
                 pytest.skip(
                     "No errors occurred - unable to fully verify error dtype handling"

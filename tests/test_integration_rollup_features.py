@@ -280,8 +280,9 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     chunk_dir = integration_test_dir / 'chunks'
 
     # 1. Verify rollup CSV exists and has include parameter columns
-    rollup_file = final_dir / 'test_aoi_phoenix.csv'
-    assert rollup_file.exists(), f"Rollup CSV should be created at {rollup_file}"
+    # The exporter now uses _aoi_rollup suffix
+    rollup_file = final_dir / 'test_aoi_phoenix_aoi_rollup.csv'
+    assert rollup_file.exists(), f"Rollup CSV should be created at {rollup_file}. Files in final: {list(final_dir.iterdir()) if final_dir.exists() else []}"
 
     rollup_df = pd.read_csv(rollup_file)
     rollup_cols = rollup_df.columns.tolist()

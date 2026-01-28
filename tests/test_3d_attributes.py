@@ -146,7 +146,7 @@ def test_attributes_list_handling():
         (-111.8905, 40.7610)
     ])
     
-    features_gdf, _, _ = feature_api.get_features_gdf(
+    features_gdf, _, _, _ = feature_api.get_features_gdf(
         polygon,
         until='2025-06-20',
         region='us',

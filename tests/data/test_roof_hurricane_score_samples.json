@@ -1,0 +1,86 @@
+[
+  {
+    "feature_id": "0353e5be-60aa-5858-b44f-df9a9d79612c",
+    "hurricane_score": {
+      "vulnerabilityScore": 5,
+      "vulnerabilityProbability": 0.797,
+      "vulnerabilityRateFactor": 0.34,
+      "modelInputFeatures": {
+        "flatPresent": 1,
+        "shinglePresent": 0,
+        "hipPresent": 0,
+        "roofStainingRatio": 0.0916022667790333,
+        "roofRustingRatio": 0,
+        "wornShinglesRatio": 0,
+        "defensibleSpaceWeightedCoverage": 0.8746422375406735,
+        "missingRoofTileOrShingleRatio": 0,
+        "treeOverhangRatio": 0,
+        "roofPatchingRatio": 0
+      }
+    },
+    "attributes": []
+  },
+  {
+    "feature_id": "92e94e2c-4630-5073-9a59-e0e399faa3ed",
+    "hurricane_score": {
+      "vulnerabilityScore": 5,
+      "vulnerabilityProbability": 0.798,
+      "vulnerabilityRateFactor": 0.34,
+      "modelInputFeatures": {
+        "flatPresent": 1,
+        "shinglePresent": 0,
+        "hipPresent": 0,
+        "roofStainingRatio": 0.13417763555499593,
+        "roofRustingRatio": 0,
+        "wornShinglesRatio": 0,
+        "defensibleSpaceWeightedCoverage": 0.70808188272566,
+        "missingRoofTileOrShingleRatio": 0,
+        "treeOverhangRatio": 0,
+        "roofPatchingRatio": 0
+      }
+    },
+    "attributes": []
+  },
+  {
+    "feature_id": "bdf5af58-bf36-5cf2-aea9-b25e9773a020",
+    "hurricane_score": {
+      "vulnerabilityScore": 5,
+      "vulnerabilityProbability": 0.829,
+      "vulnerabilityRateFactor": 0.34,
+      "modelInputFeatures": {
+        "flatPresent": 1,
+        "shinglePresent": 0,
+        "hipPresent": 0,
+        "roofStainingRatio": 0,
+        "roofRustingRatio": 0,
+        "wornShinglesRatio": 0,
+        "defensibleSpaceWeightedCoverage": 0.527781798403751,
+        "missingRoofTileOrShingleRatio": 0,
+        "treeOverhangRatio": 0.09190873852471533,
+        "roofPatchingRatio": 0
+      }
+    },
+    "attributes": []
+  },
+  {
+    "feature_id": "be445a42-fe93-5e17-9296-390c3e4d694b",
+    "hurricane_score": {
+      "vulnerabilityScore": 5,
+      "vulnerabilityProbability": 0.797,
+      "vulnerabilityRateFactor": 0.34,
+      "modelInputFeatures": {
+        "flatPresent": 1,
+        "shinglePresent": 0,
+        "hipPresent": 0,
+        "roofStainingRatio": 0.007908870928283095,
+        "roofRustingRatio": 0,
+        "wornShinglesRatio": 0,
+        "defensibleSpaceWeightedCoverage": 0.7243121971374522,
+        "missingRoofTileOrShingleRatio": 0,
+        "treeOverhangRatio": 0,
+        "roofPatchingRatio": 0
+      }
+    },
+    "attributes": []
+  }
+]

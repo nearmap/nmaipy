@@ -1,122 +1,133 @@
-# Version Management & PyPI Deployment
+# Version Management & Release
 
-Quick guide for updating nmaipy versions and deploying to PyPI.
+## Recommended: Use the `/publish` Skill
 
-## Version Update Process
+If you have Claude Code, run the `/publish` skill for an automated, guided release:
 
-### 1. Update Version Number
-Edit `nmaipy/__version__.py`:
-```python
-__version__ = "3.2.7"  # Increment following semver
+```
+/publish
 ```
 
-**Semantic Versioning:**
-- MAJOR.MINOR.PATCH (e.g., 3.2.7)
-- MAJOR: Breaking API changes
-- MINOR: New features, backwards compatible
-- PATCH: Bug fixes, backwards compatible
+This handles all steps: version validation, tests, build, PyPI upload, tagging, and GitHub release creation.
 
-### 2. Run Tests
-```bash
-pytest
-```
+---
 
-### 3. Build Package
-```bash
-# Clean old builds
-rm -rf dist/ build/ *.egg-info
+## Manual Release Process
 
-# Build
-python -m build
+For users without Claude Code, or as a reference for what the skill does.
 
-# Verify
-twine check dist/*
-```
+### Prerequisites
 
-### 4. Deploy to PyPI
-```bash
-# Upload to PyPI
-twine upload dist/*
-
-# Quick test
-pip install --upgrade nmaipy
-python -c "import nmaipy; print(nmaipy.__version__)"
-```
-
-### 5. Git Tag & Push
-```bash
-# Commit version change
-git add nmaipy/__version__.py
-git commit -m "Release version 3.2.7"
-
-# Tag
-git tag -a v3.2.7 -m "Release version 3.2.7"
-
-# Push
-git push origin main
-git push origin v3.2.7
-```
-
-### 6. Create GitHub Release
-1. Go to https://github.com/nearmap/nmaipy/releases
-2. Click "Create a new release"
-3. Choose tag v3.2.7
-4. Add release notes
-5. Publish release
-
-## Prerequisites
-
-### Install Tools
+Install build tools:
 ```bash
 pip install build twine
 ```
 
-### Configure PyPI Authentication
-Create `~/.pypirc`:
+Configure PyPI authentication in `~/.pypirc`:
 ```ini
-[distutils]
-index-servers =
-    pypi
-    testpypi
-
 [pypi]
 username = __token__
 password = pypi-<your-token-here>
-
-[testpypi]
-username = __token__
-password = pypi-<your-test-token>
-repository = https://test.pypi.org/legacy/
 ```
 
 Get tokens from: https://pypi.org/manage/account/token/
 
-## Quick Deploy Script
+### Release Steps
 
-For convenience, you can run all steps:
-```bash
-# Update version in nmaipy/__version__.py first, then:
-pytest && \
-rm -rf dist/ build/ *.egg-info && \
-python -m build && \
-twine check dist/* && \
-twine upload dist/* && \
-git add nmaipy/__version__.py && \
-git commit -m "Release version $(python -c 'from nmaipy import __version__; print(__version__)')" && \
-git tag -a v$(python -c 'from nmaipy import __version__; print(__version__)') -m "Release version $(python -c 'from nmaipy import __version__; print(__version__)')" && \
-git push origin main && \
-git push origin v$(python -c 'from nmaipy import __version__; print(__version__)')
+#### 1. Update Version Number
+
+Edit `nmaipy/__version__.py`:
+```python
+__version__ = "4.0.1"  # Increment following semver
 ```
+
+**Semantic Versioning:**
+- MAJOR: Breaking API changes
+- MINOR: New features, backwards compatible
+- PATCH: Bug fixes, backwards compatible
+
+**Pre-release Versions (PEP 440):**
+- Alpha: `4.0.0a1` - early testing, API may change
+- Beta: `4.0.0b1` - feature complete, testing for bugs
+- Release Candidate: `4.0.0rc1` - final testing
+
+#### 2. Commit Version Change
+
+```bash
+git add nmaipy/__version__.py
+git commit -m "Release version X.Y.Z"
+git push origin main
+```
+
+#### 3. Run Tests
+
+```bash
+pytest
+```
+
+All tests must pass before proceeding.
+
+#### 4. Build Package
+
+```bash
+rm -rf dist/ build/ *.egg-info
+python -m build
+twine check dist/*
+```
+
+#### 5. Upload to PyPI
+
+```bash
+twine upload dist/*
+```
+
+Verify:
+```bash
+pip install --upgrade nmaipy
+python -c "import nmaipy; print(nmaipy.__version__)"
+```
+
+#### 6. Create and Push Tag
+
+```bash
+git tag -a vX.Y.Z -m "Release version X.Y.Z"
+git push origin vX.Y.Z
+```
+
+#### 7. Create GitHub Release
+
+```bash
+gh release create vX.Y.Z --title "vX.Y.Z" --generate-notes
+```
+
+For pre-releases (versions with 'a', 'b', or 'rc'), add `--prerelease`:
+```bash
+gh release create vX.Y.Z --title "vX.Y.Z" --generate-notes --prerelease
+```
+
+---
+
+## What Happens After Release
+
+When you push a version tag, the GitHub Actions workflow automatically:
+1. Runs the test suite (CI validation)
+2. Verifies the tag matches the package version
+3. Builds the package
+4. Attaches build artifacts (.whl, .tar.gz) to the GitHub release
+5. Verifies the package is available on PyPI
+
+This provides an additional validation layer but does not publish to PyPI (that's done locally in step 5 above).
+
+---
 
 ## Testing on TestPyPI (Optional)
 
 Before production release:
 ```bash
-# Upload to test
 twine upload --repository testpypi dist/*
 
-# Install from test
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ nmaipy
+pip install --index-url https://test.pypi.org/simple/ \
+    --extra-index-url https://pypi.org/simple/ nmaipy
 ```
 
 ## Troubleshooting

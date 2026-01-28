@@ -1,0 +1,52 @@
+{
+  "resourceId": "81b605d0-d70d-592d-a1f0-a14c7d020912",
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-74.2752955108881, 40.64236118155045],
+            [-74.27526533603668, 40.642393236466546],
+            [-74.27522912621498, 40.64237339294889],
+            [-74.27523784339428, 40.64236423440026],
+            [-74.27522644400597, 40.642358637508835],
+            [-74.27522107958794, 40.64236321678368],
+            [-74.27512183785439, 40.642305721421145],
+            [-74.27514933049679, 40.64227722812576],
+            [-74.27517481148243, 40.64229147477498],
+            [-74.27521370351315, 40.642250261245735],
+            [-74.27528947591782, 40.642298598098414],
+            [-74.27525326609612, 40.642336758746886],
+            [-74.2752955108881, 40.64236118155045]
+          ]
+        ]
+      },
+      "id": 3343279883872922341,
+      "properties": {
+        "afterInstallationCaptureDate": "2014-09-15",
+        "area": 107.66206,
+        "assessorData": false,
+        "evidenceType": 5,
+        "evidenceTypeDescription": "multiple_images",
+        "hilbertId": "3343279883872922341",
+        "installationDate": "2001-07-09",
+        "kind": "roof",
+        "mapBrowserUrl": "https://apps.nearmap.com/maps/#/@40.642317,-74.275219,20z,0d/V/20140915]20250704",
+        "maxCaptureDate": "2025-07-04",
+        "minCaptureDate": "2014-09-15",
+        "numberOfCaptures": 35,
+        "relevantPermits": false,
+        "timeline": [
+          {"sdSurveyId": 1805, "captureDate": "2014-09-15", "primaryResourceWebtileUid": "00093abe-0133-56e9-00a7-4843f236910a"},
+          {"sdSurveyId": 32700, "captureDate": "2025-07-04", "primaryResourceWebtileUid": "9d5d2f02-ba27-4223-84a6-dc712dbad058"}
+        ],
+        "trustScore": 51.5,
+        "untilDate": "2025-09-05"
+      }
+    }
+  ],
+  "nextCursor": null
+}

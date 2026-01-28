@@ -56,10 +56,10 @@ export API_KEY=your_api_key_here
 ### 3. Run your first extraction
 
 ```python
-from nmaipy.exporter import AOIExporter
+from nmaipy.exporter import NearmapAIExporter
 
 # Extract building and vegetation data
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='my_parcels.geojson',  # Your areas of interest
     output_dir='results',            # Where to save outputs
     country='au',                     # au, us, nz, or ca
@@ -72,13 +72,15 @@ exporter.run()
 
 That's it! Your results will be saved as CSV or Parquet files in the output directory.
 
+> **Note:** `AOIExporter` is available as a backward-compatible alias for `NearmapAIExporter`.
+
 ## Common Use Cases
 
 ### 🏢 Urban Planning
 Extract comprehensive data about buildings, vegetation coverage, and surface materials:
 
 ```python
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='city_blocks.geojson',
     output_dir='urban_analysis',
     country='au',
@@ -92,7 +94,7 @@ exporter = AOIExporter(
 Assess damage after natural disasters like hurricanes or floods:
 
 ```python
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='affected_areas.geojson',
     output_dir='damage_assessment',
     country='us',
@@ -108,7 +110,7 @@ exporter = AOIExporter(
 Study vegetation coverage and tree canopy:
 
 ```python
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='study_area.geojson',
     output_dir='vegetation_study',
     country='au',
@@ -121,7 +123,7 @@ exporter = AOIExporter(
 Find properties with pools or solar panels:
 
 ```python
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='suburbs.geojson',
     output_dir='market_analysis',
     country='au',
@@ -129,6 +131,50 @@ exporter = AOIExporter(
     include_parcel_geometry=True
 )
 ```
+
+### 🏠 Roof Age Analysis (US Only)
+Predict roof installation dates using AI analysis of historical imagery.
+
+**Unified approach** (recommended) - combines Feature API and Roof Age in one export:
+
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='unified_results',
+    country='us',
+    packs=['building'],
+    roof_age=True,  # Include Roof Age API data
+    save_features=True
+)
+exporter.run()
+```
+
+**Standalone approach** - for roof age data only:
+
+```python
+from nmaipy.roof_age_exporter import RoofAgeExporter
+
+exporter = RoofAgeExporter(
+    aoi_file='properties.geojson',
+    output_dir='roof_age_results',
+    country='us',
+    threads=10,
+    output_format='both'  # Generate both GeoParquet and CSV
+)
+exporter.run()
+```
+
+The Roof Age API uses machine learning to analyze multiple imagery captures over time, combined with building permit data and climate information, to predict when roofs were last installed or significantly renovated. Each roof feature includes:
+- Predicted installation date
+- Confidence score (trust score)
+- Evidence type and number of captures analyzed
+- Timeline of all imagery used in analysis
+
+This is valuable for:
+- Insurance underwriting and risk assessment
+- Property valuation and market analysis
+- Maintenance planning and capital budgeting
+- Real estate due diligence
 
 ## Available AI Features
 
@@ -164,9 +210,15 @@ Results are saved as CSV or Parquet files containing:
 
 ## Examples
 
-Check out `examples.py` for complete working examples of different use cases.
+**Quick start**: See `run_10_test.py` for a minimal working example with property-based exports:
+```bash
+export API_KEY=your_api_key_here
+python run_10_test.py
+```
 
-For a minimal example, see `run.py`.
+**More examples**: Check out `examples.py` for complete working examples of different use cases.
+
+**Unified export**: See `run.py` for a full example combining Feature API and Roof Age API.
 
 ## Working with Large Areas
 
@@ -178,7 +230,7 @@ nmaipy automatically handles large areas by:
 For areas larger than 1 sq km, the library will automatically use gridding:
 
 ```python
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='large_region.geojson',
     output_dir='large_area_results',
     country='us',
@@ -195,9 +247,28 @@ exporter = AOIExporter(
 3. **Cache results**: Reuse cached API responses with `cache_dir`
 4. **Filter by date**: Use `since` and `until` to get specific time periods
 
-## API Documentation
+## Command Line Interface
 
-For detailed API documentation and advanced options, see the [API Reference](docs/api.md).
+nmaipy can be run from the command line:
+
+```bash
+python nmaipy/exporter.py \
+    --aoi-file "parcels.geojson" \
+    --output-dir "results" \
+    --country us \
+    --packs building vegetation \
+    --save-features \
+    --roof-age  # Include Roof Age API data (US only)
+```
+
+Key CLI options:
+- `--roof-age`: Include Roof Age API data (US only)
+- `--save-features`: Save per-class GeoParquet files with feature geometries
+- `--aoi-grid-cell-size`: Grid cell size for large AOIs (default: ~200m)
+- `--max-retries`: Maximum API retry attempts
+- `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)
+
+Run `python nmaipy/exporter.py --help` for all options.
 
 ## Getting Help
 
