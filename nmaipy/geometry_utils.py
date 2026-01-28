@@ -13,7 +13,10 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import MultiPolygon, Polygon
 
+from nmaipy import log
 from nmaipy.constants import API_CRS, AREA_CRS, AOI_ID_COLUMN_NAME, SQUARED_METERS_TO_SQUARED_FEET
+
+logger = log.get_logger()
 
 
 def polygon_to_coordstring(poly: Polygon) -> str:
@@ -197,6 +200,7 @@ def combine_features_from_grid(
     1. Removes duplicate discrete features (same feature_id and geometry)
     2. Merges geometries of connected features that were split across grid cells
     3. Sums clipped areas for merged features
+    4. Preserves all other columns, using the value from the largest area portion
 
     Args:
         features_gdf: GeoDataFrame with features from gridded queries
@@ -209,6 +213,8 @@ def combine_features_from_grid(
 
     Note:
         Returns empty GeoDataFrame with proper structure if input is None or empty.
+        When the same feature_id has different values for a column across grid cells,
+        the value from the larger area portion is used and a warning is logged.
     """
     # Handle empty or None input
     if features_gdf is None or len(features_gdf) == 0:
@@ -216,24 +222,8 @@ def combine_features_from_grid(
         empty_gdf.index.name = AOI_ID_COLUMN_NAME
         return empty_gdf
 
-    # Columns that don't require aggregation (take first value)
-    agg_cols_first = [
-        AOI_ID_COLUMN_NAME,
-        "class_id",
-        "description",
-        "confidence",
-        "parent_id",
-        "unclipped_area_sqm",
-        "unclipped_area_sqft",
-        "attributes",
-        "damage",
-        "belongs_to_parcel",
-        "survey_date",
-        "mesh_date",
-        "fidelity",
-    ]
-
     # Columns with clipped areas that should be summed when geometries are merged
+    # These are the only columns that need special aggregation
     agg_cols_sum = [
         "area_sqm",
         "area_sqft",
@@ -241,32 +231,84 @@ def combine_features_from_grid(
         "clipped_area_sqft",
     ]
 
-    # Filter to only existing columns
-    existing_agg_cols_first = [col for col in agg_cols_first if col in features_gdf.columns]
-    existing_agg_cols_sum = [col for col in agg_cols_sum if col in features_gdf.columns]
+    # Get all columns present in the input data
+    all_columns = features_gdf.columns.tolist()
+
+    # Identify which sum columns are actually present
+    existing_agg_cols_sum = [col for col in agg_cols_sum if col in all_columns]
+
+    # Pre-sort by area descending so larger chunk "wins" in first aggregation
+    # This makes the "first" aggregation deterministic and meaningful
+    sort_col = "clipped_area_sqm" if "clipped_area_sqm" in all_columns else "area_sqm"
+    if sort_col in all_columns:
+        features_gdf = features_gdf.sort_values(by=sort_col, ascending=False)
+
+    # Detect and warn about conflicting values for same feature_id
+    # Identity columns = columns that should be identical for same feature_id
+    special_cols = {"geometry", "feature_id"} | set(existing_agg_cols_sum)
+    cols_to_check = [col for col in all_columns if col not in special_cols]
+
+    if cols_to_check:
+        # Drop duplicates on identity columns (keeps first = largest area due to pre-sorting)
+        # If same feature_id has identical values across all identity cols, rows collapse to 1
+        # If same feature_id has different values, multiple rows remain = conflict
+        try:
+            identity_cols = ["feature_id"] + cols_to_check
+            deduplicated = features_gdf.drop_duplicates(subset=identity_cols)
+
+            # Count rows per feature_id after deduplication
+            # Features with >1 row have conflicting values
+            deduped_counts = deduplicated.groupby("feature_id").size()
+            conflicting = deduped_counts[deduped_counts > 1]
+
+            if len(conflicting) > 0:
+                sample_ids = conflicting.head(3).index.tolist()
+                logger.warning(
+                    f"{len(conflicting)} feature(s) have different attribute values across grid cells. "
+                    f"Using values from largest area portion. Sample feature_ids: {sample_ids}"
+                )
+        except TypeError:
+            # Some columns contain unhashable types (lists, dicts) - skip conflict detection
+            pass
 
     # Remove duplicate geometries, then dissolve remaining features by feature_id
+    # Now we preserve ALL columns instead of filtering to a hardcoded list
+    # The "first" value comes from the pre-sorted data (largest area portion)
     features_gdf_dissolved = (
         features_gdf
         .drop_duplicates(["feature_id", "geometry"])
-        .filter(existing_agg_cols_first + ["geometry", "feature_id"], axis=1)
+        # Don't filter - keep all columns for the dissolve operation
         .dissolve(by="feature_id", aggfunc="first")
         .reset_index()
         .set_index("feature_id")
     )
 
-    # Sum clipped areas for merged features
-    features_gdf_summed = (
-        features_gdf
-        .filter(existing_agg_cols_sum + ["feature_id"], axis=1)
-        .groupby("feature_id")
-        .aggregate(dict([c, "sum"] for c in existing_agg_cols_sum))
-    )
+    # Sum clipped areas for merged features (if any exist)
+    if existing_agg_cols_sum:
+        features_gdf_summed = (
+            features_gdf
+            .filter(existing_agg_cols_sum + ["feature_id"], axis=1)
+            .groupby("feature_id")
+            .aggregate({col: "sum" for col in existing_agg_cols_sum})
+        )
+    else:
+        # No sum columns to aggregate
+        features_gdf_summed = None
 
-    # Join dissolved geometries with summed areas
+    # Join dissolved geometries with summed areas (if we have any)
+    if features_gdf_summed is not None:
+        # Update the sum columns in the dissolved dataframe
+        # Use update instead of join to overwrite the "first" values with the summed values
+        for col in existing_agg_cols_sum:
+            if col in features_gdf_summed.columns:
+                features_gdf_dissolved[col] = features_gdf_summed[col]
+        features_gdf_out = features_gdf_dissolved
+    else:
+        features_gdf_out = features_gdf_dissolved
+
+    # Reset index to make feature_id a column, then set AOI_ID as index
     features_gdf_out = (
-        features_gdf_dissolved
-        .join(features_gdf_summed)
+        features_gdf_out
         .reset_index()
         .set_index(AOI_ID_COLUMN_NAME)
     )

@@ -320,10 +320,13 @@ def flatten_roof_attributes(
         defensible_space_data = _parse_include_param(defensible_raw)
         if defensible_space_data:
             zones = defensible_space_data.get("zones", [])
-            for zone in zones:
+            # Sort zones by zoneId to ensure consistent column ordering (zone 1, 2, 3, ...)
+            zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
+            for zone in zones_sorted:
                 zone_id = zone.get("zoneId")
                 if zone_id:
-                    # Flatten key metrics for each zone
+                    # Flatten key metrics for each zone in a specific order:
+                    # 1. zone_area, 2. defensible_space_area, 3. risk_object_area, 4. coverage_ratio
                     prefix = f"defensible_space_zone_{zone_id}"
                     if country in IMPERIAL_COUNTRIES:
                         if "zoneAreaSqft" in zone:

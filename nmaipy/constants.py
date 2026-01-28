@@ -119,8 +119,8 @@ NEAREST_TOLERANCE_METERS = 1.0
 # ============================================================================
 
 # Grid cell size when subdividing large AOIs for parallel processing
-# Approximately 200m at the equator
-GRID_SIZE_DEGREES = 0.002
+# Approximately 500m at the equator
+GRID_SIZE_DEGREES = 0.005
 
 # Maximum AOI area in square meters before forcing gridding
 # This threshold (1 sq km) prevents backend API issues that occurred when the limit 
