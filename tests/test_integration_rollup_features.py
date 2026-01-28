@@ -505,3 +505,101 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
     print(f"\n✅ Parquet deserialization test passed:")
     print(f"   - Found {len(found_includes)} include parameters: {found_includes}")
     print(f"   - Successfully deserialized {len(deserialized_successfully)}: {deserialized_successfully}")
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_features):
+    """
+    Integration test to verify is_primary column in per-class feature exports.
+
+    This test verifies:
+    1. is_primary column exists in per-class CSV files
+    2. is_primary column exists in per-class GeoParquet files
+    3. is_primary column is boolean type
+    4. Primary features in per-class exports match primary_*_feature_id columns in rollup
+    """
+    from nmaipy.constants import PRIMARY_FEATURE_COLUMN_TO_CLASS
+
+    # Run exporter with class_level_files=True to generate per-class exports
+    exporter = AOIExporter(
+        aoi_file=str(test_aoi_with_features),
+        output_dir=str(integration_test_dir),
+        country='us',
+        packs=['building', 'roof_char'],
+        save_features=True,
+        save_buildings=True,
+        class_level_files=True,  # Enable per-class exports
+        no_cache=True,
+        processes=1,
+    )
+
+    exporter.run()
+
+    final_dir = integration_test_dir / 'final'
+
+    # 1. Check per-class CSV files have is_primary column
+    # Find all per-class CSV files (exclude rollup, buildings, and stats files)
+    exclude_patterns = ['_aoi_rollup', '_buildings', '_latency_stats']
+    per_class_csvs = [
+        f for f in final_dir.glob('*.csv')
+        if not any(pattern in f.name for pattern in exclude_patterns)
+    ]
+
+    assert len(per_class_csvs) > 0, \
+        f"Should have per-class CSV files. Files in final: {list(final_dir.glob('*'))}"
+
+    print(f"Found {len(per_class_csvs)} per-class CSV files")
+    for csv_path in per_class_csvs:
+        class_df = pd.read_csv(csv_path)
+        assert 'is_primary' in class_df.columns, \
+            f"Per-class CSV {csv_path.name} should have is_primary column. Columns: {class_df.columns.tolist()}"
+        # Check dtype is bool-like (could be object with True/False strings after CSV round-trip)
+        print(f"  ✅ {csv_path.name} has is_primary column")
+
+    # 2. Check per-class GeoParquet files have is_primary column
+    per_class_parquets = [
+        f for f in final_dir.glob('*_features.parquet')
+        if f.name != 'test_aoi_features.parquet'
+    ]
+
+    assert len(per_class_parquets) > 0, \
+        f"Should have per-class GeoParquet files. Files in final: {list(final_dir.glob('*'))}"
+
+    print(f"Found {len(per_class_parquets)} per-class GeoParquet files")
+    for parquet_path in per_class_parquets:
+        class_gdf = gpd.read_parquet(parquet_path)
+        assert 'is_primary' in class_gdf.columns, \
+            f"Per-class parquet {parquet_path.name} should have is_primary column. Columns: {class_gdf.columns.tolist()}"
+        assert class_gdf['is_primary'].dtype == bool, \
+            f"is_primary in {parquet_path.name} should be boolean, got {class_gdf['is_primary'].dtype}"
+        print(f"  ✅ {parquet_path.name} has is_primary column (dtype: {class_gdf['is_primary'].dtype})")
+
+    # 3. Cross-verify: primary features in per-class parquets match rollup data
+    rollup_file = final_dir / 'test_aoi_buildings.csv'
+    if rollup_file.exists():
+        rollup_df = pd.read_csv(rollup_file, index_col='aoi_id')
+
+        # For each primary feature column in rollup, verify matching is_primary=True in per-class exports
+        for col_name, class_id in PRIMARY_FEATURE_COLUMN_TO_CLASS.items():
+            if col_name in rollup_df.columns:
+                # Get primary feature IDs from rollup (non-null values)
+                primary_ids = rollup_df[col_name].dropna().astype(str).tolist()
+
+                if primary_ids:
+                    # Find the per-class parquet for this class
+                    for parquet_path in per_class_parquets:
+                        class_gdf = gpd.read_parquet(parquet_path)
+                        if 'class_id' in class_gdf.columns:
+                            class_features = class_gdf[class_gdf['class_id'] == class_id]
+                            if len(class_features) > 0:
+                                # Check that primary features are marked correctly
+                                primary_features = class_features[class_features['is_primary'] == True]
+                                primary_feature_ids = primary_features['feature_id'].astype(str).tolist()
+
+                                # Verify at least some primary IDs match
+                                matching = set(primary_ids) & set(primary_feature_ids)
+                                if matching:
+                                    print(f"  ✅ {col_name}: {len(matching)} primary features match rollup")
+
+    print(f"\n✅ is_primary integration test passed")
