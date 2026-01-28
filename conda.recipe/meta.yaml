@@ -1,5 +1,5 @@
 {% set name = "nmaipy" %}
-{% set version = "4.0.5a1" %}
+{% set version = load_file_regex(load_file='../nmaipy/__version__.py', regex_pattern='__version__ = "([^"]+)"').group(1) %}
 
 package:
   name: {{ name|lower }}
