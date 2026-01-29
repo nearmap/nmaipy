@@ -497,6 +497,17 @@ def export_feature_class(
                         flat_df[col] = primary_child_ids.map(ri_lookup[col]).values
                         added_cols.add(col)
 
+            # Calculate roof age in years from the primary child's dates
+            if "primary_child_roof_age_installation_date" in flat_df.columns and \
+               "primary_child_roof_age_as_of_date" in flat_df.columns:
+                try:
+                    install = pd.to_datetime(flat_df["primary_child_roof_age_installation_date"], errors="coerce")
+                    as_of = pd.to_datetime(flat_df["primary_child_roof_age_as_of_date"], errors="coerce")
+                    flat_df["primary_child_roof_age_years_as_of_date"] = ((as_of - install).dt.days / 365.25).round(1)
+                    added_cols.add("primary_child_roof_age_years_as_of_date")
+                except Exception:
+                    pass
+
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
         # These are from include parameters and the roof's own attributes array
         try:
@@ -1672,6 +1683,65 @@ class NearmapAIExporter(BaseExporter):
                         logger.debug(
                             f"Chunk {chunk_id}: After linking, features_gdf has {len(features_gdf)} rows"
                         )
+
+                        # Calculate roof age in years for roofs with linked roof instances
+                        # This adds primary_child_roof_age_years_as_of_date to roofs
+                        # Only proceed if the linkage columns exist
+                        if ("primary_child_roof_age_installation_date" in features_gdf.columns and
+                            "primary_child_roof_age_as_of_date" in features_gdf.columns):
+                            # Use mask-based assignment to avoid duplicate index issues
+                            roofs_with_age_mask = (
+                                (features_gdf["class_id"] == ROOF_ID)
+                                & features_gdf["primary_child_roof_age_installation_date"].notna()
+                                & features_gdf["primary_child_roof_age_as_of_date"].notna()
+                            )
+                            if roofs_with_age_mask.any():
+                                try:
+                                    install = pd.to_datetime(
+                                        features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_installation_date"],
+                                        errors="coerce"
+                                    )
+                                    as_of = pd.to_datetime(
+                                        features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_as_of_date"],
+                                        errors="coerce"
+                                    )
+                                    age_years = ((as_of - install).dt.days / 365.25).round(1)
+                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_years_as_of_date"] = age_years.values
+                                    num_roofs = roofs_with_age_mask.sum()
+                                    logger.debug(
+                                        f"Chunk {chunk_id}: Calculated roof age in years for {num_roofs} roofs"
+                                    )
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Chunk {chunk_id}: Failed to calculate roof age in years for roofs: {e}"
+                                    )
+
+                        # Calculate roof age in years for roof instances
+                        # Roof instances use raw API field names (installationDate, asOfDate)
+                        # before they get mapped in export_feature_class()
+                        if "installationDate" in features_gdf.columns and "asOfDate" in features_gdf.columns:
+                            # Use mask-based assignment to avoid duplicate index issues
+                            roof_instance_mask = features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+                            if roof_instance_mask.any():
+                                try:
+                                    install = pd.to_datetime(
+                                        features_gdf.loc[roof_instance_mask, "installationDate"],
+                                        errors="coerce"
+                                    )
+                                    as_of = pd.to_datetime(
+                                        features_gdf.loc[roof_instance_mask, "asOfDate"],
+                                        errors="coerce"
+                                    )
+                                    age_years = ((as_of - install).dt.days / 365.25).round(1)
+                                    features_gdf.loc[roof_instance_mask, "roof_age_years_as_of_date"] = age_years.values
+                                    num_instances = roof_instance_mask.sum()
+                                    logger.debug(
+                                        f"Chunk {chunk_id}: Calculated roof age in years for {num_instances} roof instances"
+                                    )
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Chunk {chunk_id}: Failed to calculate roof age in years for roof instances: {e}"
+                                    )
 
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
