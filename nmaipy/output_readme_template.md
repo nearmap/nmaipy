@@ -159,6 +159,26 @@ These files provide class-specific summaries. One CSV per feature class detected
 
 **What it is**: GeoParquet with all individual roof polygons and their attributes.
 
+#### Roof Age Linkage Columns (US only, requires --roof-age)
+
+When `--roof-age` is enabled, roofs from the Feature API are spatially linked to roof instances from the Roof Age API. The following columns are added to roof files (`properties_roof.csv` and `properties_roof_features.parquet`):
+
+| Column | Description |
+|--------|-------------|
+| `primary_child_roof_age_feature_id` | Feature ID of the best-matching roof instance |
+| `primary_child_roof_age_iou` | Intersection-over-Union score with roof instance (spatial match quality) |
+| `primary_child_roof_age_installation_date` | Installation date from roof instance (YYYY-MM-DD) |
+| `primary_child_roof_age_as_of_date` | Reference date for age calculation |
+| `primary_child_roof_age_years_as_of_date` | **Calculated roof age in years** (decimal) |
+| `primary_child_roof_age_trust_score` | Confidence in age prediction (0.0-1.0) |
+| `primary_child_roof_age_evidence_type` | How age was determined |
+| `primary_child_roof_age_evidence_type_description` | Human-readable explanation |
+| `child_roof_instances` | JSON list of all matching roof instances |
+| `child_roof_instance_count` | Count of matching roof instances |
+| Other `primary_child_roof_age_*` columns | Additional roof age attributes |
+
+**Note**: These columns only appear when roof instances are successfully linked to roofs. The `primary_child_roof_age_years_as_of_date` column provides a convenient pre-calculated age value using the formula: `(as_of_date - installation_date) / 365.25 days`, rounded to 1 decimal place.
+
 ---
 
 #### `properties_building.csv`
