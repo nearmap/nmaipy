@@ -14,10 +14,8 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 
 import concurrent.futures
 import json
-from importlib.resources import files
 import multiprocessing
 import platform
-import shutil
 import sys
 import time
 import traceback
@@ -94,40 +92,6 @@ class BaseExporter(ABC):
         self.final_path = self.output_dir / "final"
         self.chunk_path.mkdir(parents=True, exist_ok=True)
         self.final_path.mkdir(parents=True, exist_ok=True)
-
-        # Copy README to final output directory
-        self._copy_readme_to_output()
-
-    def _copy_readme_to_output(self):
-        """
-        Copy the output README template to the final output directory.
-
-        This provides users with documentation about the output files they receive.
-        Uses importlib.resources for reliable path resolution in packaged/containerized
-        environments, with fallback to file-based path.
-        """
-        readme_dest = self.final_path / "README.md"
-
-        if readme_dest.exists():
-            return  # Don't overwrite existing README
-
-        try:
-            # Try importlib.resources first (works in packages/containers)
-            try:
-                readme_content = files("nmaipy").joinpath("output_readme_template.md").read_text()
-                readme_dest.write_text(readme_content)
-                self.logger.debug(f"Copied README to {readme_dest}")
-                return
-            except (FileNotFoundError, TypeError):
-                pass
-
-            # Fall back to file-based path
-            readme_template = Path(__file__).parent / "output_readme_template.md"
-            if readme_template.exists():
-                shutil.copy(readme_template, readme_dest)
-                self.logger.debug(f"Copied README to {readme_dest}")
-        except Exception as e:
-            self.logger.warning(f"Could not copy README to output: {e}")
 
     def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
         """

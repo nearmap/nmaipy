@@ -40,6 +40,7 @@ from nmaipy.api_common import (
 )
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.feature_attributes import calculate_roof_age_years
 from nmaipy.roof_age_api import RoofAgeApi
 
 logger = log.get_logger()
@@ -518,22 +519,10 @@ class RoofAgeExporter(BaseExporter):
 
             # Calculate roof_age_years_as_of_date
             if "roof_age_installation_date" in roofs_gdf.columns and "roof_age_as_of_date" in roofs_gdf.columns:
-                from dateutil.parser import parse as parse_date
-
-                def calculate_years(row):
-                    try:
-                        install_str = row.get("roof_age_installation_date")
-                        as_of_str = row.get("roof_age_as_of_date")
-                        if install_str and as_of_str:
-                            install = parse_date(str(install_str))
-                            as_of = parse_date(str(as_of_str))
-                            years = (as_of - install).days / 365.25
-                            return round(years, 1)
-                    except Exception:
-                        pass
-                    return None
-
-                roofs_gdf["roof_age_years_as_of_date"] = roofs_gdf.apply(calculate_years, axis=1)
+                roofs_gdf["roof_age_years_as_of_date"] = calculate_roof_age_years(
+                    roofs_gdf["roof_age_installation_date"],
+                    roofs_gdf["roof_age_as_of_date"],
+                )
 
             if self.output_format in ["geoparquet", "both"]:
                 roofs_path = output_path / f"{file_stem}_roofs.parquet"

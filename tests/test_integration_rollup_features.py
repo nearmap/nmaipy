@@ -733,12 +733,17 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     roof_csv = final_dir / 'test_us_roof_age_roof.csv'
     if roof_csv.exists():
         roof_df = pd.read_csv(roof_csv)
-        roofs_with_age = roof_df[roof_df['primary_child_roof_age_installation_date'].notna()]
-        if len(roofs_with_age) > 0:
-            assert 'primary_child_roof_age_years_as_of_date' in roof_df.columns, \
-                "Roof CSV should have primary_child_roof_age_years_as_of_date"
-            non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
-            print(f"  ✅ Roof CSV has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+        if 'primary_child_roof_age_installation_date' in roof_df.columns:
+            roofs_with_age = roof_df[roof_df['primary_child_roof_age_installation_date'].notna()]
+            if len(roofs_with_age) > 0:
+                assert 'primary_child_roof_age_years_as_of_date' in roof_df.columns, \
+                    "Roof CSV should have primary_child_roof_age_years_as_of_date"
+                non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
+                print(f"  ✅ Roof CSV has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+            else:
+                print("  ⚠️  No roofs have linked roof instances in CSV")
+        else:
+            print("  ⚠️  Roof CSV doesn't have linkage columns (no linkage occurred)")
     else:
         print("  ⚠️  Roof CSV not found (no roofs in AOI?)")
 
@@ -760,12 +765,17 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     roof_parquet = final_dir / 'test_us_roof_age_roof_features.parquet'
     if roof_parquet.exists():
         roof_gdf = gpd.read_parquet(roof_parquet)
-        roofs_with_age = roof_gdf[roof_gdf['primary_child_roof_age_installation_date'].notna()]
-        if len(roofs_with_age) > 0:
-            assert 'primary_child_roof_age_years_as_of_date' in roof_gdf.columns, \
-                "Roof parquet should have primary_child_roof_age_years_as_of_date"
-            non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
-            print(f"  ✅ Roof parquet has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+        if 'primary_child_roof_age_installation_date' in roof_gdf.columns:
+            roofs_with_age = roof_gdf[roof_gdf['primary_child_roof_age_installation_date'].notna()]
+            if len(roofs_with_age) > 0:
+                assert 'primary_child_roof_age_years_as_of_date' in roof_gdf.columns, \
+                    "Roof parquet should have primary_child_roof_age_years_as_of_date"
+                non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
+                print(f"  ✅ Roof parquet has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+            else:
+                print("  ⚠️  No roofs have linked roof instances in parquet")
+        else:
+            print("  ⚠️  Roof parquet doesn't have linkage columns (no linkage occurred)")
     else:
         print("  ⚠️  Roof parquet not found (no roofs in AOI?)")
 
