@@ -76,6 +76,7 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
+from nmaipy.feature_attributes import calculate_roof_age_years
 from nmaipy.roof_age_api import RoofAgeApi
 
 
@@ -442,15 +443,10 @@ def export_feature_class(
                 ).values
                 added_cols.add(dst)
 
-        # Calculate roof age in years from the columns we just added
-        if "roof_age_installation_date" in flat_df.columns and "roof_age_as_of_date" in flat_df.columns:
-            try:
-                install = pd.to_datetime(flat_df["roof_age_installation_date"], errors="coerce")
-                as_of = pd.to_datetime(flat_df["roof_age_as_of_date"], errors="coerce")
-                flat_df["roof_age_years_as_of_date"] = ((as_of - install).dt.days / 365.25).round(1)
-                added_cols.add("roof_age_years_as_of_date")
-            except Exception:
-                pass
+        # Copy pre-calculated roof age in years (calculated in process_chunk)
+        if "roof_age_years_as_of_date" in class_features.columns:
+            flat_df["roof_age_years_as_of_date"] = class_features["roof_age_years_as_of_date"].values
+            added_cols.add("roof_age_years_as_of_date")
 
     # Add class-specific linkage columns for roofs (linking to roof instances)
     if class_id == ROOF_ID:
@@ -486,6 +482,11 @@ def export_feature_class(
                         ri_cols.append(src)
                         col_rename[src] = prefixed_dst
                         ri_dst_cols.add(prefixed_dst)
+
+                # Also include the pre-calculated roof age years (calculated in process_chunk)
+                if "roof_age_years_as_of_date" in roof_instances.columns:
+                    ri_cols.append("roof_age_years_as_of_date")
+                    col_rename["roof_age_years_as_of_date"] = "primary_child_roof_age_years_as_of_date"
 
                 if len(ri_cols) > 1:  # More than just feature_id
                     ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
@@ -606,21 +607,55 @@ def export_feature_class(
                             except Exception:
                                 return []
 
-                        if "min_child_roof_spotlight_index" not in added_cols:
-                            flat_df["min_child_roof_spotlight_index"] = (
+                        if "child_roof_roof_spotlight_index_min" not in added_cols:
+                            flat_df["child_roof_roof_spotlight_index_min"] = (
                                 buildings_linked["child_roofs"]
                                 .apply(lambda x: min(get_child_rsi_values(x)) if get_child_rsi_values(x) else None)
                                 .values
                             )
-                            added_cols.add("min_child_roof_spotlight_index")
+                            added_cols.add("child_roof_roof_spotlight_index_min")
 
-                        if "max_child_roof_spotlight_index" not in added_cols:
-                            flat_df["max_child_roof_spotlight_index"] = (
+                        if "child_roof_roof_spotlight_index_max" not in added_cols:
+                            flat_df["child_roof_roof_spotlight_index_max"] = (
                                 buildings_linked["child_roofs"]
                                 .apply(lambda x: max(get_child_rsi_values(x)) if get_child_rsi_values(x) else None)
                                 .values
                             )
-                            added_cols.add("max_child_roof_spotlight_index")
+                            added_cols.add("child_roof_roof_spotlight_index_max")
+
+                # Link roof age data from primary child roof's roof instance
+                # Chain: building → primary_child_roof → primary_child_roof_age (roof instance) → roof_age_*
+                if "primary_child_roof_age_feature_id" in roofs_linked.columns:
+                    roof_instances = features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID].copy()
+                    if len(roof_instances) > 0:
+                        # Create lookup from roof feature_id → roof's primary_child_roof_age_feature_id
+                        roof_to_ri = roofs_linked.set_index("feature_id")["primary_child_roof_age_feature_id"].to_dict()
+
+                        # Roof age columns to link through (same as what roofs get)
+                        ri_cols = ["feature_id"]
+                        col_rename = {}
+                        for col in ROOF_AGE_FIELD_MAP.values():
+                            if col in roof_instances.columns:
+                                ri_cols.append(col)
+                                col_rename[col] = f"primary_child_{col}"
+
+                        # Include calculated roof_age_years_as_of_date
+                        if "roof_age_years_as_of_date" in roof_instances.columns:
+                            ri_cols.append("roof_age_years_as_of_date")
+                            col_rename["roof_age_years_as_of_date"] = "primary_child_roof_age_years_as_of_date"
+
+                        if len(ri_cols) > 1:  # More than just feature_id
+                            ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
+                            ri_lookup = ri_lookup.rename(columns=col_rename).set_index("feature_id")
+
+                            # Map: building.primary_child_roof_id → roof.primary_child_roof_age_feature_id → ri attributes
+                            primary_roof_ids = buildings_linked["primary_child_roof_id"]
+                            primary_ri_ids = primary_roof_ids.map(roof_to_ri)
+
+                            for col in ri_lookup.columns:
+                                if col not in added_cols:
+                                    flat_df[col] = primary_ri_ids.map(ri_lookup[col]).values
+                                    added_cols.add(col)
 
             except Exception as e:
                 logger.debug(f"Could not link roofs to buildings: {e}")
@@ -1672,6 +1707,41 @@ class NearmapAIExporter(BaseExporter):
                         logger.debug(
                             f"Chunk {chunk_id}: After linking, features_gdf has {len(features_gdf)} rows"
                         )
+
+                        # Calculate roof age in years for roofs with linked roof instances
+                        # This adds primary_child_roof_age_years_as_of_date to roofs
+                        if ("primary_child_roof_age_installation_date" in features_gdf.columns and
+                            "primary_child_roof_age_as_of_date" in features_gdf.columns):
+                            roofs_with_age_mask = (
+                                (features_gdf["class_id"] == ROOF_ID)
+                                & features_gdf["primary_child_roof_age_installation_date"].notna()
+                                & features_gdf["primary_child_roof_age_as_of_date"].notna()
+                            )
+                            if roofs_with_age_mask.any():
+                                age_years = calculate_roof_age_years(
+                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_installation_date"],
+                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_as_of_date"],
+                                )
+                                if age_years is not None:
+                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_years_as_of_date"] = age_years.values
+                                    logger.debug(
+                                        f"Chunk {chunk_id}: Calculated roof age in years for {roofs_with_age_mask.sum()} roofs"
+                                    )
+
+                        # Calculate roof age in years for roof instances
+                        # Roof instances use raw API field names (installationDate, asOfDate)
+                        if "installationDate" in features_gdf.columns and "asOfDate" in features_gdf.columns:
+                            roof_instance_mask = features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+                            if roof_instance_mask.any():
+                                age_years = calculate_roof_age_years(
+                                    features_gdf.loc[roof_instance_mask, "installationDate"],
+                                    features_gdf.loc[roof_instance_mask, "asOfDate"],
+                                )
+                                if age_years is not None:
+                                    features_gdf.loc[roof_instance_mask, "roof_age_years_as_of_date"] = age_years.values
+                                    logger.debug(
+                                        f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
+                                    )
 
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(

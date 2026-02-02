@@ -573,6 +573,35 @@ def feature_attributes(
 
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
+
+    # Pre-select primary roof for two purposes:
+    # 1. Derive IoU-linked roof instance ID for primary roof instance selection
+    # 2. Reuse when processing roofs in the loop (avoid redundant select_primary call)
+    _primary_roof = None
+    _primary_roof_child_ri_id = None
+    roof_features = features_gdf[features_gdf.class_id == ROOF_ID]
+    if len(roof_features) > 0:
+        _primary_roof = select_primary(
+            roof_features,
+            method=primary_decision,
+            area_col="clipped_area_sqm",
+            secondary_area_col="unclipped_area_sqm",
+            target_lat=primary_lat,
+            target_lon=primary_lon,
+            confidence_col="confidence",
+            high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+            geometry_col="geometry_feature",
+            geometry_projected_col=geometry_projected_col,
+            projected_crs=projected_crs,
+        )
+        # Get IoU-linked roof instance from primary roof
+        if (
+            _primary_roof is not None
+            and "primary_child_roof_age_feature_id" in _primary_roof.index
+            and pd.notna(_primary_roof.primary_child_roof_age_feature_id)
+        ):
+            _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
+
     for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
         class_features_gdf = features_gdf[features_gdf.class_id == class_id]
@@ -640,43 +669,64 @@ def feature_attributes(
             # (vs geometry which may be the AOI geometry after merging)
             # Roof instances use area_sqm and trust_score instead of clipped_area_sqm and confidence
             if is_roof_instance:
-                # Prioritize "roof" kind over "parcel" kind for primary selection
-                # Use roof_kind_features if available, otherwise fall back to all features
-                # (roof_kind_features was computed earlier in this loop iteration)
-                features_for_selection = roof_kind_features if len(roof_kind_features) > 0 else class_features_gdf
+                primary_feature = None
 
-                primary_feature = select_primary(
-                    features_for_selection,
-                    method=primary_decision,
-                    area_col="area_sqm",
-                    secondary_area_col=None,
-                    target_lat=primary_lat,
-                    target_lon=primary_lon,
-                    confidence_col=ROOF_AGE_TRUST_SCORE_FIELD if ROOF_AGE_TRUST_SCORE_FIELD in features_for_selection.columns else None,
-                    high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
-                    geometry_col="geometry_feature" if "geometry_feature" in features_for_selection.columns else "geometry",
-                    geometry_projected_col=geometry_projected_col,
-                    projected_crs=projected_crs,
-                )
+                # Derive primary roof instance from primary roof's IoU-linked child
+                if _primary_roof_child_ri_id is not None:
+                    linked_ri_rows = class_features_gdf[class_features_gdf.feature_id == _primary_roof_child_ri_id]
+                    if len(linked_ri_rows) > 0:
+                        primary_feature = linked_ri_rows.iloc[0]
+
+                # Fallback to independent selection if no IoU link available
+                if primary_feature is None:
+                    # Prioritize "roof" kind over "parcel" kind for primary selection
+                    # Use roof_kind_features if available, otherwise fall back to all features
+                    # (roof_kind_features was computed earlier in this loop iteration)
+                    features_for_selection = roof_kind_features if len(roof_kind_features) > 0 else class_features_gdf
+
+                    if len(features_for_selection) > 0:
+                        primary_feature = select_primary(
+                            features_for_selection,
+                            method=primary_decision,
+                            area_col="area_sqm",
+                            secondary_area_col=None,
+                            target_lat=primary_lat,
+                            target_lon=primary_lon,
+                            confidence_col=ROOF_AGE_TRUST_SCORE_FIELD if ROOF_AGE_TRUST_SCORE_FIELD in features_for_selection.columns else None,
+                            high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+                            geometry_col="geometry_feature" if "geometry_feature" in features_for_selection.columns else "geometry",
+                            geometry_projected_col=geometry_projected_col,
+                            projected_crs=projected_crs,
+                        )
+
                 # Roof instances only have area (not clipped/unclipped)
+                if primary_feature is None:
+                    # No primary roof instance found - set defaults and skip attribute extraction
+                    parcel[f"primary_{name}_area_{area_units}"] = 0.0
+                    continue
+
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_area_sqft"] = round(primary_feature.area_sqft, 1) if hasattr(primary_feature, "area_sqft") and primary_feature.area_sqft is not None else 0.0
                 else:
                     parcel[f"primary_{name}_area_sqm"] = round(primary_feature.area_sqm, 1) if hasattr(primary_feature, "area_sqm") and primary_feature.area_sqm is not None else 0.0
             else:
-                primary_feature = select_primary(
-                    class_features_gdf,
-                    method=primary_decision,
-                    area_col="clipped_area_sqm",
-                    secondary_area_col="unclipped_area_sqm",
-                    target_lat=primary_lat,
-                    target_lon=primary_lon,
-                    confidence_col="confidence",
-                    high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
-                    geometry_col="geometry_feature",
-                    geometry_projected_col=geometry_projected_col,
-                    projected_crs=projected_crs,
-                )
+                # For roofs, reuse the pre-selected primary roof (avoid redundant select_primary call)
+                if class_id == ROOF_ID and _primary_roof is not None:
+                    primary_feature = _primary_roof
+                else:
+                    primary_feature = select_primary(
+                        class_features_gdf,
+                        method=primary_decision,
+                        area_col="clipped_area_sqm",
+                        secondary_area_col="unclipped_area_sqm",
+                        target_lat=primary_lat,
+                        target_lon=primary_lon,
+                        confidence_col="confidence",
+                        high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+                        geometry_col="geometry_feature",
+                        geometry_projected_col=geometry_projected_col,
+                        projected_crs=projected_crs,
+                    )
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
                     parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)

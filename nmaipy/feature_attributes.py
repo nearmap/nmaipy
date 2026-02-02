@@ -14,7 +14,7 @@ Feature Classes:
 - Roof Instance (Roof Age API): Installation dates, trust scores, evidence types
 """
 import json
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, overload
 
 from dateutil.parser import parse as parse_date
 import geopandas as gpd
@@ -105,6 +105,65 @@ def _get_feature_value(feature, key):
                 return None
             return val
     return None
+
+
+@overload
+def calculate_roof_age_years(
+    installation_date: pd.Series,
+    as_of_date: pd.Series,
+) -> pd.Series: ...
+
+
+@overload
+def calculate_roof_age_years(
+    installation_date: str,
+    as_of_date: str,
+) -> float: ...
+
+
+@overload
+def calculate_roof_age_years(
+    installation_date: None,
+    as_of_date: Any,
+) -> None: ...
+
+
+def calculate_roof_age_years(
+    installation_date: Union[pd.Series, str, None],
+    as_of_date: Union[pd.Series, str, None],
+) -> Union[pd.Series, float, None]:
+    """
+    Calculate roof age in years from installation date to as-of date.
+
+    Uses 365.25 days/year (accounting for leap years).
+    Returns rounded to 1 decimal place.
+
+    Handles both scalar values (str/datetime) and pandas Series.
+
+    Args:
+        installation_date: Installation date(s) - can be string, datetime, or pandas Series
+        as_of_date: As-of date(s) for age calculation - can be string, datetime, or pandas Series
+
+    Returns:
+        Age in years (float for scalar input, Series for Series input), or None if calculation fails
+    """
+    if installation_date is None or as_of_date is None:
+        return None
+
+    try:
+        if isinstance(installation_date, pd.Series):
+            # Vectorized calculation for pandas Series
+            install = pd.to_datetime(installation_date, errors="coerce")
+            as_of = pd.to_datetime(as_of_date, errors="coerce")
+            return ((as_of - install).dt.days / 365.25).round(1)
+        else:
+            # Scalar calculation
+            install = parse_date(str(installation_date))
+            as_of = parse_date(str(as_of_date))
+            years = (as_of - install).days / 365.25
+            return round(years, 1)
+    except Exception:
+        return None
 
 
 def _reconstruct_attributes_from_dot_notation(feature) -> list:
@@ -618,13 +677,7 @@ def flatten_roof_instance_attributes(
         flattened[f"{prefix}{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"] = model_version
 
     # Calculate roof age in years as of as_of_date
-    if installation_date is not None and as_of_date is not None:
-        try:
-            install = parse_date(str(installation_date))
-            as_of = parse_date(str(as_of_date))
-            # Calculate years (approximate, using 365.25 days/year)
-            years = (as_of - install).days / 365.25
-            flattened[f"{prefix}roof_age_years_as_of_date"] = round(years, 1)
-        except Exception:
-            pass  # Skip if date parsing fails
+    age_years = calculate_roof_age_years(installation_date, as_of_date)
+    if age_years is not None:
+        flattened[f"{prefix}roof_age_years_as_of_date"] = age_years
     return flattened

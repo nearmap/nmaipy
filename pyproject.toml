@@ -72,9 +72,6 @@ packages = ["nmaipy"]
 [tool.setuptools.dynamic]
 version = {attr = "nmaipy.__version__.__version__"}
 
-[tool.setuptools.package-data]
-nmaipy = ["output_readme_template.md"]
-
 [tool.black]
 line-length = 88
 target-version = ['py312']

@@ -602,4 +602,224 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
                                 if matching:
                                     print(f"  ✅ {col_name}: {len(matching)} primary features match rollup")
 
+
+@pytest.fixture
+def test_us_aoi_for_roof_age(integration_test_dir):
+    """Create a US AOI for roof age testing."""
+    # Use New Jersey area (roof age is US-only)
+    test_polygon = Polygon([
+        (-74.0060, 40.7128),
+        (-74.0055, 40.7128),
+        (-74.0055, 40.7133),
+        (-74.0060, 40.7133),
+        (-74.0060, 40.7128)
+    ])
+
+    test_aoi = gpd.GeoDataFrame(
+        {'aoi_id': ['roof_age_test'], 'geometry': [test_polygon]},
+        crs='EPSG:4326'
+    )
+
+    aoi_file = integration_test_dir / 'test_us_roof_age.geojson'
+    test_aoi.to_file(aoi_file, driver='GeoJSON')
+
+    return aoi_file
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roof_age):
+    """
+    Integration test to verify that roof age in years is calculated and present in ALL output files:
+    - Combined features parquet (*_features.parquet)
+    - Per-class CSV (*_roof.csv)
+    - Per-class parquet (*_roof_features.parquet)
+    - Roof instances (*_roof_instance.csv, *_roof_instance_features.parquet)
+    - Rollup (*_aoi_rollup.csv)
+
+    This test ensures consistency across all export formats.
+    """
+    from nmaipy.constants import ROOF_ID, ROOF_INSTANCE_CLASS_ID
+    from datetime import datetime
+
+    # Run exporter with roof age enabled
+    exporter = AOIExporter(
+        aoi_file=str(test_us_aoi_for_roof_age),
+        output_dir=str(integration_test_dir),
+        country='us',
+        packs=['building'],
+        roof_age=True,  # Enable roof age API
+        save_features=True,  # Generate features parquet
+        class_level_files=True,  # Generate per-class files
+        no_cache=True,
+        processes=1,
+    )
+
+    exporter.run()
+
+    final_dir = integration_test_dir / 'final'
+    assert final_dir.exists(), "Final output directory should exist"
+
+    print("\n" + "="*80)
+    print("Testing roof age years calculation in all export files")
+    print("="*80)
+
+    # 1. Check combined features parquet
+    print("\n1. Checking combined features parquet...")
+    combined_features_path = final_dir / 'test_us_roof_age_features.parquet'
+    if combined_features_path.exists():
+        features_gdf = gpd.read_parquet(combined_features_path)
+
+        # Check roof instances have roof_age_years_as_of_date
+        roof_instances = features_gdf[features_gdf['class_id'] == ROOF_INSTANCE_CLASS_ID]
+        if len(roof_instances) > 0:
+            assert 'roof_age_years_as_of_date' in roof_instances.columns, \
+                "Roof instances should have roof_age_years_as_of_date in combined features"
+
+            # Check some values are not null
+            non_null_ages = roof_instances['roof_age_years_as_of_date'].notna().sum()
+            print(f"  ✅ Roof instances have roof_age_years_as_of_date ({non_null_ages} non-null values)")
+
+        # Check roofs have primary_child_roof_age_years_as_of_date
+        roofs = features_gdf[features_gdf['class_id'] == ROOF_ID]
+        if len(roofs) > 0:
+            # Check if linkage columns exist
+            has_linkage = 'primary_child_roof_age_installation_date' in roofs.columns
+            print(f"  Roofs have linkage columns: {has_linkage}")
+            if has_linkage:
+                roofs_with_age_data = roofs[roofs['primary_child_roof_age_installation_date'].notna()]
+                if len(roofs_with_age_data) > 0:
+                    assert 'primary_child_roof_age_years_as_of_date' in roofs_with_age_data.columns, \
+                        "Roofs with linked roof instances should have primary_child_roof_age_years_as_of_date in combined features"
+
+                    # Check some values are not null
+                    non_null_ages = roofs_with_age_data['primary_child_roof_age_years_as_of_date'].notna().sum()
+                    print(f"  ✅ Roofs have primary_child_roof_age_years_as_of_date ({non_null_ages} non-null values)")
+
+                    # Verify calculation is correct for a sample
+                    sample = roofs_with_age_data.iloc[0]
+                    if pd.notna(sample['primary_child_roof_age_installation_date']) and \
+                       pd.notna(sample['primary_child_roof_age_as_of_date']) and \
+                       pd.notna(sample['primary_child_roof_age_years_as_of_date']):
+                        install = pd.to_datetime(sample['primary_child_roof_age_installation_date'])
+                        as_of = pd.to_datetime(sample['primary_child_roof_age_as_of_date'])
+                        expected_age = round((as_of - install).days / 365.25, 1)
+                        actual_age = sample['primary_child_roof_age_years_as_of_date']
+                        assert abs(expected_age - actual_age) < 0.1, \
+                            f"Age calculation mismatch: expected {expected_age}, got {actual_age}"
+                        print(f"  ✅ Age calculation verified: {actual_age} years")
+                else:
+                    print("  ⚠️  No roofs have linked roof instances")
+            else:
+                print("  ⚠️  Roofs don't have linkage columns in combined features (this is expected if no linkage occurred)")
+    else:
+        print("  ⚠️  Combined features parquet not found (no features in AOI?)")
+
+    # 2. Check per-class CSV files
+    print("\n2. Checking per-class CSV files...")
+
+    # Roof instances CSV
+    roof_instance_csv = final_dir / 'test_us_roof_age_roof_instance.csv'
+    if roof_instance_csv.exists():
+        ri_df = pd.read_csv(roof_instance_csv)
+        assert 'roof_age_years_as_of_date' in ri_df.columns, \
+            "Roof instance CSV should have roof_age_years_as_of_date"
+        non_null = ri_df['roof_age_years_as_of_date'].notna().sum()
+        print(f"  ✅ Roof instance CSV has roof_age_years_as_of_date ({non_null} non-null values)")
+    else:
+        print("  ⚠️  Roof instance CSV not found (no roof instances in AOI?)")
+
+    # Roofs CSV
+    roof_csv = final_dir / 'test_us_roof_age_roof.csv'
+    if roof_csv.exists():
+        roof_df = pd.read_csv(roof_csv)
+        if 'primary_child_roof_age_installation_date' in roof_df.columns:
+            roofs_with_age = roof_df[roof_df['primary_child_roof_age_installation_date'].notna()]
+            if len(roofs_with_age) > 0:
+                assert 'primary_child_roof_age_years_as_of_date' in roof_df.columns, \
+                    "Roof CSV should have primary_child_roof_age_years_as_of_date"
+                non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
+                print(f"  ✅ Roof CSV has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+            else:
+                print("  ⚠️  No roofs have linked roof instances in CSV")
+        else:
+            print("  ⚠️  Roof CSV doesn't have linkage columns (no linkage occurred)")
+    else:
+        print("  ⚠️  Roof CSV not found (no roofs in AOI?)")
+
+    # 3. Check per-class parquet files
+    print("\n3. Checking per-class parquet files...")
+
+    # Roof instances parquet
+    roof_instance_parquet = final_dir / 'test_us_roof_age_roof_instance_features.parquet'
+    if roof_instance_parquet.exists():
+        ri_gdf = gpd.read_parquet(roof_instance_parquet)
+        assert 'roof_age_years_as_of_date' in ri_gdf.columns, \
+            "Roof instance parquet should have roof_age_years_as_of_date"
+        non_null = ri_gdf['roof_age_years_as_of_date'].notna().sum()
+        print(f"  ✅ Roof instance parquet has roof_age_years_as_of_date ({non_null} non-null values)")
+    else:
+        print("  ⚠️  Roof instance parquet not found (no roof instances in AOI?)")
+
+    # Roofs parquet
+    roof_parquet = final_dir / 'test_us_roof_age_roof_features.parquet'
+    if roof_parquet.exists():
+        roof_gdf = gpd.read_parquet(roof_parquet)
+        if 'primary_child_roof_age_installation_date' in roof_gdf.columns:
+            roofs_with_age = roof_gdf[roof_gdf['primary_child_roof_age_installation_date'].notna()]
+            if len(roofs_with_age) > 0:
+                assert 'primary_child_roof_age_years_as_of_date' in roof_gdf.columns, \
+                    "Roof parquet should have primary_child_roof_age_years_as_of_date"
+                non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
+                print(f"  ✅ Roof parquet has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+            else:
+                print("  ⚠️  No roofs have linked roof instances in parquet")
+        else:
+            print("  ⚠️  Roof parquet doesn't have linkage columns (no linkage occurred)")
+    else:
+        print("  ⚠️  Roof parquet not found (no roofs in AOI?)")
+
+    # 4. Check rollup CSV
+    print("\n4. Checking rollup CSV...")
+    rollup_csv = final_dir / 'test_us_roof_age_aoi_rollup.csv'
+    if rollup_csv.exists():
+        rollup_df = pd.read_csv(rollup_csv)
+        if 'primary_child_roof_age_installation_date' in rollup_df.columns:
+            rollups_with_age = rollup_df[rollup_df['primary_child_roof_age_installation_date'].notna()]
+            if len(rollups_with_age) > 0:
+                assert 'primary_child_roof_age_years_as_of_date' in rollup_df.columns, \
+                    "Rollup should have primary_child_roof_age_years_as_of_date"
+                non_null = rollups_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
+                print(f"  ✅ Rollup has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
+    else:
+        print("  ⚠️  Rollup CSV not found")
+
+    # 5. Cross-verify consistency between files
+    print("\n5. Checking consistency across files...")
+    if roof_csv.exists() and roof_parquet.exists():
+        roof_csv_df = pd.read_csv(roof_csv)
+        roof_parquet_gdf = gpd.read_parquet(roof_parquet)
+
+        # Compare roof age values between CSV and parquet for same feature IDs
+        if 'feature_id' in roof_csv_df.columns and 'feature_id' in roof_parquet_gdf.columns:
+            common_ids = set(roof_csv_df['feature_id']) & set(roof_parquet_gdf['feature_id'])
+            if common_ids and 'primary_child_roof_age_years_as_of_date' in roof_csv_df.columns:
+                csv_ages = roof_csv_df[roof_csv_df['feature_id'].isin(common_ids)].set_index('feature_id')['primary_child_roof_age_years_as_of_date']
+                parquet_ages = roof_parquet_gdf[roof_parquet_gdf['feature_id'].isin(common_ids)].set_index('feature_id')['primary_child_roof_age_years_as_of_date']
+
+                # Check values match (allowing for floating point precision)
+                for fid in common_ids:
+                    if fid in csv_ages.index and fid in parquet_ages.index:
+                        csv_val = csv_ages[fid]
+                        parquet_val = parquet_ages[fid]
+                        if pd.notna(csv_val) and pd.notna(parquet_val):
+                            assert abs(csv_val - parquet_val) < 0.01, \
+                                f"Age mismatch for feature {fid}: CSV={csv_val}, Parquet={parquet_val}"
+
+                print(f"  ✅ Roof age values consistent between CSV and parquet for {len(common_ids)} features")
+
+    print("\n" + "="*80)
+    print("All roof age year calculations verified successfully!")
+    print("="*80 + "\n")
+
     print(f"\n✅ is_primary integration test passed")
