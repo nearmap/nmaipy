@@ -14,7 +14,7 @@ Feature Classes:
 - Roof Instance (Roof Age API): Installation dates, trust scores, evidence types
 """
 import json
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, overload
 
 from dateutil.parser import parse as parse_date
 import geopandas as gpd
@@ -105,6 +105,27 @@ def _get_feature_value(feature, key):
                 return None
             return val
     return None
+
+
+@overload
+def calculate_roof_age_years(
+    installation_date: pd.Series,
+    as_of_date: pd.Series,
+) -> pd.Series: ...
+
+
+@overload
+def calculate_roof_age_years(
+    installation_date: str,
+    as_of_date: str,
+) -> float: ...
+
+
+@overload
+def calculate_roof_age_years(
+    installation_date: None,
+    as_of_date: Any,
+) -> None: ...
 
 
 def calculate_roof_age_years(

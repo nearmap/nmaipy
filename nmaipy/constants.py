@@ -106,6 +106,18 @@ SLOW_REQUEST_THRESHOLD_SECONDS = 60
 DUMMY_STATUS_CODE = -1
 
 # ============================================================================
+# API Warmup Configuration
+# ============================================================================
+# When running with many parallel workers (e.g. 40+), submitting all chunks
+# simultaneously can overwhelm the API before autoscaling kicks in. This
+# setting staggers initial chunk submissions to allow gradual warmup.
+
+# Seconds to wait between initial chunk submissions during warmup period.
+# Applied to first N chunks where N = number of parallel processes.
+# Set to 0 to disable warmup delays.
+API_WARMUP_INTERVAL_SECONDS = 20.0
+
+# ============================================================================
 # Primary Feature Selection Configuration
 # ============================================================================
 

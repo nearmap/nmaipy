@@ -39,6 +39,7 @@ from nmaipy.cgroup_memory import (
     get_memory_info_cgroup_aware,
     is_running_in_container,
 )
+from nmaipy.constants import API_WARMUP_INTERVAL_SECONDS
 
 logger = log.get_logger()
 
@@ -299,8 +300,38 @@ class BaseExporter(ABC):
                 with ProcessPoolExecutor(max_workers=self.processes) as executor:
                     try:
                         # Submit all chunks
+                        # Track warmup start time to gradually ramp up concurrency
+                        warmup_start_time = time.time()
+
+                        # Log warmup plan once at the start
+                        if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
+                            warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
+                            self.logger.info(
+                                f"API warmup: ramping parallel workers from 1 to {self.processes} "
+                                f"over {warmup_duration:.0f}s"
+                            )
+
                         for i, batch in chunks_to_process:
                             chunk_id = f"{file_stem}_{str(i).zfill(4)}"
+
+                            # API warmup: gradually ramp up concurrency to allow API autoscaling
+                            # Start with 1 worker, add 1 more every warmup_interval seconds
+                            if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
+                                while True:
+                                    elapsed = time.time() - warmup_start_time
+                                    # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
+                                    max_concurrent = min(
+                                        1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
+                                        self.processes
+                                    )
+                                    active_jobs = sum(1 for j in jobs if not j.done())
+
+                                    if active_jobs < max_concurrent:
+                                        break
+                                    else:
+                                        # At capacity for current warmup stage - wait briefly and recheck
+                                        time.sleep(1.0)
+
                             self.logger.debug(
                                 f"Submitting chunk {chunk_id} with {len(batch)} AOIs "
                                 f"(indices {batch.index.min()}-{batch.index.max()})"

@@ -574,13 +574,14 @@ def feature_attributes(
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
 
-    # Pre-select primary roof to enable IoU-based roof instance derivation
-    # The primary roof instance will be derived from the primary roof's IoU-linked child
-    # rather than being selected independently via geocoding
+    # Pre-select primary roof for two purposes:
+    # 1. Derive IoU-linked roof instance ID for primary roof instance selection
+    # 2. Reuse when processing roofs in the loop (avoid redundant select_primary call)
+    _primary_roof = None
     _primary_roof_child_ri_id = None
     roof_features = features_gdf[features_gdf.class_id == ROOF_ID]
     if len(roof_features) > 0:
-        _primary_roof_for_ri_derivation = select_primary(
+        _primary_roof = select_primary(
             roof_features,
             method=primary_decision,
             area_col="clipped_area_sqm",
@@ -595,11 +596,11 @@ def feature_attributes(
         )
         # Get IoU-linked roof instance from primary roof
         if (
-            _primary_roof_for_ri_derivation is not None
-            and "primary_child_roof_age_feature_id" in _primary_roof_for_ri_derivation.index
-            and pd.notna(_primary_roof_for_ri_derivation.primary_child_roof_age_feature_id)
+            _primary_roof is not None
+            and "primary_child_roof_age_feature_id" in _primary_roof.index
+            and pd.notna(_primary_roof.primary_child_roof_age_feature_id)
         ):
-            _primary_roof_child_ri_id = _primary_roof_for_ri_derivation.primary_child_roof_age_feature_id
+            _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
 
     for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
@@ -709,19 +710,23 @@ def feature_attributes(
                 else:
                     parcel[f"primary_{name}_area_sqm"] = round(primary_feature.area_sqm, 1) if hasattr(primary_feature, "area_sqm") and primary_feature.area_sqm is not None else 0.0
             else:
-                primary_feature = select_primary(
-                    class_features_gdf,
-                    method=primary_decision,
-                    area_col="clipped_area_sqm",
-                    secondary_area_col="unclipped_area_sqm",
-                    target_lat=primary_lat,
-                    target_lon=primary_lon,
-                    confidence_col="confidence",
-                    high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
-                    geometry_col="geometry_feature",
-                    geometry_projected_col=geometry_projected_col,
-                    projected_crs=projected_crs,
-                )
+                # For roofs, reuse the pre-selected primary roof (avoid redundant select_primary call)
+                if class_id == ROOF_ID and _primary_roof is not None:
+                    primary_feature = _primary_roof
+                else:
+                    primary_feature = select_primary(
+                        class_features_gdf,
+                        method=primary_decision,
+                        area_col="clipped_area_sqm",
+                        secondary_area_col="unclipped_area_sqm",
+                        target_lat=primary_lat,
+                        target_lon=primary_lon,
+                        confidence_col="confidence",
+                        high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+                        geometry_col="geometry_feature",
+                        geometry_projected_col=geometry_projected_col,
+                        projected_crs=projected_crs,
+                    )
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
                     parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
