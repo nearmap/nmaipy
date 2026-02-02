@@ -747,6 +747,307 @@ class TestLinkRoofInstancesToRoofs:
         assert ri_linked.loc["aoi-1", "parent_iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD
 
 
+class TestIoUBasedPrimaryRoofInstance:
+    """Tests for IoU-based primary roof instance derivation in feature_attributes."""
+
+    def test_primary_roof_instance_derived_from_primary_roof_iou_link(self):
+        """When primary roof has an IoU-linked roof instance, that instance should be used as primary.
+
+        Setup:
+        - 2 roofs: roof-1 (closer to geocode point) and roof-2 (larger but farther)
+        - 2 roof instances: ri-1 linked to roof-1 (small), ri-2 linked to roof-2 (larger)
+        - Geocode point is inside roof-1
+
+        Expected:
+        - Primary roof should be roof-1 (via geocoding/optimal)
+        - Primary roof instance should be ri-1 (derived from roof-1's IoU link)
+        - NOT ri-2, even though ri-2 is larger
+        """
+        from shapely.geometry import box
+
+        from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
+
+        # Create parcels with geocode point at (50, 50)
+        parcels_gdf = gpd.GeoDataFrame(
+            [
+                {
+                    AOI_ID_COLUMN_NAME: "aoi-1",
+                    "lat": 50.0,
+                    "lon": 50.0,
+                    "geometry": box(0, 0, 200, 200),  # Large parcel
+                }
+            ],
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        # Roof-1: small, contains geocode point (50, 50)
+        roof_1_geom = box(40, 40, 70, 70)  # 30x30, contains (50,50)
+        # Roof-2: larger, but doesn't contain geocode point
+        roof_2_geom = box(100, 100, 180, 180)  # 80x80, far from (50,50)
+
+        # Create roofs with IoU-linked roof instances already set (simulating post-linking)
+        roofs_data = [
+            {
+                "feature_id": "roof-1",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_ID,
+                "confidence": 0.95,
+                "fidelity": 0.9,
+                "geometry": roof_1_geom,
+                "clipped_area_sqm": roof_1_geom.area,
+                "unclipped_area_sqm": roof_1_geom.area,
+                "area_sqm": roof_1_geom.area,
+                "area_sqft": roof_1_geom.area * 10.764,
+                "clipped_area_sqft": roof_1_geom.area * 10.764,
+                "unclipped_area_sqft": roof_1_geom.area * 10.764,
+                "primary_child_roof_age_feature_id": "ri-1",  # IoU-linked to ri-1
+                "primary_child_roof_age_iou": 0.9,
+                "mesh_date": "2024-01-01",
+            },
+            {
+                "feature_id": "roof-2",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_ID,
+                "confidence": 0.95,
+                "fidelity": 0.9,
+                "geometry": roof_2_geom,
+                "clipped_area_sqm": roof_2_geom.area,
+                "unclipped_area_sqm": roof_2_geom.area,
+                "area_sqm": roof_2_geom.area,
+                "area_sqft": roof_2_geom.area * 10.764,
+                "clipped_area_sqft": roof_2_geom.area * 10.764,
+                "unclipped_area_sqft": roof_2_geom.area * 10.764,
+                "primary_child_roof_age_feature_id": "ri-2",  # IoU-linked to ri-2
+                "primary_child_roof_age_iou": 0.95,
+                "mesh_date": "2024-01-01",
+            },
+        ]
+
+        # Roof instance ri-1: small, linked to roof-1
+        ri_1_geom = box(42, 42, 68, 68)  # Inside roof-1
+        # Roof instance ri-2: larger, linked to roof-2
+        ri_2_geom = box(102, 102, 178, 178)  # Inside roof-2, larger than ri-1
+
+        roof_instances_data = [
+            {
+                "feature_id": "ri-1",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_INSTANCE_CLASS_ID,
+                "kind": "roof",
+                "geometry": ri_1_geom,
+                "area_sqm": ri_1_geom.area,
+                "area_sqft": ri_1_geom.area * 10.764,
+                "trustScore": 0.8,
+                "mesh_date": "2024-01-01",
+            },
+            {
+                "feature_id": "ri-2",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_INSTANCE_CLASS_ID,
+                "kind": "roof",
+                "geometry": ri_2_geom,
+                "area_sqm": ri_2_geom.area,
+                "area_sqft": ri_2_geom.area * 10.764,
+                "trustScore": 0.9,  # Higher trust score
+                "mesh_date": "2024-01-01",
+            },
+        ]
+
+        features_gdf = gpd.GeoDataFrame(
+            roofs_data + roof_instances_data,
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        classes_df = pd.DataFrame(
+            [["Roof"], ["Roof Instance"]],
+            columns=["description"],
+            index=[ROOF_ID, ROOF_INSTANCE_CLASS_ID],
+        )
+
+        rollup_df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country="us",
+            primary_decision="optimal",
+        )
+
+        # Primary roof should be roof-1 (contains geocode point)
+        assert rollup_df.loc["aoi-1", "primary_roof_feature_id"] == "roof-1"
+
+        # Primary roof instance should be ri-1 (derived from roof-1's IoU link)
+        # NOT ri-2, even though ri-2 is larger and has higher trust score
+        assert rollup_df.loc["aoi-1", "primary_roof_instance_feature_id"] == "ri-1"
+
+    def test_fallback_when_primary_roof_has_no_iou_link(self):
+        """When primary roof has no IoU-linked roof instance, fall back to independent selection."""
+        from shapely.geometry import box
+
+        from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
+
+        parcels_gdf = gpd.GeoDataFrame(
+            [
+                {
+                    AOI_ID_COLUMN_NAME: "aoi-1",
+                    "lat": 50.0,
+                    "lon": 50.0,
+                    "geometry": box(0, 0, 200, 200),
+                }
+            ],
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        # Roof with NO IoU-linked roof instance (primary_child_roof_age_feature_id is None)
+        roof_geom = box(40, 40, 70, 70)
+        roofs_data = [
+            {
+                "feature_id": "roof-1",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_ID,
+                "confidence": 0.95,
+                "fidelity": 0.9,
+                "geometry": roof_geom,
+                "clipped_area_sqm": roof_geom.area,
+                "unclipped_area_sqm": roof_geom.area,
+                "area_sqm": roof_geom.area,
+                "area_sqft": roof_geom.area * 10.764,
+                "clipped_area_sqft": roof_geom.area * 10.764,
+                "unclipped_area_sqft": roof_geom.area * 10.764,
+                "primary_child_roof_age_feature_id": None,  # No IoU link
+                "primary_child_roof_age_iou": None,
+                "mesh_date": "2024-01-01",
+            },
+        ]
+
+        # Two roof instances - ri-1 is closer to geocode, should be selected via fallback
+        ri_1_geom = box(42, 42, 60, 60)  # Contains geocode point (50, 50)
+        ri_2_geom = box(100, 100, 180, 180)  # Larger but far from geocode
+
+        roof_instances_data = [
+            {
+                "feature_id": "ri-1",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_INSTANCE_CLASS_ID,
+                "kind": "roof",
+                "geometry": ri_1_geom,
+                "area_sqm": ri_1_geom.area,
+                "area_sqft": ri_1_geom.area * 10.764,
+                "trustScore": 0.8,
+                "mesh_date": "2024-01-01",
+            },
+            {
+                "feature_id": "ri-2",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_INSTANCE_CLASS_ID,
+                "kind": "roof",
+                "geometry": ri_2_geom,
+                "area_sqm": ri_2_geom.area,
+                "area_sqft": ri_2_geom.area * 10.764,
+                "trustScore": 0.9,
+                "mesh_date": "2024-01-01",
+            },
+        ]
+
+        features_gdf = gpd.GeoDataFrame(
+            roofs_data + roof_instances_data,
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        classes_df = pd.DataFrame(
+            [["Roof"], ["Roof Instance"]],
+            columns=["description"],
+            index=[ROOF_ID, ROOF_INSTANCE_CLASS_ID],
+        )
+
+        rollup_df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country="us",
+            primary_decision="optimal",
+        )
+
+        # With no IoU link, fallback to independent selection
+        # ri-1 contains geocode point, so it should be selected via "optimal" strategy
+        assert rollup_df.loc["aoi-1", "primary_roof_instance_feature_id"] == "ri-1"
+
+    def test_fallback_when_no_roof_features(self):
+        """When no roof features exist, independent roof instance selection should be used."""
+        from shapely.geometry import box
+
+        from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
+
+        parcels_gdf = gpd.GeoDataFrame(
+            [
+                {
+                    AOI_ID_COLUMN_NAME: "aoi-1",
+                    "lat": 50.0,
+                    "lon": 50.0,
+                    "geometry": box(0, 0, 200, 200),
+                }
+            ],
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        # Only roof instances, no roofs
+        ri_1_geom = box(42, 42, 60, 60)  # Contains geocode point
+        ri_2_geom = box(100, 100, 180, 180)  # Larger but far from geocode
+
+        roof_instances_data = [
+            {
+                "feature_id": "ri-1",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_INSTANCE_CLASS_ID,
+                "kind": "roof",
+                "geometry": ri_1_geom,
+                "area_sqm": ri_1_geom.area,
+                "area_sqft": ri_1_geom.area * 10.764,
+                "trustScore": 0.8,
+                "mesh_date": "2024-01-01",
+            },
+            {
+                "feature_id": "ri-2",
+                AOI_ID_COLUMN_NAME: "aoi-1",
+                "class_id": ROOF_INSTANCE_CLASS_ID,
+                "kind": "roof",
+                "geometry": ri_2_geom,
+                "area_sqm": ri_2_geom.area,
+                "area_sqft": ri_2_geom.area * 10.764,
+                "trustScore": 0.9,
+                "mesh_date": "2024-01-01",
+            },
+        ]
+
+        features_gdf = gpd.GeoDataFrame(
+            roof_instances_data,
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        classes_df = pd.DataFrame(
+            [["Roof Instance"]],
+            columns=["description"],
+            index=[ROOF_INSTANCE_CLASS_ID],
+        )
+
+        rollup_df = parcels.parcel_rollup(
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country="us",
+            primary_decision="optimal",
+        )
+
+        # With no roofs, fallback to independent selection
+        # ri-1 contains geocode point, so it should be selected via "optimal" strategy
+        assert rollup_df.loc["aoi-1", "primary_roof_instance_feature_id"] == "ri-1"
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
