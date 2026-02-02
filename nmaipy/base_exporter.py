@@ -25,7 +25,7 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -61,6 +61,20 @@ class BaseExporter(ABC):
     - process_chunk(): Process a single chunk of data
     - get_chunk_output_file(): Return path to chunk output file for cache checking
     """
+
+    # Shared tqdm configuration for progress bars. The "+" in the format indicates
+    # total can increase during gridding.
+    _TQDM_CONFIG = dict(
+        desc="API requests",
+        file=sys.stdout,
+        position=0,
+        leave=True,
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
+        mininterval=5.0,
+        maxinterval=10.0,
+        smoothing=0.1,
+        unit=" requests",
+    )
 
     def __init__(
         self,
@@ -316,18 +330,7 @@ class BaseExporter(ABC):
                         if use_progress_tracking and progress_counters is not None:
                             with progress_counters["lock"]:
                                 initial_total = progress_counters["total"]
-                            pbar = tqdm(
-                                total=initial_total,
-                                desc="API requests",
-                                file=sys.stdout,
-                                position=0,
-                                leave=True,
-                                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-                                mininterval=5.0,
-                                maxinterval=10.0,
-                                smoothing=0.1,
-                                unit=" requests",
-                            )
+                            pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
 
                         chunks_submitted = 0
                         for i, batch in chunks_to_process:
@@ -460,7 +463,7 @@ class BaseExporter(ABC):
         progress_counters: Dict[str, Any],
         num_jobs: int,
         executor: ProcessPoolExecutor,
-        pbar: tqdm = None,
+        pbar: Optional[tqdm] = None,
     ) -> List[Dict[str, Any]]:
         """
         Monitor job progress with dynamic tqdm progress bar.
@@ -489,23 +492,9 @@ class BaseExporter(ABC):
             initial_total = progress_counters["total"]
 
         # Use existing pbar or create new one
-        # Progress bar tracks API requests (bar position and total), while description
-        # shows chunk completion ("Chunks: X/Y"). The "+" in the format indicates
-        # total can increase during gridding.
         pbar_created = pbar is None
         if pbar_created:
-            pbar = tqdm(
-                total=initial_total,
-                desc="API requests",
-                file=sys.stdout,
-                position=0,
-                leave=True,
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-                mininterval=5.0,
-                maxinterval=10.0,
-                smoothing=0.1,
-                unit=" requests",
-            )
+            pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
 
         try:
             while completed_jobs < num_jobs:
