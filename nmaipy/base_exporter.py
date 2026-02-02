@@ -25,7 +25,7 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -61,6 +61,20 @@ class BaseExporter(ABC):
     - process_chunk(): Process a single chunk of data
     - get_chunk_output_file(): Return path to chunk output file for cache checking
     """
+
+    # Shared tqdm configuration for progress bars. The "+" in the format indicates
+    # total can increase during gridding.
+    _TQDM_CONFIG = dict(
+        desc="API requests",
+        file=sys.stdout,
+        position=0,
+        leave=True,
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
+        mininterval=5.0,
+        maxinterval=10.0,
+        smoothing=0.1,
+        unit=" requests",
+    )
 
     def __init__(
         self,
@@ -311,6 +325,14 @@ class BaseExporter(ABC):
                                 f"over {warmup_duration:.0f}s"
                             )
 
+                        # Create progress bar BEFORE submission loop so it shows during warmup
+                        pbar = None
+                        if use_progress_tracking and progress_counters is not None:
+                            with progress_counters["lock"]:
+                                initial_total = progress_counters["total"]
+                            pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
+
+                        chunks_submitted = 0
                         for i, batch in chunks_to_process:
                             chunk_id = f"{file_stem}_{str(i).zfill(4)}"
 
@@ -329,7 +351,11 @@ class BaseExporter(ABC):
                                     if active_jobs < max_concurrent:
                                         break
                                     else:
-                                        # At capacity for current warmup stage - wait briefly and recheck
+                                        # At capacity for current warmup stage - update progress while waiting
+                                        if pbar is not None and progress_counters is not None:
+                                            self._update_pbar_during_warmup(
+                                                pbar, progress_counters, chunks_submitted, len(chunks_to_process)
+                                            )
                                         time.sleep(1.0)
 
                             self.logger.debug(
@@ -349,6 +375,7 @@ class BaseExporter(ABC):
                                 batch.index.min(),
                                 batch.index.max(),
                             )
+                            chunks_submitted += 1
 
                         # Process jobs with progress tracking
                         if use_progress_tracking and progress_counters is not None:
@@ -358,8 +385,11 @@ class BaseExporter(ABC):
                                 progress_counters,
                                 len(chunks_to_process),
                                 executor,
+                                pbar=pbar,
                             )
                         else:
+                            if pbar is not None:
+                                pbar.close()
                             all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
 
                         return all_latency_stats  # Success - exit retry loop
@@ -368,6 +398,9 @@ class BaseExporter(ABC):
                         self.logger.warning(
                             "Interrupted by user (Ctrl+C) - shutting down processes..."
                         )
+                        # Close progress bar if it exists
+                        if pbar is not None:
+                            pbar.close()
                         # Cancel all pending jobs
                         for job in jobs:
                             job.cancel()
@@ -390,6 +423,39 @@ class BaseExporter(ABC):
         # Should not reach here (either returns on success or raises on failure)
         return []
 
+    def _update_pbar_during_warmup(
+        self,
+        pbar: tqdm,
+        progress_counters: Dict[str, Any],
+        chunks_submitted: int,
+        total_chunks: int,
+    ) -> None:
+        """
+        Update the progress bar during warmup phase.
+
+        Called while waiting to submit more chunks during API warmup.
+        Shows current progress even though not all chunks are submitted yet.
+        """
+        lock_acquired = progress_counters["lock"].acquire(timeout=0.01)
+        if lock_acquired:
+            try:
+                requests_completed = progress_counters["completed"]
+                requests_total = progress_counters["total"]
+            finally:
+                progress_counters["lock"].release()
+
+            if pbar.total != requests_total:
+                pbar.total = requests_total
+            pbar.n = requests_completed
+
+            used_gb, total_gb = get_memory_info_cgroup_aware()
+            pbar.set_description(
+                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
+                f"Warmup | "
+                f"Chunks: {chunks_submitted}/{total_chunks}"
+            )
+            pbar.refresh()
+
     def _monitor_progress_with_tqdm(
         self,
         jobs: List[concurrent.futures.Future],
@@ -397,11 +463,20 @@ class BaseExporter(ABC):
         progress_counters: Dict[str, Any],
         num_jobs: int,
         executor: ProcessPoolExecutor,
+        pbar: Optional[tqdm] = None,
     ) -> List[Dict[str, Any]]:
         """
         Monitor job progress with dynamic tqdm progress bar.
 
         Updates progress based on shared counters that can grow during gridding.
+
+        Args:
+            jobs: List of submitted futures
+            job_to_chunk: Mapping from future to chunk info
+            progress_counters: Shared counters dict with 'total', 'completed', 'lock'
+            num_jobs: Total number of chunks (can be updated dynamically)
+            executor: The ProcessPoolExecutor
+            pbar: Optional existing tqdm progress bar (created if not provided)
 
         Returns:
             List of latency_stats dicts from each completed chunk
@@ -416,21 +491,12 @@ class BaseExporter(ABC):
         with progress_counters["lock"]:
             initial_total = progress_counters["total"]
 
-        # Progress bar tracks API requests (bar position and total), while description
-        # shows chunk completion ("Chunks: X/Y"). The "+" in the format indicates
-        # total can increase during gridding.
-        with tqdm(
-            total=initial_total,
-            desc="API requests",
-            file=sys.stdout,
-            position=0,
-            leave=True,
-            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-            mininterval=5.0,
-            maxinterval=10.0,
-            smoothing=0.1,
-            unit=" requests",
-        ) as pbar:
+        # Use existing pbar or create new one
+        pbar_created = pbar is None
+        if pbar_created:
+            pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
+
+        try:
             while completed_jobs < num_jobs:
                 # Check if any jobs have completed (non-blocking)
                 done, _ = wait(
@@ -554,6 +620,11 @@ class BaseExporter(ABC):
                 f"Chunks: {num_jobs}/{num_jobs}"
             )
             pbar.refresh()
+
+        finally:
+            # Close pbar only if we created it
+            if pbar_created:
+                pbar.close()
 
         return all_latency_stats
 
