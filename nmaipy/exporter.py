@@ -2333,7 +2333,10 @@ class NearmapAIExporter(BaseExporter):
                     )
                     sys.exit(1)
         if len(data) > 0:
-            data = pd.concat([data for data in data if len(data) > 0])
+            # Filter out DataFrames that are entirely NA (all values NA across all columns)
+            # to avoid FutureWarning about dtype inference changes in pd.concat
+            data = [d for d in data if not d.isna().all().all()]
+            data = pd.concat(data) if data else pd.DataFrame()
             if "geometry" in data.columns:
                 if not isinstance(data.geometry, gpd.GeoSeries):
                     data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)

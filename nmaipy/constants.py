@@ -115,7 +115,7 @@ DUMMY_STATUS_CODE = -1
 # Seconds to wait between initial chunk submissions during warmup period.
 # Applied to first N chunks where N = number of parallel processes.
 # Set to 0 to disable warmup delays.
-API_WARMUP_INTERVAL_SECONDS = 20.0
+API_WARMUP_INTERVAL_SECONDS = 10.0
 
 # ============================================================================
 # Primary Feature Selection Configuration
