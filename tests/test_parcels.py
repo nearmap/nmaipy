@@ -15,7 +15,6 @@ from nmaipy.constants import (
     API_CRS,
     AREA_CRS,
     BUILDING_ID,
-    BUILDING_NEW_ID,
     LAWN_GRASS_ID,
     POOL_ID,
     ROOF_ID,
@@ -834,6 +833,13 @@ class TestParcels:
         pitch_values = pd.to_numeric(rollup_df[pitch_col], errors="coerce").dropna()
         assert len(pitch_values) > 0, "No valid pitch values"
         assert (pitch_values > 0).all(), f"Pitch should be positive degrees: {pitch_values.tolist()}"
+
+        # Ground height column should exist with positive values
+        ground_height_col = f"{col_prefix}ground_height_ft"
+        assert ground_height_col in rollup_df.columns, f"Missing {ground_height_col}. Columns: {list(rollup_df.columns)}"
+        ground_height_values = pd.to_numeric(rollup_df[ground_height_col], errors="coerce").dropna()
+        assert len(ground_height_values) > 0, "No valid ground_height values"
+        assert (ground_height_values > 0).all(), f"Ground height should be positive: {ground_height_values.tolist()}"
 
 
 class TestLinkRoofInstancesToRoofs:

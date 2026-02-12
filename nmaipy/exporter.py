@@ -566,7 +566,8 @@ def export_feature_class(
                         [row], country=country, child_features=child_features
                     )
                     attr_records.append(attrs)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Could not flatten roof attributes for feature: {e}")
                     attr_records.append({})
 
             if attr_records:
@@ -591,7 +592,8 @@ def export_feature_class(
                 try:
                     attrs = flatten_building_attributes([row], country=country)
                     bldg_attr_records.append(attrs)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Could not flatten building attributes for feature: {e}")
                     bldg_attr_records.append({})
 
             if bldg_attr_records:
