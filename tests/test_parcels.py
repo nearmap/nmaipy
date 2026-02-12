@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from pathlib import Path
@@ -32,8 +33,6 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     Generate the test data for the parcels tests. Uses a specific date to ensure the data is consistent.
     """
     outfname = data_directory / "test_features.csv"
-    from nmaipy.feature_api import FeatureApi
-
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, parcel_mode=True).get_features_gdf_bulk(
         parcels_gdf, packs=packs, region="au", since_bulk="2025-04-03", until_bulk="2025-04-03"
@@ -47,11 +46,25 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     Generate secondary test data set.
     """
     outfname = data_directory / "test_features_2.csv"
-    from nmaipy.feature_api import FeatureApi
-
     packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1).get_features_gdf_bulk(
         parcels_2_gdf, packs=packs, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
+    )
+    features_gdf.to_csv(outfname)
+
+
+@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+def test_gen_data_3d(parcels_2_gdf, data_directory: Path, cache_directory: Path):
+    """
+    Generate test data with 3D building attributes from NJ parcels.
+    Uses only3d=True to ensure 3D mesh coverage.
+    """
+    outfname = data_directory / "test_features_3d.csv"
+    # Use a small subset (10 parcels) to keep fixture small
+    small_gdf = parcels_2_gdf.head(10)
+    packs = ["building", "building_char"]
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1, only3d=True).get_features_gdf_bulk(
+        small_gdf, packs=packs, region="us",
     )
     features_gdf.to_csv(outfname)
 
@@ -77,6 +90,108 @@ class TestParcels:
         }
         building = {"attributes": attributes}
         assert expected == parcels.flatten_building_attributes([building], country)
+
+    def test_flatten_building_api_list_format(self):
+        """Test with the actual API format: attributes is a list of dicts."""
+        country = "au"
+        attributes = [
+            {
+                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+                "description": "Building 3d attributes",
+                "has3dAttributes": True,
+                "height": 8.887635612487793,
+                "numStories": {"1": 0.057618971750252275, "2": 0.8145058300927666, "3+": 0.1278751981569811},
+            },
+            {
+                "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
+                "description": "Building pitch",
+                "available": True,
+                "value": 26.21,
+            },
+            {
+                "classId": "f7628feb-6d70-50ee-bbfd-053b4e685e8f",
+                "description": "Ground height",
+                "available": True,
+                "value": 105.0,
+            },
+        ]
+        expected = {
+            "has_3d_attributes": "Y",
+            "height_m": 8.9,
+            "num_storeys_1_confidence": 0.057618971750252275,
+            "num_storeys_2_confidence": 0.8145058300927666,
+            "num_storeys_3+_confidence": 0.1278751981569811,
+            "pitch_degrees": 26.21,
+            "ground_height_m": 105.0,
+        }
+        building = {"attributes": attributes}
+        assert expected == parcels.flatten_building_attributes([building], country)
+
+    def test_flatten_building_api_list_format_no_3d(self):
+        """Test list format when 3D is not available."""
+        country = "us"
+        attributes = [
+            {
+                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+                "description": "Building 3d attributes",
+                "has3dAttributes": False,
+            },
+            {
+                "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
+                "description": "Building pitch",
+                "available": False,
+            },
+        ]
+        building = {"attributes": attributes}
+        result = parcels.flatten_building_attributes([building], country)
+        assert result["has_3d_attributes"] == "N"
+        assert "height_ft" not in result
+        assert "pitch_degrees" not in result, "Pitch should not appear when available=False"
+        assert "ground_height_ft" not in result
+
+    def test_flatten_building_json_string_format(self):
+        """Test with JSON string format (attributes serialized to JSON in parquet)."""
+        country = "us"
+        attributes = json.dumps([
+            {
+                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+                "description": "Building 3d attributes",
+                "has3dAttributes": True,
+                "height": 4.7460938,
+                "numStories": {"1": 0.9793301, "2": 0.020153718, "3+": 0.00051615527},
+            },
+        ])
+        building = {"attributes": attributes}
+        result = parcels.flatten_building_attributes([building], country)
+        assert result["has_3d_attributes"] == "Y"
+        assert result["height_ft"] == 15.6
+        assert "num_storeys_1_confidence" in result
+
+    def test_flatten_building_python_repr_string_format(self):
+        """Test with Python repr string format (from CSV round-trip via to_csv/read_csv)."""
+        country = "us"
+        # CSV round-trip produces repr() strings: single quotes, True/False instead of true/false
+        attributes = repr([
+            {
+                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+                "description": "Building 3d attributes",
+                "has3dAttributes": True,
+                "height": 4.7460938,
+                "numStories": {"1": 0.9793301, "2": 0.020153718, "3+": 0.00051615527},
+            },
+        ])
+        building = {"attributes": attributes}
+        result = parcels.flatten_building_attributes([building], country)
+        assert result["has_3d_attributes"] == "Y"
+        assert result["height_ft"] == 15.6
+        assert "num_storeys_1_confidence" in result
+
+    def test_flatten_building_no_attributes(self):
+        """Test when attributes key is missing entirely."""
+        country = "us"
+        building = {"description": "Building", "confidence": 0.95}
+        result = parcels.flatten_building_attributes([building], country)
+        assert result == {}
 
     def test_flatten_roof(self):
         roof = {"attributes": [
@@ -665,6 +780,66 @@ class TestParcels:
         assert (
             df.loc[11179800001006, "building_count"] == 40
         )  # Updated count with parcel_mode disabled during gridding.
+
+
+    def test_rollup_3d_attributes(self, parcels_2_gdf, features_3d_gdf):
+        """Test that 3D building attributes appear in rollup when using real API fixture data."""
+        country = "us"
+        # Build classes_df from the features themselves
+        classes_df = features_3d_gdf[["class_id", "description"]].drop_duplicates().set_index("class_id")
+        classes_df.index.name = "id"
+
+        # Use only the parcels that have features
+        parcel_ids = features_3d_gdf.index.unique()
+        parcels_subset = parcels_2_gdf[parcels_2_gdf.index.isin(parcel_ids)]
+
+        rollup_df = parcels.parcel_rollup(
+            parcels_subset,
+            features_3d_gdf,
+            classes_df,
+            country=country,
+            primary_decision="largest_intersection",
+        )
+
+        # Find columns for the new semantic building (BUILDING_NEW_ID)
+        building_3d_cols = [c for c in rollup_df.columns if "has_3d_attributes" in c]
+        assert len(building_3d_cols) > 0, (
+            f"No 3D attribute columns found in rollup. Columns: {list(rollup_df.columns)}"
+        )
+
+        col_prefix = building_3d_cols[0].rsplit("has_3d_attributes", 1)[0]
+
+        # At least some parcels should have 3D data
+        has_3d_col = f"{col_prefix}has_3d_attributes"
+        assert (rollup_df[has_3d_col] == "Y").any(), (
+            f"No parcels have 3D attributes. Values: {rollup_df[has_3d_col].value_counts().to_dict()}"
+        )
+
+        # Height column should exist and have numeric values
+        height_col = f"{col_prefix}height_ft"
+        assert height_col in rollup_df.columns, f"Missing {height_col}. Columns: {list(rollup_df.columns)}"
+        height_values = pd.to_numeric(rollup_df[height_col], errors="coerce").dropna()
+        assert len(height_values) > 0, "No valid height values"
+        assert (height_values > 0).all(), f"Heights should be positive: {height_values.tolist()}"
+
+        # Num storeys columns should exist
+        for storey_key in ["1", "2", "3+"]:
+            storey_col = f"{col_prefix}num_storeys_{storey_key}_confidence"
+            assert storey_col in rollup_df.columns, f"Missing {storey_col}"
+
+        # Pitch column should exist with positive degree values
+        pitch_col = f"{col_prefix}pitch_degrees"
+        assert pitch_col in rollup_df.columns, f"Missing {pitch_col}. Columns: {list(rollup_df.columns)}"
+        pitch_values = pd.to_numeric(rollup_df[pitch_col], errors="coerce").dropna()
+        assert len(pitch_values) > 0, "No valid pitch values"
+        assert (pitch_values > 0).all(), f"Pitch should be positive degrees: {pitch_values.tolist()}"
+
+        # Ground height column should exist with positive values
+        ground_height_col = f"{col_prefix}ground_height_ft"
+        assert ground_height_col in rollup_df.columns, f"Missing {ground_height_col}. Columns: {list(rollup_df.columns)}"
+        ground_height_values = pd.to_numeric(rollup_df[ground_height_col], errors="coerce").dropna()
+        assert len(ground_height_values) > 0, "No valid ground_height values"
+        assert (ground_height_values > 0).all(), f"Ground height should be positive: {ground_height_values.tolist()}"
 
 
 class TestLinkRoofInstancesToRoofs:

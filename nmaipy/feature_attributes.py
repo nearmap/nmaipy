@@ -13,6 +13,7 @@ Feature Classes:
 - Building Lifecycle (Feature API): Damage scores and classifications
 - Roof Instance (Roof Age API): Installation dates, trust scores, evidence types
 """
+import ast
 import json
 from typing import Any, Dict, List, Optional, Union, overload
 
@@ -231,9 +232,42 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
     return attributes
 
 
+def _extract_building_3d_from_attribute_list(attribute_list: list) -> dict:
+    """
+    Extract the 3D attribute dict from the API's list-of-dicts format.
+
+    The Feature API returns building attributes as a list like:
+      [{"description": "Building 3d attributes", "has3dAttributes": True, "height": 4.7, ...},
+       {"description": "Building pitch", "available": True, "value": 3.3},
+       {"description": "Ground height", "available": True, "value": 105.0}]
+
+    This extracts the "Building 3d attributes" entry into the flat dict format
+    expected by the flattening logic.
+    """
+    result = {}
+    for attr in attribute_list:
+        if not isinstance(attr, dict):
+            continue
+        desc = attr.get("description", "")
+        if desc == "Building 3d attributes":
+            for key in ("has3dAttributes", "height", "numStories", "fidelity"):
+                if key in attr:
+                    result[key] = attr[key]
+        elif desc == "Building pitch" and attr.get("available"):
+            result["pitch"] = attr.get("value")
+        elif desc == "Ground height" and attr.get("available"):
+            result["ground_height"] = attr.get("value")
+    return result
+
+
 def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     """
     Flatten building attributes from Feature API.
+
+    Handles three formats for the attributes field:
+    1. List of dicts (raw API format from get_features_gdf_bulk)
+    2. Single dict (pre-extracted, e.g. in tests)
+    3. Missing/None (dropped by exporter — reconstructs from dot-notation columns)
 
     Args:
         buildings: List of building features with attributes
@@ -244,7 +278,33 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     """
     flattened = {}
     for building in buildings:
-        attribute = building["attributes"]
+        # Get the raw attributes value
+        try:
+            raw_attributes = building["attributes"]
+        except (KeyError, TypeError):
+            raw_attributes = None
+
+        # Parse string if needed (e.g. from parquet JSON or CSV repr)
+        if isinstance(raw_attributes, str):
+            try:
+                raw_attributes = json.loads(raw_attributes)
+            except (json.JSONDecodeError, TypeError):
+                try:
+                    raw_attributes = ast.literal_eval(raw_attributes)
+                except (ValueError, SyntaxError):
+                    raw_attributes = None
+
+        # Normalise to a single dict with 3D fields
+        if isinstance(raw_attributes, list):
+            attribute = _extract_building_3d_from_attribute_list(raw_attributes)
+        elif isinstance(raw_attributes, dict):
+            attribute = raw_attributes
+        else:
+            attribute = {}
+
+        if not attribute:
+            continue
+
         if "has3dAttributes" in attribute:
             flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
@@ -254,6 +314,13 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
                     flattened["height_m"] = round(attribute["height"], 1)
                 for k, v in attribute["numStories"].items():
                     flattened[f"num_storeys_{k}_confidence"] = v
+        if "pitch" in attribute:
+            flattened["pitch_degrees"] = round(attribute["pitch"], 2)
+        if "ground_height" in attribute:
+            if country in IMPERIAL_COUNTRIES:
+                flattened["ground_height_ft"] = round(attribute["ground_height"] * METERS_TO_FEET, 1)
+            else:
+                flattened["ground_height_m"] = round(attribute["ground_height"], 1)
         if "fidelity" in attribute:
             flattened["fidelity"] = attribute["fidelity"]
     return flattened
