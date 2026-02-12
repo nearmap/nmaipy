@@ -76,7 +76,7 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
-from nmaipy.feature_attributes import calculate_roof_age_years, flatten_roof_attributes
+from nmaipy.feature_attributes import calculate_roof_age_years, flatten_building_attributes, flatten_roof_attributes
 from nmaipy.parcels import link_roofs_to_buildings
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -582,8 +582,30 @@ def export_feature_class(
         except Exception as e:
             logger.debug(f"Could not flatten roof attributes: {e}")
 
-    # --- Section D: Building attributes (link to child roofs and add RSI) ---
+    # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
+        # Flatten building's own 3D attributes (height, pitch, ground_height, numStories)
+        try:
+            bldg_attr_records = []
+            for _, row in class_features.iterrows():
+                try:
+                    attrs = flatten_building_attributes([row], country=country)
+                    bldg_attr_records.append(attrs)
+                except Exception:
+                    bldg_attr_records.append({})
+
+            if bldg_attr_records:
+                bldg_attr_df = pd.DataFrame(bldg_attr_records)
+                bldg_attr_df = bldg_attr_df.drop(
+                    columns=[c for c in bldg_attr_df.columns if c in added_cols],
+                    errors="ignore",
+                )
+                if len(bldg_attr_df.columns) > 0:
+                    df_parts.append(bldg_attr_df.reset_index(drop=True))
+                    added_cols.update(bldg_attr_df.columns)
+        except Exception as e:
+            logger.debug(f"Could not flatten building attributes: {e}")
+
         # Get roofs from the full features_gdf
         roofs = features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
 
