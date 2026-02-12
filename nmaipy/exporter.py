@@ -32,8 +32,8 @@ import atexit
 import signal
 import time
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timezone
 from concurrent.futures.process import BrokenProcessPool
+from datetime import datetime, timezone
 
 import psutil
 
@@ -76,7 +76,8 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
-from nmaipy.feature_attributes import calculate_roof_age_years
+from nmaipy.feature_attributes import calculate_roof_age_years, flatten_roof_attributes
+from nmaipy.parcels import link_roofs_to_buildings
 from nmaipy.roof_age_api import RoofAgeApi
 
 
@@ -102,7 +103,10 @@ def _add_is_primary_column(
         features_gdf["is_primary"] = False
         return features_gdf
 
-    if "feature_id" not in features_gdf.columns or "class_id" not in features_gdf.columns:
+    if (
+        "feature_id" not in features_gdf.columns
+        or "class_id" not in features_gdf.columns
+    ):
         features_gdf["is_primary"] = False
         return features_gdf
 
@@ -111,11 +115,13 @@ def _add_is_primary_column(
     for col, class_id in PRIMARY_FEATURE_COLUMN_TO_CLASS.items():
         if col in rollup_df.columns:
             for aoi_id, feature_id in rollup_df[col].dropna().items():
-                primary_records.append({
-                    AOI_ID_COLUMN_NAME: aoi_id,
-                    "feature_id": str(feature_id),
-                    "class_id": class_id,
-                })
+                primary_records.append(
+                    {
+                        AOI_ID_COLUMN_NAME: aoi_id,
+                        "feature_id": str(feature_id),
+                        "class_id": class_id,
+                    }
+                )
 
     if not primary_records:
         features_gdf["is_primary"] = False
@@ -336,18 +342,22 @@ def export_feature_class(
     parquet_path = Path(f"{output_stem}_{class_name}_features.parquet")
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
-    # Start with required columns
-    flat_df = pd.DataFrame()
+    # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
+    n_rows = len(class_features)
+    df_parts = []
     added_cols = (
         set()
     )  # Track columns to avoid duplicates (e.g., area_sqm from Feature API vs Roof Age API)
 
+    # --- Section A: Initial columns (aoi_id, metadata, standard, confidence, area, dates) ---
+    initial_batch = {}
+
     # Add aoi_id from index or column
     if class_features.index.name == AOI_ID_COLUMN_NAME:
-        flat_df[AOI_ID_COLUMN_NAME] = class_features.index
+        initial_batch[AOI_ID_COLUMN_NAME] = class_features.index.values
         added_cols.add(AOI_ID_COLUMN_NAME)
     elif AOI_ID_COLUMN_NAME in class_features.columns:
-        flat_df[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].values
+        initial_batch[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].values
         added_cols.add(AOI_ID_COLUMN_NAME)
 
     # Add metadata columns (address fields, coordinates, etc.) if present
@@ -369,31 +379,31 @@ def export_feature_class(
         ]
     for col in metadata_cols:
         if col in class_features.columns and col not in added_cols:
-            flat_df[col] = class_features[col].values
+            initial_batch[col] = class_features[col].values
             added_cols.add(col)
 
     # Add standard columns
     if "feature_id" in class_features.columns:
-        flat_df["feature_id"] = class_features["feature_id"].values
+        initial_batch["feature_id"] = class_features["feature_id"].values
         added_cols.add("feature_id")
-    flat_df["class_id"] = class_id
+    initial_batch["class_id"] = class_id
     added_cols.add("class_id")
-    flat_df["description"] = class_description
+    initial_batch["description"] = class_description
     added_cols.add("description")
 
     # Add is_primary column if present (only for classes with primary selection)
     if "is_primary" in class_features.columns and "is_primary" not in added_cols:
-        flat_df["is_primary"] = class_features["is_primary"].values
+        initial_batch["is_primary"] = class_features["is_primary"].values
         added_cols.add("is_primary")
 
     # Roof instances don't have confidence/fidelity (they have trust_score instead)
     # Only add confidence and fidelity for non-roof-instance classes
     if class_id != ROOF_INSTANCE_CLASS_ID:
         if "confidence" in class_features.columns:
-            flat_df["confidence"] = class_features["confidence"].values
+            initial_batch["confidence"] = class_features["confidence"].values
             added_cols.add("confidence")
         if "fidelity" in class_features.columns:
-            flat_df["fidelity"] = class_features["fidelity"].values
+            initial_batch["fidelity"] = class_features["fidelity"].values
             added_cols.add("fidelity")
 
     # Add area fields (vectorized) - skip if already added
@@ -411,45 +421,61 @@ def export_feature_class(
         ]
     for col in area_cols:
         if col in class_features.columns and col not in added_cols:
-            flat_df[col] = class_features[col].values
+            initial_batch[col] = class_features[col].values
             added_cols.add(col)
 
     # Add date fields (vectorized) - not applicable to roof instances
     if class_id != ROOF_INSTANCE_CLASS_ID:
         for col in ["survey_date", "mesh_date"]:
             if col in class_features.columns and col not in added_cols:
-                flat_df[col] = class_features[col].values
+                initial_batch[col] = class_features[col].values
                 added_cols.add(col)
 
-    # Add class-specific attributes for roof instances
+    if initial_batch:
+        df_parts.append(pd.DataFrame(initial_batch, index=range(n_rows)))
+
+    # --- Section B: Roof instance attributes ---
     if class_id == ROOF_INSTANCE_CLASS_ID:
+        ri_batch = {}
         # Add roof instance linkage columns (parent_id = parent roof, parent_iou = IoU with parent)
         for col in ["parent_id", "parent_iou"]:
             if col in class_features.columns and col not in added_cols:
-                flat_df[col] = class_features[col].values
+                ri_batch[col] = class_features[col].values
                 added_cols.add(col)
 
         for src, dst in ROOF_AGE_FIELD_MAP.items():
             if src in class_features.columns and dst not in added_cols:
-                flat_df[dst] = class_features[src].values
+                ri_batch[dst] = class_features[src].values
                 added_cols.add(dst)
 
         # JSON serialize permits/assessor data if present
-        for src, dst in [("relevantPermits", "roof_age_relevant_permits"),
-                         ("assessorData", "roof_age_assessor_data")]:
+        for src, dst in [
+            ("relevantPermits", "roof_age_relevant_permits"),
+            ("assessorData", "roof_age_assessor_data"),
+        ]:
             if src in class_features.columns and dst not in added_cols:
-                flat_df[dst] = class_features[src].apply(
-                    lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
-                ).values
+                ri_batch[dst] = (
+                    class_features[src]
+                    .apply(
+                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
+                    )
+                    .values
+                )
                 added_cols.add(dst)
 
         # Copy pre-calculated roof age in years (calculated in process_chunk)
         if "roof_age_years_as_of_date" in class_features.columns:
-            flat_df["roof_age_years_as_of_date"] = class_features["roof_age_years_as_of_date"].values
+            ri_batch["roof_age_years_as_of_date"] = class_features[
+                "roof_age_years_as_of_date"
+            ].values
             added_cols.add("roof_age_years_as_of_date")
 
-    # Add class-specific linkage columns for roofs (linking to roof instances)
+        if ri_batch:
+            df_parts.append(pd.DataFrame(ri_batch, index=range(n_rows)))
+
+    # --- Section C: Roof linkage columns (linking to roof instances) ---
     if class_id == ROOF_ID:
+        roof_linkage_batch = {}
         for col in [
             "primary_child_roof_age_feature_id",
             "primary_child_roof_age_iou",
@@ -457,8 +483,11 @@ def export_feature_class(
             "child_roof_instance_count",
         ]:
             if col in class_features.columns and col not in added_cols:
-                flat_df[col] = class_features[col].values
+                roof_linkage_batch[col] = class_features[col].values
                 added_cols.add(col)
+
+        if roof_linkage_batch:
+            df_parts.append(pd.DataFrame(roof_linkage_batch, index=range(n_rows)))
 
         # Add flattened attributes of the primary child roof instance
         # Look up roof instances from the full features_gdf and join on primary_child_roof_age_feature_id
@@ -476,9 +505,16 @@ def export_feature_class(
                 for src, dst in ROOF_AGE_FIELD_MAP.items():
                     prefixed_dst = f"primary_child_{dst}"
                     # Skip untilDate if asOfDate is present (both map to same destination)
-                    if src == ROOF_AGE_UNTIL_DATE_FIELD and ROOF_AGE_AS_OF_DATE_FIELD in roof_instances.columns:
+                    if (
+                        src == ROOF_AGE_UNTIL_DATE_FIELD
+                        and ROOF_AGE_AS_OF_DATE_FIELD in roof_instances.columns
+                    ):
                         continue
-                    if src in roof_instances.columns and prefixed_dst not in added_cols and prefixed_dst not in ri_dst_cols:
+                    if (
+                        src in roof_instances.columns
+                        and prefixed_dst not in added_cols
+                        and prefixed_dst not in ri_dst_cols
+                    ):
                         ri_cols.append(src)
                         col_rename[src] = prefixed_dst
                         ri_dst_cols.add(prefixed_dst)
@@ -486,23 +522,36 @@ def export_feature_class(
                 # Also include the pre-calculated roof age years (calculated in process_chunk)
                 if "roof_age_years_as_of_date" in roof_instances.columns:
                     ri_cols.append("roof_age_years_as_of_date")
-                    col_rename["roof_age_years_as_of_date"] = "primary_child_roof_age_years_as_of_date"
+                    col_rename["roof_age_years_as_of_date"] = (
+                        "primary_child_roof_age_years_as_of_date"
+                    )
 
                 if len(ri_cols) > 1:  # More than just feature_id
-                    ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
-                    ri_lookup = ri_lookup.rename(columns=col_rename).set_index("feature_id")
+                    ri_lookup = roof_instances[ri_cols].drop_duplicates(
+                        subset=["feature_id"]
+                    )
+                    ri_lookup = ri_lookup.rename(columns=col_rename).set_index(
+                        "feature_id"
+                    )
 
                     # Map attributes using vectorized lookup
-                    primary_child_ids = class_features["primary_child_roof_age_feature_id"]
+                    primary_child_ids = class_features[
+                        "primary_child_roof_age_feature_id"
+                    ]
+                    ri_mapped_batch = {}
                     for col in ri_lookup.columns:
-                        flat_df[col] = primary_child_ids.map(ri_lookup[col]).values
+                        ri_mapped_batch[col] = primary_child_ids.map(
+                            ri_lookup[col]
+                        ).values
                         added_cols.add(col)
+                    if ri_mapped_batch:
+                        df_parts.append(
+                            pd.DataFrame(ri_mapped_batch, index=range(n_rows))
+                        )
 
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
         # These are from include parameters and the roof's own attributes array
         try:
-            from nmaipy.feature_attributes import flatten_roof_attributes
-
             # Get all non-roof features as potential children for clipped roof recalculation
             # The flatten_roof_attributes function will use classIds from the roof's own
             # components to find matching child features - this is fully data-driven
@@ -513,7 +562,9 @@ def export_feature_class(
                 try:
                     # Pass as list (function expects list of features)
                     # Child features are used to recalculate component attributes for clipped roofs
-                    attrs = flatten_roof_attributes([row], country=country, child_features=child_features)
+                    attrs = flatten_roof_attributes(
+                        [row], country=country, child_features=child_features
+                    )
                     attr_records.append(attrs)
                 except Exception:
                     attr_records.append({})
@@ -526,59 +577,69 @@ def export_feature_class(
                     errors="ignore",
                 )
                 if len(attr_df.columns) > 0:
-                    flat_df = pd.concat(
-                        [flat_df.reset_index(drop=True), attr_df.reset_index(drop=True)],
-                        axis=1,
-                    )
+                    df_parts.append(attr_df.reset_index(drop=True))
                     added_cols.update(attr_df.columns)
         except Exception as e:
             logger.debug(f"Could not flatten roof attributes: {e}")
 
-    # Add class-specific attributes for buildings (link to child roofs and add RSI)
+    # --- Section D: Building attributes (link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
         # Get roofs from the full features_gdf
         roofs = features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
 
         if len(roofs) > 0:
             try:
-                from nmaipy.parcels import link_roofs_to_buildings
-                from nmaipy.feature_attributes import flatten_roof_attributes
-
                 # Link roofs to buildings (spatial IoU)
-                roofs_linked, buildings_linked = link_roofs_to_buildings(roofs, class_features)
+                roofs_linked, buildings_linked = link_roofs_to_buildings(
+                    roofs, class_features
+                )
 
-                # Add linkage columns to flat_df
-                for col in ["primary_child_roof_id", "primary_child_roof_iou", "child_roofs", "child_roof_count"]:
+                # Add linkage columns
+                bldg_linkage_batch = {}
+                for col in [
+                    "primary_child_roof_id",
+                    "primary_child_roof_iou",
+                    "child_roofs",
+                    "child_roof_count",
+                ]:
                     if col in buildings_linked.columns and col not in added_cols:
-                        # buildings_linked has aoi_id as index, need to align with flat_df
-                        flat_df[col] = buildings_linked[col].values
+                        bldg_linkage_batch[col] = buildings_linked[col].values
                         added_cols.add(col)
+                if bldg_linkage_batch:
+                    df_parts.append(
+                        pd.DataFrame(bldg_linkage_batch, index=range(n_rows))
+                    )
 
                 # Build a mapping from roof feature_id to flattened attributes
                 # Get all non-roof features as potential children for clipped roof recalculation
-                child_features = features_gdf[features_gdf["class_id"] != ROOF_ID].copy()
+                child_features = features_gdf[
+                    features_gdf["class_id"] != ROOF_ID
+                ].copy()
                 roof_attrs = {}
                 for _, roof_row in roofs_linked.iterrows():
                     try:
-                        attrs = flatten_roof_attributes([roof_row], country=country, child_features=child_features)
+                        attrs = flatten_roof_attributes(
+                            [roof_row], country=country, child_features=child_features
+                        )
                         roof_attrs[roof_row["feature_id"]] = attrs
                     except Exception:
                         pass
 
                 if roof_attrs:
-                    # Add primary child roof attributes with prefix
+                    # Add primary child roof attributes with prefix (batched)
                     all_attr_keys = set()
                     for attrs in roof_attrs.values():
                         all_attr_keys.update(attrs.keys())
 
+                    roof_attr_batch = {}
                     for attr_key in sorted(all_attr_keys):
                         prefixed_key = f"primary_child_roof_{attr_key}"
                         if prefixed_key not in added_cols:
-                            flat_df[prefixed_key] = (
+                            roof_attr_batch[prefixed_key] = (
                                 buildings_linked["primary_child_roof_id"]
                                 .apply(
-                                    lambda fid: (
-                                        roof_attrs.get(fid, {}).get(attr_key)
+                                    lambda fid, ak=attr_key: (
+                                        roof_attrs.get(fid, {}).get(ak)
                                         if pd.notna(fid)
                                         else None
                                     )
@@ -590,12 +651,17 @@ def export_feature_class(
                     # Add min/max RSI aggregation across all child roofs
                     rsi_key = "roof_spotlight_index"
                     if any(rsi_key in attrs for attrs in roof_attrs.values()):
+
                         def get_child_rsi_values(child_roofs_json):
                             """Extract RSI values from all child roofs."""
                             if pd.isna(child_roofs_json) or child_roofs_json == "[]":
                                 return []
                             try:
-                                child_list = json.loads(child_roofs_json) if isinstance(child_roofs_json, str) else child_roofs_json
+                                child_list = (
+                                    json.loads(child_roofs_json)
+                                    if isinstance(child_roofs_json, str)
+                                    else child_roofs_json
+                                )
                                 rsi_values = []
                                 for child in child_list:
                                     fid = child.get("feature_id")
@@ -608,28 +674,49 @@ def export_feature_class(
                                 return []
 
                         if "child_roof_roof_spotlight_index_min" not in added_cols:
-                            flat_df["child_roof_roof_spotlight_index_min"] = (
+                            roof_attr_batch["child_roof_roof_spotlight_index_min"] = (
                                 buildings_linked["child_roofs"]
-                                .apply(lambda x: min(get_child_rsi_values(x)) if get_child_rsi_values(x) else None)
+                                .apply(
+                                    lambda x: (
+                                        min(get_child_rsi_values(x))
+                                        if get_child_rsi_values(x)
+                                        else None
+                                    )
+                                )
                                 .values
                             )
                             added_cols.add("child_roof_roof_spotlight_index_min")
 
                         if "child_roof_roof_spotlight_index_max" not in added_cols:
-                            flat_df["child_roof_roof_spotlight_index_max"] = (
+                            roof_attr_batch["child_roof_roof_spotlight_index_max"] = (
                                 buildings_linked["child_roofs"]
-                                .apply(lambda x: max(get_child_rsi_values(x)) if get_child_rsi_values(x) else None)
+                                .apply(
+                                    lambda x: (
+                                        max(get_child_rsi_values(x))
+                                        if get_child_rsi_values(x)
+                                        else None
+                                    )
+                                )
                                 .values
                             )
                             added_cols.add("child_roof_roof_spotlight_index_max")
 
+                    if roof_attr_batch:
+                        df_parts.append(
+                            pd.DataFrame(roof_attr_batch, index=range(n_rows))
+                        )
+
                 # Link roof age data from primary child roof's roof instance
                 # Chain: building → primary_child_roof → primary_child_roof_age (roof instance) → roof_age_*
                 if "primary_child_roof_age_feature_id" in roofs_linked.columns:
-                    roof_instances = features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID].copy()
+                    roof_instances = features_gdf[
+                        features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+                    ].copy()
                     if len(roof_instances) > 0:
                         # Create lookup from roof feature_id → roof's primary_child_roof_age_feature_id
-                        roof_to_ri = roofs_linked.set_index("feature_id")["primary_child_roof_age_feature_id"].to_dict()
+                        roof_to_ri = roofs_linked.set_index("feature_id")[
+                            "primary_child_roof_age_feature_id"
+                        ].to_dict()
 
                         # Roof age columns to link through (same as what roofs get)
                         ri_cols = ["feature_id"]
@@ -642,38 +729,56 @@ def export_feature_class(
                         # Include calculated roof_age_years_as_of_date
                         if "roof_age_years_as_of_date" in roof_instances.columns:
                             ri_cols.append("roof_age_years_as_of_date")
-                            col_rename["roof_age_years_as_of_date"] = "primary_child_roof_age_years_as_of_date"
+                            col_rename["roof_age_years_as_of_date"] = (
+                                "primary_child_roof_age_years_as_of_date"
+                            )
 
                         if len(ri_cols) > 1:  # More than just feature_id
-                            ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
-                            ri_lookup = ri_lookup.rename(columns=col_rename).set_index("feature_id")
+                            ri_lookup = roof_instances[ri_cols].drop_duplicates(
+                                subset=["feature_id"]
+                            )
+                            ri_lookup = ri_lookup.rename(columns=col_rename).set_index(
+                                "feature_id"
+                            )
 
                             # Map: building.primary_child_roof_id → roof.primary_child_roof_age_feature_id → ri attributes
                             primary_roof_ids = buildings_linked["primary_child_roof_id"]
                             primary_ri_ids = primary_roof_ids.map(roof_to_ri)
 
+                            bldg_ri_batch = {}
                             for col in ri_lookup.columns:
                                 if col not in added_cols:
-                                    flat_df[col] = primary_ri_ids.map(ri_lookup[col]).values
+                                    bldg_ri_batch[col] = primary_ri_ids.map(
+                                        ri_lookup[col]
+                                    ).values
                                     added_cols.add(col)
+                            if bldg_ri_batch:
+                                df_parts.append(
+                                    pd.DataFrame(bldg_ri_batch, index=range(n_rows))
+                                )
 
             except Exception as e:
                 logger.debug(f"Could not link roofs to buildings: {e}")
 
-    # Add class-specific attributes for building lifecycle (damage)
+    # --- Section E: Building lifecycle damage ---
     if class_id == BUILDING_LIFECYCLE_ID:
         if "damage" in class_features.columns:
             # Parse JSON and flatten damage columns for class-specific export
             damage_data = class_features["damage"].apply(
                 lambda x: _flatten_damage(json.loads(x) if isinstance(x, str) else x)
             )
-            flat_damage_df = pd.DataFrame(damage_data.tolist(), index=class_features.index)
+            flat_damage_df = pd.DataFrame(
+                damage_data.tolist(), index=class_features.index
+            )
+            damage_batch = {}
             for col in flat_damage_df.columns:
                 if col not in added_cols:
-                    flat_df[col] = flat_damage_df[col].values
+                    damage_batch[col] = flat_damage_df[col].values
                     added_cols.add(col)
+            if damage_batch:
+                df_parts.append(pd.DataFrame(damage_batch, index=range(n_rows)))
 
-    # Add mapbrowser link column
+    # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
     if "geometry" in class_features.columns:
 
@@ -710,8 +815,22 @@ def export_feature_class(
             except Exception:
                 return None
 
-        flat_df["link"] = class_features.apply(make_mapbrowser_link, axis=1).values
+        df_parts.append(
+            pd.DataFrame(
+                {"link": class_features.apply(make_mapbrowser_link, axis=1).values},
+                index=range(n_rows),
+            )
+        )
         added_cols.add("link")
+
+    # --- Final assembly: single concat to avoid DataFrame fragmentation ---
+    if df_parts:
+        flat_df = pd.concat(
+            [df.reset_index(drop=True) for df in df_parts],
+            axis=1,
+        )
+    else:
+        flat_df = pd.DataFrame()
 
     # Save CSV (attributes only, no geometry)
     if export_csv:
@@ -1493,9 +1612,15 @@ class NearmapAIExporter(BaseExporter):
                     if latency_stats:
                         latency_stats["chunk_id"] = chunk_id
                         latency_stats["start_time"] = chunk_start_time
-                        latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
-                        latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
-                        save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                        latency_stats["end_time"] = datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                        latency_stats["total_duration_ms"] = (
+                            time.monotonic() - chunk_start_monotonic
+                        ) * 1000
+                        save_chunk_latency_stats(
+                            latency_stats, self.chunk_path, chunk_id
+                        )
                     return {"chunk_id": chunk_id, "latency_stats": latency_stats}
             elif self.endpoint == Endpoint.FEATURE.value:
                 self.logger.debug(
@@ -1607,7 +1732,9 @@ class NearmapAIExporter(BaseExporter):
                     if len(roof_age_errors_df) > 0:
                         roof_age_errors_df.to_parquet(outfile_roof_age_errors)
                     chunk_end_time = datetime.now(timezone.utc).isoformat()
-                    total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
+                    total_duration_ms = (
+                        time.monotonic() - chunk_start_monotonic
+                    ) * 1000
                     latency_stats = collect_latency_stats_from_apis(
                         [feature_api, roof_age_api],
                         chunk_id,
@@ -1616,7 +1743,9 @@ class NearmapAIExporter(BaseExporter):
                         total_duration_ms,
                     )
                     if latency_stats is not None:
-                        save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                        save_chunk_latency_stats(
+                            latency_stats, self.chunk_path, chunk_id
+                        )
                     return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
                 # Combine features from both APIs (roof instances are treated as a feature class)
@@ -1710,35 +1839,61 @@ class NearmapAIExporter(BaseExporter):
 
                         # Calculate roof age in years for roofs with linked roof instances
                         # This adds primary_child_roof_age_years_as_of_date to roofs
-                        if ("primary_child_roof_age_installation_date" in features_gdf.columns and
-                            "primary_child_roof_age_as_of_date" in features_gdf.columns):
+                        if (
+                            "primary_child_roof_age_installation_date"
+                            in features_gdf.columns
+                            and "primary_child_roof_age_as_of_date"
+                            in features_gdf.columns
+                        ):
                             roofs_with_age_mask = (
                                 (features_gdf["class_id"] == ROOF_ID)
-                                & features_gdf["primary_child_roof_age_installation_date"].notna()
-                                & features_gdf["primary_child_roof_age_as_of_date"].notna()
+                                & features_gdf[
+                                    "primary_child_roof_age_installation_date"
+                                ].notna()
+                                & features_gdf[
+                                    "primary_child_roof_age_as_of_date"
+                                ].notna()
                             )
                             if roofs_with_age_mask.any():
                                 age_years = calculate_roof_age_years(
-                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_installation_date"],
-                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_as_of_date"],
+                                    features_gdf.loc[
+                                        roofs_with_age_mask,
+                                        "primary_child_roof_age_installation_date",
+                                    ],
+                                    features_gdf.loc[
+                                        roofs_with_age_mask,
+                                        "primary_child_roof_age_as_of_date",
+                                    ],
                                 )
                                 if age_years is not None:
-                                    features_gdf.loc[roofs_with_age_mask, "primary_child_roof_age_years_as_of_date"] = age_years.values
+                                    features_gdf.loc[
+                                        roofs_with_age_mask,
+                                        "primary_child_roof_age_years_as_of_date",
+                                    ] = age_years.values
                                     logger.debug(
                                         f"Chunk {chunk_id}: Calculated roof age in years for {roofs_with_age_mask.sum()} roofs"
                                     )
 
                         # Calculate roof age in years for roof instances
                         # Roof instances use raw API field names (installationDate, asOfDate)
-                        if "installationDate" in features_gdf.columns and "asOfDate" in features_gdf.columns:
-                            roof_instance_mask = features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+                        if (
+                            "installationDate" in features_gdf.columns
+                            and "asOfDate" in features_gdf.columns
+                        ):
+                            roof_instance_mask = (
+                                features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+                            )
                             if roof_instance_mask.any():
                                 age_years = calculate_roof_age_years(
-                                    features_gdf.loc[roof_instance_mask, "installationDate"],
+                                    features_gdf.loc[
+                                        roof_instance_mask, "installationDate"
+                                    ],
                                     features_gdf.loc[roof_instance_mask, "asOfDate"],
                                 )
                                 if age_years is not None:
-                                    features_gdf.loc[roof_instance_mask, "roof_age_years_as_of_date"] = age_years.values
+                                    features_gdf.loc[
+                                        roof_instance_mask, "roof_age_years_as_of_date"
+                                    ] = age_years.values
                                     logger.debug(
                                         f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
                                     )
@@ -1966,10 +2121,6 @@ class NearmapAIExporter(BaseExporter):
                         logger.debug(
                             f"Chunk {chunk_id}: Flattened {len(flattened_attrs.columns)} attribute columns"
                         )
-                        # Drop the attributes column and add flattened columns via concat (faster than loop)
-                        final_features_df = final_features_df.drop(
-                            columns=["attributes"]
-                        )
                         new_cols = [
                             c
                             for c in flattened_attrs.columns
@@ -1979,11 +2130,12 @@ class NearmapAIExporter(BaseExporter):
                             final_features_df = pd.concat(
                                 [final_features_df, flattened_attrs[new_cols]], axis=1
                             )
-                    else:
-                        # No attributes to flatten, just drop the column
-                        final_features_df = final_features_df.drop(
-                            columns=["attributes"]
-                        )
+
+                    # Serialize attributes to JSON string for parquet compatibility
+                    # (preserves the original data for rollup/building export paths)
+                    final_features_df["attributes"] = final_features_df["attributes"].apply(
+                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
+                    )
 
                 # Serialize damage to JSON string (flattening happens in class-specific exports)
                 # This avoids column explosion in mixed-class parcel_features.parquet
@@ -2318,9 +2470,7 @@ class NearmapAIExporter(BaseExporter):
                 if len(chunk) > 0:
                     data.append(chunk)
             else:
-                error_filename = (
-                    f"feature_api_errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
-                )
+                error_filename = f"feature_api_errors_{Path(aoi_path).stem}_{str(i).zfill(4)}.parquet"
                 if (self.chunk_path / error_filename).exists():
                     self.logger.debug(
                         f"Chunk {i} rollup file missing, but error file found."
