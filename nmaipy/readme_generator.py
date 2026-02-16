@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pyarrow.parquet as pq
+
 from nmaipy.__version__ import __version__
 
 # File patterns (suffixes) mapped to descriptions.
@@ -92,6 +94,7 @@ class ReadmeGenerator:
                 - The final directory itself containing the export files
         """
         self.output_dir = Path(output_dir)
+        self._config = None
 
         # Determine the actual final directory
         # Check if output_dir/final exists, otherwise assume output_dir is the final dir
@@ -102,14 +105,18 @@ class ReadmeGenerator:
             self.final_dir = self.output_dir
 
     def _load_export_config(self) -> dict:
-        """Load export_config.json if it exists."""
+        """Load export_config.json if it exists. Result is cached after first call."""
+        if self._config is not None:
+            return self._config
         config_path = self.final_dir / "export_config.json"
         if config_path.exists():
             try:
-                return json.loads(config_path.read_text())
+                self._config = json.loads(config_path.read_text())
+                return self._config
             except Exception:
                 pass
-        return {}
+        self._config = {}
+        return self._config
 
     def generate_and_save(self) -> Path:
         """
@@ -168,17 +175,15 @@ class ReadmeGenerator:
         """Detect the common filename prefix (e.g., 'parcels_')."""
         for f in files:
             if f.name.endswith("_aoi_rollup.csv"):
-                return f.stem.replace("_aoi_rollup", "") + "_"
+                return f.name[: -len("aoi_rollup.csv")]
             if f.name.endswith("_aoi_rollup.parquet"):
-                return f.stem.replace("_aoi_rollup", "") + "_"
-        # Fallback: try to find common prefix from CSV files
+                return f.name[: -len("aoi_rollup.parquet")]
+        # Fallback: try to find common prefix from per-class CSV files
         csv_files = [f for f in files if f.suffix == ".csv"]
-        if csv_files:
-            for f in csv_files:
-                if "_roof.csv" in f.name:
-                    return f.name.replace("roof.csv", "")
-                if "_building.csv" in f.name:
-                    return f.name.replace("building.csv", "")
+        for f in csv_files:
+            for suffix in ["_roof.csv", "_building.csv"]:
+                if f.name.endswith(suffix):
+                    return f.name[: -len(suffix)] + "_"
         return ""
 
     def _detect_classes(self, files: list[Path], prefix: str) -> list[dict]:
@@ -186,10 +191,13 @@ class ReadmeGenerator:
         Detect feature classes from filenames.
 
         Returns list of dicts with 'name' (display) and 'column' (snake_case).
+        Prefers CSV files; falls back to _features.parquet files if no CSVs found.
         """
+        skip_names = {"aoi_rollup", "feature_api_errors", "roof_age_errors", "latency_stats", "buildings"}
         classes = []
         seen = set()
 
+        # Primary: detect from CSV files
         for f in files:
             if f.suffix != ".csv":
                 continue
@@ -197,22 +205,13 @@ class ReadmeGenerator:
             if prefix:
                 name = name.replace(prefix.rstrip("_"), "", 1).lstrip("_")
 
-            # Skip non-class files
-            skip_patterns = [
-                "aoi_rollup",
-                "feature_api_errors",
-                "roof_age_errors",
-                "latency_stats",
-                "buildings",
-            ]
-            if any(p in name for p in skip_patterns):
+            if name in skip_names:
                 continue
 
             # Skip parquet companion files
             if name.endswith("_features"):
                 continue
 
-            # Convert to display name
             column_name = name
             display_name = name.replace("_", " ").title()
 
@@ -220,22 +219,52 @@ class ReadmeGenerator:
                 seen.add(column_name)
                 classes.append({"name": display_name, "column": column_name})
 
+        # Fallback: detect from _features.parquet files if no CSV classes found
+        if not classes:
+            for f in files:
+                if f.suffix != ".parquet" or not f.stem.endswith("_features"):
+                    continue
+                name = f.stem
+                if prefix:
+                    name = name.replace(prefix.rstrip("_"), "", 1).lstrip("_")
+
+                # Strip _features suffix to get class name
+                name = name[: -len("_features")]
+                if not name:
+                    continue
+
+                if name in skip_names:
+                    continue
+
+                column_name = name
+                display_name = name.replace("_", " ").title()
+
+                if column_name not in seen:
+                    seen.add(column_name)
+                    classes.append({"name": display_name, "column": column_name})
+
         return classes
 
     def _get_rollup_columns(self, files: list[Path], prefix: str) -> set[str]:
-        """Get column names from the rollup CSV file."""
-        rollup_file = None
+        """Get column names from the rollup file (CSV or Parquet)."""
+        rollup_csv = None
+        rollup_parquet = None
         for f in files:
             if f.name.endswith("_aoi_rollup.csv"):
-                rollup_file = f
-                break
+                rollup_csv = f
+            elif f.name.endswith("_aoi_rollup.parquet"):
+                rollup_parquet = f
 
-        if not rollup_file or not rollup_file.exists():
-            return set()
+        if rollup_csv and rollup_csv.exists():
+            with open(rollup_csv, "r") as fh:
+                header = fh.readline().strip()
+                return set(header.split(","))
 
-        with open(rollup_file, "r") as fh:
-            header = fh.readline().strip()
-            return set(header.split(","))
+        if rollup_parquet and rollup_parquet.exists():
+            schema = pq.read_schema(rollup_parquet)
+            return set(schema.names)
+
+        return set()
 
     def _detect_area_unit(self) -> str:
         """Detect area unit from export config country. Returns 'sqft' or 'sqm'."""

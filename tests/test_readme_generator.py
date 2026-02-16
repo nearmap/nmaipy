@@ -6,8 +6,10 @@ customer-facing documentation based on actual export files and columns.
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
-import pytest
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from nmaipy.__version__ import __version__
 from nmaipy.readme_generator import (
@@ -499,3 +501,166 @@ class TestReadmeIntegration:
         assert "Feature API" in gen._get_file_description("parcels_feature_api_errors.csv", prefix)
         assert "All detected features" in gen._get_file_description("parcels_features.parquet", prefix)
         assert "Export data file" == gen._get_file_description("unknown_file.xyz", prefix)
+
+
+class TestConfigCaching:
+    """Tests for export config caching (Fix 1)."""
+
+    def test_config_loaded_once(self, tmp_path):
+        """Verify _load_export_config reads file once and caches the result."""
+        config = {"_metadata": {}, "parameters": {"country": "au"}}
+        (tmp_path / "export_config.json").write_text(json.dumps(config))
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+
+        with patch.object(Path, "read_text", wraps=(tmp_path / "export_config.json").read_text) as mock_read:
+            result1 = gen._load_export_config()
+            result2 = gen._load_export_config()
+            assert mock_read.call_count == 1, "Config file should only be read once"
+        assert result1 is result2, "Cached result should be the same object"
+        assert result1["parameters"]["country"] == "au"
+
+
+class TestParquetRollupColumns:
+    """Tests for parquet rollup column extraction (Fix 2)."""
+
+    def test_get_rollup_columns_from_parquet(self, tmp_path):
+        """Verify columns are extracted from parquet rollup when no CSV rollup exists."""
+        table = pa.table({
+            "aoi_id": [0],
+            "roof_spotlight_index": [45],
+            "roof_age_installation_date": ["2020-01-01"],
+        })
+        pq.write_table(table, tmp_path / "parcels_aoi_rollup.parquet")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+        columns = gen._get_rollup_columns(files, prefix)
+
+        assert "aoi_id" in columns
+        assert "roof_spotlight_index" in columns
+        assert "roof_age_installation_date" in columns
+
+    def test_csv_rollup_preferred_over_parquet(self, tmp_path):
+        """When both CSV and parquet rollup exist, CSV is used."""
+        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id,csv_only_col\n0,1\n")
+        table = pa.table({"aoi_id": [0], "parquet_only_col": [1]})
+        pq.write_table(table, tmp_path / "parcels_aoi_rollup.parquet")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+        columns = gen._get_rollup_columns(files, prefix)
+
+        assert "csv_only_col" in columns
+        assert "parquet_only_col" not in columns
+
+    def test_parquet_rollup_enables_conditional_sections(self, tmp_path):
+        """Parquet rollup with RSI columns should trigger RSI section in output."""
+        config = {"_metadata": {}, "parameters": {"country": "us"}}
+        (tmp_path / "export_config.json").write_text(json.dumps(config))
+
+        table = pa.table({
+            "aoi_id": [0],
+            "roof_spotlight_index": [45],
+            "roof_spotlight_index_confidence": [0.85],
+        })
+        pq.write_table(table, tmp_path / "parcels_aoi_rollup.parquet")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        content = gen._generate()
+
+        assert "## Roof Spotlight Index (RSI) Columns" in content
+
+
+class TestParquetClassDetection:
+    """Tests for parquet-based class detection fallback (Fix 3)."""
+
+    def test_detect_classes_fallback_to_parquet(self, tmp_path):
+        """When no per-class CSVs exist, detect classes from _features.parquet files."""
+        # Only parquet files, no CSVs except rollup
+        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "parcels_roof_features.parquet").write_bytes(b"")
+        (tmp_path / "parcels_building_features.parquet").write_bytes(b"")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+        classes = gen._detect_classes(files, prefix)
+
+        class_columns = [c["column"] for c in classes]
+        assert "roof" in class_columns
+        assert "building" in class_columns
+
+    def test_detect_classes_parquet_skips_bare_features(self, tmp_path):
+        """Combined _features.parquet (no class prefix) should not create a class."""
+        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "parcels_features.parquet").write_bytes(b"")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+        classes = gen._detect_classes(files, prefix)
+
+        assert classes == []
+
+    def test_detect_classes_csv_preferred_over_parquet(self, tmp_path):
+        """When CSVs exist, parquet fallback should not run."""
+        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "parcels_roof.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "parcels_building_features.parquet").write_bytes(b"")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+        classes = gen._detect_classes(files, prefix)
+
+        class_columns = [c["column"] for c in classes]
+        assert "roof" in class_columns
+        assert "building" not in class_columns, "Parquet fallback should not run when CSV classes exist"
+
+
+class TestExactSkipMatch:
+    """Tests for exact skip name matching in _detect_classes (Fix 4)."""
+
+    def test_detect_classes_exact_skip_match(self, tmp_path):
+        """A class name that is a superstring of a skip name should NOT be skipped."""
+        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
+        # "latency_stats_detail" contains "latency_stats" as substring
+        (tmp_path / "parcels_latency_stats_detail.csv").write_text("aoi_id\n0\n")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+        classes = gen._detect_classes(files, prefix)
+
+        class_columns = [c["column"] for c in classes]
+        assert "latency_stats_detail" in class_columns, "Superstrings of skip names should not be skipped"
+
+
+class TestPrefixEndswithSafety:
+    """Tests for safe prefix extraction (Fix 5)."""
+
+    def test_get_file_prefix_endswith_safety(self, tmp_path):
+        """Prefix extraction should only match suffixes, not substrings."""
+        # Regression test: a file like "roof.csv_backup_roof.csv" should not confuse the logic
+        # More realistically, ensure standard cases still work correctly
+        (tmp_path / "my_project_roof.csv").write_text("aoi_id\n0\n")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+
+        assert prefix == "my_project_"
+
+    def test_get_file_prefix_from_parquet_rollup(self, tmp_path):
+        """Prefix extraction works from parquet rollup files."""
+        table = pa.table({"aoi_id": [0]})
+        pq.write_table(table, tmp_path / "export_aoi_rollup.parquet")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        files = gen._discover_files()
+        prefix = gen._get_file_prefix(files)
+
+        assert prefix == "export_"
