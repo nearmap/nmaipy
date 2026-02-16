@@ -76,6 +76,7 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
 )
 from nmaipy.feature_api import FeatureApi
+from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.feature_attributes import calculate_roof_age_years, flatten_building_attributes, flatten_roof_attributes
 from nmaipy.parcels import link_roofs_to_buildings
 from nmaipy.roof_age_api import RoofAgeApi
@@ -2860,6 +2861,14 @@ class NearmapAIExporter(BaseExporter):
                         )
             else:
                 self.logger.info("No features found for per-class export")
+
+        # Generate README data dictionary
+        try:
+            readme_gen = ReadmeGenerator(output_dir=self.final_path)
+            readme_path = readme_gen.generate_and_save()
+            self.logger.info(f"Generated README: {readme_path.name}")
+        except Exception as e:
+            self.logger.warning(f"README generation warning: {e}")
 
 
 # Backward compatibility alias
