@@ -1460,7 +1460,7 @@ class NearmapAIExporter(BaseExporter):
                                     # Try to cast this individual column
                                     try:
                                         arrays.append(col.cast(field.type))
-                                    except pa.ArrowInvalid:
+                                    except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
                                         # Can't cast (e.g., null -> string), create empty/null array with correct type
                                         self.logger.debug(
                                             f"    Creating null array for column '{field.name}' ({field.type})"
