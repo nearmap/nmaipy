@@ -8,6 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 import pyarrow.parquet as pq
 
 from nmaipy.__version__ import __version__
@@ -135,7 +136,7 @@ class ReadmeGenerator:
         files = self._discover_files()
         prefix = self._get_file_prefix(files)
         classes = self._detect_classes(files, prefix)
-        rollup_columns = self._get_rollup_columns(files, prefix)
+        rollup_columns = self._get_rollup_columns(files)
 
         has_address_query = self._has_address_query_columns(rollup_columns)
         has_rsi = self._has_rsi_columns(rollup_columns)
@@ -245,7 +246,7 @@ class ReadmeGenerator:
 
         return classes
 
-    def _get_rollup_columns(self, files: list[Path], prefix: str) -> set[str]:
+    def _get_rollup_columns(self, files: list[Path]) -> set[str]:
         """Get column names from the rollup file (CSV or Parquet)."""
         rollup_csv = None
         rollup_parquet = None
@@ -256,9 +257,8 @@ class ReadmeGenerator:
                 rollup_parquet = f
 
         if rollup_csv and rollup_csv.exists():
-            with open(rollup_csv, "r") as fh:
-                header = fh.readline().strip()
-                return set(header.split(","))
+            df = pd.read_csv(rollup_csv, nrows=0)
+            return set(df.columns)
 
         if rollup_parquet and rollup_parquet.exists():
             schema = pq.read_schema(rollup_parquet)

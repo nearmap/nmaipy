@@ -536,7 +536,7 @@ class TestParquetRollupColumns:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
         prefix = gen._get_file_prefix(files)
-        columns = gen._get_rollup_columns(files, prefix)
+        columns = gen._get_rollup_columns(files)
 
         assert "aoi_id" in columns
         assert "roof_spotlight_index" in columns
@@ -551,7 +551,7 @@ class TestParquetRollupColumns:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
         prefix = gen._get_file_prefix(files)
-        columns = gen._get_rollup_columns(files, prefix)
+        columns = gen._get_rollup_columns(files)
 
         assert "csv_only_col" in columns
         assert "parquet_only_col" not in columns
