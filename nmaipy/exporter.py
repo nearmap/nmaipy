@@ -21,6 +21,8 @@ from typing import List, Optional
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pyproj
 import shapely
 import shapely.geometry
@@ -48,7 +50,7 @@ from nmaipy.api_common import (
     save_chunk_latency_stats,
 )
 from nmaipy.base_exporter import BaseExporter
-from nmaipy.cgroup_memory import get_memory_info_cgroup_aware
+from nmaipy.cgroup_memory import get_cpu_info_cgroup_aware, get_memory_info_cgroup_aware
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
@@ -1351,12 +1353,10 @@ class NearmapAIExporter(BaseExporter):
             None since we don't need the GeoDataFrame in memory
         """
 
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
         pqwriter = None
         reference_columns = None  # Store column order from first chunk
         reference_schema = None  # Store PyArrow schema from first chunk
+        schema_promotion_count = 0  # Count chunks needing null-type promotions
 
         # Stream chunks directly to geoparquet
         for i, cp in enumerate(
@@ -1413,6 +1413,17 @@ class NearmapAIExporter(BaseExporter):
                 if pqwriter is None:
                     reference_schema = table.schema
 
+                    # Promote any null-type fields in reference schema to string.
+                    # This prevents the reverse problem: if the first chunk has all-null
+                    # columns, later chunks with actual data would need string->null casts.
+                    promoted = []
+                    for field in reference_schema:
+                        if field.type == pa.null():
+                            promoted.append(pa.field(field.name, pa.string(), nullable=True))
+                        else:
+                            promoted.append(field)
+                    reference_schema = pa.schema(promoted, metadata=reference_schema.metadata)
+
                     # Create geoparquet metadata from the start
                     # Use PROJJSON format for CRS to ensure QGIS compatibility
                     crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
@@ -1437,64 +1448,70 @@ class NearmapAIExporter(BaseExporter):
                     )
 
                     pqwriter = pq.ParquetWriter(outpath_features, schema_with_geo)
-                else:
-                    # Cast to reference schema if needed
-                    if table.schema != reference_schema:
-                        try:
-                            table = table.cast(reference_schema)
-                        except Exception as e:
-                            # Schema casting failed - likely due to null type columns
-                            # Try to fix by creating an empty table with the reference schema
-                            self.logger.warning(
-                                f"Chunk {i}: Schema casting failed, attempting to create compatible table"
-                            )
-                            self.logger.debug(f"  Error: {e}")
-                            self.logger.debug(f"  Reference schema: {reference_schema}")
-                            self.logger.debug(f"  Current schema: {table.schema}")
 
-                            # Create a new table with the reference schema structure but current data
-                            # For columns that can't be cast (e.g., null -> string), create empty arrays
-                            arrays = []
-                            for field in reference_schema:
-                                if field.name in table.column_names:
-                                    col = table.column(field.name)
-                                    # Try to cast this individual column
+                    # Reconcile first chunk's table with promoted schema
+                    if table.schema != reference_schema:
+                        arrays = []
+                        for field in reference_schema:
+                            col = table.column(field.name)
+                            if col.type == pa.null():
+                                arrays.append(pa.nulls(len(table), type=field.type))
+                            else:
+                                arrays.append(col)
+                        table = pa.Table.from_arrays(arrays, schema=reference_schema)
+                else:
+                    # Reconcile schema differences column-by-column.
+                    # Null-type columns (from all-null chunks) are promoted silently.
+                    # Only genuine type mismatches that lose data are warned.
+                    if table.schema != reference_schema:
+                        arrays = []
+                        type_warnings = []
+                        for field in reference_schema:
+                            if field.name in table.column_names:
+                                col = table.column(field.name)
+                                if col.type == field.type:
+                                    arrays.append(col)
+                                elif col.type == pa.null():
+                                    arrays.append(pa.nulls(len(table), type=field.type))
+                                else:
                                     try:
                                         arrays.append(col.cast(field.type))
                                     except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-                                        # Can't cast (e.g., null -> string), create empty/null array with correct type
-                                        self.logger.debug(
-                                            f"    Creating null array for column '{field.name}' ({field.type})"
+                                        type_warnings.append(
+                                            f"'{field.name}' ({col.type}->{field.type})"
                                         )
-                                        arrays.append(
-                                            pa.nulls(len(table), type=field.type)
-                                        )
-                                else:
-                                    # Column missing entirely, create null array with correct type
-                                    self.logger.debug(
-                                        f"    Creating null array for missing column '{field.name}' ({field.type})"
-                                    )
-                                    arrays.append(pa.nulls(len(table), type=field.type))
+                                        arrays.append(pa.nulls(len(table), type=field.type))
+                            else:
+                                arrays.append(pa.nulls(len(table), type=field.type))
 
-                            table = pa.Table.from_arrays(
-                                arrays, schema=reference_schema
+                        table = pa.Table.from_arrays(arrays, schema=reference_schema)
+                        if type_warnings:
+                            self.logger.warning(
+                                f"Chunk {i}: Incompatible columns replaced with nulls: "
+                                f"{', '.join(type_warnings)}"
                             )
-                            self.logger.debug(
-                                f"  Successfully created compatible table with {len(table)} rows"
-                            )
+                        schema_promotion_count += 1
                 pqwriter.write_table(table)
 
         # Close the writer
         if pqwriter is not None:
             pqwriter.close()
 
+            if schema_promotion_count > 0:
+                self.logger.info(
+                    f"Schema promotion: {schema_promotion_count}/{len(feature_paths)} "
+                    f"chunks had null-type columns promoted to match reference schema"
+                )
+
             # Log final status
             used_gb, total_gb = get_memory_info_cgroup_aware()
             mem_pct = (used_gb / total_gb * 100) if total_gb > 0 else 0.0
+            cpu_pct, cpu_count = get_cpu_info_cgroup_aware()
             final_file_size_gb = outpath_features.stat().st_size / (1024**3)
             self.logger.debug(
                 f"Successfully streamed to geoparquet without temporary files. "
                 f"Memory: {used_gb:.2f}GB / {total_gb:.2f}GB ({mem_pct:.1f}%). "
+                f"CPU: {cpu_pct:.0f}% of {cpu_count:.0f}. "
                 f"Final file size: {final_file_size_gb:.2f}GB"
             )
 
@@ -1614,10 +1631,12 @@ class NearmapAIExporter(BaseExporter):
                 rollup_df.columns = FeatureApi._multi_to_single_index(rollup_df.columns)
                 used_gb, total_gb = get_memory_info_cgroup_aware()
                 mem_pct = (used_gb / total_gb * 100) if total_gb > 0 else 0.0
+                cpu_pct, cpu_count = get_cpu_info_cgroup_aware()
                 self.logger.debug(
                     f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
                     f"{len(rollup_df)} rollups returned on {len(rollup_df.index.unique())} unique {rollup_df.index.name}s. "
-                    f"Memory: {used_gb:.1f}GB / {total_gb:.1f}GB ({mem_pct:.1f}%)"
+                    f"Memory: {used_gb:.1f}GB / {total_gb:.1f}GB ({mem_pct:.1f}%). "
+                    f"CPU: {cpu_pct:.0f}% of {cpu_count:.0f}"
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
@@ -1677,9 +1696,11 @@ class NearmapAIExporter(BaseExporter):
 
                 used_gb, total_gb = get_memory_info_cgroup_aware()
                 mem_pct = (used_gb / total_gb * 100) if total_gb > 0 else 0.0
+                cpu_pct, cpu_count = get_cpu_info_cgroup_aware()
                 self.logger.debug(
                     f"Chunk {chunk_id} failed {len(errors_df)} of {len(aoi_gdf)} AOI requests. "
-                    f"Memory: {used_gb:.1f}GB / {total_gb:.1f}GB ({mem_pct:.1f}%)"
+                    f"Memory: {used_gb:.1f}GB / {total_gb:.1f}GB ({mem_pct:.1f}%). "
+                    f"CPU: {cpu_pct:.0f}% of {cpu_count:.0f}"
                 )
                 if len(errors_df) > 0:
                     if "message" in errors_df:
@@ -2509,9 +2530,13 @@ class NearmapAIExporter(BaseExporter):
                     sys.exit(1)
         if len(data) > 0:
             # Filter out DataFrames that are entirely NA (all values NA across all columns)
-            # to avoid FutureWarning about dtype inference changes in pd.concat
             data = [d for d in data if not d.isna().all().all()]
-            data = pd.concat(data) if data else pd.DataFrame()
+            # Suppress FutureWarning about all-NA columns in concat dtype inference.
+            # Individual chunks may have all-NA columns for feature types not present
+            # in that chunk; this doesn't affect correctness.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning, message=".*concatenation with empty or all-NA.*")
+                data = pd.concat(data) if data else pd.DataFrame()
             if "geometry" in data.columns:
                 if not isinstance(data.geometry, gpd.GeoSeries):
                     data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
