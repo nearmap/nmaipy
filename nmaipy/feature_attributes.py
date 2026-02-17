@@ -502,38 +502,40 @@ def flatten_roof_attributes(
 
                 # For clipped roofs with child features, recalculate component attributes
                 # using spatial intersection - this is data-driven by classIds in components
-                if is_clipped and child_features is not None and len(child_features) > 0:
-                    geometry = _get_feature_value(roof, "geometry")
+                # For clipped roofs, try to recalculate component attributes using child features
+                recalc_attrs = None
+                if is_clipped and child_features is not None:
+                    geometry = _get_feature_value(roof, "geometry") or _get_feature_value(roof, "geometry_feature")
+                    if isinstance(geometry, bytes):
+                        from shapely import wkb
+                        geometry = wkb.loads(geometry)
                     if geometry is not None:
                         recalc_attrs = calculate_child_feature_attributes(
                             geometry, components, child_features, country
                         )
-                        # Only use recalculated if we got results
-                        if recalc_attrs:
-                            flattened.update(recalc_attrs)
-                            # Still need to process non-area attributes (e.g., dominant, confidenceStats)
-                            for component in components:
-                                name = component["description"].lower().replace(" ", "_")
-                                if "Low confidence" in attribute.get("description", ""):
-                                    name = f"low_conf_{name}"
-                                if "dominant" in component:
-                                    flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
-                                # Handle confidenceStats if present
-                                if "confidenceStats" in component:
-                                    confidence_stats = component["confidenceStats"]
-                                    histograms = confidence_stats.get("histograms", [])
-                                    for histogram in histograms:
-                                        bin_type = histogram.get("binType", "unknown")
-                                        ratios = histogram.get("ratios", [])
-                                        for bin_idx, ratio_value in enumerate(ratios):
-                                            flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
-                            continue  # Skip original component processing
+                if recalc_attrs is not None:
+                    flattened.update(recalc_attrs)
 
-                # Use original component data (unclipped or no child features available)
                 for component in components:
                     name = component["description"].lower().replace(" ", "_")
                     if "Low confidence" in attribute.get("description", ""):
                         name = f"low_conf_{name}"
+
+                    # If this component was recalculated, only add non-area attributes
+                    if recalc_attrs is not None and f"{name}_present" in recalc_attrs:
+                        if "dominant" in component:
+                            flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
+                        if "confidenceStats" in component:
+                            confidence_stats = component["confidenceStats"]
+                            histograms = confidence_stats.get("histograms", [])
+                            for histogram in histograms:
+                                bin_type = histogram.get("binType", "unknown")
+                                ratios = histogram.get("ratios", [])
+                                for bin_idx, ratio_value in enumerate(ratios):
+                                    flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
+                        continue
+
+                    # Use original component data (unclipped, or child features not available for this component)
                     flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                     if country in IMPERIAL_COUNTRIES:
                         flattened[f"{name}_area_sqft"] = component["areaSqft"]
@@ -542,19 +544,14 @@ def flatten_roof_attributes(
                     flattened[f"{name}_confidence"] = component["confidence"]
                     if "dominant" in component:
                         flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
-                    # Handle ratio field if present
                     if "ratio" in component:
                         flattened[f"{name}_ratio"] = component["ratio"]
-
-                    # Handle confidenceStats if present (from roofConditionConfidenceStats include parameter)
                     if "confidenceStats" in component:
                         confidence_stats = component["confidenceStats"]
-                        # Flatten histogram bins
                         histograms = confidence_stats.get("histograms", [])
                         for histogram in histograms:
                             bin_type = histogram.get("binType", "unknown")
                             ratios = histogram.get("ratios", [])
-                            # Create a column for each bin in the histogram
                             for bin_idx, ratio_value in enumerate(ratios):
                                 flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
             elif "has3dAttributes" in attribute:

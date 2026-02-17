@@ -121,19 +121,22 @@ def calculate_child_feature_attributes(
         country: Country code for units ("us" for imperial, "au" for metric)
 
     Returns:
-        Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio)
+        Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio),
+        or None if recalculation could not be attempted (missing geometry/components/children).
     """
     from nmaipy.constants import IMPERIAL_COUNTRIES, SQUARED_METERS_TO_SQUARED_FEET
 
-    flattened = {}
     if parent_geometry is None or parent_geometry.is_empty:
-        return flattened
-    if not components or child_features is None or len(child_features) == 0:
-        return flattened
+        return None
+    if not components or child_features is None:
+        return None
 
     parent_area = parent_geometry.area
     if parent_area <= 0:
-        return flattened
+        return None
+
+    flattened = {}
+    child_features_empty = len(child_features) == 0
 
     # Process each component - extract classId and find matching child features
     for component in components:
@@ -143,8 +146,21 @@ def calculate_child_feature_attributes(
             continue
 
         # Find child features with matching class_id
+        name = description.lower().replace(" ", "_")
+        if child_features_empty:
+            # ALL child features were filtered (e.g., by belongsToParcel) — emit zeros
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
+            continue
         matching_features = child_features[child_features.class_id == class_id]
         if len(matching_features) == 0:
+            # No matching children for this classId but other child features exist.
+            # Skip so caller falls back to original values (child features may not
+            # have been requested for this class).
             continue
 
         # Calculate intersection area with clipped parent geometry
@@ -158,8 +174,6 @@ def calculate_child_feature_attributes(
                     if max_confidence is None or feat.confidence > max_confidence:
                         max_confidence = feat.confidence
 
-        # Build flattened attributes with same naming convention as flatten_roof_attributes
-        name = description.lower().replace(" ", "_")
         if total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
             if country in IMPERIAL_COUNTRIES:
@@ -170,7 +184,10 @@ def calculate_child_feature_attributes(
             if max_confidence is not None:
                 flattened[f"{name}_confidence"] = max_confidence
         else:
-            flattened[f"{name}_present"] = FALSE_STRING
+            # Matching features exist but none intersect this roof — they belong to
+            # other roofs in the AOI. Skip this component so the caller can fall back
+            # to the original pre-computed values.
+            pass
 
     return flattened
 
