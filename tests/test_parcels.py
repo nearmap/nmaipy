@@ -1314,7 +1314,7 @@ class TestCalculateChildFeatureAttributes:
         assert result["roof_staining_confidence"] == 0.85
 
     def test_matching_children_no_intersection(self):
-        """When matching child features exist but don't intersect, skip (let caller use original values)."""
+        """When matching child features exist but don't intersect, emit zeros."""
         parent = self._parent_box()
         components = self._make_components([
             (self.STAINING_CLASS_ID, "Roof Staining"),
@@ -1326,7 +1326,9 @@ class TestCalculateChildFeatureAttributes:
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
 
-        assert "roof_staining_present" not in result
+        assert result["roof_staining_present"] == "N"
+        assert result["roof_staining_area_sqm"] == 0.0
+        assert result["roof_staining_ratio"] == 0.0
 
     def test_partial_match_some_components_missing(self):
         """Multiple components: one has matching children, another doesn't."""

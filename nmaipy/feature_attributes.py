@@ -500,9 +500,7 @@ def flatten_roof_attributes(
             if "components" in attribute:
                 components = attribute["components"]
 
-                # For clipped roofs with child features, recalculate component attributes
-                # using spatial intersection - this is data-driven by classIds in components
-                # For clipped roofs, try to recalculate component attributes using child features
+                # For clipped roofs, recalculate component attributes using child features
                 recalc_attrs = None
                 if is_clipped and child_features is not None:
                     geometry = _get_feature_value(roof, "geometry") or _get_feature_value(roof, "geometry_feature")
@@ -513,18 +511,25 @@ def flatten_roof_attributes(
                         recalc_attrs = calculate_child_feature_attributes(
                             geometry, components, child_features, country
                         )
-                if recalc_attrs is not None:
-                    flattened.update(recalc_attrs)
 
                 for component in components:
                     name = component["description"].lower().replace(" ", "_")
                     if "Low confidence" in attribute.get("description", ""):
                         name = f"low_conf_{name}"
 
-                    # If this component was recalculated, only add non-area attributes
+                    # If this component was recalculated, use recalculated values
+                    # but emit columns in the same order as the original path
                     if recalc_attrs is not None and f"{name}_present" in recalc_attrs:
+                        flattened[f"{name}_present"] = recalc_attrs[f"{name}_present"]
+                        if country in IMPERIAL_COUNTRIES:
+                            flattened[f"{name}_area_sqft"] = recalc_attrs.get(f"{name}_area_sqft", 0.0)
+                        else:
+                            flattened[f"{name}_area_sqm"] = recalc_attrs.get(f"{name}_area_sqm", 0.0)
+                        flattened[f"{name}_confidence"] = recalc_attrs.get(f"{name}_confidence", component.get("confidence"))
                         if "dominant" in component:
                             flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
+                        if "ratio" in component or f"{name}_ratio" in recalc_attrs:
+                            flattened[f"{name}_ratio"] = recalc_attrs.get(f"{name}_ratio", 0.0)
                         if "confidenceStats" in component:
                             confidence_stats = component["confidenceStats"]
                             histograms = confidence_stats.get("histograms", [])

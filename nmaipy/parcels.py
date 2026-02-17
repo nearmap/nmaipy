@@ -181,16 +181,19 @@ def calculate_child_feature_attributes(
         if total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
             if country in IMPERIAL_COUNTRIES:
-                flattened[f"{name}_area_sqft"] = round(total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET, 1)
+                flattened[f"{name}_area_sqft"] = total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
             else:
-                flattened[f"{name}_area_sqm"] = round(total_intersection_area, 1)
-            flattened[f"{name}_ratio"] = round(total_intersection_area / parent_area, 4)
+                flattened[f"{name}_area_sqm"] = total_intersection_area
+            flattened[f"{name}_ratio"] = total_intersection_area / parent_area
             if max_confidence is not None:
                 flattened[f"{name}_confidence"] = max_confidence
         else:
-            # Matching features exist but none intersect this roof — they belong to
-            # other roofs in the AOI. Skip so the caller falls back to original values.
-            pass
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
 
     return flattened
 
