@@ -34,6 +34,7 @@ from nmaipy.constants import (
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
     MeasurementUnits,
 )
 from nmaipy.feature_attributes import (
@@ -100,6 +101,7 @@ def calculate_child_feature_attributes(
     components: list,
     child_features: gpd.GeoDataFrame,
     country: str,
+    name_prefix: str = "",
 ) -> dict:
     """
     Calculate component attributes by spatial intersection for clipped features.
@@ -121,13 +123,13 @@ def calculate_child_feature_attributes(
         child_features: GeoDataFrame of all child features in the AOI (filtered
                        by the function to only those with matching classIds)
         country: Country code for units ("us" for imperial, "au" for metric)
+        name_prefix: Optional prefix for output keys (e.g., "low_conf_" for
+                    low-confidence attribute groups), must match the caller's naming
 
     Returns:
         Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio),
         or None if recalculation could not be attempted (missing geometry/components/children).
     """
-    from nmaipy.constants import AREA_CRS, API_CRS, IMPERIAL_COUNTRIES, SQUARED_METERS_TO_SQUARED_FEET
-
     if parent_geometry is None or parent_geometry.is_empty:
         return None
     if not components or child_features is None:
@@ -149,7 +151,7 @@ def calculate_child_feature_attributes(
         if not class_id:
             continue
 
-        name = description.lower().replace(" ", "_")
+        name = name_prefix + description.lower().replace(" ", "_")
         if child_features_empty:
             flattened[f"{name}_present"] = FALSE_STRING
             if country in IMPERIAL_COUNTRIES:

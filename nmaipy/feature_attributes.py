@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Union, overload
 from dateutil.parser import parse as parse_date
 import geopandas as gpd
 import pandas as pd
+from shapely import wkb
 
 from nmaipy import log
 from nmaipy.constants import (
@@ -505,11 +506,11 @@ def flatten_roof_attributes(
                 if is_clipped and child_features is not None:
                     geometry = _get_feature_value(roof, "geometry") or _get_feature_value(roof, "geometry_feature")
                     if isinstance(geometry, bytes):
-                        from shapely import wkb
                         geometry = wkb.loads(geometry)
                     if geometry is not None:
+                        name_prefix = "low_conf_" if "Low confidence" in attribute.get("description", "") else ""
                         recalc_attrs = calculate_child_feature_attributes(
-                            geometry, components, child_features, country
+                            geometry, components, child_features, country, name_prefix=name_prefix
                         )
 
                 for component in components:
@@ -517,40 +518,32 @@ def flatten_roof_attributes(
                     if "Low confidence" in attribute.get("description", ""):
                         name = f"low_conf_{name}"
 
-                    # If this component was recalculated, use recalculated values
-                    # but emit columns in the same order as the original path
                     if recalc_attrs is not None and f"{name}_present" in recalc_attrs:
+                        # Use recalculated values from spatial intersection with clipped geometry
                         flattened[f"{name}_present"] = recalc_attrs[f"{name}_present"]
                         if country in IMPERIAL_COUNTRIES:
                             flattened[f"{name}_area_sqft"] = recalc_attrs.get(f"{name}_area_sqft", 0.0)
                         else:
                             flattened[f"{name}_area_sqm"] = recalc_attrs.get(f"{name}_area_sqm", 0.0)
-                        flattened[f"{name}_confidence"] = recalc_attrs.get(f"{name}_confidence", component.get("confidence"))
-                        if "dominant" in component:
-                            flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
+                        # Only emit confidence when present (recalc omits it for present=N)
+                        if f"{name}_confidence" in recalc_attrs:
+                            flattened[f"{name}_confidence"] = recalc_attrs[f"{name}_confidence"]
                         if "ratio" in component or f"{name}_ratio" in recalc_attrs:
                             flattened[f"{name}_ratio"] = recalc_attrs.get(f"{name}_ratio", 0.0)
-                        if "confidenceStats" in component:
-                            confidence_stats = component["confidenceStats"]
-                            histograms = confidence_stats.get("histograms", [])
-                            for histogram in histograms:
-                                bin_type = histogram.get("binType", "unknown")
-                                ratios = histogram.get("ratios", [])
-                                for bin_idx, ratio_value in enumerate(ratios):
-                                    flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
-                        continue
-
-                    # Use original component data (unclipped, or child features not available for this component)
-                    flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                    if country in IMPERIAL_COUNTRIES:
-                        flattened[f"{name}_area_sqft"] = component["areaSqft"]
                     else:
-                        flattened[f"{name}_area_sqm"] = component["areaSqm"]
-                    flattened[f"{name}_confidence"] = component["confidence"]
+                        # Use original component data (unclipped, or no child features for this component)
+                        flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+                        if country in IMPERIAL_COUNTRIES:
+                            flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                        else:
+                            flattened[f"{name}_area_sqm"] = component["areaSqm"]
+                        flattened[f"{name}_confidence"] = component["confidence"]
+                        if "ratio" in component:
+                            flattened[f"{name}_ratio"] = component["ratio"]
+
+                    # Dominant and confidenceStats always come from the original component
                     if "dominant" in component:
                         flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
-                    if "ratio" in component:
-                        flattened[f"{name}_ratio"] = component["ratio"]
                     if "confidenceStats" in component:
                         confidence_stats = component["confidenceStats"]
                         histograms = confidence_stats.get("histograms", [])
