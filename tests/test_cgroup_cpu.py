@@ -1,8 +1,8 @@
 from unittest.mock import patch
 
 import psutil
-import pytest
 
+from nmaipy.base_exporter import BaseExporter
 from nmaipy.cgroup_memory import (
     get_cgroup_cpu_limit,
     get_cpu_info_cgroup_aware,
@@ -100,8 +100,6 @@ class TestGetCpuInfoCgroupAware:
 
 class TestFormatProgressDescription:
     def test_contains_memory_and_cpu(self):
-        from nmaipy.base_exporter import BaseExporter
-
         with patch("nmaipy.base_exporter.get_memory_info_cgroup_aware", return_value=(8.5, 32.0)), \
              patch("nmaipy.base_exporter.get_cpu_info_cgroup_aware", return_value=(65.0, 16.0)):
             desc = BaseExporter._format_progress_description(3, 10, lat_str="P50=42ms")
@@ -111,8 +109,6 @@ class TestFormatProgressDescription:
         assert "Chunks: 3/10" in desc
 
     def test_warmup_default(self):
-        from nmaipy.base_exporter import BaseExporter
-
         with patch("nmaipy.base_exporter.get_memory_info_cgroup_aware", return_value=(1.0, 8.0)), \
              patch("nmaipy.base_exporter.get_cpu_info_cgroup_aware", return_value=(10.0, 4.0)):
             desc = BaseExporter._format_progress_description(0, 5)
@@ -120,8 +116,6 @@ class TestFormatProgressDescription:
         assert "CPU 10% (4)" in desc
 
     def test_fractional_cpu_count(self):
-        from nmaipy.base_exporter import BaseExporter
-
         with patch("nmaipy.base_exporter.get_memory_info_cgroup_aware", return_value=(1.0, 8.0)), \
              patch("nmaipy.base_exporter.get_cpu_info_cgroup_aware", return_value=(50.0, 2.5)):
             desc = BaseExporter._format_progress_description(1, 5)
