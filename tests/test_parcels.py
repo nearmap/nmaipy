@@ -7,6 +7,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+from shapely.geometry import box
 from shapely.wkt import loads
 
 from nmaipy import parcels
@@ -1221,6 +1222,237 @@ class TestIoUBasedPrimaryRoofInstance:
         # With no roofs, fallback to independent selection
         # ri-1 contains geocode point, so it should be selected via "optimal" strategy
         assert rollup_df.loc["aoi-1", "primary_roof_instance_feature_id"] == "ri-1"
+
+
+class TestCalculateChildFeatureAttributes:
+    """Tests for calculate_child_feature_attributes — clipped roof component recalculation."""
+
+    STAINING_CLASS_ID = "cfa8951a-4c29-54de-ae98-e5f804c305e3"
+    RUSTING_CLASS_ID = "526496bf-7344-5024-82d7-77ceb671feb4"
+    TILE_CLASS_ID = "516fdfd5-0be9-59fe-b849-92faef8ef26e"
+
+    # ~10m x ~10m box near Sydney in WGS84 (lon, lat)
+    # At -33.8° lat, 1° lon ≈ 93km, 1° lat ≈ 111km
+    # 0.0001° ≈ 10m
+    SYD_LON, SYD_LAT = 151.2, -33.8
+    D = 0.0001  # ~10m offset
+
+    def _make_components(self, class_ids_and_descriptions):
+        """Build a components list from (classId, description) pairs."""
+        return [
+            {"classId": cid, "description": desc, "areaSqm": 100, "areaSqft": 1076, "confidence": 0.9, "ratio": 0.5}
+            for cid, desc in class_ids_and_descriptions
+        ]
+
+    def _make_child_features(self, features_data):
+        """Build a GeoDataFrame of child features from list of (class_id, geometry, confidence)."""
+        records = [
+            {"class_id": cid, "geometry": geom, "confidence": conf}
+            for cid, geom, conf in features_data
+        ]
+        return gpd.GeoDataFrame(records, geometry="geometry")
+
+    def _parent_box(self):
+        """A ~10m x ~10m box near Sydney."""
+        return box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D, self.SYD_LAT + self.D)
+
+    def test_no_matching_children_skips_component(self):
+        """When child features exist but none match a component's classId, skip that component."""
+        parent = self._parent_box()
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+        ])
+        child_features = self._make_child_features([
+            (self.TILE_CLASS_ID, box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D / 2, self.SYD_LAT + self.D / 2), 0.95),
+        ])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+
+        assert result is not None
+        assert "roof_staining_present" not in result
+
+    def test_empty_child_features_returns_zeros(self):
+        """When child_features GeoDataFrame is empty (all filtered), emit zeros for all components."""
+        parent = self._parent_box()
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+        ])
+        child_features = gpd.GeoDataFrame({"class_id": [], "geometry": [], "confidence": []}, geometry="geometry")
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+
+        assert result is not None
+        assert result["roof_staining_present"] == "N"
+        assert result["roof_staining_area_sqm"] == 0.0
+        assert result["roof_staining_ratio"] == 0.0
+
+    def test_no_child_features_returns_none(self):
+        """When child_features is None, return None."""
+        parent = self._parent_box()
+        components = self._make_components([(self.STAINING_CLASS_ID, "Roof Staining")])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, None, "au")
+        assert result is None
+
+    def test_matching_children_intersect(self):
+        """When matching child features intersect the parent, return correct area/ratio."""
+        parent = self._parent_box()
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+        ])
+        # Child feature covers left half of parent
+        child_features = self._make_child_features([
+            (self.STAINING_CLASS_ID, box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D / 2, self.SYD_LAT + self.D), 0.85),
+        ])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+
+        assert result["roof_staining_present"] == "Y"
+        assert result["roof_staining_area_sqm"] > 0
+        # Ratio should be ~0.5 (half coverage)
+        assert 0.45 <= result["roof_staining_ratio"] <= 0.55
+        assert result["roof_staining_confidence"] == 0.85
+
+    def test_matching_children_no_intersection(self):
+        """When matching child features exist but don't intersect, emit zeros."""
+        parent = self._parent_box()
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+        ])
+        # Child feature far from parent
+        child_features = self._make_child_features([
+            (self.STAINING_CLASS_ID, box(self.SYD_LON + 1, self.SYD_LAT + 1, self.SYD_LON + 1.001, self.SYD_LAT + 1.001), 0.85),
+        ])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+
+        assert result["roof_staining_present"] == "N"
+        assert result["roof_staining_area_sqm"] == 0.0
+        assert result["roof_staining_ratio"] == 0.0
+
+    def test_partial_match_some_components_missing(self):
+        """Multiple components: one has matching children, another doesn't."""
+        parent = self._parent_box()
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+            (self.RUSTING_CLASS_ID, "Roof Rusting"),
+        ])
+        # Only staining has child features covering ~30% of parent
+        child_features = self._make_child_features([
+            (self.STAINING_CLASS_ID, box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D * 0.3, self.SYD_LAT + self.D), 0.9),
+        ])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+
+        assert result["roof_staining_present"] == "Y"
+        assert result["roof_staining_area_sqm"] > 0
+        assert 0.25 <= result["roof_staining_ratio"] <= 0.35
+        assert "roof_rusting_present" not in result
+
+    def test_imperial_units(self):
+        """US country code produces sqft area keys."""
+        # Use a US location (~40°N, -74°W near NYC)
+        parent = box(-74.0, 40.0, -74.0 + self.D, 40.0 + self.D)
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+        ])
+        child_features = self._make_child_features([
+            (self.STAINING_CLASS_ID, box(-74.0, 40.0, -74.0 + self.D / 2, 40.0 + self.D / 2), 0.5),
+        ])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "us")
+
+        assert result["roof_staining_present"] == "Y"
+        assert "roof_staining_area_sqft" in result
+        assert "roof_staining_area_sqm" not in result
+
+    def test_imperial_units_empty_children(self):
+        """US country code with empty children produces sqft area keys with zeros."""
+        parent = box(-74.0, 40.0, -74.0 + self.D, 40.0 + self.D)
+        components = self._make_components([
+            (self.STAINING_CLASS_ID, "Roof Staining"),
+        ])
+        child_features = gpd.GeoDataFrame({"class_id": [], "geometry": [], "confidence": []}, geometry="geometry")
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "us")
+
+        assert result["roof_staining_present"] == "N"
+        assert "roof_staining_area_sqft" in result
+        assert "roof_staining_area_sqm" not in result
+
+
+class TestFlattenRoofAttributesClippedFallback:
+    """Test that clipped roofs don't fall back to unclipped component values."""
+
+    # Small box near Sydney for realistic CRS projection
+    SYD_LON, SYD_LAT, D = 151.2, -33.8, 0.0001
+
+    def test_clipped_roof_no_children_uses_zeros(self):
+        """A clipped roof with no matching child features should show condition as N/0, not unclipped values."""
+        roof = {
+            "clipped_area_sqm": 100.0,
+            "unclipped_area_sqm": 300.0,  # Clipped to 33%
+            "geometry": box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D, self.SYD_LAT + self.D),
+            "attributes": [
+                {
+                    "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+                    "description": "Roof condition",
+                    "components": [
+                        {
+                            "areaSqft": 2000,
+                            "areaSqm": 185.8,
+                            "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+                            "confidence": 0.85,
+                            "description": "Roof Staining",
+                            "ratio": 0.62,
+                        },
+                    ],
+                },
+            ],
+        }
+        child_features = gpd.GeoDataFrame(
+            {"class_id": pd.Series(dtype=str), "geometry": pd.Series(dtype=object), "confidence": pd.Series(dtype=float)},
+            geometry="geometry",
+        )
+
+        result = parcels.flatten_roof_attributes([roof], country="au", child_features=child_features)
+
+        assert result["roof_staining_present"] == "N"
+        assert result["roof_staining_area_sqm"] == 0
+        assert result["roof_staining_ratio"] == 0
+
+    def test_unclipped_roof_uses_original_values(self):
+        """An unclipped roof should use original component values (no recalculation needed)."""
+        roof = {
+            "clipped_area_sqm": 300.0,
+            "unclipped_area_sqm": 300.0,  # Not clipped
+            "geometry": box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D, self.SYD_LAT + self.D),
+            "attributes": [
+                {
+                    "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+                    "description": "Roof condition",
+                    "components": [
+                        {
+                            "areaSqft": 2000,
+                            "areaSqm": 185.8,
+                            "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+                            "confidence": 0.85,
+                            "description": "Roof Staining",
+                            "ratio": 0.62,
+                        },
+                    ],
+                },
+            ],
+        }
+        child_features = gpd.GeoDataFrame(
+            {"class_id": pd.Series(dtype=str), "geometry": pd.Series(dtype=object), "confidence": pd.Series(dtype=float)},
+            geometry="geometry",
+        )
+
+        result = parcels.flatten_roof_attributes([roof], country="au", child_features=child_features)
+
+        assert result["roof_staining_present"] == "Y"
+        assert result["roof_staining_area_sqm"] == 185.8
 
 
 if __name__ == "__main__":

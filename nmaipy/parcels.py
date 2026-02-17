@@ -112,8 +112,10 @@ def calculate_child_feature_attributes(
     The original component ratios from the API are based on the full roof, so we need
     to recalculate them based on the clipped geometry.
 
+    Geometries are projected to an equal-area CRS (AREA_CRS) before computing areas.
+
     Args:
-        parent_geometry: The clipped parent polygon (e.g., roof geometry)
+        parent_geometry: The clipped parent polygon (e.g., roof geometry in EPSG:4326)
         components: List of component dicts with classId, description fields
                    (from roof's attributes.components)
         child_features: GeoDataFrame of all child features in the AOI (filtered
@@ -121,56 +123,77 @@ def calculate_child_feature_attributes(
         country: Country code for units ("us" for imperial, "au" for metric)
 
     Returns:
-        Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio)
+        Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio),
+        or None if recalculation could not be attempted (missing geometry/components/children).
     """
-    from nmaipy.constants import IMPERIAL_COUNTRIES, SQUARED_METERS_TO_SQUARED_FEET
+    from nmaipy.constants import AREA_CRS, API_CRS, IMPERIAL_COUNTRIES, SQUARED_METERS_TO_SQUARED_FEET
+
+    if parent_geometry is None or parent_geometry.is_empty:
+        return None
+    if not components or child_features is None:
+        return None
+
+    # Project parent geometry to equal-area CRS for accurate area calculation
+    projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+    parent_projected = gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
+    parent_area = parent_projected.area
+    if parent_area <= 0:
+        return None
 
     flattened = {}
-    if parent_geometry is None or parent_geometry.is_empty:
-        return flattened
-    if not components or child_features is None or len(child_features) == 0:
-        return flattened
+    child_features_empty = len(child_features) == 0
 
-    parent_area = parent_geometry.area
-    if parent_area <= 0:
-        return flattened
-
-    # Process each component - extract classId and find matching child features
     for component in components:
         class_id = component.get("classId")
         description = component.get("description", "unknown")
         if not class_id:
             continue
 
-        # Find child features with matching class_id
+        name = description.lower().replace(" ", "_")
+        if child_features_empty:
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
+            continue
         matching_features = child_features[child_features.class_id == class_id]
         if len(matching_features) == 0:
             continue
 
-        # Calculate intersection area with clipped parent geometry
+        # Project matching child features and calculate intersection areas
+        matching_projected = gpd.GeoSeries(
+            matching_features.geometry.values, crs=API_CRS
+        ).to_crs(projected_crs)
+
         total_intersection_area = 0.0
         max_confidence = None
-        for _, feat in matching_features.iterrows():
-            if feat.geometry is not None and feat.geometry.intersects(parent_geometry):
-                intersection = feat.geometry.intersection(parent_geometry)
+        for idx, projected_geom in enumerate(matching_projected):
+            if projected_geom is not None and projected_geom.intersects(parent_projected):
+                intersection = projected_geom.intersection(parent_projected)
                 total_intersection_area += intersection.area
+                feat = matching_features.iloc[idx]
                 if hasattr(feat, "confidence") and feat.confidence is not None:
                     if max_confidence is None or feat.confidence > max_confidence:
                         max_confidence = feat.confidence
 
-        # Build flattened attributes with same naming convention as flatten_roof_attributes
-        name = description.lower().replace(" ", "_")
         if total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
             if country in IMPERIAL_COUNTRIES:
-                flattened[f"{name}_area_sqft"] = round(total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET, 1)
+                flattened[f"{name}_area_sqft"] = total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
             else:
-                flattened[f"{name}_area_sqm"] = round(total_intersection_area, 1)
-            flattened[f"{name}_ratio"] = round(total_intersection_area / parent_area, 4)
+                flattened[f"{name}_area_sqm"] = total_intersection_area
+            flattened[f"{name}_ratio"] = total_intersection_area / parent_area
             if max_confidence is not None:
                 flattened[f"{name}_confidence"] = max_confidence
         else:
             flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
 
     return flattened
 
@@ -743,7 +766,23 @@ def feature_attributes(
                 if col in primary_feature:
                     parcel[f"primary_{name}_{col}"] = primary_feature[col]
                 if class_id == ROOF_ID:
-                    primary_attributes = flatten_roof_attributes([primary_feature], country=country)
+                    # Get non-roof features as children for clipped roof recalculation
+                    geom_col = "geometry_feature" if "geometry_feature" in features_gdf.columns else "geometry"
+                    non_roof = features_gdf[features_gdf.class_id != ROOF_ID]
+                    if len(non_roof) > 0 and geom_col in non_roof.columns:
+                        child_feats = gpd.GeoDataFrame(
+                            non_roof, geometry=geom_col, crs=API_CRS
+                        )
+                        if child_feats.geometry.name != "geometry":
+                            child_feats = child_feats.rename_geometry("geometry")
+                    else:
+                        child_feats = gpd.GeoDataFrame(
+                            {"class_id": pd.Series(dtype=str), "geometry": pd.Series(dtype=object)},
+                            geometry="geometry",
+                        )
+                    primary_attributes = flatten_roof_attributes(
+                        [primary_feature], country=country, child_features=child_feats
+                    )
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
