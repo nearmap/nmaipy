@@ -1256,8 +1256,8 @@ class TestCalculateChildFeatureAttributes:
         """A ~10m x ~10m box near Sydney."""
         return box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D, self.SYD_LAT + self.D)
 
-    def test_no_matching_children_skips_component(self):
-        """When child features exist but none match a component's classId, skip that component."""
+    def test_no_matching_children_returns_zeros(self):
+        """When child features exist but none match a component's classId, emit zeros."""
         parent = self._parent_box()
         components = self._make_components([
             (self.STAINING_CLASS_ID, "Roof Staining"),
@@ -1269,7 +1269,9 @@ class TestCalculateChildFeatureAttributes:
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
 
         assert result is not None
-        assert "roof_staining_present" not in result
+        assert result["roof_staining_present"] == "N"
+        assert result["roof_staining_area_sqm"] == 0.0
+        assert result["roof_staining_ratio"] == 0.0
 
     def test_empty_child_features_returns_zeros(self):
         """When child_features GeoDataFrame is empty (all filtered), emit zeros for all components."""
@@ -1347,7 +1349,9 @@ class TestCalculateChildFeatureAttributes:
         assert result["roof_staining_present"] == "Y"
         assert result["roof_staining_area_sqm"] > 0
         assert 0.25 <= result["roof_staining_ratio"] <= 0.35
-        assert "roof_rusting_present" not in result
+        assert result["roof_rusting_present"] == "N"
+        assert result["roof_rusting_area_sqm"] == 0.0
+        assert result["roof_rusting_ratio"] == 0.0
 
     def test_imperial_units(self):
         """US country code produces sqft area keys."""
