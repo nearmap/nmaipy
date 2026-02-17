@@ -162,6 +162,12 @@ def calculate_child_feature_attributes(
             continue
         matching_features = child_features[child_features.class_id == class_id]
         if len(matching_features) == 0:
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
             continue
 
         # Project matching child features and calculate intersection areas
