@@ -34,8 +34,10 @@ from tqdm import tqdm
 
 from nmaipy import log
 from nmaipy.cgroup_memory import (
+    get_cgroup_cpu_limit,
     get_cgroup_memory_limit_gb,
     get_cgroup_memory_usage_gb,
+    get_cpu_info_cgroup_aware,
     get_memory_info_cgroup_aware,
     is_running_in_container,
 )
@@ -75,6 +77,18 @@ class BaseExporter(ABC):
         smoothing=0.1,
         unit=" requests",
     )
+
+    @staticmethod
+    def _format_progress_description(chunks_done, chunks_total, lat_str="Warmup"):
+        """Build progress bar description with memory and CPU info."""
+        used_gb, total_gb = get_memory_info_cgroup_aware()
+        cpu_pct, cpu_count = get_cpu_info_cgroup_aware()
+        cpu_count_str = f"{cpu_count:.0f}" if cpu_count == int(cpu_count) else f"{cpu_count:.1f}"
+        return (
+            f"API requests - {used_gb:.1f}/{total_gb:.1f}GB | "
+            f"CPU {cpu_pct:.0f}% ({cpu_count_str}) | "
+            f"{lat_str} | Chunks: {chunks_done}/{chunks_total}"
+        )
 
     def __init__(
         self,
@@ -309,6 +323,9 @@ class BaseExporter(ABC):
             if "progress_counters" not in process_chunk_kwargs:
                 process_chunk_kwargs["progress_counters"] = progress_counters
 
+        # Prime psutil CPU tracking (first call always returns 0.0, needs a baseline)
+        psutil.cpu_percent(interval=None)
+
         for attempt in range(max_retries):
             try:
                 with ProcessPoolExecutor(max_workers=self.processes) as executor:
@@ -448,11 +465,8 @@ class BaseExporter(ABC):
                 pbar.total = requests_total
             pbar.n = requests_completed
 
-            used_gb, total_gb = get_memory_info_cgroup_aware()
             pbar.set_description(
-                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
-                f"Warmup | "
-                f"Chunks: {chunks_submitted}/{total_chunks}"
+                self._format_progress_description(chunks_submitted, total_chunks)
             )
             pbar.refresh()
 
@@ -539,11 +553,10 @@ class BaseExporter(ABC):
                             else:
                                 lat_str = "Lat: ---"
 
-                            used_gb, total_gb = get_memory_info_cgroup_aware()
                             pbar.set_description(
-                                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
-                                f"{lat_str} | "
-                                f"Chunks: {completed_jobs}/{num_jobs}"
+                                self._format_progress_description(
+                                    completed_jobs, num_jobs, lat_str=lat_str
+                                )
                             )
                             pbar.refresh()
 
@@ -586,13 +599,11 @@ class BaseExporter(ABC):
                             lat_str = "Lat: ---"
 
                         # Update position and description
-                        used_gb, total_gb = get_memory_info_cgroup_aware()
-
                         pbar.n = requests_completed
                         pbar.set_description(
-                            f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
-                            f"{lat_str} | "
-                            f"Chunks: {completed_jobs}/{num_jobs}"
+                            self._format_progress_description(
+                                completed_jobs, num_jobs, lat_str=lat_str
+                            )
                         )
 
                     # Always refresh, even if we couldn't get the lock
@@ -610,14 +621,12 @@ class BaseExporter(ABC):
             else:
                 lat_str = "Lat: ---"
 
-            used_gb, total_gb = get_memory_info_cgroup_aware()
-
             pbar.n = requests_completed
             pbar.total = requests_total
             pbar.set_description(
-                f"API requests - {used_gb:.1f}GB/{total_gb:.1f}GB mem | "
-                f"{lat_str} | "
-                f"Chunks: {num_jobs}/{num_jobs}"
+                self._format_progress_description(
+                    num_jobs, num_jobs, lat_str=lat_str
+                )
             )
             pbar.refresh()
 
@@ -709,6 +718,14 @@ class BaseExporter(ABC):
         )
         self.logger.error(f"  File descriptors: {fd_count} open (limit: {soft_limit})")
         self.logger.error(f"  Active processes: {self.processes}")
+        cpu_pct = psutil.cpu_percent(interval=0.1)  # Blocking OK in error path
+        self.logger.error(
+            f"  CPU: {cpu_pct:.1f}% across {psutil.cpu_count()} host cores"
+        )
+        if is_running_in_container():
+            cgroup_cpus = get_cgroup_cpu_limit()
+            if cgroup_cpus is not None:
+                self.logger.error(f"  Container CPU limit: {cgroup_cpus:.1f} CPUs")
 
         if attempt < max_retries - 1:
             self.logger.warning(

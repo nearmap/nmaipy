@@ -1,16 +1,19 @@
+import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from nmaipy.constants import *
 from nmaipy.exporter import AOIExporter
 from nmaipy.feature_api import FeatureApi
-from unittest.mock import patch, MagicMock
-import tempfile
 
 
 class TestExporter:
@@ -573,8 +576,6 @@ class TestExporter:
 
         The fix should handle this by creating properly-typed null arrays.
         """
-        import pyarrow as pa
-        import pyarrow.parquet as pq
         from shapely.geometry import Point
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -640,6 +641,99 @@ class TestExporter:
             # Verify first row has data, second row has nulls
             assert merged_data.iloc[0]['system_version'] == 'gen6-'
             assert pd.isna(merged_data.iloc[1]['system_version'])
+
+
+    def test_stream_and_convert_features_null_columns_no_warning(self, caplog):
+        """Test that null-type columns in later chunks are promoted silently without warnings."""
+        from shapely.geometry import Point
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            chunk_dir = tmpdir / "chunks"
+            chunk_dir.mkdir()
+
+            # Chunk 1: has data in all columns
+            chunk1_data = gpd.GeoDataFrame({
+                'system_version': ['gen6-'],
+                'lob_bv': ['homeowner'],
+                'geometry': [Point(0, 0)]
+            }, crs='EPSG:4326')
+            chunk1_data.to_parquet(chunk_dir / "features_1.parquet")
+
+            # Chunk 2: lob_bv is all null (simulates empty passthrough column)
+            chunk2_data = gpd.GeoDataFrame({
+                'system_version': ['gen6-'],
+                'lob_bv': [None],
+                'geometry': [Point(1, 1)]
+            }, crs='EPSG:4326')
+            chunk2_data.to_parquet(chunk_dir / "features_2.parquet")
+
+            exporter = AOIExporter(
+                output_dir=tmpdir, country='au', packs=['building'], save_features=True,
+            )
+            output_path = tmpdir / "merged.parquet"
+            feature_paths = sorted(chunk_dir.glob("*.parquet"))
+
+            with caplog.at_level(logging.WARNING, logger="nmaipy"):
+                exporter._stream_and_convert_features(feature_paths, output_path)
+
+            # Should NOT produce per-chunk warning messages about schema casting
+            warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+            assert not any("Schema casting failed" in m for m in warning_msgs), \
+                f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
+            assert not any("Incompatible columns" in m for m in warning_msgs), \
+                f"Null-type promotions should not produce incompatible column warnings"
+
+            # Verify data is correct
+            merged = gpd.read_parquet(output_path)
+            assert len(merged) == 2
+            assert merged.iloc[0]['lob_bv'] == 'homeowner'
+            assert pd.isna(merged.iloc[1]['lob_bv'])
+
+    def test_stream_and_convert_features_reference_schema_null_promotion(self):
+        """Test that null-type columns in the first chunk are promoted to string in reference schema."""
+        from shapely.geometry import Point
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            chunk_dir = tmpdir / "chunks"
+            chunk_dir.mkdir()
+
+            # Chunk 1: lob_bv is all null (first chunk establishes reference schema)
+            chunk1_data = gpd.GeoDataFrame({
+                'system_version': ['gen6-'],
+                'lob_bv': [None],
+                'geometry': [Point(0, 0)]
+            }, crs='EPSG:4326')
+            chunk1_data.to_parquet(chunk_dir / "features_1.parquet")
+
+            # Chunk 2: lob_bv has data
+            chunk2_data = gpd.GeoDataFrame({
+                'system_version': ['gen6-'],
+                'lob_bv': ['homeowner'],
+                'geometry': [Point(1, 1)]
+            }, crs='EPSG:4326')
+            chunk2_data.to_parquet(chunk_dir / "features_2.parquet")
+
+            exporter = AOIExporter(
+                output_dir=tmpdir, country='au', packs=['building'], save_features=True,
+            )
+            output_path = tmpdir / "merged.parquet"
+            feature_paths = sorted(chunk_dir.glob("*.parquet"))
+
+            exporter._stream_and_convert_features(feature_paths, output_path)
+
+            # Verify data is correct even when first chunk had null column
+            merged = gpd.read_parquet(output_path)
+            assert len(merged) == 2
+            assert pd.isna(merged.iloc[0]['lob_bv'])
+            assert merged.iloc[1]['lob_bv'] == 'homeowner'
+
+            # Verify the parquet schema has string type (not null) for lob_bv
+            schema = pq.read_schema(output_path)
+            lob_field = schema.field('lob_bv')
+            assert lob_field.type == pa.string(), \
+                f"Expected string type for promoted null column, got {lob_field.type}"
 
 
 if __name__ == "__main__":
