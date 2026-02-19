@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import fsspec
+from fsspec.spec import AbstractFileSystem
 
 _s3_filesystem_cache = {}
 
@@ -27,10 +28,19 @@ def _get_s3_filesystem():
 
     Creates a new instance after fork to avoid sharing non-fork-safe S3 clients
     across process boundaries (s3fs/botocore connections cannot survive fork).
+
+    Also clears fsspec's global instance cache on first call in a new process,
+    so that implicit S3 usage (e.g. pandas.to_parquet("s3://...")) also creates
+    fresh connections rather than reusing the parent's stale cached filesystem.
     """
     pid = os.getpid()
     if pid not in _s3_filesystem_cache:
-        _s3_filesystem_cache.clear()  # Clean up stale entries from parent
+        _s3_filesystem_cache.clear()
+        # Clear fsspec's global instance cache to purge stale S3 connections
+        # inherited from the parent process after fork. Without this, pandas
+        # and geopandas calls like to_parquet("s3://...") resolve the parent's
+        # broken S3 client from fsspec's cache and hang.
+        AbstractFileSystem._cache.clear()
         _s3_filesystem_cache[pid] = fsspec.filesystem("s3", skip_instance_cache=True)
     return _s3_filesystem_cache[pid]
 
@@ -113,21 +123,20 @@ def open_file(path: str, mode: str = "r", **kwargs):
     """
     Open a file for reading or writing. Works for both local and S3.
 
-    Returns a context manager that properly handles cleanup for both local
-    files and S3 (via fsspec's OpenFile wrapper).
+    For S3, routes through _get_s3_filesystem() to ensure fork-safe connections.
+    Returns a file-like context manager in both cases.
 
     Args:
         path: File path to open
         mode: File mode (e.g. 'r', 'w', 'rb', 'wb')
-        **kwargs: Additional arguments passed to open/fsspec.open
+        **kwargs: Additional arguments passed to open/fs.open
 
     Returns:
         File-like context manager
     """
     if is_s3_path(path):
-        # Return the fsspec OpenFile directly — it is a context manager that
-        # opens the underlying file on __enter__ and flushes/closes on __exit__.
-        return fsspec.open(path, mode, **kwargs)
+        fs = _get_s3_filesystem()
+        return fs.open(path, mode, **kwargs)
     else:
         return open(path, mode, **kwargs)
 

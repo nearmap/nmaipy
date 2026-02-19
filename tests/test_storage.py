@@ -178,15 +178,16 @@ class TestOpenFile:
         with storage.open_file(fpath, "rb") as f:
             assert f.read() == b"\x00\x01\x02"
 
-    @patch("nmaipy.storage.fsspec")
-    def test_s3_open_returns_context_manager(self, mock_fsspec):
-        mock_open_obj = MagicMock()
-        mock_fsspec.open.return_value = mock_open_obj
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_open_uses_fork_safe_filesystem(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_file = MagicMock()
+        mock_fs.open.return_value = mock_file
+        mock_get_fs.return_value = mock_fs
 
         result = storage.open_file("s3://bucket/key.txt", "r")
-        mock_fsspec.open.assert_called_with("s3://bucket/key.txt", "r")
-        # Returns the fsspec OpenFile context manager directly
-        assert result is mock_open_obj
+        mock_fs.open.assert_called_with("s3://bucket/key.txt", "r")
+        assert result is mock_file
 
 
 # ---------------------------------------------------------------------------
