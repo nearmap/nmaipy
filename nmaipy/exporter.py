@@ -317,12 +317,16 @@ def export_feature_class(
     aoi_columns: list = None,
     export_csv: bool = True,
     export_parquet: bool = True,
+    class_features: gpd.GeoDataFrame = None,
+    roof_features: gpd.GeoDataFrame = None,
+    non_roof_features: gpd.GeoDataFrame = None,
+    roof_instance_features: gpd.GeoDataFrame = None,
 ) -> tuple:
     """
     Export features of a single class to CSV and/or GeoParquet.
 
     Args:
-        features_gdf: GeoDataFrame with all features (will be filtered to class_id)
+        features_gdf: GeoDataFrame with all features (used for cross-class lookups)
         class_id: UUID of the feature class to export
         class_description: Human-readable description (used in filename)
         country: Country code for units (us, au, etc.)
@@ -330,12 +334,19 @@ def export_feature_class(
         aoi_columns: Additional columns from the AOI input file to include (e.g., ["Property Id"])
         export_csv: Whether to export CSV files (attributes only, no geometry)
         export_parquet: Whether to export GeoParquet files (with geometry)
+        class_features: Pre-filtered features for this class (avoids re-filtering features_gdf)
+        roof_features: Pre-filtered roof features (avoids repeated features_gdf scans)
+        non_roof_features: Pre-filtered non-roof features (avoids repeated features_gdf scans)
+        roof_instance_features: Pre-filtered roof instance features (avoids repeated features_gdf scans)
 
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
     """
-    # Filter to this class
-    class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
+    # Use pre-filtered class features if provided, otherwise filter from features_gdf
+    if class_features is None:
+        class_features = features_gdf[features_gdf["class_id"] == class_id].copy()
+    else:
+        class_features = class_features.copy()
     if len(class_features) == 0:
         return (None, None)
 
@@ -496,7 +507,7 @@ def export_feature_class(
         # Add flattened attributes of the primary child roof instance
         # Look up roof instances from the full features_gdf and join on primary_child_roof_age_feature_id
         if "primary_child_roof_age_feature_id" in class_features.columns:
-            roof_instances = features_gdf[
+            roof_instances = roof_instance_features if roof_instance_features is not None else features_gdf[
                 features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
             ]
             if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
@@ -559,13 +570,11 @@ def export_feature_class(
             # Get all non-roof features as potential children for clipped roof recalculation
             # The flatten_roof_attributes function will use classIds from the roof's own
             # components to find matching child features - this is fully data-driven
-            child_features = features_gdf[features_gdf["class_id"] != ROOF_ID].copy()
+            child_features = non_roof_features.copy() if non_roof_features is not None else features_gdf[features_gdf["class_id"] != ROOF_ID].copy()
 
             attr_records = []
             for _, row in class_features.iterrows():
                 try:
-                    # Pass as list (function expects list of features)
-                    # Child features are used to recalculate component attributes for clipped roofs
                     attrs = flatten_roof_attributes(
                         [row], country=country, child_features=child_features
                     )
@@ -613,7 +622,7 @@ def export_feature_class(
             logger.debug(f"Could not flatten building attributes: {e}")
 
         # Get roofs from the full features_gdf
-        roofs = features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
+        roofs = roof_features.copy() if roof_features is not None else features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
 
         if len(roofs) > 0:
             try:
@@ -640,7 +649,7 @@ def export_feature_class(
 
                 # Build a mapping from roof feature_id to flattened attributes
                 # Get all non-roof features as potential children for clipped roof recalculation
-                child_features = features_gdf[
+                child_features = non_roof_features.copy() if non_roof_features is not None else features_gdf[
                     features_gdf["class_id"] != ROOF_ID
                 ].copy()
                 roof_attrs = {}
@@ -701,32 +710,19 @@ def export_feature_class(
                             except Exception:
                                 return []
 
+                        # Compute RSI values once per building, then extract min/max
+                        rsi_series = buildings_linked["child_roofs"].apply(get_child_rsi_values)
+
                         if "child_roof_roof_spotlight_index_min" not in added_cols:
-                            roof_attr_batch["child_roof_roof_spotlight_index_min"] = (
-                                buildings_linked["child_roofs"]
-                                .apply(
-                                    lambda x: (
-                                        min(get_child_rsi_values(x))
-                                        if get_child_rsi_values(x)
-                                        else None
-                                    )
-                                )
-                                .values
-                            )
+                            roof_attr_batch["child_roof_roof_spotlight_index_min"] = rsi_series.apply(
+                                lambda vals: min(vals) if vals else None
+                            ).values
                             added_cols.add("child_roof_roof_spotlight_index_min")
 
                         if "child_roof_roof_spotlight_index_max" not in added_cols:
-                            roof_attr_batch["child_roof_roof_spotlight_index_max"] = (
-                                buildings_linked["child_roofs"]
-                                .apply(
-                                    lambda x: (
-                                        max(get_child_rsi_values(x))
-                                        if get_child_rsi_values(x)
-                                        else None
-                                    )
-                                )
-                                .values
-                            )
+                            roof_attr_batch["child_roof_roof_spotlight_index_max"] = rsi_series.apply(
+                                lambda vals: max(vals) if vals else None
+                            ).values
                             added_cols.add("child_roof_roof_spotlight_index_max")
 
                     if roof_attr_batch:
@@ -737,7 +733,7 @@ def export_feature_class(
                 # Link roof age data from primary child roof's roof instance
                 # Chain: building → primary_child_roof → primary_child_roof_age (roof instance) → roof_age_*
                 if "primary_child_roof_age_feature_id" in roofs_linked.columns:
-                    roof_instances = features_gdf[
+                    roof_instances = roof_instance_features.copy() if roof_instance_features is not None else features_gdf[
                         features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
                     ].copy()
                     if len(roof_instances) > 0:
@@ -809,43 +805,54 @@ def export_feature_class(
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
     if "geometry" in class_features.columns:
+        # Vectorized centroid extraction (geographic CRS is fine for URL link coordinates)
+        geom_valid = class_features.geometry.notna() & ~class_features.geometry.is_empty
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*geographic CRS.*centroid.*")
+            centroids = class_features.geometry.centroid
+        lats = centroids.y.astype(str)
+        lons = centroids.x.astype(str)
 
-        def make_mapbrowser_link(row):
-            try:
-                geom = row.geometry
-                if geom is None or geom.is_empty:
-                    return None
-                centroid = geom.centroid
-                lat, lon = centroid.y, centroid.x
+        # Determine date column based on class type
+        if class_id == ROOF_INSTANCE_CLASS_ID:
+            if ROOF_AGE_INSTALLATION_DATE_FIELD in class_features.columns:
+                date_col = ROOF_AGE_INSTALLATION_DATE_FIELD
+            elif "installation_date" in class_features.columns:
+                date_col = "installation_date"
+            else:
+                date_col = None
+        else:
+            date_col = "survey_date" if "survey_date" in class_features.columns else None
 
-                # Use survey_date for Feature API classes, installation_date for roof instances
-                date_val = None
-                if class_id == ROOF_INSTANCE_CLASS_ID:
-                    # Try to get installation_date - check both camelCase (API) and snake_case
-                    if ROOF_AGE_INSTALLATION_DATE_FIELD in row.index:
-                        date_val = row[ROOF_AGE_INSTALLATION_DATE_FIELD]
-                    elif "installation_date" in row.index:
-                        date_val = row["installation_date"]
-                else:
-                    if "survey_date" in row.index:
-                        date_val = row["survey_date"]
+        # Vectorized date formatting
+        if date_col is not None and date_col in class_features.columns:
+            date_valid = class_features[date_col].notna()
+            dates = class_features[date_col].astype(str).str.replace("-", "", regex=False).str[:8]
+        else:
+            date_valid = pd.Series(False, index=class_features.index)
+            dates = pd.Series("", index=class_features.index)
 
-                # Format date (remove dashes if present)
-                if date_val is not None and pd.notna(date_val):
-                    date_str = str(date_val).replace("-", "")[:8]  # YYYYMMDD format
-                else:
-                    date_str = ""
-
-                if date_str:
-                    return f"https://apps.nearmap.com/maps/#/@{lat},{lon},21.00z,0d/V/{date_str}?locationMarker"
-                else:
-                    return f"https://apps.nearmap.com/maps/#/@{lat},{lon},21.00z,0d?locationMarker"
-            except Exception:
-                return None
+        # Build links vectorized
+        has_date = date_valid & (dates != "") & (dates != "None") & (dates != "NaT")
+        links = pd.Series(None, index=class_features.index, dtype=object)
+        if has_date.any():
+            links[has_date & geom_valid] = (
+                "https://apps.nearmap.com/maps/#/@"
+                + lats[has_date & geom_valid] + "," + lons[has_date & geom_valid]
+                + ",21.00z,0d/V/" + dates[has_date & geom_valid]
+                + "?locationMarker"
+            )
+        no_date = ~has_date & geom_valid
+        if no_date.any():
+            links[no_date] = (
+                "https://apps.nearmap.com/maps/#/@"
+                + lats[no_date] + "," + lons[no_date]
+                + ",21.00z,0d?locationMarker"
+            )
 
         df_parts.append(
             pd.DataFrame(
-                {"link": class_features.apply(make_mapbrowser_link, axis=1).values},
+                {"link": links.values},
                 index=range(n_rows),
             )
         )
@@ -872,9 +879,9 @@ def export_feature_class(
             flat_df.copy(), geometry=class_features.geometry.values, crs=API_CRS
         )
         try:
-            geo_df.to_parquet(parquet_path, index=False, schema_version="1.0.0")
+            storage.write_parquet(geo_df, parquet_path, index=False, schema_version="1.0.0")
         except (TypeError, ValueError):
-            geo_df.to_parquet(parquet_path, index=False)
+            storage.write_parquet(geo_df, parquet_path, index=False)
     else:
         parquet_path = None
 
@@ -1663,7 +1670,7 @@ class NearmapAIExporter(BaseExporter):
                     else:
                         self.logger.debug(f"Found {len(errors_df)} errors")
                 if len(errors_df) == len(aoi_gdf):
-                    errors_df.to_parquet(outfile_errors)
+                    storage.write_parquet(errors_df, outfile_errors)
                     latency_stats = feature_api.get_latency_stats()
                     if latency_stats:
                         latency_stats["chunk_id"] = chunk_id
@@ -1786,9 +1793,9 @@ class NearmapAIExporter(BaseExporter):
 
                 # If all Feature API requests failed, save errors and return
                 if len(feature_api_errors_df) == len(aoi_gdf):
-                    feature_api_errors_df.to_parquet(outfile_errors)
+                    storage.write_parquet(feature_api_errors_df, outfile_errors)
                     if len(roof_age_errors_df) > 0:
-                        roof_age_errors_df.to_parquet(outfile_roof_age_errors)
+                        storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
                     chunk_end_time = datetime.now(timezone.utc).isoformat()
                     total_duration_ms = (
                         time.monotonic() - chunk_start_monotonic
@@ -1976,7 +1983,7 @@ class NearmapAIExporter(BaseExporter):
 
                 # Save Roof Age API errors separately
                 if self.roof_age and len(roof_age_errors_df) > 0:
-                    roof_age_errors_df.to_parquet(outfile_roof_age_errors)
+                    storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
 
                 # Use Feature API errors as the main errors file
                 errors_df = feature_api_errors_df
@@ -2044,9 +2051,9 @@ class NearmapAIExporter(BaseExporter):
                     errors_gdf = gpd.GeoDataFrame(
                         errors_df, geometry="geometry", crs=API_CRS
                     )
-                    errors_gdf.to_parquet(outfile_errors)
+                    storage.write_parquet(errors_gdf, outfile_errors)
                 else:
-                    errors_df.to_parquet(outfile_errors)
+                    storage.write_parquet(errors_df, outfile_errors)
             except Exception as e:
                 self.logger.error(
                     f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
@@ -2076,13 +2083,13 @@ class NearmapAIExporter(BaseExporter):
                 # Save with explicit schema version for better QGIS compatibility
                 # Requires geopandas >= 1.1.0
                 try:
-                    final_df.to_parquet(outfile, schema_version="1.0.0")
+                    storage.write_parquet(final_df, outfile, schema_version="1.0.0")
                 except (TypeError, ValueError) as e:
                     # Fallback for older geopandas or pyarrow versions
                     self.logger.debug(
                         f"Could not use schema_version parameter: {e}. Falling back to default."
                     )
-                    final_df.to_parquet(outfile)
+                    storage.write_parquet(final_df, outfile)
             except Exception as e:
                 self.logger.error(
                     f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}."
@@ -2272,15 +2279,15 @@ class NearmapAIExporter(BaseExporter):
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
                         try:
-                            final_features_df.to_parquet(
-                                outfile_features, index=False, schema_version="1.0.0"
+                            storage.write_parquet(
+                                final_features_df, outfile_features, index=False, schema_version="1.0.0"
                             )
                         except (TypeError, ValueError) as e:
                             # Fallback for older geopandas or pyarrow versions
                             self.logger.debug(
                                 f"Could not use schema_version parameter: {e}. Falling back to default."
                             )
-                            final_features_df.to_parquet(outfile_features, index=False)
+                            storage.write_parquet(final_features_df, outfile_features, index=False)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
@@ -2564,7 +2571,7 @@ class NearmapAIExporter(BaseExporter):
             data = pd.DataFrame(data)
         if len(data) > 0:
             if self.rollup_format == "parquet":
-                data.to_parquet(outpath, index=True)
+                storage.write_parquet(data, outpath, index=True)
             elif self.rollup_format == "csv":
                 if "geometry" in data.columns:
                     if hasattr(data.geometry, "to_wkt") and callable(
@@ -2709,7 +2716,7 @@ class NearmapAIExporter(BaseExporter):
                     self.logger.info(
                         f"Saving {error_type} errors as geoparquet to {outpath_parquet}"
                     )
-                    errors_gdf.to_parquet(outpath_parquet, index=False)
+                    storage.write_parquet(errors_gdf, outpath_parquet, index=False)
             else:
                 self.logger.info(f"{error_type}: No failures")
 
@@ -2767,15 +2774,15 @@ class NearmapAIExporter(BaseExporter):
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
                         try:
-                            buildings_gdf.to_parquet(
-                                outpath_buildings_geoparquet, schema_version="1.0.0"
+                            storage.write_parquet(
+                                buildings_gdf, outpath_buildings_geoparquet, schema_version="1.0.0"
                             )
                         except (TypeError, ValueError) as e:
                             # Fallback for older geopandas or pyarrow versions
                             self.logger.debug(
                                 f"Could not use schema_version parameter: {e}. Falling back to default."
                             )
-                            buildings_gdf.to_parquet(outpath_buildings_geoparquet)
+                            storage.write_parquet(buildings_gdf, outpath_buildings_geoparquet)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save buildings geoparquet file: {str(e)}"
@@ -2791,7 +2798,7 @@ class NearmapAIExporter(BaseExporter):
 
                     # Save in the same format as rollup
                     if self.rollup_format == "parquet":
-                        buildings_df.to_parquet(outpath_buildings, index=True)
+                        storage.write_parquet(buildings_df, outpath_buildings, index=True)
                     elif self.rollup_format == "csv":
                         buildings_df.to_csv(outpath_buildings, index=True)
                     else:
@@ -2876,6 +2883,17 @@ class NearmapAIExporter(BaseExporter):
                     if c not in system_columns and c not in ADDRESS_FIELDS
                 ]
 
+                # Pre-split features by class to avoid repeated full-DataFrame scans
+                class_groups = {
+                    cid: group_df
+                    for cid, group_df in features_gdf.groupby("class_id")
+                }
+                roof_features = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
+                non_roof_features = features_gdf[features_gdf["class_id"] != ROOF_ID]
+                roof_instance_features = class_groups.get(
+                    ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame()
+                )
+
                 # Export each class
                 for class_id in unique_classes:
                     description = class_descriptions.get(
@@ -2890,6 +2908,10 @@ class NearmapAIExporter(BaseExporter):
                         aoi_columns=aoi_input_columns,
                         export_csv=self.class_level_files,
                         export_parquet=self.class_level_files and self.save_features,
+                        class_features=class_groups.get(class_id),
+                        roof_features=roof_features,
+                        non_roof_features=non_roof_features,
+                        roof_instance_features=roof_instance_features,
                     )
                     if csv_path or parquet_path:
                         files = [storage.basename(f) for f in [csv_path, parquet_path] if f]

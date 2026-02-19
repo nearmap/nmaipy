@@ -15,6 +15,7 @@ from typing import Union
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon
+from shapely.strtree import STRtree
 
 from nmaipy import log
 from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
@@ -61,6 +62,7 @@ __all__ = [
     "link_roof_instances_to_roofs",
     "link_roofs_to_buildings",
     "calculate_child_feature_attributes",
+    "calculate_child_feature_attributes_batch",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
@@ -206,6 +208,175 @@ def calculate_child_feature_attributes(
     return flattened
 
 
+def calculate_child_feature_attributes_batch(
+    parent_geometries: gpd.GeoSeries,
+    components_per_parent: list,
+    child_features: gpd.GeoDataFrame,
+    country: str,
+    name_prefixes: list = None,
+) -> list:
+    """
+    Batch version of calculate_child_feature_attributes.
+
+    Projects all geometries once, builds an STRtree for spatial lookups, and
+    processes all parents in a single call. Returns the same per-parent dicts
+    as the original function.
+
+    Args:
+        parent_geometries: GeoSeries of parent polygons (e.g., clipped roof geometries in EPSG:4326)
+        components_per_parent: List of component lists, one per parent. Each is a list of dicts
+                              with classId, description fields (from roof's attributes.components)
+        child_features: GeoDataFrame of all child features in the AOI
+        country: Country code for units ("us" for imperial, "au" for metric)
+        name_prefixes: Optional list of name prefixes per parent (e.g., "low_conf_").
+                      If None, empty string is used for all.
+
+    Returns:
+        List of dicts (one per parent), same format as calculate_child_feature_attributes.
+        Entries are None for parents where recalculation could not be attempted.
+    """
+    n_parents = len(parent_geometries)
+    if name_prefixes is None:
+        name_prefixes = [""] * n_parents
+
+    results = [None] * n_parents
+
+    if child_features is None or len(child_features) == 0:
+        # No children - return zero-filled results for parents that have valid geometry+components
+        for i in range(n_parents):
+            geom = parent_geometries.iloc[i]
+            components = components_per_parent[i]
+            if geom is None or geom.is_empty or not components:
+                continue
+            flattened = {}
+            for component in components:
+                class_id = component.get("classId")
+                description = component.get("description", "unknown")
+                if not class_id:
+                    continue
+                name = name_prefixes[i] + description.lower().replace(" ", "_")
+                flattened[f"{name}_present"] = FALSE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = 0.0
+                else:
+                    flattened[f"{name}_area_sqm"] = 0.0
+                flattened[f"{name}_ratio"] = 0.0
+            results[i] = flattened
+        return results
+
+    # Project all geometries once
+    projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+
+    # Project parent geometries
+    valid_parent_mask = parent_geometries.notna() & ~parent_geometries.is_empty
+    parents_projected = gpd.GeoSeries(
+        parent_geometries.values, crs=API_CRS
+    ).to_crs(projected_crs)
+
+    # Project child features once and build per-class_id groups with STRtree
+    child_projected = gpd.GeoSeries(
+        child_features.geometry.values, crs=API_CRS
+    ).to_crs(projected_crs)
+    child_class_ids = child_features["class_id"].values
+    child_confidence = child_features["confidence"].values if "confidence" in child_features.columns else None
+
+    # Build STRtree over all projected child geometries
+    child_projected_geoms = child_projected.values
+    tree = STRtree(child_projected_geoms)
+
+    # Pre-group child indices by class_id for fast lookup
+    child_indices_by_class = {}
+    for idx, cid in enumerate(child_class_ids):
+        if cid not in child_indices_by_class:
+            child_indices_by_class[cid] = []
+        child_indices_by_class[cid].append(idx)
+    # Convert to sets for O(1) membership testing
+    child_index_sets_by_class = {cid: set(indices) for cid, indices in child_indices_by_class.items()}
+
+    for i in range(n_parents):
+        if not valid_parent_mask.iloc[i]:
+            continue
+        components = components_per_parent[i]
+        if not components:
+            continue
+
+        parent_projected = parents_projected.iloc[i]
+        parent_area = parent_projected.area
+        if parent_area <= 0:
+            continue
+
+        # Query STRtree once for this parent
+        candidate_indices = tree.query(parent_projected)
+        candidate_set = set(candidate_indices)
+
+        flattened = {}
+        for component in components:
+            class_id = component.get("classId")
+            description = component.get("description", "unknown")
+            if not class_id:
+                continue
+
+            name = name_prefixes[i] + description.lower().replace(" ", "_")
+
+            # Intersect STRtree candidates with class_id group
+            class_indices = child_index_sets_by_class.get(class_id)
+            if not class_indices:
+                flattened[f"{name}_present"] = FALSE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = 0.0
+                else:
+                    flattened[f"{name}_area_sqm"] = 0.0
+                flattened[f"{name}_ratio"] = 0.0
+                continue
+
+            matching_indices = candidate_set & class_indices
+
+            if not matching_indices:
+                flattened[f"{name}_present"] = FALSE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = 0.0
+                else:
+                    flattened[f"{name}_area_sqm"] = 0.0
+                flattened[f"{name}_ratio"] = 0.0
+                continue
+
+            total_intersection_area = 0.0
+            max_confidence = None
+            for idx in matching_indices:
+                child_geom = child_projected_geoms[idx]
+                if child_geom is not None and child_geom.intersects(parent_projected):
+                    intersection = child_geom.intersection(parent_projected)
+                    total_intersection_area += intersection.area
+                    if child_confidence is not None and child_confidence[idx] is not None:
+                        try:
+                            conf = float(child_confidence[idx])
+                            if max_confidence is None or conf > max_confidence:
+                                max_confidence = conf
+                        except (ValueError, TypeError):
+                            pass
+
+            if total_intersection_area > 0:
+                flattened[f"{name}_present"] = TRUE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
+                else:
+                    flattened[f"{name}_area_sqm"] = total_intersection_area
+                flattened[f"{name}_ratio"] = total_intersection_area / parent_area
+                if max_confidence is not None:
+                    flattened[f"{name}_confidence"] = max_confidence
+            else:
+                flattened[f"{name}_present"] = FALSE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = 0.0
+                else:
+                    flattened[f"{name}_area_sqm"] = 0.0
+                flattened[f"{name}_ratio"] = 0.0
+
+        results[i] = flattened
+
+    return results
+
+
 def link_roof_instances_to_roofs(
     roof_instances_gdf: gpd.GeoDataFrame,
     roofs_gdf: gpd.GeoDataFrame,
@@ -251,7 +422,6 @@ def link_roof_instances_to_roofs(
         >>> for child in roof.child_roof_instances:
         ...     print(f"  Instance {child['feature_id']}: IoU={child['iou']:.3f}")
     """
-    from shapely.strtree import STRtree
 
     # Handle empty inputs
     if len(roof_instances_gdf) == 0 or len(roofs_gdf) == 0:
@@ -436,7 +606,6 @@ def link_roofs_to_buildings(
                 - child_roofs: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
                 - child_roof_count: Number of matched child roofs
     """
-    from shapely.strtree import STRtree
 
     # Handle empty inputs
     if len(roofs_gdf) == 0 or len(buildings_gdf) == 0:
