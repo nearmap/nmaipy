@@ -888,15 +888,7 @@ class FeatureApi(GriddedApiClient):
 
                 # Clean up cache if we're overwriting
                 if self.overwrite_cache and cache_path:
-                    try:
-                        if storage.is_s3_path(cache_path):
-                            import fsspec
-                            fs = fsspec.filesystem("s3")
-                            fs.rm(cache_path)
-                        else:
-                            os.remove(cache_path)
-                    except (OSError, Exception):
-                        pass
+                    storage.remove_file(cache_path)
 
                 if status_code in AIFeatureAPIRequestSizeError.status_codes:
                     logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")

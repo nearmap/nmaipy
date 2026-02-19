@@ -11,6 +11,7 @@ import json
 import logging
 import multiprocessing
 import re
+import shutil
 import sys
 import traceback
 import warnings
@@ -2908,8 +2909,6 @@ class NearmapAIExporter(BaseExporter):
 
         # Clean up local staging directory if S3 output was used
         if self.is_s3_output and self._local_staging_dir:
-            import shutil
-
             shutil.rmtree(self._local_staging_dir, ignore_errors=True)
 
 

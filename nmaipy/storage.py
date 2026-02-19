@@ -10,6 +10,7 @@ AWS credentials are picked up automatically by s3fs from environment variables
 or ~/.aws/credentials.
 """
 
+import functools
 import gzip
 import json
 import os
@@ -18,6 +19,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import fsspec
+
+
+@functools.lru_cache(maxsize=1)
+def _get_s3_filesystem():
+    """Return a cached S3 filesystem instance to avoid repeated instantiation."""
+    return fsspec.filesystem("s3")
 
 
 def is_s3_path(path: Union[str, Path]) -> bool:
@@ -67,7 +74,7 @@ def file_exists(path: str) -> bool:
         True if the file exists
     """
     if is_s3_path(path):
-        fs = fsspec.filesystem("s3")
+        fs = _get_s3_filesystem()
         return fs.exists(path)
     else:
         return Path(path).exists()
@@ -85,7 +92,7 @@ def glob_files(directory: str, pattern: str) -> List[str]:
         List of matching file paths as strings
     """
     if is_s3_path(directory):
-        fs = fsspec.filesystem("s3")
+        fs = _get_s3_filesystem()
         full_pattern = join_path(directory, pattern)
         # fsspec glob returns paths without the s3:// prefix
         results = fs.glob(full_pattern)
@@ -98,16 +105,21 @@ def open_file(path: str, mode: str = "r", **kwargs):
     """
     Open a file for reading or writing. Works for both local and S3.
 
+    Returns a context manager that properly handles cleanup for both local
+    files and S3 (via fsspec's OpenFile wrapper).
+
     Args:
         path: File path to open
         mode: File mode (e.g. 'r', 'w', 'rb', 'wb')
         **kwargs: Additional arguments passed to open/fsspec.open
 
     Returns:
-        File-like object
+        File-like context manager
     """
     if is_s3_path(path):
-        return fsspec.open(path, mode, **kwargs).open()
+        # Return the fsspec OpenFile directly — it is a context manager that
+        # opens the underlying file on __enter__ and flushes/closes on __exit__.
+        return fsspec.open(path, mode, **kwargs)
     else:
         return open(path, mode, **kwargs)
 
@@ -123,7 +135,7 @@ def file_size(path: str) -> int:
         File size in bytes
     """
     if is_s3_path(path):
-        fs = fsspec.filesystem("s3")
+        fs = _get_s3_filesystem()
         return fs.size(path)
     else:
         return Path(path).stat().st_size
@@ -139,11 +151,28 @@ def upload_file(local_path: str, remote_path: str) -> None:
         remote_path: Destination path (local or S3)
     """
     if is_s3_path(remote_path):
-        fs = fsspec.filesystem("s3")
+        fs = _get_s3_filesystem()
         fs.put(str(local_path), remote_path)
     else:
         if str(local_path) != str(remote_path):
             shutil.copy2(str(local_path), str(remote_path))
+
+
+def remove_file(path: str) -> None:
+    """
+    Remove a file. Works for both local and S3. Silently ignores missing files.
+
+    Args:
+        path: File path to remove
+    """
+    try:
+        if is_s3_path(path):
+            fs = _get_s3_filesystem()
+            fs.rm(path)
+        else:
+            os.remove(path)
+    except (OSError, FileNotFoundError):
+        pass
 
 
 def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
@@ -179,7 +208,7 @@ def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[
     if compressed:
         with open_file(path, "wb") as raw_f:
             with gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
-                gz_f.write(json.dumps(data).encode("utf-8"))
+                gz_f.write(json.dumps(data, default=str).encode("utf-8"))
     else:
         with open_file(path, "w") as f:
             json.dump(data, f, indent=indent, default=str)

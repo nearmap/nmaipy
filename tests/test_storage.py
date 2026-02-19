@@ -2,7 +2,7 @@
 Tests for the storage abstraction module.
 
 Tests cover both local filesystem operations (using tmp_path) and S3 operations
-(mocking fsspec/s3fs to avoid requiring real AWS credentials).
+(mocking the cached S3 filesystem to avoid requiring real AWS credentials).
 """
 
 import gzip
@@ -104,21 +104,20 @@ class TestFileExists:
     def test_local_not_exists(self, tmp_path):
         assert storage.file_exists(str(tmp_path / "nope.txt")) is False
 
-    @patch("nmaipy.storage.fsspec")
-    def test_s3_exists(self, mock_fsspec):
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_exists(self, mock_get_fs):
         mock_fs = MagicMock()
         mock_fs.exists.return_value = True
-        mock_fsspec.filesystem.return_value = mock_fs
+        mock_get_fs.return_value = mock_fs
 
         assert storage.file_exists("s3://bucket/key.parquet") is True
-        mock_fsspec.filesystem.assert_called_with("s3")
         mock_fs.exists.assert_called_with("s3://bucket/key.parquet")
 
-    @patch("nmaipy.storage.fsspec")
-    def test_s3_not_exists(self, mock_fsspec):
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_not_exists(self, mock_get_fs):
         mock_fs = MagicMock()
         mock_fs.exists.return_value = False
-        mock_fsspec.filesystem.return_value = mock_fs
+        mock_get_fs.return_value = mock_fs
 
         assert storage.file_exists("s3://bucket/missing.parquet") is False
 
@@ -142,14 +141,14 @@ class TestGlobFiles:
         results = storage.glob_files(str(tmp_path), "*.parquet")
         assert results == []
 
-    @patch("nmaipy.storage.fsspec")
-    def test_s3_glob(self, mock_fsspec):
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_glob(self, mock_get_fs):
         mock_fs = MagicMock()
         mock_fs.glob.return_value = [
             "bucket/prefix/chunks/rollup_001.parquet",
             "bucket/prefix/chunks/rollup_002.parquet",
         ]
-        mock_fsspec.filesystem.return_value = mock_fs
+        mock_get_fs.return_value = mock_fs
 
         results = storage.glob_files("s3://bucket/prefix/chunks", "rollup_*.parquet")
         assert results == [
@@ -180,15 +179,14 @@ class TestOpenFile:
             assert f.read() == b"\x00\x01\x02"
 
     @patch("nmaipy.storage.fsspec")
-    def test_s3_open(self, mock_fsspec):
-        mock_file = MagicMock()
+    def test_s3_open_returns_context_manager(self, mock_fsspec):
         mock_open_obj = MagicMock()
-        mock_open_obj.open.return_value = mock_file
         mock_fsspec.open.return_value = mock_open_obj
 
         result = storage.open_file("s3://bucket/key.txt", "r")
         mock_fsspec.open.assert_called_with("s3://bucket/key.txt", "r")
-        assert result == mock_file
+        # Returns the fsspec OpenFile context manager directly
+        assert result is mock_open_obj
 
 
 # ---------------------------------------------------------------------------
@@ -203,11 +201,11 @@ class TestFileSize:
         fpath.write_text(content)
         assert storage.file_size(str(fpath)) == len(content.encode())
 
-    @patch("nmaipy.storage.fsspec")
-    def test_s3_file_size(self, mock_fsspec):
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_file_size(self, mock_get_fs):
         mock_fs = MagicMock()
         mock_fs.size.return_value = 1024
-        mock_fsspec.filesystem.return_value = mock_fs
+        mock_get_fs.return_value = mock_fs
 
         assert storage.file_size("s3://bucket/key.parquet") == 1024
         mock_fs.size.assert_called_with("s3://bucket/key.parquet")
@@ -233,14 +231,37 @@ class TestUploadFile:
         # Should not raise
         storage.upload_file(fpath, fpath)
 
-    @patch("nmaipy.storage.fsspec")
-    def test_upload_to_s3(self, mock_fsspec):
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_upload_to_s3(self, mock_get_fs):
         mock_fs = MagicMock()
-        mock_fsspec.filesystem.return_value = mock_fs
+        mock_get_fs.return_value = mock_fs
 
         storage.upload_file("/tmp/local.parquet", "s3://bucket/key.parquet")
-        mock_fsspec.filesystem.assert_called_with("s3")
         mock_fs.put.assert_called_with("/tmp/local.parquet", "s3://bucket/key.parquet")
+
+
+# ---------------------------------------------------------------------------
+# remove_file
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveFile:
+    def test_local_remove(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("data")
+        storage.remove_file(str(f))
+        assert not f.exists()
+
+    def test_local_remove_missing_is_noop(self, tmp_path):
+        storage.remove_file(str(tmp_path / "nonexistent.txt"))
+
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_remove(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_get_fs.return_value = mock_fs
+
+        storage.remove_file("s3://bucket/key.parquet")
+        mock_fs.rm.assert_called_with("s3://bucket/key.parquet")
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +306,15 @@ class TestJsonIO:
 
         storage.write_json(fpath, data)
         result = storage.read_json(fpath)
+        assert result["path"] == str(Path("/tmp/test"))
+
+    def test_write_compressed_json_default_str(self, tmp_path):
+        """Compressed write_json also uses default=str."""
+        fpath = str(tmp_path / "data.json.gz")
+        data = {"path": Path("/tmp/test")}
+
+        storage.write_json(fpath, data, compressed=True)
+        result = storage.read_json(fpath, compressed=True)
         assert result["path"] == str(Path("/tmp/test"))
 
 
