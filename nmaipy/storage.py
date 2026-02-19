@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import fsspec
-from fsspec.spec import AbstractFileSystem
 
 _s3_filesystem_cache = {}
 
@@ -29,18 +28,15 @@ def _get_s3_filesystem():
     Creates a new instance after fork to avoid sharing non-fork-safe S3 clients
     across process boundaries (s3fs/botocore connections cannot survive fork).
 
-    Also clears fsspec's global instance cache on first call in a new process,
-    so that implicit S3 usage (e.g. pandas.to_parquet("s3://...")) also creates
-    fresh connections rather than reusing the parent's stale cached filesystem.
+    Does NOT clear _s3_filesystem_cache or AbstractFileSystem._cache — doing so
+    would drop references to the parent's stale S3FileSystem, triggering __del__
+    which tries to close the broken aiobotocore event loop and hangs. The stale
+    entries are harmless: our instance uses skip_instance_cache=True, and all S3
+    I/O is routed through this function (including write_parquet), so the stale
+    cached instances are never accessed.
     """
     pid = os.getpid()
     if pid not in _s3_filesystem_cache:
-        _s3_filesystem_cache.clear()
-        # Clear fsspec's global instance cache to purge stale S3 connections
-        # inherited from the parent process after fork. Without this, pandas
-        # and geopandas calls like to_parquet("s3://...") resolve the parent's
-        # broken S3 client from fsspec's cache and hang.
-        AbstractFileSystem._cache.clear()
         _s3_filesystem_cache[pid] = fsspec.filesystem("s3", skip_instance_cache=True)
     return _s3_filesystem_cache[pid]
 
