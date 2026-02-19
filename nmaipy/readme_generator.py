@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
+from nmaipy import storage
 from nmaipy.__version__ import __version__
 
 # File patterns (suffixes) mapped to descriptions.
@@ -85,22 +86,26 @@ ROOF_AGE_COLUMNS = {
 class ReadmeGenerator:
     """Generates dynamic README.md based on actual export files and columns."""
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir):
         """
         Initialize the README generator.
 
         Args:
-            output_dir: Path to export output directory. Can be either:
+            output_dir: Path to export output directory (string or Path, may be S3 URI).
+                Can be either:
                 - The parent directory containing a final/ subdirectory
                 - The final directory itself containing the export files
         """
-        self.output_dir = Path(output_dir)
+        self.output_dir = str(output_dir)
         self._config = None
+        self._is_s3 = storage.is_s3_path(self.output_dir)
 
         # Determine the actual final directory
         # Check if output_dir/final exists, otherwise assume output_dir is the final dir
-        potential_final = self.output_dir / "final"
-        if potential_final.exists() and potential_final.is_dir():
+        potential_final = storage.join_path(self.output_dir, "final")
+        if not self._is_s3 and Path(potential_final).exists() and Path(potential_final).is_dir():
+            self.final_dir = potential_final
+        elif self._is_s3 and storage.glob_files(potential_final, "*"):
             self.final_dir = potential_final
         else:
             self.final_dir = self.output_dir
@@ -109,26 +114,27 @@ class ReadmeGenerator:
         """Load export_config.json if it exists. Result is cached after first call."""
         if self._config is not None:
             return self._config
-        config_path = self.final_dir / "export_config.json"
-        if config_path.exists():
+        config_path = storage.join_path(self.final_dir, "export_config.json")
+        if storage.file_exists(config_path):
             try:
-                self._config = json.loads(config_path.read_text())
+                self._config = storage.read_json(config_path)
                 return self._config
             except Exception:
                 pass
         self._config = {}
         return self._config
 
-    def generate_and_save(self) -> Path:
+    def generate_and_save(self) -> str:
         """
         Generate README and save to final directory.
 
         Returns:
-            Path to generated README.md file.
+            Path to generated README.md file (string, may be S3 URI).
         """
         content = self._generate()
-        readme_path = self.final_dir / "README.md"
-        readme_path.write_text(content)
+        readme_path = storage.join_path(self.final_dir, "README.md")
+        with storage.open_file(readme_path, "w") as f:
+            f.write(content)
         return readme_path
 
     def _generate(self) -> str:
@@ -162,32 +168,34 @@ class ReadmeGenerator:
 
         return "\n".join(sections)
 
-    def _discover_files(self) -> list[Path]:
+    def _discover_files(self) -> list[str]:
         """Discover all files in the final/ directory, excluding certain files."""
-        if not self.final_dir.exists():
-            return []
+        all_files = storage.glob_files(self.final_dir, "*")
         files = []
-        for f in sorted(self.final_dir.iterdir()):
-            if f.is_file() and f.name not in EXCLUDE_FILES:
+        for f in sorted(all_files):
+            name = storage.basename(f)
+            if name not in EXCLUDE_FILES:
                 files.append(f)
         return files
 
-    def _get_file_prefix(self, files: list[Path]) -> str:
+    def _get_file_prefix(self, files: list[str]) -> str:
         """Detect the common filename prefix (e.g., 'parcels_')."""
         for f in files:
-            if f.name.endswith("_aoi_rollup.csv"):
-                return f.name[: -len("aoi_rollup.csv")]
-            if f.name.endswith("_aoi_rollup.parquet"):
-                return f.name[: -len("aoi_rollup.parquet")]
+            name = storage.basename(f)
+            if name.endswith("_aoi_rollup.csv"):
+                return name[: -len("aoi_rollup.csv")]
+            if name.endswith("_aoi_rollup.parquet"):
+                return name[: -len("aoi_rollup.parquet")]
         # Fallback: try to find common prefix from per-class CSV files
-        csv_files = [f for f in files if f.suffix == ".csv"]
+        csv_files = [f for f in files if storage.basename(f).endswith(".csv")]
         for f in csv_files:
+            name = storage.basename(f)
             for suffix in ["_roof.csv", "_building.csv"]:
-                if f.name.endswith(suffix):
-                    return f.name[: -len(suffix)] + "_"
+                if name.endswith(suffix):
+                    return name[: -len(suffix)] + "_"
         return ""
 
-    def _detect_classes(self, files: list[Path], prefix: str) -> list[dict]:
+    def _detect_classes(self, files: list[str], prefix: str) -> list[dict]:
         """
         Detect feature classes from filenames.
 
@@ -198,11 +206,21 @@ class ReadmeGenerator:
         classes = []
         seen = set()
 
+        def _get_stem(filepath):
+            """Get filename without extension."""
+            name = storage.basename(filepath)
+            return name.rsplit(".", 1)[0] if "." in name else name
+
+        def _get_suffix(filepath):
+            """Get file extension including the dot."""
+            name = storage.basename(filepath)
+            return "." + name.rsplit(".", 1)[1] if "." in name else ""
+
         # Primary: detect from CSV files
         for f in files:
-            if f.suffix != ".csv":
+            if _get_suffix(f) != ".csv":
                 continue
-            name = f.stem
+            name = _get_stem(f)
             if prefix:
                 name = name.replace(prefix.rstrip("_"), "", 1).lstrip("_")
 
@@ -223,9 +241,9 @@ class ReadmeGenerator:
         # Fallback: detect from _features.parquet files if no CSV classes found
         if not classes:
             for f in files:
-                if f.suffix != ".parquet" or not f.stem.endswith("_features"):
+                if _get_suffix(f) != ".parquet" or not _get_stem(f).endswith("_features"):
                     continue
-                name = f.stem
+                name = _get_stem(f)
                 if prefix:
                     name = name.replace(prefix.rstrip("_"), "", 1).lstrip("_")
 
@@ -246,23 +264,30 @@ class ReadmeGenerator:
 
         return classes
 
-    def _get_rollup_columns(self, files: list[Path]) -> set[str]:
+    def _get_rollup_columns(self, files: list[str]) -> set[str]:
         """Get column names from the rollup file (CSV or Parquet)."""
         rollup_csv = None
         rollup_parquet = None
         for f in files:
-            if f.name.endswith("_aoi_rollup.csv"):
+            name = storage.basename(f)
+            if name.endswith("_aoi_rollup.csv"):
                 rollup_csv = f
-            elif f.name.endswith("_aoi_rollup.parquet"):
+            elif name.endswith("_aoi_rollup.parquet"):
                 rollup_parquet = f
 
-        if rollup_csv and rollup_csv.exists():
-            df = pd.read_csv(rollup_csv, nrows=0)
-            return set(df.columns)
+        if rollup_csv:
+            try:
+                df = pd.read_csv(rollup_csv, nrows=0)
+                return set(df.columns)
+            except Exception:
+                pass
 
-        if rollup_parquet and rollup_parquet.exists():
-            schema = pq.read_schema(rollup_parquet)
-            return set(schema.names)
+        if rollup_parquet:
+            try:
+                schema = pq.read_schema(rollup_parquet)
+                return set(schema.names)
+            except Exception:
+                pass
 
         return set()
 
@@ -298,13 +323,14 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 ---
 """
 
-    def _generate_files_table(self, files: list[Path], prefix: str) -> str:
+    def _generate_files_table(self, files: list[str], prefix: str) -> str:
         """Generate the files table section."""
         lines = ["## Files in This Export", "", "| File Name | Description |", "|-----------|-------------|"]
 
         for f in files:
-            description = self._get_file_description(f.name, prefix)
-            lines.append(f"| `{f.name}` | {description} |")
+            name = storage.basename(f)
+            description = self._get_file_description(name, prefix)
+            lines.append(f"| `{name}` | {description} |")
 
         lines.append("")
         return "\n".join(lines)

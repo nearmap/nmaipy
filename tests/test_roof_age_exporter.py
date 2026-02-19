@@ -46,7 +46,7 @@ def test_exporter_initialization(test_aoi_file, test_output_dir):
     )
 
     assert exporter.aoi_file == str(test_aoi_file)
-    assert exporter.output_dir == Path(test_output_dir)
+    assert exporter.output_dir == str(test_output_dir)
     assert exporter.country == "us"
     assert exporter.threads == 10  # default
 
@@ -85,7 +85,7 @@ def test_exporter_process_chunk_mocked(test_aoi_file, test_output_dir, data_dire
     )
 
     # Ensure chunk directory exists
-    exporter.chunk_path.mkdir(parents=True, exist_ok=True)
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
 
     # Mock RoofAgeApi at the module level where process_chunk imports it
     with patch('nmaipy.roof_age_exporter.RoofAgeApi') as mock_api_class:
@@ -120,8 +120,8 @@ def test_exporter_process_chunk_mocked(test_aoi_file, test_output_dir, data_dire
         assert mock_api.get_roof_age_bulk.called
 
         # Verify chunk output files were created
-        assert (exporter.chunk_path / "roofs_test_chunk_0000.parquet").exists()
-        assert (exporter.chunk_path / "metadata_test_chunk_0000.parquet").exists()
+        assert (Path(exporter.chunk_path) /"roofs_test_chunk_0000.parquet").exists()
+        assert (Path(exporter.chunk_path) /"metadata_test_chunk_0000.parquet").exists()
 
 
 def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
@@ -144,7 +144,7 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
     )
 
     # Ensure chunk directory exists
-    exporter.chunk_path.mkdir(parents=True, exist_ok=True)
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
 
     with patch('nmaipy.roof_age_exporter.RoofAgeApi') as mock_api_class:
         mock_api = Mock()
@@ -165,7 +165,7 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
         exporter.process_chunk("test_chunk_0000", aoi_gdf)
 
         # Verify error file was created
-        assert (exporter.chunk_path / "roof_age_errors_test_chunk_0000.parquet").exists()
+        assert (Path(exporter.chunk_path) /"roof_age_errors_test_chunk_0000.parquet").exists()
 
 
 @pytest.mark.integration

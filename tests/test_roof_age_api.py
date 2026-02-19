@@ -603,7 +603,7 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
         )
 
         assert csv_path is not None
-        assert csv_path.exists()
+        assert Path(csv_path).exists()
 
         result_df = pd.read_csv(csv_path)
 

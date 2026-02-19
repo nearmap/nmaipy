@@ -28,6 +28,8 @@ import requests
 import urllib3
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
+
+from nmaipy import storage
 from urllib3.util.retry import Retry
 
 from nmaipy import log
@@ -375,9 +377,9 @@ class BaseApiClient:
             )
 
         # Cache configuration
-        self.cache_dir = cache_dir
+        self.cache_dir = str(cache_dir) if cache_dir is not None else None
         if self.cache_dir is not None:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            storage.ensure_directory(self.cache_dir)
         elif overwrite_cache:
             raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
 
@@ -476,7 +478,7 @@ class BaseApiClient:
             except Exception:
                 pass
 
-    def _get_cache_path(self, cache_key: str) -> Path:
+    def _get_cache_path(self, cache_key: str) -> str:
         """
         Get the cache file path for a given key.
 
@@ -484,7 +486,7 @@ class BaseApiClient:
             cache_key: Unique identifier for the cached item
 
         Returns:
-            Path to the cache file
+            Path to the cache file (string, may be S3 URI)
         """
         if self.cache_dir is None:
             raise ValueError("Cache directory not configured")
@@ -492,7 +494,7 @@ class BaseApiClient:
         # Hash the key to create a safe filename
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
         extension = ".json.gz" if self.compress_cache else ".json"
-        return self.cache_dir / f"{key_hash}{extension}"
+        return storage.join_path(self.cache_dir, f"{key_hash}{extension}")
 
     def _load_from_cache(self, cache_key: str) -> Optional[Dict]:
         """
@@ -508,16 +510,11 @@ class BaseApiClient:
             return None
 
         cache_path = self._get_cache_path(cache_key)
-        if not cache_path.exists():
+        if not storage.file_exists(cache_path):
             return None
 
         try:
-            if self.compress_cache:
-                with gzip.open(cache_path, 'rt', encoding='utf-8') as f:
-                    return json.load(f)
-            else:
-                with open(cache_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+            return storage.read_json(cache_path, compressed=self.compress_cache)
         except Exception as e:
             logger.warning(f"Failed to load from cache: {e}")
             return None
@@ -535,12 +532,7 @@ class BaseApiClient:
 
         cache_path = self._get_cache_path(cache_key)
         try:
-            if self.compress_cache:
-                with gzip.open(cache_path, 'wt', encoding='utf-8') as f:
-                    json.dump(data, f)
-            else:
-                with open(cache_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f)
+            storage.write_json(cache_path, data, compressed=self.compress_cache)
         except Exception as e:
             logger.warning(f"Failed to save to cache: {e}")
 
@@ -574,7 +566,7 @@ class BaseApiClient:
         city: str,
         zipcode: str,
         cache_key: str
-    ) -> Path:
+    ) -> str:
         """
         Get cache path for address-based queries.
 
@@ -590,7 +582,7 @@ class BaseApiClient:
             cache_key: Full cache key to hash for filename
 
         Returns:
-            Path to the cache file
+            Path to the cache file (string, may be S3 URI)
         """
         if self.cache_dir is None:
             raise ValueError("Cache directory not configured")
@@ -598,15 +590,15 @@ class BaseApiClient:
         extension = ".json.gz" if self.compress_cache else ".json"
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
 
-        cache_subdir = (
-            self.cache_dir
-            / self._sanitize_path_component(country)
-            / self._sanitize_path_component(state)
-            / self._sanitize_path_component(city)
-            / self._sanitize_path_component(zipcode)
+        cache_subdir = storage.join_path(
+            self.cache_dir,
+            self._sanitize_path_component(country),
+            self._sanitize_path_component(state),
+            self._sanitize_path_component(city),
+            self._sanitize_path_component(zipcode),
         )
-        cache_subdir.mkdir(parents=True, exist_ok=True)
-        return cache_subdir / f"{key_hash}{extension}"
+        storage.ensure_directory(cache_subdir)
+        return storage.join_path(cache_subdir, f"{key_hash}{extension}")
 
     def _clean_api_key(self, text: str) -> str:
         """
@@ -1091,7 +1083,7 @@ def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> No
         return
 
     df = pd.DataFrame([row])
-    outfile = chunk_path / f"latency_{chunk_id}.parquet"
+    outfile = storage.join_path(str(chunk_path), f"latency_{chunk_id}.parquet")
     df.to_parquet(outfile, index=False)
 
 
@@ -1107,7 +1099,7 @@ def combine_chunk_latency_stats(chunk_path: Path, file_stem: str, output_csv_pat
     Returns:
         List of latency stats dicts suitable for compute_global_latency_stats()
     """
-    latency_files = list(chunk_path.glob(f"latency_{file_stem}_*.parquet"))
+    latency_files = storage.glob_files(str(chunk_path), f"latency_{file_stem}_*.parquet")
     if not latency_files:
         return []
 
@@ -1158,8 +1150,7 @@ def read_latency_csv(csv_path) -> List[Dict]:
     Returns:
         List of latency stats dicts suitable for compute_global_latency_stats()
     """
-    csv_path = Path(csv_path)
-    if not csv_path.exists():
+    if not storage.file_exists(str(csv_path)):
         return []
 
     df = pd.read_csv(csv_path)

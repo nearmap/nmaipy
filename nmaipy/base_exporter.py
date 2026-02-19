@@ -15,8 +15,10 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 import concurrent.futures
 import json
 import multiprocessing
+import os
 import platform
 import sys
+import tempfile
 import time
 import traceback
 import warnings
@@ -32,7 +34,7 @@ import numpy as np
 import psutil
 from tqdm import tqdm
 
-from nmaipy import log
+from nmaipy import log, storage
 from nmaipy.cgroup_memory import (
     get_cgroup_cpu_limit,
     get_cgroup_memory_limit_gb,
@@ -106,7 +108,8 @@ class BaseExporter(ABC):
             chunk_size: Number of AOIs to process in a single chunk
             log_level: Logging level
         """
-        self.output_dir = Path(output_dir)
+        self.output_dir = str(output_dir)
+        self.is_s3_output = storage.is_s3_path(self.output_dir)
         self.processes = processes
         self.chunk_size = chunk_size
         self.log_level = log_level
@@ -115,12 +118,22 @@ class BaseExporter(ABC):
         log.configure_logger(self.log_level)
         self.logger = log.get_logger()
 
-        # Create output directories
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.chunk_path = self.output_dir / "chunks"
-        self.final_path = self.output_dir / "final"
-        self.chunk_path.mkdir(parents=True, exist_ok=True)
-        self.final_path.mkdir(parents=True, exist_ok=True)
+        # Create output directories (no-op for S3 where directories are virtual)
+        self.chunk_path = storage.join_path(self.output_dir, "chunks")
+        self.final_path = storage.join_path(self.output_dir, "final")
+        storage.ensure_directory(self.output_dir)
+        storage.ensure_directory(self.chunk_path)
+        storage.ensure_directory(self.final_path)
+
+        # For S3 output, create a local staging directory for files that require
+        # local I/O (e.g. pyarrow ParquetWriter for streaming large geoparquet)
+        if self.is_s3_output:
+            self._local_staging_dir = tempfile.mkdtemp(prefix="nmaipy_staging_")
+            self._local_final_staging = os.path.join(self._local_staging_dir, "final")
+            os.makedirs(self._local_final_staging, exist_ok=True)
+        else:
+            self._local_staging_dir = None
+            self._local_final_staging = None
 
     def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
         """
@@ -155,11 +168,10 @@ class BaseExporter(ABC):
             "parameters": config,
         }
 
-        config_path = self.final_path / config_name
+        config_path = storage.join_path(self.final_path, config_name)
 
         try:
-            with open(config_path, "w") as f:
-                json.dump(full_config, f, indent=2, default=str)
+            storage.write_json(config_path, full_config, indent=2)
             self.logger.debug(f"Saved export config to {config_path}")
         except Exception as e:
             self.logger.warning(f"Could not save export config: {e}")
@@ -186,7 +198,7 @@ class BaseExporter(ABC):
         pass
 
     @abstractmethod
-    def get_chunk_output_file(self, chunk_id: str) -> Path:
+    def get_chunk_output_file(self, chunk_id: str) -> str:
         """
         Get the path to the main output file for a chunk.
 
@@ -196,7 +208,7 @@ class BaseExporter(ABC):
             chunk_id: Unique identifier for this chunk
 
         Returns:
-            Path to the chunk's main output file
+            Path to the chunk's main output file (string, may be S3 URI)
         """
         pass
 
@@ -255,7 +267,7 @@ class BaseExporter(ABC):
             chunk_id = f"{file_stem}_{str(i).zfill(4)}"
             if check_cache:
                 outfile = self.get_chunk_output_file(chunk_id)
-                if outfile.exists():
+                if storage.file_exists(outfile):
                     skipped_chunks += 1
                     skipped_aois += len(batch)
                     continue

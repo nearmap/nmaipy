@@ -29,7 +29,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
-from nmaipy import log, parcels
+from nmaipy import log, parcels, storage
 from nmaipy.__version__ import __version__
 from nmaipy.api_common import (
     combine_chunk_latency_stats,
@@ -195,7 +195,7 @@ class RoofAgeExporter(BaseExporter):
         # RoofAgeExporter-specific attributes
         self.aoi_file = aoi_file
         self.output_format = output_format
-        self.cache_dir = Path(cache_dir) if cache_dir else self.output_dir / "cache"
+        self.cache_dir = str(cache_dir) if cache_dir else storage.join_path(self.output_dir, "cache")
         self.no_cache = no_cache
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -211,9 +211,14 @@ class RoofAgeExporter(BaseExporter):
                 f"Got country='{self.country}'"
             )
 
-        # Create cache directory if needed
+        # Create cache directory if needed and warn about S3 cache performance
         if not self.no_cache:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            if storage.is_s3_path(self.cache_dir):
+                self.logger.warning(
+                    "API cache will be written to S3, which may be slow due to many small files. "
+                    "Consider using --cache-dir to set a local cache directory, or --no-cache to disable caching."
+                )
+            storage.ensure_directory(self.cache_dir)
 
         # Save export configuration at start (before processing begins)
         self._save_config(
@@ -233,7 +238,7 @@ class RoofAgeExporter(BaseExporter):
             config_name="roof_age_export_config.json",
         )
 
-    def get_chunk_output_file(self, chunk_id: str) -> Path:
+    def get_chunk_output_file(self, chunk_id: str) -> str:
         """
         Get the path to the main output file for a chunk.
 
@@ -243,7 +248,7 @@ class RoofAgeExporter(BaseExporter):
         Returns:
             Path to the chunk's metadata file (used for cache checking)
         """
-        return self.chunk_path / f"metadata_{chunk_id}.parquet"
+        return storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
 
     def process_chunk(
         self,
@@ -271,15 +276,15 @@ class RoofAgeExporter(BaseExporter):
 
         try:
             # Ensure chunk output directory exists (BaseExporter creates self.chunk_path)
-            self.chunk_path.mkdir(parents=True, exist_ok=True)
+            storage.ensure_directory(self.chunk_path)
 
             # Define chunk output files
-            outfile_roofs = self.chunk_path / f"roofs_{chunk_id}.parquet"
-            outfile_metadata = self.chunk_path / f"metadata_{chunk_id}.parquet"
-            outfile_errors = self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
+            outfile_roofs = storage.join_path(self.chunk_path, f"roofs_{chunk_id}.parquet")
+            outfile_metadata = storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
+            outfile_errors = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
 
             # Check if chunk already processed
-            if outfile_metadata.exists():
+            if storage.file_exists(outfile_metadata):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
                 return
 
@@ -358,7 +363,7 @@ class RoofAgeExporter(BaseExporter):
         )
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
-        latency_csv_path = self.final_path / f"{aoi_stem}_latency_stats.csv"
+        latency_csv_path = storage.join_path(self.final_path, f"{aoi_stem}_latency_stats.csv")
 
         self.run_parallel(
             chunks_to_process,
@@ -396,18 +401,18 @@ class RoofAgeExporter(BaseExporter):
             chunk_id = f"{aoi_stem}_{str(i).zfill(4)}"
 
             # Load roofs
-            roofs_file = self.chunk_path / f"roofs_{chunk_id}.parquet"
-            if roofs_file.exists():
+            roofs_file = storage.join_path(self.chunk_path, f"roofs_{chunk_id}.parquet")
+            if storage.file_exists(roofs_file):
                 roofs_list.append(gpd.read_parquet(roofs_file))
 
             # Load metadata
-            metadata_file = self.chunk_path / f"metadata_{chunk_id}.parquet"
-            if metadata_file.exists():
+            metadata_file = storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
+            if storage.file_exists(metadata_file):
                 metadata_list.append(pd.read_parquet(metadata_file))
 
             # Load errors
-            errors_file = self.chunk_path / f"roof_age_errors_{chunk_id}.parquet"
-            if errors_file.exists():
+            errors_file = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
+            if storage.file_exists(errors_file):
                 errors_list.append(pd.read_parquet(errors_file))
 
         # Combine results
@@ -476,7 +481,7 @@ class RoofAgeExporter(BaseExporter):
         roofs_gdf: gpd.GeoDataFrame,
         metadata_df: pd.DataFrame,
         errors_df: pd.DataFrame,
-        output_path: Path,
+        output_path: str,
     ):
         """
         Save output files.
@@ -525,12 +530,12 @@ class RoofAgeExporter(BaseExporter):
                 )
 
             if self.output_format in ["geoparquet", "both"]:
-                roofs_path = output_path / f"{file_stem}_roofs.parquet"
+                roofs_path = storage.join_path(output_path, f"{file_stem}_roofs.parquet")
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
                 roofs_gdf.to_parquet(roofs_path, index=True)
 
             if self.output_format in ["csv", "both"]:
-                roofs_path = output_path / f"{file_stem}_roofs.csv"
+                roofs_path = storage.join_path(output_path, f"{file_stem}_roofs.csv")
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
                 # Convert geometry to WKT for CSV
                 roofs_df = pd.DataFrame(roofs_gdf)
@@ -577,13 +582,13 @@ class RoofAgeExporter(BaseExporter):
 
         # Save metadata
         if len(metadata_df) > 0:
-            metadata_path = output_path / f"{file_stem}_metadata.csv"
+            metadata_path = storage.join_path(output_path, f"{file_stem}_metadata.csv")
             self.logger.info(f"Saving metadata to {metadata_path}")
             metadata_df.to_csv(metadata_path, index=True)
 
         # Save errors
         if len(errors_df) > 0:
-            errors_path = output_path / f"{file_stem}_errors.csv"
+            errors_path = storage.join_path(output_path, f"{file_stem}_errors.csv")
             self.logger.info(f"Saving {len(errors_df)} errors to {errors_path}")
             errors_df.to_csv(errors_path, index=True)
 

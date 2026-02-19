@@ -24,7 +24,7 @@ from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, quote
 
-from nmaipy import log, geometry_utils
+from nmaipy import log, geometry_utils, storage
 from nmaipy.api_common import (
     APIError,
     AIFeatureAPIError,
@@ -386,7 +386,7 @@ class FeatureApi(GriddedApiClient):
         return result
 
 
-    def _request_cache_path(self, request_string: str) -> Path:
+    def _request_cache_path(self, request_string: str) -> str:
         """
         Hash a request string to create a cache path.
         """
@@ -394,9 +394,9 @@ class FeatureApi(GriddedApiClient):
         request_hash = hashlib.md5(request_string.encode()).hexdigest()
         lon, lat = geometry_utils.extract_coords_for_cache(request_string)
         ext = "json.gz" if self.compress_cache else "json"
-        return self.cache_dir / lon / lat / f"{request_hash}.{ext}"
+        return storage.join_path(self.cache_dir, lon, lat, f"{request_hash}.{ext}")
         
-    def _post_request_cache_path(self, url: str, body: dict) -> Path:
+    def _post_request_cache_path(self, url: str, body: dict) -> str:
         """
         Hash a POST request URL and body to create a cache path.
 
@@ -424,9 +424,9 @@ class FeatureApi(GriddedApiClient):
                 coords = body["aoi"]["coordinates"][0][0][0]
 
             lon, lat = str(int(float(coords[0]))), str(int(float(coords[1])))
-            cache_subdir = self.cache_dir / lon / lat
-            cache_subdir.mkdir(parents=True, exist_ok=True)
-            return cache_subdir / f"{request_hash}.{ext}"
+            cache_subdir = storage.join_path(self.cache_dir, lon, lat)
+            storage.ensure_directory(cache_subdir)
+            return storage.join_path(cache_subdir, f"{request_hash}.{ext}")
 
         # No geometry - check for address fields in URL for address-based caching
         parsed = urlparse(url)
@@ -449,7 +449,7 @@ class FeatureApi(GriddedApiClient):
             )
 
         # Fallback: hash-based flat structure
-        return self.cache_dir / f"{request_hash}.{ext}"
+        return storage.join_path(self.cache_dir, f"{request_hash}.{ext}")
 
 
     def _handle_response_errors(self, response: requests.Response, request_string: str):
@@ -464,26 +464,34 @@ class FeatureApi(GriddedApiClient):
 
     def _write_to_cache(self, path, payload):
         """
-        Write a payload to the cache. To make the write atomic, data is first written to a temp file and then renamed.
+        Write a payload to the cache.
+
+        For local paths, uses atomic write via temp file + rename.
+        For S3 paths, writes directly (S3 puts are atomic).
         """
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Generate temp file name based on whether we're compressing
-        temp_filename = f"{str(uuid.uuid4())}.tmp"
-        if self.compress_cache:
-            temp_filename = f"{temp_filename}.gz"
-        temp_path = self.cache_dir / temp_filename
-        
-        try:
+        if storage.is_s3_path(str(path)):
+            # S3 puts are atomic, so write directly
+            storage.write_json(str(path), payload, compressed=self.compress_cache)
+        else:
+            # Local: atomic write via temp file + rename
+            parent_dir = str(Path(path).parent)
+            storage.ensure_directory(parent_dir)
+            temp_filename = f"{str(uuid.uuid4())}.tmp"
             if self.compress_cache:
-                with gzip.open(temp_path, "wb") as f:
-                    f.write(json.dumps(payload).encode("utf-8"))
-            else:
-                with open(temp_path, "w") as f:
-                    json.dump(payload, f)
-            temp_path.replace(path)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
+                temp_filename = f"{temp_filename}.gz"
+            temp_path = Path(storage.join_path(self.cache_dir, temp_filename))
+
+            try:
+                if self.compress_cache:
+                    with gzip.open(temp_path, "wb") as f:
+                        f.write(json.dumps(payload).encode("utf-8"))
+                else:
+                    with open(temp_path, "w") as f:
+                        json.dump(payload, f)
+                temp_path.replace(path)
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink(missing_ok=True)
 
         
     def _create_post_request(
@@ -764,20 +772,16 @@ class FeatureApi(GriddedApiClient):
                 
             # Check if it's already cached
             if self.cache_dir is not None and not self.overwrite_cache:
-                if cache_path.exists():
-                    if self.compress_cache:
-                        with gzip.open(cache_path, "rt", encoding="utf-8") as f:
-                            try:
-                                payload_str = f.read()
-                                self._cache_hits += 1
-                                return json.loads(payload_str)
-                            except EOFError as e:
-                                logger.error(f"Error loading compressed cache file {cache_path}.")
-                                logger.error(f"Error: {e}")
-                    else:
-                        with open(cache_path, "r") as f:
-                            self._cache_hits += 1
-                            return json.load(f)
+                if storage.file_exists(cache_path):
+                    try:
+                        data = storage.read_json(cache_path, compressed=self.compress_cache)
+                        self._cache_hits += 1
+                        return data
+                    except EOFError as e:
+                        logger.error(f"Error loading compressed cache file {cache_path}.")
+                        logger.error(f"Error: {e}")
+                    except Exception as e:
+                        logger.error(f"Error loading cache file {cache_path}: {e}")
 
             # Request data with retry loop for ChunkedEncodingError
             # Note: While urllib3 RetryRequest handles ChunkedEncodingError, this additional
@@ -885,8 +889,13 @@ class FeatureApi(GriddedApiClient):
                 # Clean up cache if we're overwriting
                 if self.overwrite_cache and cache_path:
                     try:
-                        os.remove(cache_path)
-                    except OSError:
+                        if storage.is_s3_path(cache_path):
+                            import fsspec
+                            fs = fsspec.filesystem("s3")
+                            fs.rm(cache_path)
+                        else:
+                            os.remove(cache_path)
+                    except (OSError, Exception):
                         pass
 
                 if status_code in AIFeatureAPIRequestSizeError.status_codes:
