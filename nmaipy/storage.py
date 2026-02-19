@@ -10,7 +10,6 @@ AWS credentials are picked up automatically by s3fs from environment variables
 or ~/.aws/credentials.
 """
 
-import functools
 import gzip
 import json
 import os
@@ -20,11 +19,20 @@ from typing import Any, Dict, List, Optional, Union
 
 import fsspec
 
+_s3_filesystem_cache = {}
 
-@functools.lru_cache(maxsize=1)
+
 def _get_s3_filesystem():
-    """Return a cached S3 filesystem instance to avoid repeated instantiation."""
-    return fsspec.filesystem("s3")
+    """Return a per-process cached S3 filesystem instance.
+
+    Creates a new instance after fork to avoid sharing non-fork-safe S3 clients
+    across process boundaries (s3fs/botocore connections cannot survive fork).
+    """
+    pid = os.getpid()
+    if pid not in _s3_filesystem_cache:
+        _s3_filesystem_cache.clear()  # Clean up stale entries from parent
+        _s3_filesystem_cache[pid] = fsspec.filesystem("s3", skip_instance_cache=True)
+    return _s3_filesystem_cache[pid]
 
 
 def is_s3_path(path: Union[str, Path]) -> bool:
