@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+import pandas as pd
 import pytest
 
 from nmaipy import storage
@@ -339,3 +340,40 @@ class TestBasename:
 
     def test_s3_basename_bucket_only(self):
         assert storage.basename("s3://bucket") == "bucket"
+
+
+# ---------------------------------------------------------------------------
+# write_parquet
+# ---------------------------------------------------------------------------
+
+
+class TestWriteParquet:
+    def test_local_write_and_read(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+        fpath = str(tmp_path / "test.parquet")
+        storage.write_parquet(df, fpath)
+        result = pd.read_parquet(fpath)
+        assert list(result["a"]) == [1, 2, 3]
+        assert list(result["b"]) == ["x", "y", "z"]
+
+    def test_local_write_with_kwargs(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        df.index.name = "idx"
+        fpath = str(tmp_path / "test.parquet")
+        storage.write_parquet(df, fpath, index=False)
+        result = pd.read_parquet(fpath)
+        assert "idx" not in result.columns
+
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_write_routes_through_fork_safe_fs(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_file = MagicMock()
+        mock_file.__enter__ = Mock(return_value=mock_file)
+        mock_file.__exit__ = Mock(return_value=False)
+        mock_fs.open.return_value = mock_file
+        mock_get_fs.return_value = mock_fs
+
+        df = MagicMock()
+        storage.write_parquet(df, "s3://bucket/test.parquet", index=False)
+        mock_fs.open.assert_called_with("s3://bucket/test.parquet", "wb")
+        df.to_parquet.assert_called_once_with(mock_file, index=False)

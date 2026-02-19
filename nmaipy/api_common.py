@@ -1084,7 +1084,7 @@ def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> No
 
     df = pd.DataFrame([row])
     outfile = storage.join_path(str(chunk_path), f"latency_{chunk_id}.parquet")
-    df.to_parquet(outfile, index=False)
+    storage.write_parquet(df, outfile, index=False)
 
 
 def combine_chunk_latency_stats(chunk_path: Path, file_stem: str, output_csv_path: Path) -> List[Dict]:

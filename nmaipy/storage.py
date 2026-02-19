@@ -231,6 +231,27 @@ def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[
             json.dump(data, f, indent=indent, default=str)
 
 
+def write_parquet(df, path: str, **kwargs) -> None:
+    """
+    Write a DataFrame or GeoDataFrame to parquet. Fork-safe for S3.
+
+    Routes S3 writes through our fork-safe filesystem to avoid hangs from
+    pyarrow's non-fork-safe native S3FileSystem (which pandas/geopandas
+    use internally when given an S3 URI string). For local paths, delegates
+    directly to df.to_parquet().
+
+    Args:
+        df: pandas DataFrame or geopandas GeoDataFrame
+        path: Output file path (local or S3 URI)
+        **kwargs: Additional arguments passed to df.to_parquet()
+    """
+    if is_s3_path(path):
+        with open_file(path, "wb") as f:
+            df.to_parquet(f, **kwargs)
+    else:
+        df.to_parquet(path, **kwargs)
+
+
 def basename(path: str) -> str:
     """
     Get the filename component of a path. Works for both local and S3.

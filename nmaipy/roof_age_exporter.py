@@ -315,11 +315,11 @@ class RoofAgeExporter(BaseExporter):
 
             # Save chunk results
             if len(roofs_gdf) > 0:
-                roofs_gdf.to_parquet(outfile_roofs)
+                storage.write_parquet(roofs_gdf, outfile_roofs)
             if len(metadata_df) > 0:
-                metadata_df.to_parquet(outfile_metadata)
+                storage.write_parquet(metadata_df, outfile_metadata)
             if len(errors_df) > 0:
-                errors_df.to_parquet(outfile_errors)
+                storage.write_parquet(errors_df, outfile_errors)
 
             latency_stats = api.get_latency_stats()
             if latency_stats is not None:
@@ -532,7 +532,7 @@ class RoofAgeExporter(BaseExporter):
             if self.output_format in ["geoparquet", "both"]:
                 roofs_path = storage.join_path(output_path, f"{file_stem}_roofs.parquet")
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
-                roofs_gdf.to_parquet(roofs_path, index=True)
+                storage.write_parquet(roofs_gdf, roofs_path, index=True)
 
             if self.output_format in ["csv", "both"]:
                 roofs_path = storage.join_path(output_path, f"{file_stem}_roofs.csv")
