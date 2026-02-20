@@ -2887,21 +2887,15 @@ class NearmapAIExporter(BaseExporter):
                     f"Found {len(unique_classes)} unique feature classes to export"
                 )
 
-                # Build class_id -> description mapping from all available sources
-                class_descriptions = {**FEATURE_CLASS_DESCRIPTIONS}
-                # Add descriptions from classes_df if available
-                if classes_df is not None and "description" in classes_df.columns:
-                    for class_id in classes_df.index:
-                        class_descriptions[class_id] = classes_df.loc[
-                            class_id, "description"
-                        ]
-                # Fill gaps from the features data itself (covers roof conditions, etc.)
+                # Build class_id -> description mapping directly from the features data.
+                # The API returns a description for every feature - use that as the
+                # source of truth rather than maintaining a hardcoded mapping.
+                class_descriptions = {}
                 if "description" in features_gdf.columns:
-                    for cid in unique_classes:
-                        if cid not in class_descriptions:
-                            desc_vals = features_gdf.loc[features_gdf["class_id"] == cid, "description"].dropna()
-                            if len(desc_vals) > 0:
-                                class_descriptions[cid] = desc_vals.iloc[0]
+                    for cid, group in class_groups.items():
+                        desc_vals = group["description"].dropna()
+                        if len(desc_vals) > 0:
+                            class_descriptions[cid] = desc_vals.iloc[0]
 
                 # Extract input-file columns from AOI (excluding system columns)
                 # These will be added to the per-class exports
