@@ -327,6 +327,7 @@ class BaseExporter(ABC):
 
         # Create shared progress counters if enabled
         progress_counters = None
+        manager = None
         if use_progress_tracking:
             manager = mp_context.Manager()
             # Estimate 1 request per AOI initially (may grow if gridding occurs)
@@ -344,119 +345,123 @@ class BaseExporter(ABC):
         # Prime psutil CPU tracking (first call always returns 0.0, needs a baseline)
         psutil.cpu_percent(interval=None)
 
-        for attempt in range(max_retries):
-            try:
-                with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context) as executor:
-                    try:
-                        # Submit all chunks
-                        # Track warmup start time to gradually ramp up concurrency
-                        warmup_start_time = time.time()
+        try:
+            for attempt in range(max_retries):
+                try:
+                    with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context) as executor:
+                        try:
+                            # Submit all chunks
+                            # Track warmup start time to gradually ramp up concurrency
+                            warmup_start_time = time.time()
 
-                        # Log warmup plan once at the start
-                        if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
-                            warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
-                            self.logger.info(
-                                f"API warmup: ramping parallel workers from 1 to {self.processes} "
-                                f"over {warmup_duration:.0f}s"
+                            # Log warmup plan once at the start
+                            if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
+                                warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
+                                self.logger.info(
+                                    f"API warmup: ramping parallel workers from 1 to {self.processes} "
+                                    f"over {warmup_duration:.0f}s"
+                                )
+
+                            # Create progress bar BEFORE submission loop so it shows during warmup
+                            pbar = None
+                            if use_progress_tracking and progress_counters is not None:
+                                with progress_counters["lock"]:
+                                    initial_total = progress_counters["total"]
+                                pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
+
+                            chunks_submitted = 0
+                            for i, batch in chunks_to_process:
+                                chunk_id = f"{file_stem}_{str(i).zfill(4)}"
+
+                                # API warmup: gradually ramp up concurrency to allow API autoscaling
+                                # Start with 1 worker, add 1 more every warmup_interval seconds
+                                if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
+                                    while True:
+                                        elapsed = time.time() - warmup_start_time
+                                        # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
+                                        max_concurrent = min(
+                                            1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
+                                            self.processes
+                                        )
+                                        active_jobs = sum(1 for j in jobs if not j.done())
+
+                                        if active_jobs < max_concurrent:
+                                            break
+                                        else:
+                                            # At capacity for current warmup stage - update progress while waiting
+                                            if pbar is not None and progress_counters is not None:
+                                                self._update_pbar_during_warmup(
+                                                    pbar, progress_counters, chunks_submitted, len(chunks_to_process)
+                                                )
+                                            time.sleep(1.0)
+
+                                self.logger.debug(
+                                    f"Submitting chunk {chunk_id} with {len(batch)} AOIs "
+                                    f"(indices {batch.index.min()}-{batch.index.max()})"
+                                )
+                                job = executor.submit(
+                                    self.process_chunk,
+                                    chunk_id,
+                                    batch,
+                                    **process_chunk_kwargs,
+                                )
+                                jobs.append(job)
+                                job_to_chunk[job] = (
+                                    chunk_id,
+                                    i,
+                                    batch.index.min(),
+                                    batch.index.max(),
+                                )
+                                chunks_submitted += 1
+
+                            # Process jobs with progress tracking
+                            if use_progress_tracking and progress_counters is not None:
+                                all_latency_stats = self._monitor_progress_with_tqdm(
+                                    jobs,
+                                    job_to_chunk,
+                                    progress_counters,
+                                    len(chunks_to_process),
+                                    executor,
+                                    pbar=pbar,
+                                )
+                            else:
+                                if pbar is not None:
+                                    pbar.close()
+                                all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
+
+                            return all_latency_stats  # Success - exit retry loop
+
+                        except KeyboardInterrupt:
+                            self.logger.warning(
+                                "Interrupted by user (Ctrl+C) - shutting down processes..."
                             )
-
-                        # Create progress bar BEFORE submission loop so it shows during warmup
-                        pbar = None
-                        if use_progress_tracking and progress_counters is not None:
-                            with progress_counters["lock"]:
-                                initial_total = progress_counters["total"]
-                            pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
-
-                        chunks_submitted = 0
-                        for i, batch in chunks_to_process:
-                            chunk_id = f"{file_stem}_{str(i).zfill(4)}"
-
-                            # API warmup: gradually ramp up concurrency to allow API autoscaling
-                            # Start with 1 worker, add 1 more every warmup_interval seconds
-                            if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
-                                while True:
-                                    elapsed = time.time() - warmup_start_time
-                                    # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
-                                    max_concurrent = min(
-                                        1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
-                                        self.processes
-                                    )
-                                    active_jobs = sum(1 for j in jobs if not j.done())
-
-                                    if active_jobs < max_concurrent:
-                                        break
-                                    else:
-                                        # At capacity for current warmup stage - update progress while waiting
-                                        if pbar is not None and progress_counters is not None:
-                                            self._update_pbar_during_warmup(
-                                                pbar, progress_counters, chunks_submitted, len(chunks_to_process)
-                                            )
-                                        time.sleep(1.0)
-
-                            self.logger.debug(
-                                f"Submitting chunk {chunk_id} with {len(batch)} AOIs "
-                                f"(indices {batch.index.min()}-{batch.index.max()})"
-                            )
-                            job = executor.submit(
-                                self.process_chunk,
-                                chunk_id,
-                                batch,
-                                **process_chunk_kwargs,
-                            )
-                            jobs.append(job)
-                            job_to_chunk[job] = (
-                                chunk_id,
-                                i,
-                                batch.index.min(),
-                                batch.index.max(),
-                            )
-                            chunks_submitted += 1
-
-                        # Process jobs with progress tracking
-                        if use_progress_tracking and progress_counters is not None:
-                            all_latency_stats = self._monitor_progress_with_tqdm(
-                                jobs,
-                                job_to_chunk,
-                                progress_counters,
-                                len(chunks_to_process),
-                                executor,
-                                pbar=pbar,
-                            )
-                        else:
+                            # Close progress bar if it exists
                             if pbar is not None:
                                 pbar.close()
-                            all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
+                            # Cancel all pending jobs
+                            for job in jobs:
+                                job.cancel()
+                            executor.shutdown(wait=False)
+                            raise
 
-                        return all_latency_stats  # Success - exit retry loop
+                        finally:
+                            executor.shutdown(wait=True)
 
-                    except KeyboardInterrupt:
-                        self.logger.warning(
-                            "Interrupted by user (Ctrl+C) - shutting down processes..."
-                        )
-                        # Close progress bar if it exists
-                        if pbar is not None:
-                            pbar.close()
-                        # Cancel all pending jobs
-                        for job in jobs:
-                            job.cancel()
-                        executor.shutdown(wait=False)
+                except BrokenProcessPool as e:
+                    self._handle_broken_process_pool(
+                        e, attempt, max_retries, PROCESS_POOL_RETRY_DELAY
+                    )
+                    if attempt < max_retries - 1:
+                        jobs = []  # Reset jobs list for retry
+                        job_to_chunk = {}  # Reset job tracking for retry
+                    else:
                         raise
 
-                    finally:
-                        executor.shutdown(wait=True)
-
-            except BrokenProcessPool as e:
-                self._handle_broken_process_pool(
-                    e, attempt, max_retries, PROCESS_POOL_RETRY_DELAY
-                )
-                if attempt < max_retries - 1:
-                    jobs = []  # Reset jobs list for retry
-                    job_to_chunk = {}  # Reset job tracking for retry
-                else:
-                    raise
-
-        # Should not reach here (either returns on success or raises on failure)
-        return []
+            # Should not reach here (either returns on success or raises on failure)
+            return []
+        finally:
+            if manager is not None:
+                manager.shutdown()
 
     def _update_pbar_during_warmup(
         self,
