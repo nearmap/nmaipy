@@ -6,6 +6,8 @@ Extract building footprints, vegetation, damage assessments, and other AI featur
 
 nmaipy (pronounced "en-my-pie") is a Python library that makes it easy for data scientists to access Nearmap's AI-powered geospatial data. Whether you're analyzing a few properties or processing millions of buildings across entire cities, nmaipy handles the complexity so you can focus on your analysis.
 
+**Supported countries:** `au` (Australia), `us` (United States), `nz` (New Zealand), `ca` (Canada)
+
 ## Quick Start for Data Scientists
 
 ### 1. Install
@@ -31,7 +33,7 @@ conda activate nmaipy
 
 #### Option C: Install into existing conda environment
 ```bash
-conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm
+conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
 pip install -e .
 ```
 
@@ -76,7 +78,7 @@ That's it! Your results will be saved as CSV or Parquet files in the output dire
 
 ## Common Use Cases
 
-### 🏢 Urban Planning
+### Urban Planning
 Extract comprehensive data about buildings, vegetation coverage, and surface materials:
 
 ```python
@@ -90,7 +92,7 @@ exporter = NearmapAIExporter(
 )
 ```
 
-### 🌊 Disaster Response
+### Disaster Response
 Assess damage after natural disasters like hurricanes or floods:
 
 ```python
@@ -106,7 +108,7 @@ exporter = NearmapAIExporter(
 )
 ```
 
-### 🌳 Environmental Analysis
+### Environmental Analysis
 Study vegetation coverage and tree canopy:
 
 ```python
@@ -119,7 +121,7 @@ exporter = NearmapAIExporter(
 )
 ```
 
-### 🏊 Market Research
+### Market Research
 Find properties with pools or solar panels:
 
 ```python
@@ -132,7 +134,7 @@ exporter = NearmapAIExporter(
 )
 ```
 
-### 🏠 Roof Age Analysis (US Only)
+### Roof Age Analysis (US Only)
 Predict roof installation dates using AI analysis of historical imagery.
 
 **Unified approach** (recommended) - combines Feature API and Roof Age in one export:
@@ -195,30 +197,73 @@ Some of the more common AI packs are below - there are more and growing, availab
 nmaipy accepts areas of interest (AOIs) in several formats:
 
 - **GeoJSON**: Standard geospatial format with polygons
-- **Parquet**: Efficient columnar format for large datasets  
-- **CSV**: Simple format with lat/lon coordinates or WKT geometries
+- **GeoPackage** (GPKG): OGC standard for geospatial data
+- **Parquet / GeoParquet**: Efficient columnar format for large datasets
+- **CSV**: Simple format with WKT geometries (also supports TSV and PSV)
 
 Your input file should contain polygon geometries representing the areas you want to analyze (parcels, census blocks, suburbs, etc.).
 
 ## Output Data
 
-Results are saved as CSV or Parquet files containing:
+The exporter writes results to `{output_dir}/final/` with the following structure:
 
-- **Rollups**: Summary statistics per AOI (counts, areas, percentages)
-- **Features**: Individual AI features with geometries (when `save_features=True`)
-- **Metadata**: Survey dates, data quality metrics
+| File | Description |
+|------|-------------|
+| `{stem}_aoi_rollup.csv` or `.parquet` | One row per AOI with summary statistics (counts, areas, confidences) |
+| `{stem}_{class}.csv` | Per-class attribute tables (e.g. `roof.csv`, `building.csv`) |
+| `{stem}_{class}_features.parquet` | Per-class GeoParquet with feature geometries (when `save_features=True`) |
+| `{stem}_features.parquet` | All features combined as GeoParquet (when `save_features=True`) |
+| `{stem}_buildings.csv` or `.parquet` | Per-building detail rows (when `save_buildings=True`) |
+| `{stem}_feature_api_errors.csv` | AOIs where the Feature API returned errors |
+| `{stem}_roof_age_errors.csv` | AOIs where the Roof Age API returned errors (US only) |
+| `{stem}_latency_stats.csv` | API timing diagnostics |
+| `export_config.json` | Full record of export parameters and nmaipy version |
+| `README.md` | Auto-generated data dictionary describing all output files and columns |
+
+A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing, enabling resume after interruption.
+
+For detailed column-level documentation, refer to the auto-generated `README.md` inside each export's `final/` directory.
+
+## S3 Output Support
+
+nmaipy can write output directly to Amazon S3. Pass an `s3://` URI as the output directory:
+
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='s3://my-bucket/nmaipy-results/',
+    country='us',
+    packs=['building'],
+)
+exporter.run()
+```
+
+AWS credentials are resolved automatically from environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`) or `~/.aws/credentials`. No additional nmaipy configuration is needed.
+
+The `cache_dir` parameter also accepts S3 URIs for cloud-native workflows, though local caching is faster for iterative development.
 
 ## Examples
 
-**Quick start**: See `run_10_test.py` for a minimal working example with property-based exports:
+**Quick start** — verify your setup with 10 US properties covering buildings, features, and roof age:
 ```bash
 export API_KEY=your_api_key_here
 python run_10_test.py
 ```
 
-**More examples**: Check out `examples.py` for complete working examples of different use cases.
+**More examples** — see `examples.py` for complete, working examples covering:
+- Basic building/vegetation extraction
+- Damage assessment (Hurricane Beryl)
+- Urban planning (multi-pack)
+- Vegetation analysis
+- Pool detection
+- Large area gridding
+- Time series extraction
+- Unified roof age + feature export
 
-**Unified export**: See `run.py` for a full example combining Feature API and Roof Age API.
+Example AOI files are provided in `data/examples/`:
+- `sydney_parcels.geojson` — Sydney CBD, Australia
+- `us_parcels.geojson` — Austin, Texas, USA
+- `large_area.geojson` — 2km x 2km Melbourne area (triggers auto-gridding)
 
 ## Working with Large Areas
 
@@ -242,14 +287,14 @@ exporter = NearmapAIExporter(
 
 ## Performance Tips
 
-1. **Use parallel processing**: Set `processes` to the number of CPU cores
-2. **Process in chunks**: Use `chunk_size` for very large datasets
-3. **Cache results**: Reuse cached API responses with `cache_dir`
-4. **Filter by date**: Use `since` and `until` to get specific time periods
+1. **Use parallel processing**: Set `processes` to the number of CPU cores available.
+2. **Tune chunk size**: `chunk_size` controls how many AOIs are grouped into each parallel work unit (default: 500). Smaller values give finer-grained parallelism and cheaper resume after interruption; larger values reduce overhead.
+3. **Cache API responses**: Use `cache_dir` to persist API responses to a directory. On subsequent runs with different parameters (e.g. different packs), cached responses are reused without re-fetching. By default, cache is stored in `{output_dir}/cache/`.
+4. **Filter by date**: Use `since` and `until` to restrict to specific time periods, reducing data volume.
 
 ## Command Line Interface
 
-nmaipy can be run from the command line:
+### Feature API Export
 
 ```bash
 python nmaipy/exporter.py \
@@ -258,29 +303,49 @@ python nmaipy/exporter.py \
     --country us \
     --packs building vegetation \
     --save-features \
-    --roof-age  # Include Roof Age API data (US only)
+    --roof-age
 ```
 
-Key CLI options:
+Key options:
+- `--packs`: AI packs to extract (building, vegetation, surfaces, pools, solar, damage, etc.)
 - `--roof-age`: Include Roof Age API data (US only)
 - `--save-features`: Save per-class GeoParquet files with feature geometries
-- `--aoi-grid-cell-size`: Grid cell size for large AOIs (default: ~200m)
-- `--max-retries`: Maximum API retry attempts
+- `--save-buildings`: Save per-building detail rows
+- `--rollup-format`: Output format for rollup file (`csv` or `parquet`, default: `csv`)
+- `--cache-dir`: Directory for caching API responses
+- `--no-cache`: Disable caching entirely
 - `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)
+- `--since` / `--until`: Filter by survey date range
+- `--max-retries`: Maximum API retry attempts (default: 10)
 
 Run `python nmaipy/exporter.py --help` for all options.
+
+### Standalone Roof Age Export (US Only)
+
+```bash
+python -m nmaipy.roof_age_exporter \
+    --aoi-file "us_properties.geojson" \
+    --output-dir "roof_age_results" \
+    --country us \
+    --processes 4 \
+    --output-format both
+```
+
+Run `python -m nmaipy.roof_age_exporter --help` for all options.
 
 ## Getting Help
 
 - **Examples**: See `examples.py` for common use cases
+- **Installation**: See `INSTALL.md` for detailed installation options
 - **Notebooks**: Check the `notebooks/` directory for Jupyter notebook tutorials
 - **Issues**: Report bugs or request features on [GitHub](https://github.com/nearmap/nmaipy)
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - Nearmap API key (contact Nearmap for access)
 - 4GB+ RAM recommended for large extractions
+- AWS credentials for S3 output (optional)
 
 ## Advanced: Building a Conda Package
 

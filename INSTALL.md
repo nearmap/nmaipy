@@ -43,7 +43,7 @@ conda activate nmaipy
 conda activate your-env-name
 
 # Install dependencies
-conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm
+conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
 
 # Install nmaipy
 pip install -e .
@@ -107,10 +107,10 @@ If you get import errors, ensure all dependencies are installed:
 
 ```bash
 # For conda
-conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm
+conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
 
 # For pip
-pip install geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm
+pip install geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
 ```
 
 ### GEOS/GDAL Issues
@@ -135,9 +135,25 @@ Or create a `.env` file in your project directory:
 API_KEY=your_api_key_here
 ```
 
+### S3 Output Setup (Optional)
+
+To write export output directly to Amazon S3, configure AWS credentials:
+
+```bash
+# Option 1: Environment variables
+export AWS_ACCESS_KEY_ID=your_key
+export AWS_SECRET_ACCESS_KEY=your_secret
+export AWS_DEFAULT_REGION=us-east-1
+
+# Option 2: AWS credentials file (via aws configure or manual creation)
+# ~/.aws/credentials
+```
+
+The `s3fs` package (installed as a core dependency) handles S3 authentication automatically when credentials are available.
+
 ## Requirements
 
-- Python 3.11 or higher
+- Python 3.12 or higher
 - Nearmap API key
 - 4GB+ RAM for large area extractions
 - Internet connection for API access
@@ -145,8 +161,8 @@ API_KEY=your_api_key_here
 ## Platform Support
 
 nmaipy is tested on:
-- Linux (Ubuntu 20.04+, CentOS 7+)
-- macOS (10.15+)
+- Linux (Ubuntu 22.04+)
+- macOS 12+
 - Windows 10/11 (via WSL2 or native Python)
 
 ## Getting Help

@@ -15,6 +15,7 @@ from typing import Union
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon
+from shapely.strtree import STRtree
 
 from nmaipy import log
 from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
@@ -251,7 +252,6 @@ def link_roof_instances_to_roofs(
         >>> for child in roof.child_roof_instances:
         ...     print(f"  Instance {child['feature_id']}: IoU={child['iou']:.3f}")
     """
-    from shapely.strtree import STRtree
 
     # Handle empty inputs
     if len(roof_instances_gdf) == 0 or len(roofs_gdf) == 0:
@@ -436,7 +436,6 @@ def link_roofs_to_buildings(
                 - child_roofs: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
                 - child_roof_count: Number of matched child roofs
     """
-    from shapely.strtree import STRtree
 
     # Handle empty inputs
     if len(roofs_gdf) == 0 or len(buildings_gdf) == 0:

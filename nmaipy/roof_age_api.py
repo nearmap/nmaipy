@@ -40,7 +40,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon, shape
 
-from nmaipy import log
+from nmaipy import log, storage
 from nmaipy.api_common import BaseApiClient, RoofAgeAPIError
 from nmaipy.constants import (
     ADDRESS_FIELDS,
@@ -177,7 +177,7 @@ class RoofAgeApi(BaseApiClient):
 
         # Default: use hash-based flat structure (for AOI queries or fallback)
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
-        return self.cache_dir / f"{key_hash}{extension}"
+        return storage.join_path(self.cache_dir, f"{key_hash}{extension}")
 
     def _build_request_payload(
         self,

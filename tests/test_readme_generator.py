@@ -5,8 +5,11 @@ customer-facing documentation based on actual export files and columns.
 """
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
+
+from nmaipy import storage
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -36,7 +39,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [f.name for f in files]
+        filenames = [os.path.basename(f) for f in files]
         assert "README.md" not in filenames
         assert "parcels_aoi_rollup.csv" in filenames
 
@@ -47,7 +50,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [f.name for f in files]
+        filenames = [os.path.basename(f) for f in files]
         assert ".DS_Store" not in filenames
 
     def test_discover_files_excludes_export_config(self, tmp_path):
@@ -57,7 +60,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [f.name for f in files]
+        filenames = [os.path.basename(f) for f in files]
         assert "export_config.json" not in filenames
         assert "data.csv" in filenames
 
@@ -70,7 +73,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [f.name for f in files]
+        filenames = [os.path.basename(f) for f in files]
         assert "parcels_aoi_rollup.csv" in filenames
         assert "other_file.csv" not in filenames
 
@@ -320,8 +323,8 @@ class TestGenerateWithRollupFile:
         gen = ReadmeGenerator(output_dir=tmp_path)
         readme_path = gen.generate_and_save()
 
-        assert readme_path.exists()
-        content = readme_path.read_text()
+        assert Path(readme_path).exists()
+        content = Path(readme_path).read_text()
 
         assert "# Nearmap AI Export" in content
         assert "## Files in This Export" in content
@@ -440,10 +443,10 @@ class TestReadmeIntegration:
         gen = ReadmeGenerator(output_dir=tmp_path)
         readme_path = gen.generate_and_save()
 
-        assert readme_path.exists()
-        assert readme_path.parent == final_dir
+        assert Path(readme_path).exists()
+        assert Path(readme_path).parent == final_dir
 
-        content = readme_path.read_text()
+        content = Path(readme_path).read_text()
 
         # Verify all actual files are documented (except excluded ones)
         for f in final_dir.iterdir():
@@ -513,7 +516,7 @@ class TestConfigCaching:
 
         gen = ReadmeGenerator(output_dir=tmp_path)
 
-        with patch.object(Path, "read_text", wraps=(tmp_path / "export_config.json").read_text) as mock_read:
+        with patch("nmaipy.storage.read_json", wraps=storage.read_json) as mock_read:
             result1 = gen._load_export_config()
             result2 = gen._load_export_config()
             assert mock_read.call_count == 1, "Config file should only be read once"

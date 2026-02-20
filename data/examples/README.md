@@ -10,12 +10,12 @@ These are small test GeoJSON files for testing nmaipy functionality. They contai
 
 ## Usage
 
-These files are referenced in `examples.py` and `run.py` to demonstrate nmaipy functionality.
+These files are referenced in `examples.py` to demonstrate nmaipy functionality.
 
 ```python
-from nmaipy.exporter import AOIExporter
+from nmaipy.exporter import NearmapAIExporter
 
-exporter = AOIExporter(
+exporter = NearmapAIExporter(
     aoi_file='data/examples/sydney_parcels.geojson',
     output_dir='data/outputs',
     country='au',

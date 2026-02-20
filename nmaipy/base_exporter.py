@@ -15,8 +15,11 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 import concurrent.futures
 import json
 import multiprocessing
+import os
 import platform
+import shutil
 import sys
+import tempfile
 import time
 import traceback
 import warnings
@@ -32,7 +35,7 @@ import numpy as np
 import psutil
 from tqdm import tqdm
 
-from nmaipy import log
+from nmaipy import log, storage
 from nmaipy.cgroup_memory import (
     get_cgroup_cpu_limit,
     get_cgroup_memory_limit_gb,
@@ -106,7 +109,8 @@ class BaseExporter(ABC):
             chunk_size: Number of AOIs to process in a single chunk
             log_level: Logging level
         """
-        self.output_dir = Path(output_dir)
+        self.output_dir = str(output_dir)
+        self.is_s3_output = storage.is_s3_path(self.output_dir)
         self.processes = processes
         self.chunk_size = chunk_size
         self.log_level = log_level
@@ -115,12 +119,29 @@ class BaseExporter(ABC):
         log.configure_logger(self.log_level)
         self.logger = log.get_logger()
 
-        # Create output directories
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.chunk_path = self.output_dir / "chunks"
-        self.final_path = self.output_dir / "final"
-        self.chunk_path.mkdir(parents=True, exist_ok=True)
-        self.final_path.mkdir(parents=True, exist_ok=True)
+        # Create output directories (no-op for S3 where directories are virtual)
+        self.chunk_path = storage.join_path(self.output_dir, "chunks")
+        self.final_path = storage.join_path(self.output_dir, "final")
+        storage.ensure_directory(self.output_dir)
+        storage.ensure_directory(self.chunk_path)
+        storage.ensure_directory(self.final_path)
+
+        # For S3 output, create a local staging directory for files that require
+        # local I/O (e.g. pyarrow ParquetWriter for streaming large geoparquet)
+        if self.is_s3_output:
+            self._local_staging_dir = tempfile.mkdtemp(prefix="nmaipy_staging_")
+            self._local_final_staging = os.path.join(self._local_staging_dir, "final")
+            os.makedirs(self._local_final_staging, exist_ok=True)
+        else:
+            self._local_staging_dir = None
+            self._local_final_staging = None
+
+    def _cleanup_staging(self):
+        """Remove the local staging directory created for S3 output."""
+        if self.is_s3_output and self._local_staging_dir:
+            shutil.rmtree(self._local_staging_dir, ignore_errors=True)
+            self._local_staging_dir = None
+            self._local_final_staging = None
 
     def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
         """
@@ -155,11 +176,10 @@ class BaseExporter(ABC):
             "parameters": config,
         }
 
-        config_path = self.final_path / config_name
+        config_path = storage.join_path(self.final_path, config_name)
 
         try:
-            with open(config_path, "w") as f:
-                json.dump(full_config, f, indent=2, default=str)
+            storage.write_json(config_path, full_config, indent=2, default=str)
             self.logger.debug(f"Saved export config to {config_path}")
         except Exception as e:
             self.logger.warning(f"Could not save export config: {e}")
@@ -186,7 +206,7 @@ class BaseExporter(ABC):
         pass
 
     @abstractmethod
-    def get_chunk_output_file(self, chunk_id: str) -> Path:
+    def get_chunk_output_file(self, chunk_id: str) -> str:
         """
         Get the path to the main output file for a chunk.
 
@@ -196,7 +216,7 @@ class BaseExporter(ABC):
             chunk_id: Unique identifier for this chunk
 
         Returns:
-            Path to the chunk's main output file
+            Path to the chunk's main output file (string, may be S3 URI)
         """
         pass
 
@@ -255,7 +275,7 @@ class BaseExporter(ABC):
             chunk_id = f"{file_stem}_{str(i).zfill(4)}"
             if check_cache:
                 outfile = self.get_chunk_output_file(chunk_id)
-                if outfile.exists():
+                if storage.file_exists(outfile):
                     skipped_chunks += 1
                     skipped_aois += len(batch)
                     continue
@@ -307,10 +327,17 @@ class BaseExporter(ABC):
         max_retries = 3
         PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
 
+        # Use spawn context for all multiprocessing to avoid fork-safety issues.
+        # On Linux, fork is the default and inherits stale S3 clients, event loops,
+        # and HTTP connections from the parent — causing hangs when the exporter
+        # runs inside a web application.
+        mp_context = multiprocessing.get_context("spawn")
+
         # Create shared progress counters if enabled
         progress_counters = None
+        manager = None
         if use_progress_tracking:
-            manager = multiprocessing.Manager()
+            manager = mp_context.Manager()
             # Estimate 1 request per AOI initially (may grow if gridding occurs)
             progress_counters = manager.dict(
                 {
@@ -326,119 +353,123 @@ class BaseExporter(ABC):
         # Prime psutil CPU tracking (first call always returns 0.0, needs a baseline)
         psutil.cpu_percent(interval=None)
 
-        for attempt in range(max_retries):
-            try:
-                with ProcessPoolExecutor(max_workers=self.processes) as executor:
-                    try:
-                        # Submit all chunks
-                        # Track warmup start time to gradually ramp up concurrency
-                        warmup_start_time = time.time()
+        try:
+            for attempt in range(max_retries):
+                try:
+                    with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context) as executor:
+                        try:
+                            # Submit all chunks
+                            # Track warmup start time to gradually ramp up concurrency
+                            warmup_start_time = time.time()
 
-                        # Log warmup plan once at the start
-                        if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
-                            warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
-                            self.logger.info(
-                                f"API warmup: ramping parallel workers from 1 to {self.processes} "
-                                f"over {warmup_duration:.0f}s"
+                            # Log warmup plan once at the start
+                            if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
+                                warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
+                                self.logger.info(
+                                    f"API warmup: ramping parallel workers from 1 to {self.processes} "
+                                    f"over {warmup_duration:.0f}s"
+                                )
+
+                            # Create progress bar BEFORE submission loop so it shows during warmup
+                            pbar = None
+                            if use_progress_tracking and progress_counters is not None:
+                                with progress_counters["lock"]:
+                                    initial_total = progress_counters["total"]
+                                pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
+
+                            chunks_submitted = 0
+                            for i, batch in chunks_to_process:
+                                chunk_id = f"{file_stem}_{str(i).zfill(4)}"
+
+                                # API warmup: gradually ramp up concurrency to allow API autoscaling
+                                # Start with 1 worker, add 1 more every warmup_interval seconds
+                                if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
+                                    while True:
+                                        elapsed = time.time() - warmup_start_time
+                                        # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
+                                        max_concurrent = min(
+                                            1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
+                                            self.processes
+                                        )
+                                        active_jobs = sum(1 for j in jobs if not j.done())
+
+                                        if active_jobs < max_concurrent:
+                                            break
+                                        else:
+                                            # At capacity for current warmup stage - update progress while waiting
+                                            if pbar is not None and progress_counters is not None:
+                                                self._update_pbar_during_warmup(
+                                                    pbar, progress_counters, chunks_submitted, len(chunks_to_process)
+                                                )
+                                            time.sleep(1.0)
+
+                                self.logger.debug(
+                                    f"Submitting chunk {chunk_id} with {len(batch)} AOIs "
+                                    f"(indices {batch.index.min()}-{batch.index.max()})"
+                                )
+                                job = executor.submit(
+                                    self.process_chunk,
+                                    chunk_id,
+                                    batch,
+                                    **process_chunk_kwargs,
+                                )
+                                jobs.append(job)
+                                job_to_chunk[job] = (
+                                    chunk_id,
+                                    i,
+                                    batch.index.min(),
+                                    batch.index.max(),
+                                )
+                                chunks_submitted += 1
+
+                            # Process jobs with progress tracking
+                            if use_progress_tracking and progress_counters is not None:
+                                all_latency_stats = self._monitor_progress_with_tqdm(
+                                    jobs,
+                                    job_to_chunk,
+                                    progress_counters,
+                                    len(chunks_to_process),
+                                    executor,
+                                    pbar=pbar,
+                                )
+                            else:
+                                if pbar is not None:
+                                    pbar.close()
+                                all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
+
+                            return all_latency_stats  # Success - exit retry loop
+
+                        except KeyboardInterrupt:
+                            self.logger.warning(
+                                "Interrupted by user (Ctrl+C) - shutting down processes..."
                             )
-
-                        # Create progress bar BEFORE submission loop so it shows during warmup
-                        pbar = None
-                        if use_progress_tracking and progress_counters is not None:
-                            with progress_counters["lock"]:
-                                initial_total = progress_counters["total"]
-                            pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
-
-                        chunks_submitted = 0
-                        for i, batch in chunks_to_process:
-                            chunk_id = f"{file_stem}_{str(i).zfill(4)}"
-
-                            # API warmup: gradually ramp up concurrency to allow API autoscaling
-                            # Start with 1 worker, add 1 more every warmup_interval seconds
-                            if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
-                                while True:
-                                    elapsed = time.time() - warmup_start_time
-                                    # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
-                                    max_concurrent = min(
-                                        1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
-                                        self.processes
-                                    )
-                                    active_jobs = sum(1 for j in jobs if not j.done())
-
-                                    if active_jobs < max_concurrent:
-                                        break
-                                    else:
-                                        # At capacity for current warmup stage - update progress while waiting
-                                        if pbar is not None and progress_counters is not None:
-                                            self._update_pbar_during_warmup(
-                                                pbar, progress_counters, chunks_submitted, len(chunks_to_process)
-                                            )
-                                        time.sleep(1.0)
-
-                            self.logger.debug(
-                                f"Submitting chunk {chunk_id} with {len(batch)} AOIs "
-                                f"(indices {batch.index.min()}-{batch.index.max()})"
-                            )
-                            job = executor.submit(
-                                self.process_chunk,
-                                chunk_id,
-                                batch,
-                                **process_chunk_kwargs,
-                            )
-                            jobs.append(job)
-                            job_to_chunk[job] = (
-                                chunk_id,
-                                i,
-                                batch.index.min(),
-                                batch.index.max(),
-                            )
-                            chunks_submitted += 1
-
-                        # Process jobs with progress tracking
-                        if use_progress_tracking and progress_counters is not None:
-                            all_latency_stats = self._monitor_progress_with_tqdm(
-                                jobs,
-                                job_to_chunk,
-                                progress_counters,
-                                len(chunks_to_process),
-                                executor,
-                                pbar=pbar,
-                            )
-                        else:
+                            # Close progress bar if it exists
                             if pbar is not None:
                                 pbar.close()
-                            all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
+                            # Cancel all pending jobs
+                            for job in jobs:
+                                job.cancel()
+                            executor.shutdown(wait=False)
+                            raise
 
-                        return all_latency_stats  # Success - exit retry loop
+                        finally:
+                            executor.shutdown(wait=True)
 
-                    except KeyboardInterrupt:
-                        self.logger.warning(
-                            "Interrupted by user (Ctrl+C) - shutting down processes..."
-                        )
-                        # Close progress bar if it exists
-                        if pbar is not None:
-                            pbar.close()
-                        # Cancel all pending jobs
-                        for job in jobs:
-                            job.cancel()
-                        executor.shutdown(wait=False)
+                except BrokenProcessPool as e:
+                    self._handle_broken_process_pool(
+                        e, attempt, max_retries, PROCESS_POOL_RETRY_DELAY
+                    )
+                    if attempt < max_retries - 1:
+                        jobs = []  # Reset jobs list for retry
+                        job_to_chunk = {}  # Reset job tracking for retry
+                    else:
                         raise
 
-                    finally:
-                        executor.shutdown(wait=True)
-
-            except BrokenProcessPool as e:
-                self._handle_broken_process_pool(
-                    e, attempt, max_retries, PROCESS_POOL_RETRY_DELAY
-                )
-                if attempt < max_retries - 1:
-                    jobs = []  # Reset jobs list for retry
-                    job_to_chunk = {}  # Reset job tracking for retry
-                else:
-                    raise
-
-        # Should not reach here (either returns on success or raises on failure)
-        return []
+            # Should not reach here (either returns on success or raises on failure)
+            return []
+        finally:
+            if manager is not None:
+                manager.shutdown()
 
     def _update_pbar_during_warmup(
         self,
