@@ -319,10 +319,16 @@ class BaseExporter(ABC):
         max_retries = 3
         PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
 
+        # Use spawn context for all multiprocessing to avoid fork-safety issues.
+        # On Linux, fork is the default and inherits stale S3 clients, event loops,
+        # and HTTP connections from the parent — causing hangs when the exporter
+        # runs inside a web application.
+        mp_context = multiprocessing.get_context("spawn")
+
         # Create shared progress counters if enabled
         progress_counters = None
         if use_progress_tracking:
-            manager = multiprocessing.Manager()
+            manager = mp_context.Manager()
             # Estimate 1 request per AOI initially (may grow if gridding occurs)
             progress_counters = manager.dict(
                 {
@@ -340,7 +346,6 @@ class BaseExporter(ABC):
 
         for attempt in range(max_retries):
             try:
-                mp_context = multiprocessing.get_context("spawn")
                 with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context) as executor:
                     try:
                         # Submit all chunks
