@@ -341,6 +341,12 @@ class RoofAgeExporter(BaseExporter):
 
     def run(self):
         """Execute the roof age export workflow"""
+        try:
+            self._run_inner()
+        finally:
+            self._cleanup_staging()
+
+    def _run_inner(self):
         self.logger.info(f"nmaipy version: {__version__}")
         self.logger.info(f"Starting roof age export from {self.aoi_file}")
         self.logger.info(f"Output directory: {self.output_dir}")

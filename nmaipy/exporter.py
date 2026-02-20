@@ -11,7 +11,6 @@ import json
 import logging
 import multiprocessing
 import re
-import shutil
 import sys
 import traceback
 import warnings
@@ -2352,6 +2351,12 @@ class NearmapAIExporter(BaseExporter):
                 pass
 
     def run(self):
+        try:
+            self._run_inner()
+        finally:
+            self._cleanup_staging()
+
+    def _run_inner(self):
         self.logger.info(f"nmaipy version: {__version__}")
         self.logger.debug("Starting parcel rollup")
 
@@ -2929,9 +2934,6 @@ class NearmapAIExporter(BaseExporter):
         except Exception as e:
             self.logger.warning(f"README generation warning: {e}")
 
-        # Clean up local staging directory if S3 output was used
-        if self.is_s3_output and self._local_staging_dir:
-            shutil.rmtree(self._local_staging_dir, ignore_errors=True)
 
 
 # Backward compatibility alias

@@ -28,11 +28,9 @@ import requests
 import urllib3
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
-
-from nmaipy import storage
 from urllib3.util.retry import Retry
 
-from nmaipy import log
+from nmaipy import log, storage
 from nmaipy.constants import (
     BACKOFF_FACTOR,
     DUMMY_STATUS_CODE,

@@ -208,7 +208,7 @@ def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
             return json.load(f)
 
 
-def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[int] = None) -> None:
+def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[int] = None, default=None) -> None:
     """
     Write data as JSON, optionally gzip-compressed. Works for both local and S3.
 
@@ -217,14 +217,15 @@ def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[
         data: Data to serialize as JSON
         compressed: If True, write as gzip-compressed JSON
         indent: JSON indentation level (None for compact)
+        default: Function for non-serializable types (e.g. str). Passed to json.dump/json.dumps.
     """
     if compressed:
         with open_file(path, "wb") as raw_f:
             with gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
-                gz_f.write(json.dumps(data, default=str).encode("utf-8"))
+                gz_f.write(json.dumps(data, default=default).encode("utf-8"))
     else:
         with open_file(path, "w") as f:
-            json.dump(data, f, indent=indent, default=str)
+            json.dump(data, f, indent=indent, default=default)
 
 
 def write_parquet(df, path: str, **kwargs) -> None:

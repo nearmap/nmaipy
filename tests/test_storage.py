@@ -302,20 +302,20 @@ class TestJsonIO:
             assert f.read(2) == b"\x1f\x8b"  # gzip magic number
 
     def test_write_json_default_str(self, tmp_path):
-        """write_json uses default=str for non-serializable types."""
+        """write_json with default=str handles non-serializable types."""
         fpath = str(tmp_path / "data.json")
         data = {"path": Path("/tmp/test")}
 
-        storage.write_json(fpath, data)
+        storage.write_json(fpath, data, default=str)
         result = storage.read_json(fpath)
         assert result["path"] == str(Path("/tmp/test"))
 
     def test_write_compressed_json_default_str(self, tmp_path):
-        """Compressed write_json also uses default=str."""
+        """Compressed write_json with default=str also handles non-serializable types."""
         fpath = str(tmp_path / "data.json.gz")
         data = {"path": Path("/tmp/test")}
 
-        storage.write_json(fpath, data, compressed=True)
+        storage.write_json(fpath, data, compressed=True, default=str)
         result = storage.read_json(fpath, compressed=True)
         assert result["path"] == str(Path("/tmp/test"))
 

@@ -17,6 +17,7 @@ import json
 import multiprocessing
 import os
 import platform
+import shutil
 import sys
 import tempfile
 import time
@@ -135,6 +136,13 @@ class BaseExporter(ABC):
             self._local_staging_dir = None
             self._local_final_staging = None
 
+    def _cleanup_staging(self):
+        """Remove the local staging directory created for S3 output."""
+        if self.is_s3_output and self._local_staging_dir:
+            shutil.rmtree(self._local_staging_dir, ignore_errors=True)
+            self._local_staging_dir = None
+            self._local_final_staging = None
+
     def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
         """
         Save export configuration to the final output directory.
@@ -171,7 +179,7 @@ class BaseExporter(ABC):
         config_path = storage.join_path(self.final_path, config_name)
 
         try:
-            storage.write_json(config_path, full_config, indent=2)
+            storage.write_json(config_path, full_config, indent=2, default=str)
             self.logger.debug(f"Saved export config to {config_path}")
         except Exception as e:
             self.logger.warning(f"Could not save export config: {e}")
