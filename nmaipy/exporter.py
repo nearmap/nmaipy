@@ -2887,6 +2887,12 @@ class NearmapAIExporter(BaseExporter):
                     f"Found {len(unique_classes)} unique feature classes to export"
                 )
 
+                # Pre-split features by class to avoid repeated full-DataFrame scans
+                class_groups = {
+                    cid: group_df
+                    for cid, group_df in features_gdf.groupby("class_id")
+                }
+
                 # Build class_id -> description mapping directly from the features data.
                 # The API returns a description for every feature - use that as the
                 # source of truth rather than maintaining a hardcoded mapping.
@@ -2913,12 +2919,6 @@ class NearmapAIExporter(BaseExporter):
                     for c in aoi_gdf.columns
                     if c not in system_columns and c not in ADDRESS_FIELDS
                 ]
-
-                # Pre-split features by class to avoid repeated full-DataFrame scans
-                class_groups = {
-                    cid: group_df
-                    for cid, group_df in features_gdf.groupby("class_id")
-                }
                 roof_features = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
                 non_roof_features = features_gdf[features_gdf["class_id"] != ROOF_ID]
                 roof_instance_features = class_groups.get(
