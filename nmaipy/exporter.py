@@ -307,6 +307,32 @@ def _flatten_damage(damage_obj):
     return flat_dict
 
 
+def _group_children_by_aoi(
+    non_roof_features: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+) -> dict:
+    """Group non-roof child features by aoi_id for efficient per-AOI lookup.
+
+    Child features only need to be from the same AOI as the parent feature, since
+    features are queried per-AOI and cannot span AOI boundaries. Grouping up front
+    reduces child features from ~270k globally to ~86 per AOI.
+
+    Note: returns views into the source DataFrame (no .copy()) since downstream
+    consumers (flatten_roof_attributes / calculate_child_feature_attributes) do
+    not mutate the child features.
+
+    Returns:
+        Dict mapping aoi_id -> GeoDataFrame of non-roof features for that AOI.
+        Empty dict if aoi_id column is not present or source is empty.
+    """
+    source = non_roof_features if non_roof_features is not None else features_gdf[features_gdf["class_id"] != ROOF_ID]
+    if source is None or len(source) == 0:
+        return {}
+    if AOI_ID_COLUMN_NAME not in source.columns:
+        return {}
+    return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
+
+
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
     class_id: str,
@@ -566,15 +592,7 @@ def export_feature_class(
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
         # These are from include parameters and the roof's own attributes array
         try:
-            # Pre-group child features by aoi_id for per-roof lookup.
-            # Child features only need to be from the same AOI as the roof, since
-            # features are queried per-AOI and cannot span AOI boundaries.
-            # This reduces child features from ~270k globally to ~86 per AOI.
-            _child_source = non_roof_features if non_roof_features is not None else features_gdf[features_gdf["class_id"] != ROOF_ID]
-            child_by_aoi = {}
-            if _child_source is not None and len(_child_source) > 0:
-                if AOI_ID_COLUMN_NAME in _child_source.columns:
-                    child_by_aoi = {aoi: group for aoi, group in _child_source.groupby(AOI_ID_COLUMN_NAME)}
+            child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
 
             t_roof_flatten = time.monotonic()
             attr_records = []
@@ -586,6 +604,7 @@ def export_feature_class(
                         roof_aoi = row.name
                     else:
                         roof_aoi = None
+                        logger.warning("Roof feature has no aoi_id — child feature recalculation will be skipped")
                     aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     attrs = flatten_roof_attributes(
                         [row], country=country, child_features=aoi_children
@@ -661,14 +680,7 @@ def export_feature_class(
                     )
 
                 # Build a mapping from roof feature_id to flattened attributes.
-                # Pre-group child features by aoi_id (same rationale as Section C).
-                _child_source_bldg = non_roof_features if non_roof_features is not None else features_gdf[
-                    features_gdf["class_id"] != ROOF_ID
-                ]
-                child_by_aoi_bldg = {}
-                if _child_source_bldg is not None and len(_child_source_bldg) > 0:
-                    if AOI_ID_COLUMN_NAME in _child_source_bldg.columns:
-                        child_by_aoi_bldg = {aoi: group for aoi, group in _child_source_bldg.groupby(AOI_ID_COLUMN_NAME)}
+                child_by_aoi_bldg = _group_children_by_aoi(non_roof_features, features_gdf)
 
                 t_bldg_roof_flatten = time.monotonic()
                 roof_attrs = {}
