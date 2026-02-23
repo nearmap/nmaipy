@@ -326,7 +326,7 @@ def _group_children_by_aoi(
         Empty dict if aoi_id column is not present or source is empty.
     """
     source = non_roof_features if non_roof_features is not None else features_gdf[features_gdf["class_id"] != ROOF_ID]
-    if source is None or len(source) == 0:
+    if len(source) == 0:
         return {}
     if AOI_ID_COLUMN_NAME not in source.columns:
         return {}
@@ -593,6 +593,10 @@ def export_feature_class(
         # These are from include parameters and the roof's own attributes array
         try:
             child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
+            has_aoi_id = (AOI_ID_COLUMN_NAME in class_features.columns or
+                          class_features.index.name == AOI_ID_COLUMN_NAME)
+            if not has_aoi_id:
+                logger.warning("Roof features have no aoi_id — child feature recalculation will be skipped for all rows")
 
             t_roof_flatten = time.monotonic()
             attr_records = []
@@ -604,7 +608,6 @@ def export_feature_class(
                         roof_aoi = row.name
                     else:
                         roof_aoi = None
-                        logger.warning("Roof feature has no aoi_id — child feature recalculation will be skipped")
                     aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     attrs = flatten_roof_attributes(
                         [row], country=country, child_features=aoi_children
