@@ -12,12 +12,19 @@ nmaipy (pronounced "en-my-pie") is a Python library that makes it easy for data 
 
 ### 1. Install
 
-#### Option A: Using pip
+#### Option A: Install from PyPI
 ```bash
+pip install nmaipy
+```
+
+#### Option B: Install from source (for development)
+```bash
+git clone https://github.com/nearmap/nmaipy.git
+cd nmaipy
 pip install -e .
 ```
 
-#### Option B: Using conda
+#### Option C: Using conda
 
 Minimal installation (core features only):
 ```bash
@@ -31,7 +38,7 @@ conda env create -f environment.yaml
 conda activate nmaipy
 ```
 
-#### Option C: Install into existing conda environment
+#### Option D: Install into existing conda environment
 ```bash
 conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
 pip install -e .
