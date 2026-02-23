@@ -307,6 +307,32 @@ def _flatten_damage(damage_obj):
     return flat_dict
 
 
+def _group_children_by_aoi(
+    non_roof_features: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+) -> dict:
+    """Group non-roof child features by aoi_id for efficient per-AOI lookup.
+
+    Child features only need to be from the same AOI as the parent feature, since
+    features are queried per-AOI and cannot span AOI boundaries. Grouping up front
+    reduces child features from ~270k globally to ~86 per AOI.
+
+    Note: returns views into the source DataFrame (no .copy()) since downstream
+    consumers (flatten_roof_attributes / calculate_child_feature_attributes) do
+    not mutate the child features.
+
+    Returns:
+        Dict mapping aoi_id -> GeoDataFrame of non-roof features for that AOI.
+        Empty dict if aoi_id column is not present or source is empty.
+    """
+    source = non_roof_features if non_roof_features is not None else features_gdf[features_gdf["class_id"] != ROOF_ID]
+    if source is None or len(source) == 0:
+        return {}
+    if AOI_ID_COLUMN_NAME not in source.columns:
+        return {}
+    return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
+
+
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
     class_id: str,
@@ -566,21 +592,28 @@ def export_feature_class(
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
         # These are from include parameters and the roof's own attributes array
         try:
-            # Get all non-roof features as potential children for clipped roof recalculation
-            # The flatten_roof_attributes function will use classIds from the roof's own
-            # components to find matching child features - this is fully data-driven
-            child_features = non_roof_features.copy() if non_roof_features is not None else features_gdf[features_gdf["class_id"] != ROOF_ID].copy()
+            child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
 
+            t_roof_flatten = time.monotonic()
             attr_records = []
             for _, row in class_features.iterrows():
                 try:
+                    if AOI_ID_COLUMN_NAME in row.index:
+                        roof_aoi = row[AOI_ID_COLUMN_NAME]
+                    elif class_features.index.name == AOI_ID_COLUMN_NAME:
+                        roof_aoi = row.name
+                    else:
+                        roof_aoi = None
+                        logger.warning("Roof feature has no aoi_id — child feature recalculation will be skipped")
+                    aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     attrs = flatten_roof_attributes(
-                        [row], country=country, child_features=child_features
+                        [row], country=country, child_features=aoi_children
                     )
                     attr_records.append(attrs)
                 except Exception as e:
                     logger.debug(f"Could not flatten roof attributes for feature: {e}")
                     attr_records.append({})
+            logger.debug(f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} roofs")
 
             if attr_records:
                 attr_df = pd.DataFrame(attr_records)
@@ -646,20 +679,22 @@ def export_feature_class(
                         pd.DataFrame(bldg_linkage_batch, index=range(n_rows))
                     )
 
-                # Build a mapping from roof feature_id to flattened attributes
-                # Get all non-roof features as potential children for clipped roof recalculation
-                child_features = non_roof_features.copy() if non_roof_features is not None else features_gdf[
-                    features_gdf["class_id"] != ROOF_ID
-                ].copy()
+                # Build a mapping from roof feature_id to flattened attributes.
+                child_by_aoi_bldg = _group_children_by_aoi(non_roof_features, features_gdf)
+
+                t_bldg_roof_flatten = time.monotonic()
                 roof_attrs = {}
-                for _, roof_row in roofs_linked.iterrows():
+                # roofs_linked has aoi_id as index (set by link_roofs_to_buildings)
+                for roof_aoi, roof_row in roofs_linked.iterrows():
                     try:
+                        aoi_children = child_by_aoi_bldg.get(roof_aoi) if roof_aoi is not None else None
                         attrs = flatten_roof_attributes(
-                            [roof_row], country=country, child_features=child_features
+                            [roof_row], country=country, child_features=aoi_children
                         )
                         roof_attrs[roof_row["feature_id"]] = attrs
                     except Exception:
                         pass
+                logger.debug(f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs")
 
                 if roof_attrs:
                     # Add primary child roof attributes with prefix (batched)
@@ -2417,16 +2452,18 @@ class NearmapAIExporter(BaseExporter):
         # Base stem for per-class output files
         output_stem = storage.join_path(self.final_path, aoi_stem)
 
-        # Check if all required outputs already exist
-        outputs_exist = storage.file_exists(outpath)
-        if self.save_features:
-            outputs_exist = outputs_exist and storage.file_exists(outpath_features)
-        if self.save_buildings:
-            outputs_exist = outputs_exist and storage.file_exists(outpath_buildings)
-
-        if outputs_exist:
-            self.logger.info(f"Output already exists, skipping {Path(aoi_path).stem}")
-            return
+        # Check for existing output files and warn about overwriting.
+        # We always rebuild from chunks (the source of truth) to avoid leaving
+        # partial outputs from a previous interrupted run.
+        existing_outputs = []
+        for check_path in [outpath, outpath_features, outpath_buildings]:
+            if storage.file_exists(check_path):
+                existing_outputs.append(storage.basename(check_path))
+        if existing_outputs:
+            self.logger.warning(
+                f"Overwriting {len(existing_outputs)} existing output file(s) in final/: "
+                + ", ".join(existing_outputs)
+            )
 
         aoi_gdf = parcels.read_from_file(aoi_path, id_column=AOI_ID_COLUMN_NAME)
 
@@ -2862,14 +2899,21 @@ class NearmapAIExporter(BaseExporter):
                     f"Found {len(unique_classes)} unique feature classes to export"
                 )
 
-                # Build class_id -> description mapping
-                class_descriptions = {**FEATURE_CLASS_DESCRIPTIONS}
-                # Add descriptions from classes_df if available
-                if classes_df is not None and "description" in classes_df.columns:
-                    for class_id in classes_df.index:
-                        class_descriptions[class_id] = classes_df.loc[
-                            class_id, "description"
-                        ]
+                # Pre-split features by class to avoid repeated full-DataFrame scans
+                class_groups = {
+                    cid: group_df
+                    for cid, group_df in features_gdf.groupby("class_id")
+                }
+
+                # Build class_id -> description mapping directly from the features data.
+                # The API returns a description for every feature - use that as the
+                # source of truth rather than maintaining a hardcoded mapping.
+                class_descriptions = {}
+                if "description" in features_gdf.columns:
+                    for cid, group in class_groups.items():
+                        desc_vals = group["description"].dropna()
+                        if len(desc_vals) > 0:
+                            class_descriptions[cid] = desc_vals.iloc[0]
 
                 # Extract input-file columns from AOI (excluding system columns)
                 # These will be added to the per-class exports
@@ -2887,12 +2931,6 @@ class NearmapAIExporter(BaseExporter):
                     for c in aoi_gdf.columns
                     if c not in system_columns and c not in ADDRESS_FIELDS
                 ]
-
-                # Pre-split features by class to avoid repeated full-DataFrame scans
-                class_groups = {
-                    cid: group_df
-                    for cid, group_df in features_gdf.groupby("class_id")
-                }
                 roof_features = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
                 non_roof_features = features_gdf[features_gdf["class_id"] != ROOF_ID]
                 roof_instance_features = class_groups.get(
