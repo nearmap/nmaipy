@@ -12,14 +12,17 @@ import pyarrow.parquet as pq
 import pytest
 
 from nmaipy.constants import *
-from nmaipy.exporter import AOIExporter
+from nmaipy.exporter import AOIExporter, _read_parquet_chunks_parallel
 from nmaipy.feature_api import FeatureApi
 
 
 class TestExporter:
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
     def test_process_chunk_rollup_single_multi_polygon_combo(
-        self, parcels_3_gdf: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
+        self,
+        parcels_3_gdf: gpd.GeoDataFrame,
+        cache_directory: Path,
+        processed_output_directory: Path,
     ):
         """
         Comparison of results from the rollup api, or the feature api with local logic, confirming the implementations
@@ -41,7 +44,9 @@ class TestExporter:
         output_dir_rollup_api = Path(processed_output_directory) / tag_rollup_api
         packs = ["surface_permeability"]
         country = "au"
-        final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
+        final_path_rollup_api = (
+            output_dir_rollup_api / "final"
+        )  # Permanent path for later visual inspection
         final_path_rollup_api.mkdir(parents=True, exist_ok=True)
 
         chunk_path_rollup_api = output_dir_rollup_api / "chunks"
@@ -90,9 +95,12 @@ class TestExporter:
         print(data_rollup_api.loc[:, "link"].values)
 
     @pytest.mark.live_api
-    @pytest.mark.skipif(not os.environ.get('API_KEY'), reason="API_KEY not set")
+    @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
     def test_process_chunk_au(
-        self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
+        self,
+        parcel_gdf_au_tests: gpd.GeoDataFrame,
+        cache_directory: Path,
+        processed_output_directory: Path,
     ):
         tag = "tests_au"
         chunk_id = 0
@@ -165,12 +173,17 @@ class TestExporter:
         assert outpath_errors.exists()
         assert outpath_features.exists()
 
-        assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.
+        assert len(data) == len(
+            parcel_gdf_au_tests
+        )  # Assert got a result for every parcel.
         print(data.T)
 
     @pytest.mark.skip(reason="Rollup API not yet updated to be compatible with output.")
     def test_process_chunk_rollup_vs_feature_calc(
-        self, parcels_2_gdf: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path
+        self,
+        parcels_2_gdf: gpd.GeoDataFrame,
+        cache_directory: Path,
+        processed_output_directory: Path,
     ):
         """
         Comparison of results from the rollup api, or the feature api with local logic, confirming the implementations
@@ -193,7 +206,9 @@ class TestExporter:
         packs = ["building", "roof_char", "vegetation"]
         country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
-        final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
+        final_path_rollup_api = (
+            output_dir_rollup_api / "final"
+        )  # Permanent path for later visual inspection
         final_path.mkdir(parents=True, exist_ok=True)
         final_path_rollup_api.mkdir(parents=True, exist_ok=True)
 
@@ -210,7 +225,10 @@ class TestExporter:
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes(packs)
 
-        for endpoint, outdir in [("feature", output_dir), ("rollup", output_dir_rollup_api)]:
+        for endpoint, outdir in [
+            ("feature", output_dir),
+            ("rollup", output_dir_rollup_api),
+        ]:
             my_exporter = AOIExporter(
                 output_dir=outdir,
                 country=country,
@@ -265,15 +283,25 @@ class TestExporter:
         ) == 0
 
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "medium_and_high_vegetation_(>2m)_total_clipped_area_sqft"],
-            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID).loc[idx_equal_counts].iloc[:, 0],
+            data_feature_api.loc[
+                idx_equal_counts,
+                "medium_and_high_vegetation_(>2m)_total_clipped_area_sqft",
+            ],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID)
+            .loc[idx_equal_counts]
+            .iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
         )
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "medium_and_high_vegetation_(>2m)_total_unclipped_area_sqft"],
-            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID).loc[idx_equal_counts].iloc[:, 0],
+            data_feature_api.loc[
+                idx_equal_counts,
+                "medium_and_high_vegetation_(>2m)_total_unclipped_area_sqft",
+            ],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID)
+            .loc[idx_equal_counts]
+            .iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
@@ -298,7 +326,8 @@ class TestExporter:
 
         ## Implicitly test sqm to sqft conversion...
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "primary_roof_clipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET,
+            data_feature_api.loc[idx_equal_counts, "primary_roof_clipped_area_sqft"]
+            / SQUARED_METERS_TO_SQUARED_FEET,
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID)
             .loc[idx_equal_counts]
             .fillna(0)
@@ -308,7 +337,8 @@ class TestExporter:
             atol=1,
         )
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "primary_roof_unclipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET,
+            data_feature_api.loc[idx_equal_counts, "primary_roof_unclipped_area_sqft"]
+            / SQUARED_METERS_TO_SQUARED_FEET,
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID)
             .loc[idx_equal_counts]
             .fillna(0)
@@ -366,9 +396,13 @@ class TestExporter:
             # )
 
     @pytest.mark.live_api
-    @pytest.mark.skipif(not os.environ.get('API_KEY'), reason="API_KEY not set")
+    @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
     def test_full_export_with_incremental_features(
-        self, parcel_gdf_au_tests: gpd.GeoDataFrame, cache_directory: Path, processed_output_directory: Path, tmp_path: Path
+        self,
+        parcel_gdf_au_tests: gpd.GeoDataFrame,
+        cache_directory: Path,
+        processed_output_directory: Path,
+        tmp_path: Path,
     ):
         """
         Test the full export workflow with save_features=True to validate the new incremental
@@ -377,9 +411,9 @@ class TestExporter:
         # Create a temporary AOI file
         aoi_file = tmp_path / "test_aoi.geojson"
         parcel_gdf_au_tests.to_file(aoi_file, driver="GeoJSON")
-        
+
         output_dir = processed_output_directory / "test_full_incremental"
-        
+
         # Run the full export with features enabled
         exporter = AOIExporter(
             aoi_file=str(aoi_file),
@@ -392,177 +426,188 @@ class TestExporter:
             system_version_prefix="gen6-",
             processes=1,  # Single process for testing
         )
-        
+
         exporter.run()
-        
+
         # Verify outputs exist
         final_path = output_dir / "final"
         chunk_path = output_dir / "chunks"
-        
+
         # Note: Output filename changed from test_aoi.csv to test_aoi_aoi_rollup.csv
         expected_rollup_file = final_path / "test_aoi_aoi_rollup.csv"
         expected_features_file = final_path / "test_aoi_features.parquet"
 
-        assert expected_rollup_file.exists(), f"Rollup CSV file was not created at {expected_rollup_file}. Found files: {list(final_path.glob('*'))}"
+        assert (
+            expected_rollup_file.exists()
+        ), f"Rollup CSV file was not created at {expected_rollup_file}. Found files: {list(final_path.glob('*'))}"
         assert expected_features_file.exists(), "Features parquet file was not created"
-        
+
         # Verify chunk files were created
         feature_chunk_files = list(chunk_path.glob("features_test_aoi_*.parquet"))
-        assert len(feature_chunk_files) >= 1, f"Expected at least one feature chunk, got {len(feature_chunk_files)}"
-        
+        assert (
+            len(feature_chunk_files) >= 1
+        ), f"Expected at least one feature chunk, got {len(feature_chunk_files)}"
+
         # Load and validate the consolidated features file
         consolidated_features = gpd.read_parquet(expected_features_file)
-        
+
         # Load individual chunks for comparison
         chunk_data = []
         for chunk_file in feature_chunk_files:
             chunk_gdf = gpd.read_parquet(chunk_file)
             if len(chunk_gdf) > 0:
                 chunk_data.append(chunk_gdf)
-        
+
         if chunk_data:
             manual_concat = pd.concat(chunk_data, ignore_index=True)
-            
+
             # Verify same number of features
-            assert len(consolidated_features) == len(manual_concat), \
-                f"Feature count mismatch: consolidated={len(consolidated_features)}, manual_concat={len(manual_concat)}"
-            
+            assert len(consolidated_features) == len(
+                manual_concat
+            ), f"Feature count mismatch: consolidated={len(consolidated_features)}, manual_concat={len(manual_concat)}"
+
             # Verify CRS preservation
-            if hasattr(manual_concat, 'crs') and manual_concat.crs:
-                assert consolidated_features.crs == manual_concat.crs, "CRS not preserved"
-            
+            if hasattr(manual_concat, "crs") and manual_concat.crs:
+                assert (
+                    consolidated_features.crs == manual_concat.crs
+                ), "CRS not preserved"
+
             # Verify essential columns exist
-            assert 'geometry' in consolidated_features.columns, "Missing geometry column"
+            assert (
+                "geometry" in consolidated_features.columns
+            ), "Missing geometry column"
             # Features data uses 'index' column (from the original parcel index) instead of 'aoi_id'
-            assert 'index' in consolidated_features.columns, "Missing index column"
-    
+            assert "index" in consolidated_features.columns, "Missing index column"
+
     def test_aoi_exporter_has_run_method(self):
         """Test that AOIExporter has run() method, not export()."""
         with tempfile.TemporaryDirectory() as tmpdir:
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
             )
-            
+
             # Check run() method exists
-            assert hasattr(exporter, 'run'), "AOIExporter should have run() method"
+            assert hasattr(exporter, "run"), "AOIExporter should have run() method"
             assert callable(exporter.run), "run() should be callable"
-            
+
             # Check export() method does NOT exist
-            assert not hasattr(exporter, 'export'), "AOIExporter should NOT have export() method"
-    
+            assert not hasattr(
+                exporter, "export"
+            ), "AOIExporter should NOT have export() method"
+
     def test_aoi_exporter_initialization(self):
         """Test AOIExporter can be initialized with minimal parameters."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Minimal initialization
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
             )
 
-            assert exporter.aoi_file == 'data/examples/sydney_parcels.geojson'
+            assert exporter.aoi_file == "data/examples/sydney_parcels.geojson"
             assert str(exporter.output_dir) == tmpdir  # output_dir may be Path object
-            assert exporter.country == 'au'
-            assert exporter.packs == ['building']
+            assert exporter.country == "au"
+            assert exporter.packs == ["building"]
             assert exporter.processes > 0
             assert exporter.chunk_size > 0
-    
+
     def test_aoi_exporter_with_invalid_country(self):
         """Test AOIExporter validates country parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='invalid',  # Invalid country
-                packs=['building'],
+                country="invalid",  # Invalid country
+                packs=["building"],
             )
-            
+
             # The validation happens during run(), not initialization
             # So we need to mock the API call to test validation
-            with patch.object(exporter, 'process_chunk') as mock_process:
+            with patch.object(exporter, "process_chunk") as mock_process:
                 with pytest.raises(Exception) as exc_info:
                     exporter.run()
-                
+
                 # Check that an appropriate error was raised
                 # The exact error depends on implementation
                 assert exc_info.value is not None
-    
+
     @pytest.mark.parametrize("chunk_size", [1, 10, 100])
     def test_aoi_exporter_chunk_sizes(self, chunk_size):
         """Test that different chunk sizes work correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 chunk_size=chunk_size,
                 processes=1,  # Single process for predictable testing
             )
-            
+
             assert exporter.chunk_size == chunk_size
-    
+
     def test_aoi_exporter_parallel_processing(self):
         """Test that parallel processing parameters are respected."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Test with different process counts
             for processes in [1, 2, 4]:
                 exporter = AOIExporter(
-                    aoi_file='data/examples/sydney_parcels.geojson',
+                    aoi_file="data/examples/sydney_parcels.geojson",
                     output_dir=tmpdir,
-                    country='au',
-                    packs=['building'],
+                    country="au",
+                    packs=["building"],
                     processes=processes,
                 )
-                
+
                 assert exporter.processes == processes
-    
+
     def test_aoi_exporter_output_formats(self):
         """Test different output format options."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Test CSV format (default)
             exporter_csv = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
-                rollup_format='csv',
+                country="au",
+                packs=["building"],
+                rollup_format="csv",
             )
-            assert exporter_csv.rollup_format == 'csv'
-            
+            assert exporter_csv.rollup_format == "csv"
+
             # Test Parquet format
             exporter_parquet = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
-                rollup_format='parquet',
+                country="au",
+                packs=["building"],
+                rollup_format="parquet",
             )
-            assert exporter_parquet.rollup_format == 'parquet'
-    
+            assert exporter_parquet.rollup_format == "parquet"
+
     def test_aoi_exporter_save_features_flag(self):
         """Test save_features parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Without features
             exporter_no_features = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 save_features=False,
             )
             assert exporter_no_features.save_features == False
-            
+
             # With features
             exporter_with_features = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 save_features=True,
             )
             assert exporter_with_features.save_features == True
@@ -584,47 +629,53 @@ class TestExporter:
             chunk_dir.mkdir()
 
             # Create chunk 1 with real data
-            chunk1_data = gpd.GeoDataFrame({
-                'system_version': ['gen6-'],
-                'link': ['http://example.com'],
-                'survey_date': ['2024-11-06'],
-                'survey_id': ['survey1'],
-                'survey_resource_id': ['resource1'],
-                'perspective': ['vertical'],
-                'postcat': [True],
-                'feature_id': ['feat1'],
-                'class_id': ['class1'],
-                'internal_class_id': [1],
-                'description': ['Test feature'],
-                'geometry': [Point(0, 0)]
-            }, crs='EPSG:4326')
+            chunk1_data = gpd.GeoDataFrame(
+                {
+                    "system_version": ["gen6-"],
+                    "link": ["http://example.com"],
+                    "survey_date": ["2024-11-06"],
+                    "survey_id": ["survey1"],
+                    "survey_resource_id": ["resource1"],
+                    "perspective": ["vertical"],
+                    "postcat": [True],
+                    "feature_id": ["feat1"],
+                    "class_id": ["class1"],
+                    "internal_class_id": [1],
+                    "description": ["Test feature"],
+                    "geometry": [Point(0, 0)],
+                },
+                crs="EPSG:4326",
+            )
             chunk1_path = chunk_dir / "features_test_1.parquet"
             chunk1_data.to_parquet(chunk1_path)
 
             # Create chunk 2 with null-type columns (simulating empty features)
             # This mimics what happens when all addresses in a chunk have no features
-            chunk2_data = gpd.GeoDataFrame({
-                'system_version': [None],
-                'link': [None],
-                'survey_date': [None],
-                'survey_id': [None],
-                'survey_resource_id': [None],
-                'perspective': [None],
-                'postcat': [None],
-                'feature_id': [None],
-                'class_id': [None],
-                'internal_class_id': [None],
-                'description': [None],
-                'geometry': [Point(1, 1)]
-            }, crs='EPSG:4326')
+            chunk2_data = gpd.GeoDataFrame(
+                {
+                    "system_version": [None],
+                    "link": [None],
+                    "survey_date": [None],
+                    "survey_id": [None],
+                    "survey_resource_id": [None],
+                    "perspective": [None],
+                    "postcat": [None],
+                    "feature_id": [None],
+                    "class_id": [None],
+                    "internal_class_id": [None],
+                    "description": [None],
+                    "geometry": [Point(1, 1)],
+                },
+                crs="EPSG:4326",
+            )
             chunk2_path = chunk_dir / "features_test_2.parquet"
             chunk2_data.to_parquet(chunk2_path)
 
             # Now test the streaming function
             exporter = AOIExporter(
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 save_features=True,
             )
 
@@ -639,9 +690,8 @@ class TestExporter:
             merged_data = gpd.read_parquet(output_path)
             assert len(merged_data) == 2
             # Verify first row has data, second row has nulls
-            assert merged_data.iloc[0]['system_version'] == 'gen6-'
-            assert pd.isna(merged_data.iloc[1]['system_version'])
-
+            assert merged_data.iloc[0]["system_version"] == "gen6-"
+            assert pd.isna(merged_data.iloc[1]["system_version"])
 
     def test_stream_and_convert_features_null_columns_no_warning(self, caplog):
         """Test that null-type columns in later chunks are promoted silently without warnings."""
@@ -653,23 +703,32 @@ class TestExporter:
             chunk_dir.mkdir()
 
             # Chunk 1: has data in all columns
-            chunk1_data = gpd.GeoDataFrame({
-                'system_version': ['gen6-'],
-                'lob_bv': ['homeowner'],
-                'geometry': [Point(0, 0)]
-            }, crs='EPSG:4326')
+            chunk1_data = gpd.GeoDataFrame(
+                {
+                    "system_version": ["gen6-"],
+                    "lob_bv": ["homeowner"],
+                    "geometry": [Point(0, 0)],
+                },
+                crs="EPSG:4326",
+            )
             chunk1_data.to_parquet(chunk_dir / "features_1.parquet")
 
             # Chunk 2: lob_bv is all null (simulates empty passthrough column)
-            chunk2_data = gpd.GeoDataFrame({
-                'system_version': ['gen6-'],
-                'lob_bv': [None],
-                'geometry': [Point(1, 1)]
-            }, crs='EPSG:4326')
+            chunk2_data = gpd.GeoDataFrame(
+                {
+                    "system_version": ["gen6-"],
+                    "lob_bv": [None],
+                    "geometry": [Point(1, 1)],
+                },
+                crs="EPSG:4326",
+            )
             chunk2_data.to_parquet(chunk_dir / "features_2.parquet")
 
             exporter = AOIExporter(
-                output_dir=tmpdir, country='au', packs=['building'], save_features=True,
+                output_dir=tmpdir,
+                country="au",
+                packs=["building"],
+                save_features=True,
             )
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
@@ -678,17 +737,21 @@ class TestExporter:
                 exporter._stream_and_convert_features(feature_paths, output_path)
 
             # Should NOT produce per-chunk warning messages about schema casting
-            warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-            assert not any("Schema casting failed" in m for m in warning_msgs), \
-                f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
-            assert not any("Incompatible columns" in m for m in warning_msgs), \
-                f"Null-type promotions should not produce incompatible column warnings"
+            warning_msgs = [
+                r.message for r in caplog.records if r.levelno >= logging.WARNING
+            ]
+            assert not any(
+                "Schema casting failed" in m for m in warning_msgs
+            ), f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
+            assert not any(
+                "Incompatible columns" in m for m in warning_msgs
+            ), f"Null-type promotions should not produce incompatible column warnings"
 
             # Verify data is correct
             merged = gpd.read_parquet(output_path)
             assert len(merged) == 2
-            assert merged.iloc[0]['lob_bv'] == 'homeowner'
-            assert pd.isna(merged.iloc[1]['lob_bv'])
+            assert merged.iloc[0]["lob_bv"] == "homeowner"
+            assert pd.isna(merged.iloc[1]["lob_bv"])
 
     def test_stream_and_convert_features_reference_schema_null_promotion(self):
         """Test that null-type columns in the first chunk are promoted to string in reference schema."""
@@ -700,23 +763,32 @@ class TestExporter:
             chunk_dir.mkdir()
 
             # Chunk 1: lob_bv is all null (first chunk establishes reference schema)
-            chunk1_data = gpd.GeoDataFrame({
-                'system_version': ['gen6-'],
-                'lob_bv': [None],
-                'geometry': [Point(0, 0)]
-            }, crs='EPSG:4326')
+            chunk1_data = gpd.GeoDataFrame(
+                {
+                    "system_version": ["gen6-"],
+                    "lob_bv": [None],
+                    "geometry": [Point(0, 0)],
+                },
+                crs="EPSG:4326",
+            )
             chunk1_data.to_parquet(chunk_dir / "features_1.parquet")
 
             # Chunk 2: lob_bv has data
-            chunk2_data = gpd.GeoDataFrame({
-                'system_version': ['gen6-'],
-                'lob_bv': ['homeowner'],
-                'geometry': [Point(1, 1)]
-            }, crs='EPSG:4326')
+            chunk2_data = gpd.GeoDataFrame(
+                {
+                    "system_version": ["gen6-"],
+                    "lob_bv": ["homeowner"],
+                    "geometry": [Point(1, 1)],
+                },
+                crs="EPSG:4326",
+            )
             chunk2_data.to_parquet(chunk_dir / "features_2.parquet")
 
             exporter = AOIExporter(
-                output_dir=tmpdir, country='au', packs=['building'], save_features=True,
+                output_dir=tmpdir,
+                country="au",
+                packs=["building"],
+                save_features=True,
             )
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
@@ -726,14 +798,117 @@ class TestExporter:
             # Verify data is correct even when first chunk had null column
             merged = gpd.read_parquet(output_path)
             assert len(merged) == 2
-            assert pd.isna(merged.iloc[0]['lob_bv'])
-            assert merged.iloc[1]['lob_bv'] == 'homeowner'
+            assert pd.isna(merged.iloc[0]["lob_bv"])
+            assert merged.iloc[1]["lob_bv"] == "homeowner"
 
             # Verify the parquet schema has string type (not null) for lob_bv
             schema = pq.read_schema(output_path)
-            lob_field = schema.field('lob_bv')
-            assert lob_field.type == pa.string(), \
-                f"Expected string type for promoted null column, got {lob_field.type}"
+            lob_field = schema.field("lob_bv")
+            assert (
+                lob_field.type == pa.string()
+            ), f"Expected string type for promoted null column, got {lob_field.type}"
+
+
+class TestReadParquetChunksParallel:
+    """Tests for _read_parquet_chunks_parallel."""
+
+    def test_reads_valid_parquet_files(self, tmp_path):
+        paths = []
+        for i in range(3):
+            df = pd.DataFrame({"col": [i, i + 10]})
+            path = tmp_path / f"chunk_{i}.parquet"
+            df.to_parquet(path)
+            paths.append(str(path))
+
+        results = _read_parquet_chunks_parallel(paths, max_workers=2)
+        assert len(results) == 3
+        total_rows = sum(len(df) for df in results)
+        assert total_rows == 6
+
+    def test_reads_geoparquet_files(self, tmp_path):
+        from shapely.geometry import Point
+
+        gdf = gpd.GeoDataFrame({"val": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+        path = tmp_path / "geo_chunk.parquet"
+        gdf.to_parquet(path)
+
+        results = _read_parquet_chunks_parallel([str(path)], max_workers=1)
+        assert len(results) == 1
+        assert isinstance(results[0], gpd.GeoDataFrame)
+
+    def test_excludes_empty_dataframes(self, tmp_path):
+        empty_path = tmp_path / "empty.parquet"
+        pd.DataFrame({"col": pd.Series([], dtype="int64")}).to_parquet(empty_path)
+
+        nonempty_path = tmp_path / "nonempty.parquet"
+        pd.DataFrame({"col": [1]}).to_parquet(nonempty_path)
+
+        results = _read_parquet_chunks_parallel(
+            [str(empty_path), str(nonempty_path)], max_workers=2
+        )
+        assert len(results) == 1
+
+    def test_empty_paths_returns_empty_list(self):
+        results = _read_parquet_chunks_parallel([])
+        assert results == []
+
+    def test_strict_true_raises_on_failure(self, tmp_path):
+        bad_path = tmp_path / "bad.parquet"
+        bad_path.write_text("not a parquet file")
+
+        with pytest.raises(RuntimeError, match="Failed to read"):
+            _read_parquet_chunks_parallel([str(bad_path)], max_workers=1, strict=True)
+
+    def test_strict_false_tolerates_failure(self, tmp_path):
+        bad_path = tmp_path / "bad.parquet"
+        bad_path.write_text("not a parquet file")
+
+        good_path = tmp_path / "good.parquet"
+        pd.DataFrame({"col": [1]}).to_parquet(good_path)
+
+        logger = logging.getLogger("test_parallel_read")
+        results = _read_parquet_chunks_parallel(
+            [str(bad_path), str(good_path)],
+            max_workers=2,
+            logger=logger,
+            strict=False,
+        )
+        assert len(results) == 1
+
+    def test_strict_true_is_default(self, tmp_path):
+        bad_path = tmp_path / "bad.parquet"
+        bad_path.write_text("not a parquet file")
+
+        with pytest.raises(RuntimeError):
+            _read_parquet_chunks_parallel([str(bad_path)], max_workers=1)
+
+    def test_summary_distinguishes_failures_from_empties(self, tmp_path, caplog):
+        bad_path = tmp_path / "bad.parquet"
+        bad_path.write_text("not a parquet file")
+
+        empty_path = tmp_path / "empty.parquet"
+        pd.DataFrame({"col": pd.Series([], dtype="int64")}).to_parquet(empty_path)
+
+        good_path = tmp_path / "good.parquet"
+        pd.DataFrame({"col": [1]}).to_parquet(good_path)
+
+        # Use a test-specific logger (nmaipy logger has propagate=False,
+        # preventing caplog from capturing its records)
+        logger = logging.getLogger("test_parallel_read_summary")
+        with caplog.at_level(logging.INFO, logger="test_parallel_read_summary"):
+            results = _read_parquet_chunks_parallel(
+                [str(bad_path), str(empty_path), str(good_path)],
+                max_workers=2,
+                logger=logger,
+                strict=False,
+            )
+
+        assert len(results) == 1
+        info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        summary = [m for m in info_messages if "1/3" in m]
+        assert len(summary) == 1, f"Expected one summary message, got: {info_messages}"
+        assert "1 failed" in summary[0]
+        assert "1 empty" in summary[0]
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*
 import atexit
 import signal
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime, timezone
 
@@ -95,6 +95,7 @@ def _read_parquet_chunks_parallel(
     max_workers: int = PARALLEL_READ_WORKERS,
     desc: str = "Reading chunks",
     logger=None,
+    strict: bool = True,
 ) -> List[pd.DataFrame]:
     """
     Read parquet files in parallel using threads, with a tqdm progress bar.
@@ -107,9 +108,14 @@ def _read_parquet_chunks_parallel(
         max_workers: Number of concurrent reader threads.
         desc: Description for the tqdm progress bar.
         logger: Optional logger for warnings on read failures.
+        strict: If True (default), raise on any read failure. If False,
+            log a warning and continue, collecting as many results as possible.
 
     Returns:
         List of non-empty DataFrames, in arbitrary order.
+
+    Raises:
+        RuntimeError: If strict=True and any file fails to read.
     """
     if not paths:
         return []
@@ -124,10 +130,12 @@ def _read_parquet_chunks_parallel(
         return None
 
     results = []
+    failed_paths = []
+    empty_count = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {executor.submit(_read_one, p): p for p in paths}
         for future in tqdm(
-            concurrent.futures.as_completed(future_to_path),
+            as_completed(future_to_path),
             total=len(paths),
             desc=desc,
             file=sys.stdout,
@@ -139,13 +147,23 @@ def _read_parquet_chunks_parallel(
                 result = future.result()
                 if result is not None:
                     results.append(result)
+                else:
+                    empty_count += 1
             except Exception as e:
+                if strict:
+                    raise RuntimeError(f"Failed to read {path}: {e}") from e
+                failed_paths.append(path)
                 if logger:
                     logger.warning(f"Failed to read {path}: {e}")
-    if logger and len(results) < len(paths):
-        logger.warning(
-            f"Read {len(results)}/{len(paths)} chunks successfully "
-            f"({len(paths) - len(results)} failed or empty)"
+    if logger and (failed_paths or empty_count > 0):
+        parts = []
+        if failed_paths:
+            parts.append(f"{len(failed_paths)} failed")
+        if empty_count > 0:
+            parts.append(f"{empty_count} empty")
+        logger.info(
+            f"Read {len(results)}/{len(paths)} chunks with data "
+            f"({', '.join(parts)})"
         )
     return results
 
@@ -2786,7 +2804,7 @@ class NearmapAIExporter(BaseExporter):
                 executor.submit(_check_chunk_files, i): i for i in range(num_chunks)
             }
             for future in tqdm(
-                concurrent.futures.as_completed(futures),
+                as_completed(futures),
                 total=num_chunks,
                 desc="Checking chunk files",
                 file=sys.stdout,
@@ -2879,6 +2897,7 @@ class NearmapAIExporter(BaseExporter):
                 feature_api_error_paths,
                 desc="Reading Feature API error files",
                 logger=self.logger,
+                strict=False,
             )
             feature_api_errors = (
                 pd.concat(feature_api_errors_list)
@@ -2906,6 +2925,7 @@ class NearmapAIExporter(BaseExporter):
                     roof_age_error_paths,
                     desc="Reading Roof Age error files",
                     logger=self.logger,
+                    strict=False,
                 )
                 roof_age_errors = (
                     pd.concat(roof_age_errors_list)
