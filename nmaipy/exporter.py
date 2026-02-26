@@ -1834,7 +1834,7 @@ class NearmapAIExporter(BaseExporter):
             outfile_roof_age_errors = storage.join_path(
                 self.chunk_path, f"roof_age_errors_{chunk_id}.parquet"
             )
-            if storage.file_exists(outfile):
+            if storage.file_exists(outfile) and storage.validate_parquet(outfile):
                 return {"chunk_id": chunk_id, "latency_stats": None}
 
             # Get additional parcel attributes from parcel geometry
@@ -2791,7 +2791,13 @@ class NearmapAIExporter(BaseExporter):
             chunk_filename = f"rollup_{aoi_stem}_{str(i).zfill(4)}.parquet"
             cp = storage.join_path(self.chunk_path, chunk_filename)
             if storage.file_exists(cp):
-                return (i, cp, None)
+                if storage.validate_parquet(cp):
+                    return (i, cp, None)
+                else:
+                    self.logger.warning(
+                        f"Chunk {i}: rollup file {cp} exists but is corrupted "
+                        f"(invalid parquet footer). Treating as missing."
+                    )
             error_filename = f"feature_api_errors_{aoi_stem}_{str(i).zfill(4)}.parquet"
             has_error = storage.file_exists(
                 storage.join_path(self.chunk_path, error_filename)
@@ -2826,9 +2832,10 @@ class NearmapAIExporter(BaseExporter):
                 )
             else:
                 self.logger.error(
-                    f"Both error and data files for chunk {i} missing, indicating "
-                    f"files failed to write or have been deleted. "
-                    f"Check the '{self.chunk_path}' directory to diagnose."
+                    f"Both error and data files for chunk {i} missing or corrupted, "
+                    f"indicating files failed to write, are corrupted, or have been "
+                    f"deleted. Check the '{self.chunk_path}' directory to diagnose, "
+                    f"then re-run the export."
                 )
                 sys.exit(1)
 
