@@ -1522,7 +1522,7 @@ class NearmapAIExporter(BaseExporter):
 
     def _stream_and_convert_features(
         self, feature_paths: list, outpath_features: str
-    ) -> Optional[gpd.GeoDataFrame]:
+    ) -> Optional[str]:
         """
         Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
@@ -1532,7 +1532,9 @@ class NearmapAIExporter(BaseExporter):
             outpath_features: Output path for final geoparquet file (string, may be S3 URI)
 
         Returns:
-            None since we don't need the GeoDataFrame in memory
+            Local file path to the written geoparquet (for subsequent per-class reads),
+            or None if no features were written.  For S3 output, returns the local staging
+            path (the file is uploaded but kept locally for per-class export reads).
         """
 
         pqwriter = None
@@ -1757,12 +1759,13 @@ class NearmapAIExporter(BaseExporter):
                 f"Final file size: {final_file_size_gb:.2f}GB"
             )
 
-            # Upload to S3 if needed, then clean up local staging file
+            # Upload to S3 if needed.  Keep the local staging file so that
+            # per-class export can read from local disk instead of re-downloading
+            # from S3 for each class.  _cleanup_staging() removes it at the end.
             if self.is_s3_output:
                 storage.upload_file(local_write_path, outpath_features)
-                os.remove(local_write_path)
 
-            return None
+            return local_write_path
         else:
             self.logger.warning("No feature data found to write")
             return None
@@ -3068,13 +3071,9 @@ class NearmapAIExporter(BaseExporter):
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
             )
 
-            features_gdf = self._stream_and_convert_features(
+            local_features_path = self._stream_and_convert_features(
                 feature_paths, outpath_features
             )
-
-            # Add is_primary column based on rollup primary feature IDs
-            if features_gdf is not None and len(features_gdf) > 0:
-                features_gdf = _add_is_primary_column(features_gdf, primary_ids_df)
 
             # If buildings export is enabled, process building features
             if self.save_buildings:
@@ -3087,7 +3086,7 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf, features_gdf=features_gdf, country=self.country
+                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
@@ -3147,16 +3146,23 @@ class NearmapAIExporter(BaseExporter):
 
             # Per-class export reads features from the combined parquet file.
             # To avoid loading the entire file into memory (which caused OOMKill on
-            # large exports), we read class-by-class using filtered reads.
+            # large exports), we read one class at a time using filtered reads.
+            # For S3 output, _stream_and_convert_features returns a local staging
+            # path so all reads hit local disk (OS page cache makes re-reads fast).
             # Requires save_features=True (feature chunks are only written when enabled).
-            if not self.save_features or not storage.file_exists(outpath_features):
+            features_read_path = (
+                local_features_path
+                if self.save_features and local_features_path is not None
+                else None
+            )
+            if features_read_path is None:
                 self.logger.info("No features found for per-class export")
             else:
                 try:
                     # Phase A: Discover unique classes and descriptions via lightweight
                     # column-only read (no geometry or attributes loaded).
                     meta_table = pq.read_table(
-                        outpath_features, columns=["class_id", "description"]
+                        features_read_path, columns=["class_id", "description"]
                     )
                     class_id_arr = meta_table.column("class_id").to_pylist()
                     desc_arr = meta_table.column("description").to_pylist()
@@ -3199,15 +3205,22 @@ class NearmapAIExporter(BaseExporter):
                         dependent_ids = [c for c in unique_classes if c in cross_class_ids]
 
                         # Phase B: Process independent classes one at a time.
-                        # Each class is read via filtered parquet read, exported, then freed.
+                        # Each class is read via filtered parquet read from local disk,
+                        # exported, then freed.  OS page cache warms on the first read
+                        # so subsequent reads are served from RAM.
                         for class_id in independent_ids:
                             class_features = gpd.read_parquet(
-                                outpath_features, filters=[("class_id", "==", class_id)]
+                                features_read_path,
+                                filters=[("class_id", "==", class_id)],
                             )
                             if len(class_features) == 0:
                                 continue
-                            class_features = _add_is_primary_column(class_features, primary_ids_df)
-                            description = class_descriptions.get(class_id, f"class_{class_id[:8]}")
+                            class_features = _add_is_primary_column(
+                                class_features, primary_ids_df
+                            )
+                            description = class_descriptions.get(
+                                class_id, f"class_{class_id[:8]}"
+                            )
                             csv_path, parquet_path = export_feature_class(
                                 features_gdf=None,
                                 class_id=class_id,
@@ -3225,7 +3238,9 @@ class NearmapAIExporter(BaseExporter):
                             del class_features
                             if csv_path or parquet_path:
                                 files = [
-                                    storage.basename(f) for f in [csv_path, parquet_path] if f
+                                    storage.basename(f)
+                                    for f in [csv_path, parquet_path]
+                                    if f
                                 ]
                                 self.logger.info(
                                     f"  Exported {description}: {', '.join(files)}"
@@ -3242,10 +3257,12 @@ class NearmapAIExporter(BaseExporter):
                             # Only load classes that actually exist in the data
                             needed_class_ids = needed_class_ids & set(unique_classes)
                             cross_features = gpd.read_parquet(
-                                outpath_features,
+                                features_read_path,
                                 filters=[("class_id", "in", sorted(needed_class_ids))],
                             )
-                            cross_features = _add_is_primary_column(cross_features, primary_ids_df)
+                            cross_features = _add_is_primary_column(
+                                cross_features, primary_ids_df
+                            )
 
                             roof_features = cross_features[
                                 cross_features["class_id"] == ROOF_ID
@@ -3282,7 +3299,9 @@ class NearmapAIExporter(BaseExporter):
                                 )
                                 if csv_path or parquet_path:
                                     files = [
-                                        storage.basename(f) for f in [csv_path, parquet_path] if f
+                                        storage.basename(f)
+                                        for f in [csv_path, parquet_path]
+                                        if f
                                     ]
                                     self.logger.info(
                                         f"  Exported {description}: {', '.join(files)}"
@@ -3292,7 +3311,7 @@ class NearmapAIExporter(BaseExporter):
 
                 except Exception as e:
                     self.logger.error(
-                        f"Failed to read merged features file {outpath_features}: {e}. "
+                        f"Failed to read merged features file {features_read_path}: {e}. "
                         f"Per-class export requires save_features=True and a valid merged features file."
                     )
                     raise
