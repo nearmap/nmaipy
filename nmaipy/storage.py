@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import fsspec
+import pyarrow.parquet as pq
 
 _s3_filesystem_cache = {}
 
@@ -92,6 +93,28 @@ def file_exists(path: str) -> bool:
         return fs.exists(path)
     else:
         return Path(path).exists()
+
+
+def validate_parquet(path: str) -> bool:
+    """
+    Check if a parquet file has a valid footer (schema + row group metadata).
+
+    Opens the file and attempts to construct a ``pyarrow.parquet.ParquetFile``,
+    which reads only the footer.  This is a lightweight integrity check that
+    detects truncated or corrupted files without reading column data.
+
+    Args:
+        path: File path (local or S3 URI).
+
+    Returns:
+        True if the file has a valid parquet footer, False otherwise.
+    """
+    try:
+        with open_file(path, "rb") as f:
+            pq.ParquetFile(f)
+        return True
+    except Exception:
+        return False
 
 
 def glob_files(directory: str, pattern: str) -> List[str]:

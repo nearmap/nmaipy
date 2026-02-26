@@ -284,7 +284,9 @@ class RoofAgeExporter(BaseExporter):
             outfile_errors = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
 
             # Check if chunk already processed
-            if storage.file_exists(outfile_metadata):
+            if storage.file_exists(outfile_metadata) and storage.validate_parquet(
+                outfile_metadata
+            ):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
                 return
 
@@ -409,17 +411,32 @@ class RoofAgeExporter(BaseExporter):
             # Load roofs
             roofs_file = storage.join_path(self.chunk_path, f"roofs_{chunk_id}.parquet")
             if storage.file_exists(roofs_file):
-                roofs_list.append(gpd.read_parquet(roofs_file))
+                try:
+                    roofs_list.append(gpd.read_parquet(roofs_file))
+                except Exception as e:
+                    self.logger.warning(
+                        f"Chunk {chunk_id}: failed to read roofs file {roofs_file}: {e}. Skipping."
+                    )
 
             # Load metadata
             metadata_file = storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
             if storage.file_exists(metadata_file):
-                metadata_list.append(pd.read_parquet(metadata_file))
+                try:
+                    metadata_list.append(pd.read_parquet(metadata_file))
+                except Exception as e:
+                    self.logger.warning(
+                        f"Chunk {chunk_id}: failed to read metadata file {metadata_file}: {e}. Skipping."
+                    )
 
             # Load errors
             errors_file = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
             if storage.file_exists(errors_file):
-                errors_list.append(pd.read_parquet(errors_file))
+                try:
+                    errors_list.append(pd.read_parquet(errors_file))
+                except Exception as e:
+                    self.logger.warning(
+                        f"Chunk {chunk_id}: failed to read errors file {errors_file}: {e}. Skipping."
+                    )
 
         # Combine results
         if roofs_list:

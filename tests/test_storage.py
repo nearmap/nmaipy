@@ -343,6 +343,41 @@ class TestBasename:
 
 
 # ---------------------------------------------------------------------------
+# validate_parquet
+# ---------------------------------------------------------------------------
+
+
+class TestValidateParquet:
+    def test_valid_parquet(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        path = str(tmp_path / "valid.parquet")
+        df.to_parquet(path)
+        assert storage.validate_parquet(path) is True
+
+    def test_corrupted_file(self, tmp_path):
+        path = str(tmp_path / "corrupted.parquet")
+        Path(path).write_text("this is not a parquet file")
+        assert storage.validate_parquet(path) is False
+
+    def test_truncated_parquet(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        valid_path = tmp_path / "valid.parquet"
+        df.to_parquet(valid_path)
+        data = valid_path.read_bytes()
+        truncated_path = str(tmp_path / "truncated.parquet")
+        Path(truncated_path).write_bytes(data[: len(data) // 2])
+        assert storage.validate_parquet(truncated_path) is False
+
+    def test_empty_file(self, tmp_path):
+        path = str(tmp_path / "empty.parquet")
+        Path(path).write_bytes(b"")
+        assert storage.validate_parquet(path) is False
+
+    def test_nonexistent_file(self, tmp_path):
+        assert storage.validate_parquet(str(tmp_path / "missing.parquet")) is False
+
+
+# ---------------------------------------------------------------------------
 # write_parquet
 # ---------------------------------------------------------------------------
 

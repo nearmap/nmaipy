@@ -276,9 +276,15 @@ class BaseExporter(ABC):
             if check_cache:
                 outfile = self.get_chunk_output_file(chunk_id)
                 if storage.file_exists(outfile):
-                    skipped_chunks += 1
-                    skipped_aois += len(batch)
-                    continue
+                    if storage.validate_parquet(outfile):
+                        skipped_chunks += 1
+                        skipped_aois += len(batch)
+                        continue
+                    else:
+                        self.logger.warning(
+                            f"Chunk {chunk_id}: cached file {outfile} is corrupted "
+                            f"(invalid parquet footer). Will reprocess."
+                        )
             chunks_to_process.append((i, batch))
 
         if skipped_chunks > 0:
