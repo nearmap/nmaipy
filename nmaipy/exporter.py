@@ -1521,7 +1521,7 @@ class NearmapAIExporter(BaseExporter):
 
     def _stream_and_convert_features(
         self, feature_paths: list, outpath_features: str
-    ) -> Optional[gpd.GeoDataFrame]:
+    ) -> Optional[str]:
         """
         Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
@@ -1531,7 +1531,9 @@ class NearmapAIExporter(BaseExporter):
             outpath_features: Output path for final geoparquet file (string, may be S3 URI)
 
         Returns:
-            None since we don't need the GeoDataFrame in memory
+            Local file path to the written geoparquet (for subsequent per-class reads),
+            or None if no features were written.  For S3 output, returns the local staging
+            path (the file is uploaded but kept locally for per-class export reads).
         """
 
         pqwriter = None
@@ -1756,12 +1758,13 @@ class NearmapAIExporter(BaseExporter):
                 f"Final file size: {final_file_size_gb:.2f}GB"
             )
 
-            # Upload to S3 if needed, then clean up local staging file
+            # Upload to S3 if needed.  Keep the local staging file so that
+            # per-class export can read from local disk instead of re-downloading
+            # from S3 for each class.  _cleanup_staging() removes it at the end.
             if self.is_s3_output:
                 storage.upload_file(local_write_path, outpath_features)
-                os.remove(local_write_path)
 
-            return None
+            return local_write_path
         else:
             self.logger.warning("No feature data found to write")
             return None
@@ -2888,6 +2891,14 @@ class NearmapAIExporter(BaseExporter):
                         # If it has a to_wkt method but isn't a GeoSeries
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
+
+        # Extract only the primary feature ID columns needed for is_primary marking,
+        # then free the full rollup DataFrame to reduce peak memory during per-class export.
+        primary_cols = [c for c in PRIMARY_FEATURE_COLUMN_TO_CLASS if c in data.columns]
+        primary_ids_df = data[primary_cols].copy() if primary_cols else pd.DataFrame()
+        del data
+        gc.collect()
+
         # Collect and save Feature API errors
         outpath_feature_api_errors = storage.join_path(
             self.final_path, f"{Path(aoi_path).stem}_feature_api_errors.csv"
@@ -3046,6 +3057,12 @@ class NearmapAIExporter(BaseExporter):
                 outpath_roof_age_errors_geoparquet,
                 "Roof Age API",
             )
+
+        # Free error DataFrames now that they've been saved to disk
+        del feature_api_errors, roof_age_errors
+        gc.collect()
+
+        local_features_path = None
         if self.save_features:
             feature_paths = storage.glob_files(
                 self.chunk_path, f"features_{Path(aoi_path).stem}_*.parquet"
@@ -3054,13 +3071,9 @@ class NearmapAIExporter(BaseExporter):
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
             )
 
-            features_gdf = self._stream_and_convert_features(
+            local_features_path = self._stream_and_convert_features(
                 feature_paths, outpath_features
             )
-
-            # Add is_primary column based on rollup primary feature IDs
-            if features_gdf is not None and len(features_gdf) > 0:
-                features_gdf = _add_is_primary_column(features_gdf, data)
 
             # If buildings export is enabled, process building features
             if self.save_buildings:
@@ -3073,7 +3086,7 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf, features_gdf=features_gdf, country=self.country
+                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
@@ -3131,98 +3144,225 @@ class NearmapAIExporter(BaseExporter):
         if self.class_level_files:
             self.logger.info("Exporting per-feature-class CSV and GeoParquet files...")
 
-            # Load combined features for per-class export.
+            # Per-class export reads features from the combined parquet file.
+            # To avoid loading the entire file into memory (which caused OOMKill on
+            # large exports), we read one class at a time using filtered reads.
+            # For S3 output, _stream_and_convert_features returns a local staging
+            # path so all reads hit local disk (OS page cache makes re-reads fast).
             # Requires save_features=True (feature chunks are only written when enabled).
-            features_gdf = None
-            if self.save_features and storage.file_exists(outpath_features):
+            features_read_path = (
+                local_features_path
+                if self.save_features and local_features_path is not None
+                else None
+            )
+            if features_read_path is None:
+                self.logger.info("No features found for per-class export")
+            else:
                 try:
-                    features_gdf = gpd.read_parquet(outpath_features)
+                    # Phase A: Discover unique classes and descriptions via lightweight
+                    # column-only read (no geometry or attributes loaded).
+                    meta_table = pq.read_table(
+                        features_read_path, columns=["class_id", "description"]
+                    )
+                    class_id_arr = meta_table.column("class_id").to_pylist()
+                    desc_arr = meta_table.column("description").to_pylist()
+                    del meta_table
+
+                    unique_classes = sorted(set(c for c in class_id_arr if c is not None))
+                    if not unique_classes:
+                        self.logger.info("No features found for per-class export")
+                    else:
+                        self.logger.debug(
+                            f"Found {len(unique_classes)} unique feature classes to export"
+                        )
+
+                        # Build class_id -> description mapping
+                        class_descriptions = {}
+                        for cid, desc in zip(class_id_arr, desc_arr):
+                            if cid is not None and desc is not None and cid not in class_descriptions:
+                                class_descriptions[cid] = desc
+                        del class_id_arr, desc_arr
+
+                        # Extract input-file columns from AOI (excluding system columns)
+                        system_columns = {
+                            AOI_ID_COLUMN_NAME,
+                            "geometry",
+                            SINCE_COL_NAME,
+                            UNTIL_COL_NAME,
+                            SURVEY_RESOURCE_ID_COL_NAME,
+                            "query_aoi_lat",
+                            "query_aoi_lon",
+                        }
+                        aoi_input_columns = [
+                            c
+                            for c in aoi_gdf.columns
+                            if c not in system_columns and c not in ADDRESS_FIELDS
+                        ]
+
+                        # Classes that require cross-class data for export
+                        cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
+                        independent_ids = [c for c in unique_classes if c not in cross_class_ids]
+                        dependent_ids = [c for c in unique_classes if c in cross_class_ids]
+
+                        # Phase B: Process independent classes one at a time.
+                        # Each class is read via filtered parquet read from local disk,
+                        # exported, then freed.  OS page cache warms on the first read
+                        # so subsequent reads are served from RAM.
+                        for class_id in independent_ids:
+                            class_features = gpd.read_parquet(
+                                features_read_path,
+                                filters=[("class_id", "==", class_id)],
+                            )
+                            if len(class_features) == 0:
+                                continue
+                            class_features = _add_is_primary_column(
+                                class_features, primary_ids_df
+                            )
+                            description = class_descriptions.get(
+                                class_id, f"class_{class_id[:8]}"
+                            )
+                            csv_path, parquet_path = export_feature_class(
+                                features_gdf=None,
+                                class_id=class_id,
+                                class_description=description,
+                                country=self.country,
+                                output_stem=output_stem,
+                                aoi_columns=aoi_input_columns,
+                                export_csv=self.class_level_files,
+                                export_parquet=self.class_level_files and self.save_features,
+                                class_features=class_features,
+                                roof_features=gpd.GeoDataFrame(),
+                                non_roof_features=gpd.GeoDataFrame(),
+                                roof_instance_features=gpd.GeoDataFrame(),
+                            )
+                            del class_features
+                            if csv_path or parquet_path:
+                                files = [
+                                    storage.basename(f)
+                                    for f in [csv_path, parquet_path]
+                                    if f
+                                ]
+                                self.logger.info(
+                                    f"  Exported {description}: {', '.join(files)}"
+                                )
+
+                        # Phase C: Process dependent classes (ROOF_ID, BUILDING_NEW_ID).
+                        # These need cross-class data: roof instances for linkage, and
+                        # child features for spatial attribute recalculation on clipped roofs.
+                        if dependent_ids:
+                            # First load the core dependent classes
+                            core_ids = (
+                                {ROOF_ID, BUILDING_NEW_ID, ROOF_INSTANCE_CLASS_ID}
+                                & set(unique_classes)
+                            )
+                            cross_features = gpd.read_parquet(
+                                features_read_path,
+                                filters=[("class_id", "in", sorted(core_ids))],
+                            )
+
+                            # Dynamically discover child class IDs from roof component
+                            # metadata.  calculate_child_feature_attributes filters
+                            # children by exactly these classIds, so this set is
+                            # precisely what we need — no hardcoded list required.
+                            roof_subset = cross_features[
+                                cross_features["class_id"] == ROOF_ID
+                            ]
+                            child_class_ids = set()
+                            component_cols = [
+                                c
+                                for c in roof_subset.columns
+                                if isinstance(c, str) and c.endswith(".components")
+                            ]
+                            for col in component_cols:
+                                for val in roof_subset[col].dropna():
+                                    items = (
+                                        json.loads(val)
+                                        if isinstance(val, str)
+                                        else val
+                                    )
+                                    if isinstance(items, list):
+                                        for item in items:
+                                            if (
+                                                isinstance(item, dict)
+                                                and "classId" in item
+                                            ):
+                                                child_class_ids.add(item["classId"])
+                            del roof_subset
+
+                            # Load child classes not already in cross_features
+                            extra_ids = (
+                                child_class_ids & set(unique_classes)
+                            ) - core_ids
+                            if extra_ids:
+                                extra_features = gpd.read_parquet(
+                                    features_read_path,
+                                    filters=[
+                                        ("class_id", "in", sorted(extra_ids))
+                                    ],
+                                )
+                                cross_features = pd.concat(
+                                    [cross_features, extra_features],
+                                    ignore_index=True,
+                                )
+                                del extra_features
+
+                            cross_features = _add_is_primary_column(
+                                cross_features, primary_ids_df
+                            )
+
+                            roof_features = cross_features[
+                                cross_features["class_id"] == ROOF_ID
+                            ]
+                            roof_instance_features = cross_features[
+                                cross_features["class_id"] == ROOF_INSTANCE_CLASS_ID
+                            ]
+                            # Child features used for spatial attribute recalculation
+                            # on roofs and buildings (e.g. roof material, type, condition)
+                            roof_child_features = cross_features[
+                                cross_features["class_id"] != ROOF_ID
+                            ]
+
+                            for class_id in dependent_ids:
+                                class_features = cross_features[
+                                    cross_features["class_id"] == class_id
+                                ]
+                                if len(class_features) == 0:
+                                    continue
+                                description = class_descriptions.get(
+                                    class_id, f"class_{class_id[:8]}"
+                                )
+                                csv_path, parquet_path = export_feature_class(
+                                    features_gdf=None,
+                                    class_id=class_id,
+                                    class_description=description,
+                                    country=self.country,
+                                    output_stem=output_stem,
+                                    aoi_columns=aoi_input_columns,
+                                    export_csv=self.class_level_files,
+                                    export_parquet=self.class_level_files and self.save_features,
+                                    class_features=class_features,
+                                    roof_features=roof_features,
+                                    non_roof_features=roof_child_features,
+                                    roof_instance_features=roof_instance_features,
+                                )
+                                if csv_path or parquet_path:
+                                    files = [
+                                        storage.basename(f)
+                                        for f in [csv_path, parquet_path]
+                                        if f
+                                    ]
+                                    self.logger.info(
+                                        f"  Exported {description}: {', '.join(files)}"
+                                    )
+                            del cross_features, roof_features, roof_child_features, roof_instance_features
+                            gc.collect()
+
                 except Exception as e:
                     self.logger.error(
-                        f"Failed to read merged features file {outpath_features}: {e}. "
+                        f"Failed to read merged features file {features_read_path}: {e}. "
                         f"Per-class export requires save_features=True and a valid merged features file."
                     )
                     raise
-
-            if (
-                features_gdf is not None
-                and len(features_gdf) > 0
-                and "class_id" in features_gdf.columns
-            ):
-                # Add is_primary column based on rollup primary feature IDs
-                features_gdf = _add_is_primary_column(features_gdf, data)
-
-                # Get unique classes in the data
-                unique_classes = features_gdf["class_id"].dropna().unique()
-                self.logger.debug(
-                    f"Found {len(unique_classes)} unique feature classes to export"
-                )
-
-                # Pre-split features by class to avoid repeated full-DataFrame scans
-                class_groups = {
-                    cid: group_df for cid, group_df in features_gdf.groupby("class_id")
-                }
-
-                # Build class_id -> description mapping directly from the features data.
-                # The API returns a description for every feature - use that as the
-                # source of truth rather than maintaining a hardcoded mapping.
-                class_descriptions = {}
-                if "description" in features_gdf.columns:
-                    for cid, group in class_groups.items():
-                        desc_vals = group["description"].dropna()
-                        if len(desc_vals) > 0:
-                            class_descriptions[cid] = desc_vals.iloc[0]
-
-                # Extract input-file columns from AOI (excluding system columns)
-                # These will be added to the per-class exports
-                system_columns = {
-                    AOI_ID_COLUMN_NAME,
-                    "geometry",
-                    SINCE_COL_NAME,
-                    UNTIL_COL_NAME,
-                    SURVEY_RESOURCE_ID_COL_NAME,
-                    "query_aoi_lat",
-                    "query_aoi_lon",
-                }
-                aoi_input_columns = [
-                    c
-                    for c in aoi_gdf.columns
-                    if c not in system_columns and c not in ADDRESS_FIELDS
-                ]
-                roof_features = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
-                non_roof_features = features_gdf[features_gdf["class_id"] != ROOF_ID]
-                roof_instance_features = class_groups.get(
-                    ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame()
-                )
-
-                # Export each class
-                for class_id in unique_classes:
-                    description = class_descriptions.get(
-                        class_id, f"class_{class_id[:8]}"
-                    )
-                    csv_path, parquet_path = export_feature_class(
-                        features_gdf=features_gdf,
-                        class_id=class_id,
-                        class_description=description,
-                        country=self.country,
-                        output_stem=output_stem,
-                        aoi_columns=aoi_input_columns,
-                        export_csv=self.class_level_files,
-                        export_parquet=self.class_level_files and self.save_features,
-                        class_features=class_groups.get(class_id),
-                        roof_features=roof_features,
-                        non_roof_features=non_roof_features,
-                        roof_instance_features=roof_instance_features,
-                    )
-                    if csv_path or parquet_path:
-                        files = [
-                            storage.basename(f) for f in [csv_path, parquet_path] if f
-                        ]
-                        self.logger.info(
-                            f"  Exported {description}: {', '.join(files)}"
-                        )
-            else:
-                self.logger.info("No features found for per-class export")
 
         # Generate README data dictionary
         try:
