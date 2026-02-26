@@ -72,7 +72,6 @@ from nmaipy.constants import (
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_UNTIL_DATE_FIELD,
-    ROOF_CHAR_IDS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     SINCE_COL_NAME,
@@ -3063,6 +3062,7 @@ class NearmapAIExporter(BaseExporter):
         del feature_api_errors, roof_age_errors
         gc.collect()
 
+        local_features_path = None
         if self.save_features:
             feature_paths = storage.glob_files(
                 self.chunk_path, f"features_{Path(aoi_path).stem}_*.parquet"
@@ -3247,19 +3247,65 @@ class NearmapAIExporter(BaseExporter):
                                 )
 
                         # Phase C: Process dependent classes (ROOF_ID, BUILDING_NEW_ID).
-                        # These need cross-class data so we load only the required subset:
-                        # roofs, buildings, roof instances, and roof characteristic children.
+                        # These need cross-class data: roof instances for linkage, and
+                        # child features for spatial attribute recalculation on clipped roofs.
                         if dependent_ids:
-                            needed_class_ids = (
+                            # First load the core dependent classes
+                            core_ids = (
                                 {ROOF_ID, BUILDING_NEW_ID, ROOF_INSTANCE_CLASS_ID}
-                                | set(ROOF_CHAR_IDS)
+                                & set(unique_classes)
                             )
-                            # Only load classes that actually exist in the data
-                            needed_class_ids = needed_class_ids & set(unique_classes)
                             cross_features = gpd.read_parquet(
                                 features_read_path,
-                                filters=[("class_id", "in", sorted(needed_class_ids))],
+                                filters=[("class_id", "in", sorted(core_ids))],
                             )
+
+                            # Dynamically discover child class IDs from roof component
+                            # metadata.  calculate_child_feature_attributes filters
+                            # children by exactly these classIds, so this set is
+                            # precisely what we need — no hardcoded list required.
+                            roof_subset = cross_features[
+                                cross_features["class_id"] == ROOF_ID
+                            ]
+                            child_class_ids = set()
+                            component_cols = [
+                                c
+                                for c in roof_subset.columns
+                                if isinstance(c, str) and c.endswith(".components")
+                            ]
+                            for col in component_cols:
+                                for val in roof_subset[col].dropna():
+                                    items = (
+                                        json.loads(val)
+                                        if isinstance(val, str)
+                                        else val
+                                    )
+                                    if isinstance(items, list):
+                                        for item in items:
+                                            if (
+                                                isinstance(item, dict)
+                                                and "classId" in item
+                                            ):
+                                                child_class_ids.add(item["classId"])
+                            del roof_subset
+
+                            # Load child classes not already in cross_features
+                            extra_ids = (
+                                child_class_ids & set(unique_classes)
+                            ) - core_ids
+                            if extra_ids:
+                                extra_features = gpd.read_parquet(
+                                    features_read_path,
+                                    filters=[
+                                        ("class_id", "in", sorted(extra_ids))
+                                    ],
+                                )
+                                cross_features = pd.concat(
+                                    [cross_features, extra_features],
+                                    ignore_index=True,
+                                )
+                                del extra_features
+
                             cross_features = _add_is_primary_column(
                                 cross_features, primary_ids_df
                             )
@@ -3270,7 +3316,9 @@ class NearmapAIExporter(BaseExporter):
                             roof_instance_features = cross_features[
                                 cross_features["class_id"] == ROOF_INSTANCE_CLASS_ID
                             ]
-                            non_roof_features = cross_features[
+                            # Child features used for spatial attribute recalculation
+                            # on roofs and buildings (e.g. roof material, type, condition)
+                            roof_child_features = cross_features[
                                 cross_features["class_id"] != ROOF_ID
                             ]
 
@@ -3294,7 +3342,7 @@ class NearmapAIExporter(BaseExporter):
                                     export_parquet=self.class_level_files and self.save_features,
                                     class_features=class_features,
                                     roof_features=roof_features,
-                                    non_roof_features=non_roof_features,
+                                    non_roof_features=roof_child_features,
                                     roof_instance_features=roof_instance_features,
                                 )
                                 if csv_path or parquet_path:
@@ -3306,7 +3354,7 @@ class NearmapAIExporter(BaseExporter):
                                     self.logger.info(
                                         f"  Exported {description}: {', '.join(files)}"
                                     )
-                            del cross_features, roof_features, non_roof_features, roof_instance_features
+                            del cross_features, roof_features, roof_child_features, roof_instance_features
                             gc.collect()
 
                 except Exception as e:
