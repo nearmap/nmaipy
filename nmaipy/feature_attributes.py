@@ -331,6 +331,8 @@ def flatten_roof_attributes(
     roofs: List[dict],
     country: str,
     child_features: gpd.GeoDataFrame = None,
+    parent_projected=None,
+    children_projected: "gpd.GeoSeries" = None,
 ) -> dict:
     """
     Flatten roof attributes from Feature API.
@@ -349,6 +351,11 @@ def flatten_roof_attributes(
         child_features: Optional GeoDataFrame of child features for clipped roof
                        recalculation. If provided, component attributes will be
                        recalculated for clipped roofs using spatial intersection.
+        parent_projected: Pre-projected parent geometry in equal-area CRS. Passed
+                         through to calculate_child_feature_attributes to avoid
+                         per-call CRS projection overhead.
+        children_projected: Pre-projected child geometries as a GeoSeries. Passed
+                           through to calculate_child_feature_attributes.
 
     Returns:
         Flattened dictionary with roof attributes including material components,
@@ -510,7 +517,9 @@ def flatten_roof_attributes(
                     if geometry is not None:
                         name_prefix = "low_conf_" if "Low confidence" in attribute.get("description", "") else ""
                         recalc_attrs = calculate_child_feature_attributes(
-                            geometry, components, child_features, country, name_prefix=name_prefix
+                            geometry, components, child_features, country, name_prefix=name_prefix,
+                            parent_projected=parent_projected,
+                            children_projected=children_projected,
                         )
 
                 for component in components:

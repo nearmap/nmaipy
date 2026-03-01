@@ -55,6 +55,7 @@ from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
@@ -63,11 +64,14 @@ from nmaipy.constants import (
     FEATURE_CLASS_DESCRIPTIONS,
     FEATURE_PREFETCH_WORKERS,
     GRID_SIZE_DEGREES,
+    IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MAX_RETRIES,
+    METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
+    S3_PARALLEL_READ_WORKERS,
     ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
@@ -81,6 +85,8 @@ from nmaipy.constants import (
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
+    FALSE_STRING,
+    TRUE_STRING,
     calculate_roof_age_years,
     flatten_building_attributes,
     flatten_roof_attributes,
@@ -96,6 +102,7 @@ def _read_parquet_chunks_parallel(
     desc: str = "Reading chunks",
     logger=None,
     strict: bool = True,
+    geo: bool = True,
 ) -> List[pd.DataFrame]:
     """
     Read parquet files in parallel using threads, with a tqdm progress bar.
@@ -110,6 +117,9 @@ def _read_parquet_chunks_parallel(
         logger: Optional logger for warnings on read failures.
         strict: If True (default), raise on any read failure. If False,
             log a warning and continue, collecting as many results as possible.
+        geo: If True (default), attempt geoparquet read first. If False,
+            use plain pd.read_parquet directly (avoids a wasted S3 round-trip
+            for files known to have no geometry, such as error files).
 
     Returns:
         List of non-empty DataFrames, in arbitrary order.
@@ -121,9 +131,12 @@ def _read_parquet_chunks_parallel(
         return []
 
     def _read_one(path: str):
-        try:
-            df = gpd.read_parquet(path)
-        except ValueError:
+        if geo:
+            try:
+                df = gpd.read_parquet(path)
+            except ValueError:
+                df = pd.read_parquet(path)
+        else:
             df = pd.read_parquet(path)
         if len(df) > 0:
             return df
@@ -692,9 +705,17 @@ def export_feature_class(
                     "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
                 )
 
+            # Batch-project all geometries once to avoid per-row CRS transformer init
+            projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+            roof_geoms_projected = class_features.geometry.to_crs(projected_crs)
+            child_proj_by_aoi = {}
+            for aoi_id, children in child_by_aoi.items():
+                if len(children) > 0 and hasattr(children, "geometry"):
+                    child_proj_by_aoi[aoi_id] = children.geometry.to_crs(projected_crs)
+
             t_roof_flatten = time.monotonic()
             attr_records = []
-            for _, row in class_features.iterrows():
+            for idx, (_, row) in enumerate(class_features.iterrows()):
                 try:
                     if AOI_ID_COLUMN_NAME in row.index:
                         roof_aoi = row[AOI_ID_COLUMN_NAME]
@@ -706,7 +727,9 @@ def export_feature_class(
                         child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     )
                     attrs = flatten_roof_attributes(
-                        [row], country=country, child_features=aoi_children
+                        [row], country=country, child_features=aoi_children,
+                        parent_projected=roof_geoms_projected.iloc[idx],
+                        children_projected=child_proj_by_aoi.get(roof_aoi),
                     )
                     attr_records.append(attrs)
                 except Exception as e:
@@ -732,27 +755,61 @@ def export_feature_class(
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
         # Flatten building's own 3D attributes (height, pitch, ground_height, numStories)
+        # Uses dot-notation columns created by process_chunk's _flatten_attribute_list,
+        # avoiding per-row JSON parsing of the 'attributes' column.
         try:
-            bldg_attr_records = []
-            for _, row in class_features.iterrows():
-                try:
-                    attrs = flatten_building_attributes([row], country=country)
-                    bldg_attr_records.append(attrs)
-                except Exception as e:
-                    logger.debug(
-                        f"Could not flatten building attributes for feature: {e}"
-                    )
-                    bldg_attr_records.append({})
+            bldg_batch = {}
+            h3d_col = "Building 3d attributes.has3dAttributes"
+            if h3d_col in class_features.columns:
+                has_3d = class_features[h3d_col].infer_objects(copy=False).fillna(False)
+                bldg_batch["has_3d_attributes"] = has_3d.map(
+                    {True: TRUE_STRING, False: FALSE_STRING}
+                ).fillna(FALSE_STRING)
 
-            if bldg_attr_records:
-                bldg_attr_df = pd.DataFrame(bldg_attr_records)
-                bldg_attr_df = bldg_attr_df.drop(
-                    columns=[c for c in bldg_attr_df.columns if c in added_cols],
-                    errors="ignore",
-                )
-                if len(bldg_attr_df.columns) > 0:
-                    df_parts.append(bldg_attr_df.reset_index(drop=True))
-                    added_cols.update(bldg_attr_df.columns)
+                height_col = "Building 3d attributes.height"
+                if height_col in class_features.columns:
+                    if country in IMPERIAL_COUNTRIES:
+                        bldg_batch["height_ft"] = (
+                            class_features[height_col] * METERS_TO_FEET
+                        ).round(1)
+                    else:
+                        bldg_batch["height_m"] = class_features[height_col].round(1)
+
+                # Discover numStories columns dynamically (e.g. numStories.1, numStories.2, ...)
+                num_stories_prefix = "Building 3d attributes.numStories."
+                for col in class_features.columns:
+                    if isinstance(col, str) and col.startswith(num_stories_prefix):
+                        k = col[len(num_stories_prefix):]
+                        out_col = f"num_storeys_{k}_confidence"
+                        if out_col not in added_cols:
+                            bldg_batch[out_col] = class_features[col]
+
+                fidelity_col = "Building 3d attributes.fidelity"
+                if fidelity_col in class_features.columns and "fidelity" not in added_cols:
+                    bldg_batch["fidelity"] = class_features[fidelity_col]
+
+            pitch_col = "Building pitch.value"
+            if pitch_col in class_features.columns:
+                bldg_batch["pitch_degrees"] = class_features[pitch_col].round(2)
+
+            ground_height_col = "Ground height.value"
+            if ground_height_col in class_features.columns:
+                if country in IMPERIAL_COUNTRIES:
+                    bldg_batch["ground_height_ft"] = (
+                        class_features[ground_height_col] * METERS_TO_FEET
+                    ).round(1)
+                else:
+                    bldg_batch["ground_height_m"] = class_features[
+                        ground_height_col
+                    ].round(1)
+
+            # Remove any columns that would be duplicates
+            bldg_batch = {
+                k: v for k, v in bldg_batch.items() if k not in added_cols
+            }
+            if bldg_batch:
+                df_parts.append(pd.DataFrame(bldg_batch, index=range(n_rows)))
+                added_cols.update(bldg_batch.keys())
         except Exception as e:
             logger.debug(f"Could not flatten building attributes: {e}")
 
@@ -791,10 +848,18 @@ def export_feature_class(
                     non_roof_features, features_gdf
                 )
 
+                # Batch-project roof and child geometries for building linkage
+                bldg_projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+                bldg_roof_geoms_projected = roofs_linked.geometry.to_crs(bldg_projected_crs)
+                bldg_child_proj_by_aoi = {}
+                for aoi_id, children in child_by_aoi_bldg.items():
+                    if len(children) > 0 and hasattr(children, "geometry"):
+                        bldg_child_proj_by_aoi[aoi_id] = children.geometry.to_crs(bldg_projected_crs)
+
                 t_bldg_roof_flatten = time.monotonic()
                 roof_attrs = {}
                 # roofs_linked has aoi_id as index (set by link_roofs_to_buildings)
-                for roof_aoi, roof_row in roofs_linked.iterrows():
+                for idx, (roof_aoi, roof_row) in enumerate(roofs_linked.iterrows()):
                     try:
                         aoi_children = (
                             child_by_aoi_bldg.get(roof_aoi)
@@ -802,7 +867,9 @@ def export_feature_class(
                             else None
                         )
                         attrs = flatten_roof_attributes(
-                            [roof_row], country=country, child_features=aoi_children
+                            [roof_row], country=country, child_features=aoi_children,
+                            parent_projected=bldg_roof_geoms_projected.iloc[idx],
+                            children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
                         )
                         roof_attrs[roof_row["feature_id"]] = attrs
                     except Exception:
@@ -2808,7 +2875,8 @@ class NearmapAIExporter(BaseExporter):
             return (i, None, has_error)
 
         chunk_check_results = []
-        with ThreadPoolExecutor(max_workers=PARALLEL_READ_WORKERS) as executor:
+        read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        with ThreadPoolExecutor(max_workers=read_workers) as executor:
             futures = {
                 executor.submit(_check_chunk_files, i): i for i in range(num_chunks)
             }
@@ -2846,6 +2914,7 @@ class NearmapAIExporter(BaseExporter):
         if rollup_paths_to_read:
             data = _read_parquet_chunks_parallel(
                 rollup_paths_to_read,
+                max_workers=read_workers,
                 desc=f"Reading {len(rollup_paths_to_read)} rollup chunks",
                 logger=self.logger,
             )
@@ -2913,9 +2982,11 @@ class NearmapAIExporter(BaseExporter):
         if feature_api_error_paths:
             feature_api_errors_list = _read_parquet_chunks_parallel(
                 feature_api_error_paths,
+                max_workers=read_workers,
                 desc="Reading Feature API error files",
                 logger=self.logger,
                 strict=False,
+                geo=False,
             )
             feature_api_errors = (
                 pd.concat(feature_api_errors_list)
@@ -2941,9 +3012,11 @@ class NearmapAIExporter(BaseExporter):
             if roof_age_error_paths:
                 roof_age_errors_list = _read_parquet_chunks_parallel(
                     roof_age_error_paths,
+                    max_workers=read_workers,
                     desc="Reading Roof Age error files",
                     logger=self.logger,
                     strict=False,
+                    geo=False,
                 )
                 roof_age_errors = (
                     pd.concat(roof_age_errors_list)

@@ -44,7 +44,11 @@ from nmaipy.cgroup_memory import (
     get_memory_info_cgroup_aware,
     is_running_in_container,
 )
-from nmaipy.constants import API_WARMUP_INTERVAL_SECONDS
+from nmaipy.constants import (
+    API_WARMUP_INTERVAL_SECONDS,
+    PARALLEL_READ_WORKERS,
+    S3_PARALLEL_READ_WORKERS,
+)
 
 logger = log.get_logger()
 
@@ -271,21 +275,40 @@ class BaseExporter(ABC):
         skipped_chunks = 0
         skipped_aois = 0
 
-        for i, batch in enumerate(chunks):
-            chunk_id = f"{file_stem}_{str(i).zfill(4)}"
-            if check_cache:
+        if check_cache:
+            # Parallelize cache checking — each check is an S3 HEAD + footer read,
+            # so running them concurrently overlaps network latency.
+            def _check_cache(i_batch):
+                i, batch = i_batch
+                chunk_id = f"{file_stem}_{str(i).zfill(4)}"
                 outfile = self.get_chunk_output_file(chunk_id)
                 if storage.file_exists(outfile):
                     if storage.validate_parquet(outfile):
-                        skipped_chunks += 1
-                        skipped_aois += len(batch)
-                        continue
+                        return (i, batch, True, None)
                     else:
+                        return (i, batch, False, chunk_id)
+                return (i, batch, False, None)
+
+            cache_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=cache_workers
+            ) as executor:
+                results = list(executor.map(_check_cache, enumerate(chunks)))
+
+            for i, batch, is_cached, corrupt_chunk_id in results:
+                if is_cached:
+                    skipped_chunks += 1
+                    skipped_aois += len(batch)
+                else:
+                    if corrupt_chunk_id is not None:
+                        outfile = self.get_chunk_output_file(corrupt_chunk_id)
                         self.logger.warning(
-                            f"Chunk {chunk_id}: cached file {outfile} is corrupted "
+                            f"Chunk {corrupt_chunk_id}: cached file {outfile} is corrupted "
                             f"(invalid parquet footer). Will reprocess."
                         )
-            chunks_to_process.append((i, batch))
+                    chunks_to_process.append((i, batch))
+        else:
+            chunks_to_process = list(enumerate(chunks))
 
         if skipped_chunks > 0:
             self.logger.info(

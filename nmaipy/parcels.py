@@ -103,6 +103,8 @@ def calculate_child_feature_attributes(
     child_features: gpd.GeoDataFrame,
     country: str,
     name_prefix: str = "",
+    parent_projected=None,
+    children_projected: gpd.GeoSeries = None,
 ) -> dict:
     """
     Calculate component attributes by spatial intersection for clipped features.
@@ -126,6 +128,12 @@ def calculate_child_feature_attributes(
         country: Country code for units ("us" for imperial, "au" for metric)
         name_prefix: Optional prefix for output keys (e.g., "low_conf_" for
                     low-confidence attribute groups), must match the caller's naming
+        parent_projected: Pre-projected parent geometry in equal-area CRS. When
+                         provided, skips the per-call CRS projection (batch callers
+                         project all geometries once up front for performance).
+        children_projected: Pre-projected child geometries as a GeoSeries aligned
+                           with child_features index. When provided, matching children
+                           are looked up by index instead of re-projecting per call.
 
     Returns:
         Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio),
@@ -136,9 +144,10 @@ def calculate_child_feature_attributes(
     if not components or child_features is None:
         return None
 
-    # Project parent geometry to equal-area CRS for accurate area calculation
+    # Use pre-projected parent geometry if provided, otherwise project per call
     projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
-    parent_projected = gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
+    if parent_projected is None:
+        parent_projected = gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
     parent_area = parent_projected.area
     if parent_area <= 0:
         return None
@@ -171,10 +180,13 @@ def calculate_child_feature_attributes(
             flattened[f"{name}_ratio"] = 0.0
             continue
 
-        # Project matching child features and calculate intersection areas
-        matching_projected = gpd.GeoSeries(
-            matching_features.geometry.values, crs=API_CRS
-        ).to_crs(projected_crs)
+        # Use pre-projected children if available, otherwise project per component
+        if children_projected is not None:
+            matching_projected = children_projected.loc[matching_features.index]
+        else:
+            matching_projected = gpd.GeoSeries(
+                matching_features.geometry.values, crs=API_CRS
+            ).to_crs(projected_crs)
 
         total_intersection_area = 0.0
         max_confidence = None

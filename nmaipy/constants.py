@@ -136,10 +136,15 @@ API_WARMUP_INTERVAL_SECONDS = 10.0
 # These reads are I/O-bound (S3 GET requests), so threads overlap network latency.
 PARALLEL_READ_WORKERS = 8
 
+# Higher thread count for S3 I/O-bound operations. S3 reads have high per-request
+# latency (~50-200ms) so more threads overlap network round-trips effectively.
+# Memory impact is negligible (thread stacks only, no extra data in flight).
+S3_PARALLEL_READ_WORKERS = 24
+
 # Feature streaming prefetch: number of worker threads to read chunks ahead
 # while the main thread processes and writes the current chunk.
 # Memory bounded: at most FEATURE_PREFETCH_WORKERS + 1 chunks in memory.
-FEATURE_PREFETCH_WORKERS = 4
+FEATURE_PREFETCH_WORKERS = 8
 
 # ============================================================================
 # Primary Feature Selection Configuration
