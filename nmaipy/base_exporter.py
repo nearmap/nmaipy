@@ -90,7 +90,9 @@ class BaseExporter(ABC):
         """Build progress bar description with memory and CPU info."""
         used_gb, total_gb = get_memory_info_cgroup_aware()
         cpu_pct, cpu_count = get_cpu_info_cgroup_aware()
-        cpu_count_str = f"{cpu_count:.0f}" if cpu_count == int(cpu_count) else f"{cpu_count:.1f}"
+        cpu_count_str = (
+            f"{cpu_count:.0f}" if cpu_count == int(cpu_count) else f"{cpu_count:.1f}"
+        )
         return (
             f"API requests - {used_gb:.1f}/{total_gb:.1f}GB | "
             f"CPU {cpu_pct:.0f}% ({cpu_count_str}) | "
@@ -147,7 +149,9 @@ class BaseExporter(ABC):
             self._local_staging_dir = None
             self._local_final_staging = None
 
-    def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
+    def _save_config(
+        self, config: Dict[str, Any], config_name: str = "export_config.json"
+    ):
         """
         Save export configuration to the final output directory.
 
@@ -289,7 +293,9 @@ class BaseExporter(ABC):
                         return (i, batch, False, chunk_id)
                 return (i, batch, False, None)
 
-            cache_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+            cache_workers = (
+                S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+            )
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=cache_workers
             ) as executor:
@@ -385,7 +391,9 @@ class BaseExporter(ABC):
         try:
             for attempt in range(max_retries):
                 try:
-                    with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context) as executor:
+                    with ProcessPoolExecutor(
+                        max_workers=self.processes, mp_context=mp_context
+                    ) as executor:
                         try:
                             # Submit all chunks
                             # Track warmup start time to gradually ramp up concurrency
@@ -393,7 +401,9 @@ class BaseExporter(ABC):
 
                             # Log warmup plan once at the start
                             if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
-                                warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
+                                warmup_duration = (
+                                    self.processes - 1
+                                ) * API_WARMUP_INTERVAL_SECONDS
                                 self.logger.info(
                                     f"API warmup: ramping parallel workers from 1 to {self.processes} "
                                     f"over {warmup_duration:.0f}s"
@@ -412,23 +422,37 @@ class BaseExporter(ABC):
 
                                 # API warmup: gradually ramp up concurrency to allow API autoscaling
                                 # Start with 1 worker, add 1 more every warmup_interval seconds
-                                if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
+                                if (
+                                    API_WARMUP_INTERVAL_SECONDS > 0
+                                    and i < self.processes
+                                ):
                                     while True:
                                         elapsed = time.time() - warmup_start_time
                                         # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
                                         max_concurrent = min(
-                                            1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
-                                            self.processes
+                                            1
+                                            + int(
+                                                elapsed // API_WARMUP_INTERVAL_SECONDS
+                                            ),
+                                            self.processes,
                                         )
-                                        active_jobs = sum(1 for j in jobs if not j.done())
+                                        active_jobs = sum(
+                                            1 for j in jobs if not j.done()
+                                        )
 
                                         if active_jobs < max_concurrent:
                                             break
                                         else:
                                             # At capacity for current warmup stage - update progress while waiting
-                                            if pbar is not None and progress_counters is not None:
+                                            if (
+                                                pbar is not None
+                                                and progress_counters is not None
+                                            ):
                                                 self._update_pbar_during_warmup(
-                                                    pbar, progress_counters, chunks_submitted, len(chunks_to_process)
+                                                    pbar,
+                                                    progress_counters,
+                                                    chunks_submitted,
+                                                    len(chunks_to_process),
                                                 )
                                             time.sleep(1.0)
 
@@ -464,7 +488,9 @@ class BaseExporter(ABC):
                             else:
                                 if pbar is not None:
                                     pbar.close()
-                                all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
+                                all_latency_stats = self._monitor_progress_simple(
+                                    jobs, job_to_chunk
+                                )
 
                             return all_latency_stats  # Success - exit retry loop
 
@@ -684,9 +710,7 @@ class BaseExporter(ABC):
             pbar.n = requests_completed
             pbar.total = requests_total
             pbar.set_description(
-                self._format_progress_description(
-                    num_jobs, num_jobs, lat_str=lat_str
-                )
+                self._format_progress_description(num_jobs, num_jobs, lat_str=lat_str)
             )
             pbar.refresh()
 

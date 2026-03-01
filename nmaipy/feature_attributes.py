@@ -13,13 +13,14 @@ Feature Classes:
 - Building Lifecycle (Feature API): Damage scores and classifications
 - Roof Instance (Roof Age API): Installation dates, trust scores, evidence types
 """
+
 import ast
 import json
 from typing import Any, Dict, List, Optional, Union, overload
 
-from dateutil.parser import parse as parse_date
 import geopandas as gpd
 import pandas as pd
+from dateutil.parser import parse as parse_date
 from shapely import wkb
 
 from nmaipy import log
@@ -37,8 +38,8 @@ from nmaipy.constants import (
     ROOF_AGE_KIND_FIELD,
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
-    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
+    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_RELEVANT_PERMITS_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
@@ -197,10 +198,14 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
         return attributes
 
     # Find all .components columns dynamically
-    component_cols = [c for c in columns if isinstance(c, str) and c.endswith(".components")]
+    component_cols = [
+        c for c in columns if isinstance(c, str) and c.endswith(".components")
+    ]
 
     for col in component_cols:
-        description = col.rsplit(".", 1)[0]  # "Roof material.components" -> "Roof material"
+        description = col.rsplit(".", 1)[
+            0
+        ]  # "Roof material.components" -> "Roof material"
         value = _get_feature_value(feature, col)
         if value:
             # Parse JSON string if needed
@@ -212,7 +217,9 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
             else:
                 components = value
             if components:
-                attributes.append({"description": description, "components": components})
+                attributes.append(
+                    {"description": description, "components": components}
+                )
 
     # Also handle 3D attributes (has3dAttributes, pitch)
     for col in columns:
@@ -224,7 +231,9 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
             value = _get_feature_value(feature, col)
             if value is not None:
                 # Find existing attribute with same description or create new
-                existing = next((a for a in attributes if a.get("description") == description), None)
+                existing = next(
+                    (a for a in attributes if a.get("description") == description), None
+                )
                 if existing:
                     existing[key] = value
                 else:
@@ -307,10 +316,14 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
             continue
 
         if "has3dAttributes" in attribute:
-            flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
+            flattened["has_3d_attributes"] = (
+                TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
+            )
             if attribute["has3dAttributes"]:
                 if country in IMPERIAL_COUNTRIES:
-                    flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
+                    flattened["height_ft"] = round(
+                        attribute["height"] * METERS_TO_FEET, 1
+                    )
                 else:
                     flattened["height_m"] = round(attribute["height"], 1)
                 for k, v in attribute["numStories"].items():
@@ -319,7 +332,9 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
             flattened["pitch_degrees"] = round(attribute["pitch"], 2)
         if "ground_height" in attribute:
             if country in IMPERIAL_COUNTRIES:
-                flattened["ground_height_ft"] = round(attribute["ground_height"] * METERS_TO_FEET, 1)
+                flattened["ground_height_ft"] = round(
+                    attribute["ground_height"] * METERS_TO_FEET, 1
+                )
             else:
                 flattened["ground_height_m"] = round(attribute["ground_height"], 1)
         if "fidelity" in attribute:
@@ -377,7 +392,9 @@ def flatten_roof_attributes(
             if "confidence" in rsi_data:
                 flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
             if "modelVersion" in rsi_data:
-                flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
+                flattened["roof_spotlight_index_model_version"] = rsi_data[
+                    "modelVersion"
+                ]
 
         # Handle hurricaneScore - check both camelCase and snake_case versions
         # Use _parse_include_param to handle both dict and JSON string formats
@@ -385,11 +402,17 @@ def flatten_roof_attributes(
         hurricane_score_data = _parse_include_param(hurricane_raw)
         if hurricane_score_data:
             if "vulnerabilityScore" in hurricane_score_data:
-                flattened["hurricane_vulnerability_score"] = hurricane_score_data["vulnerabilityScore"]
+                flattened["hurricane_vulnerability_score"] = hurricane_score_data[
+                    "vulnerabilityScore"
+                ]
             if "vulnerabilityProbability" in hurricane_score_data:
-                flattened["hurricane_vulnerability_probability"] = hurricane_score_data["vulnerabilityProbability"]
+                flattened["hurricane_vulnerability_probability"] = hurricane_score_data[
+                    "vulnerabilityProbability"
+                ]
             if "vulnerabilityRateFactor" in hurricane_score_data:
-                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
+                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data[
+                    "vulnerabilityRateFactor"
+                ]
             # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
 
         # Handle windScore - check both camelCase and snake_case versions
@@ -397,56 +420,84 @@ def flatten_roof_attributes(
         wind_score_data = _parse_include_param(wind_raw)
         if wind_score_data:
             if "vulnerabilityScore" in wind_score_data:
-                flattened["wind_vulnerability_score"] = wind_score_data["vulnerabilityScore"]
+                flattened["wind_vulnerability_score"] = wind_score_data[
+                    "vulnerabilityScore"
+                ]
             if "vulnerabilityProbability" in wind_score_data:
-                flattened["wind_vulnerability_probability"] = wind_score_data["vulnerabilityProbability"]
+                flattened["wind_vulnerability_probability"] = wind_score_data[
+                    "vulnerabilityProbability"
+                ]
             if "vulnerabilityRateFactor" in wind_score_data:
-                flattened["wind_vulnerability_rate_factor"] = wind_score_data["vulnerabilityRateFactor"]
+                flattened["wind_vulnerability_rate_factor"] = wind_score_data[
+                    "vulnerabilityRateFactor"
+                ]
             if "riskScore" in wind_score_data:
                 flattened["wind_risk_score"] = wind_score_data["riskScore"]
             if "riskRateFactor" in wind_score_data:
                 flattened["wind_risk_rate_factor"] = wind_score_data["riskRateFactor"]
             if "femaAnnualWindFrequency" in wind_score_data:
-                flattened["wind_fema_annual_frequency"] = wind_score_data["femaAnnualWindFrequency"]
+                flattened["wind_fema_annual_frequency"] = wind_score_data[
+                    "femaAnnualWindFrequency"
+                ]
 
         # Handle hailScore - check both camelCase and snake_case versions
         hail_raw = roof.get("hailScore") or roof.get("hail_score")
         hail_score_data = _parse_include_param(hail_raw)
         if hail_score_data:
             if "vulnerabilityScore" in hail_score_data:
-                flattened["hail_vulnerability_score"] = hail_score_data["vulnerabilityScore"]
+                flattened["hail_vulnerability_score"] = hail_score_data[
+                    "vulnerabilityScore"
+                ]
             if "vulnerabilityProbability" in hail_score_data:
-                flattened["hail_vulnerability_probability"] = hail_score_data["vulnerabilityProbability"]
+                flattened["hail_vulnerability_probability"] = hail_score_data[
+                    "vulnerabilityProbability"
+                ]
             if "vulnerabilityRateFactor" in hail_score_data:
-                flattened["hail_vulnerability_rate_factor"] = hail_score_data["vulnerabilityRateFactor"]
+                flattened["hail_vulnerability_rate_factor"] = hail_score_data[
+                    "vulnerabilityRateFactor"
+                ]
             if "riskScore" in hail_score_data:
                 flattened["hail_risk_score"] = hail_score_data["riskScore"]
             if "riskRateFactor" in hail_score_data:
                 flattened["hail_risk_rate_factor"] = hail_score_data["riskRateFactor"]
             if "femaAnnualHailFrequency" in hail_score_data:
-                flattened["hail_fema_annual_frequency"] = hail_score_data["femaAnnualHailFrequency"]
+                flattened["hail_fema_annual_frequency"] = hail_score_data[
+                    "femaAnnualHailFrequency"
+                ]
 
         # Handle wildfireScore - check both camelCase and snake_case versions
         wildfire_raw = roof.get("wildfireScore") or roof.get("wildfire_score")
         wildfire_score_data = _parse_include_param(wildfire_raw)
         if wildfire_score_data:
             if "vulnerabilityScore" in wildfire_score_data:
-                flattened["wildfire_vulnerability_score"] = wildfire_score_data["vulnerabilityScore"]
+                flattened["wildfire_vulnerability_score"] = wildfire_score_data[
+                    "vulnerabilityScore"
+                ]
             if "vulnerabilityProbability" in wildfire_score_data:
-                flattened["wildfire_vulnerability_probability"] = wildfire_score_data["vulnerabilityProbability"]
+                flattened["wildfire_vulnerability_probability"] = wildfire_score_data[
+                    "vulnerabilityProbability"
+                ]
             if "vulnerabilityRateFactor" in wildfire_score_data:
-                flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data["vulnerabilityRateFactor"]
+                flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data[
+                    "vulnerabilityRateFactor"
+                ]
             if "femaAnnualWildfireFrequency" in wildfire_score_data:
-                flattened["wildfire_fema_annual_frequency"] = wildfire_score_data["femaAnnualWildfireFrequency"]
+                flattened["wildfire_fema_annual_frequency"] = wildfire_score_data[
+                    "femaAnnualWildfireFrequency"
+                ]
 
         # Handle windHailRiskScore - combined wind+hail risk score
-        wind_hail_raw = roof.get("windHailRiskScore") or roof.get("wind_hail_risk_score")
+        wind_hail_raw = roof.get("windHailRiskScore") or roof.get(
+            "wind_hail_risk_score"
+        )
         wind_hail_score_data = _parse_include_param(wind_hail_raw)
         if wind_hail_score_data:
             if "riskScore" in wind_hail_score_data:
                 flattened["wind_hail_risk_score"] = wind_hail_score_data["riskScore"]
             if "riskRateFactor" in wind_hail_score_data:
-                flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data["riskRateFactor"]
+                flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data[
+                    "riskRateFactor"
+                ]
 
         # Handle defensibleSpace - check both camelCase and snake_case versions
         # Use _parse_include_param to handle both dict and JSON string formats
@@ -466,19 +517,29 @@ def flatten_roof_attributes(
                         if "zoneAreaSqft" in zone:
                             flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
                         if "defensibleSpaceAreaSqft" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone[
+                                "defensibleSpaceAreaSqft"
+                            ]
                         if "totalRiskObjectAreaSqft" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+                            flattened[f"{prefix}_risk_object_area_sqft"] = zone[
+                                "totalRiskObjectAreaSqft"
+                            ]
                     else:
                         if "zoneAreaSqm" in zone:
                             flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
                         if "defensibleSpaceAreaSqm" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone[
+                                "defensibleSpaceAreaSqm"
+                            ]
                         if "totalRiskObjectAreaSqm" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+                            flattened[f"{prefix}_risk_object_area_sqm"] = zone[
+                                "totalRiskObjectAreaSqm"
+                            ]
 
                     if "defensibleSpaceCoverageRatio" in zone:
-                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                        flattened[f"{prefix}_coverage_ratio"] = zone[
+                            "defensibleSpaceCoverageRatio"
+                        ]
                     # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
 
         # Safely access attributes - may not exist if dropped during process_chunk()
@@ -504,20 +565,30 @@ def flatten_roof_attributes(
             and clipped_area < unclipped_area * 0.99  # 1% tolerance
         )
 
-        for attribute in (attributes or []):
+        for attribute in attributes or []:
             if "components" in attribute:
                 components = attribute["components"]
 
                 # For clipped roofs, recalculate component attributes using child features
                 recalc_attrs = None
                 if is_clipped and child_features is not None:
-                    geometry = _get_feature_value(roof, "geometry") or _get_feature_value(roof, "geometry_feature")
+                    geometry = _get_feature_value(
+                        roof, "geometry"
+                    ) or _get_feature_value(roof, "geometry_feature")
                     if isinstance(geometry, bytes):
                         geometry = wkb.loads(geometry)
                     if geometry is not None:
-                        name_prefix = "low_conf_" if "Low confidence" in attribute.get("description", "") else ""
+                        name_prefix = (
+                            "low_conf_"
+                            if "Low confidence" in attribute.get("description", "")
+                            else ""
+                        )
                         recalc_attrs = calculate_child_feature_attributes(
-                            geometry, components, child_features, country, name_prefix=name_prefix,
+                            geometry,
+                            components,
+                            child_features,
+                            country,
+                            name_prefix=name_prefix,
                             parent_projected=parent_projected,
                             children_projected=children_projected,
                         )
@@ -531,17 +602,27 @@ def flatten_roof_attributes(
                         # Use recalculated values from spatial intersection with clipped geometry
                         flattened[f"{name}_present"] = recalc_attrs[f"{name}_present"]
                         if country in IMPERIAL_COUNTRIES:
-                            flattened[f"{name}_area_sqft"] = recalc_attrs.get(f"{name}_area_sqft", 0.0)
+                            flattened[f"{name}_area_sqft"] = recalc_attrs.get(
+                                f"{name}_area_sqft", 0.0
+                            )
                         else:
-                            flattened[f"{name}_area_sqm"] = recalc_attrs.get(f"{name}_area_sqm", 0.0)
+                            flattened[f"{name}_area_sqm"] = recalc_attrs.get(
+                                f"{name}_area_sqm", 0.0
+                            )
                         # Only emit confidence when present (recalc omits it for present=N)
                         if f"{name}_confidence" in recalc_attrs:
-                            flattened[f"{name}_confidence"] = recalc_attrs[f"{name}_confidence"]
+                            flattened[f"{name}_confidence"] = recalc_attrs[
+                                f"{name}_confidence"
+                            ]
                         if "ratio" in component or f"{name}_ratio" in recalc_attrs:
-                            flattened[f"{name}_ratio"] = recalc_attrs.get(f"{name}_ratio", 0.0)
+                            flattened[f"{name}_ratio"] = recalc_attrs.get(
+                                f"{name}_ratio", 0.0
+                            )
                     else:
                         # Use original component data (unclipped, or no child features for this component)
-                        flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+                        flattened[f"{name}_present"] = (
+                            TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+                        )
                         if country in IMPERIAL_COUNTRIES:
                             flattened[f"{name}_area_sqft"] = component["areaSqft"]
                         else:
@@ -552,7 +633,9 @@ def flatten_roof_attributes(
 
                     # Dominant and confidenceStats always come from the original component
                     if "dominant" in component:
-                        flattened[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
+                        flattened[f"{name}_dominant"] = (
+                            TRUE_STRING if component["dominant"] else FALSE_STRING
+                        )
                     if "confidenceStats" in component:
                         confidence_stats = component["confidenceStats"]
                         histograms = confidence_stats.get("histograms", [])
@@ -560,15 +643,21 @@ def flatten_roof_attributes(
                             bin_type = histogram.get("binType", "unknown")
                             ratios = histogram.get("ratios", [])
                             for bin_idx, ratio_value in enumerate(ratios):
-                                flattened[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
+                                flattened[
+                                    f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"
+                                ] = ratio_value
             elif "has3dAttributes" in attribute:
-                flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
+                flattened["has_3d_attributes"] = (
+                    TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
+                )
                 if attribute["has3dAttributes"]:
                     flattened["pitch_degrees"] = attribute["pitch"]
     return flattened
 
 
-def flatten_building_lifecycle_damage_attributes(building_lifecycles: List[dict]) -> dict:
+def flatten_building_lifecycle_damage_attributes(
+    building_lifecycles: List[dict],
+) -> dict:
     """
     Flatten building lifecycle damage attributes from Feature API.
 
@@ -697,16 +786,24 @@ def flatten_roof_instance_attributes(
     if evidence_type is not None:
         flattened[f"{prefix}roof_age_evidence_type"] = evidence_type
 
-    evidence_desc = get_value(ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD, "evidence_type_description")
+    evidence_desc = get_value(
+        ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD, "evidence_type_description"
+    )
     if evidence_desc is not None:
         flattened[f"{prefix}roof_age_evidence_type_description"] = evidence_desc
 
     # Capture date information
-    before_capture = get_value(ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD, "before_installation_capture_date")
+    before_capture = get_value(
+        ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD,
+        "before_installation_capture_date",
+    )
     if before_capture is not None:
         flattened[f"{prefix}roof_age_before_installation_capture_date"] = before_capture
 
-    after_capture = get_value(ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD, "after_installation_capture_date")
+    after_capture = get_value(
+        ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
+        "after_installation_capture_date",
+    )
     if after_capture is not None:
         flattened[f"{prefix}roof_age_after_installation_capture_date"] = after_capture
 
@@ -730,20 +827,32 @@ def flatten_roof_instance_attributes(
     # Relevant permits (JSON serialized for parquet compatibility)
     relevant_permits = get_value(ROOF_AGE_RELEVANT_PERMITS_FIELD, "relevant_permits")
     if relevant_permits is not None:
-        flattened[f"{prefix}roof_age_relevant_permits"] = json.dumps(relevant_permits) if isinstance(relevant_permits, (dict, list)) else relevant_permits
+        flattened[f"{prefix}roof_age_relevant_permits"] = (
+            json.dumps(relevant_permits)
+            if isinstance(relevant_permits, (dict, list))
+            else relevant_permits
+        )
 
     # Assessor data (JSON serialized for parquet compatibility)
     assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD, "assessor_data")
     if assessor_data is not None:
-        flattened[f"{prefix}roof_age_assessor_data"] = json.dumps(assessor_data) if isinstance(assessor_data, (dict, list)) else assessor_data
+        flattened[f"{prefix}roof_age_assessor_data"] = (
+            json.dumps(assessor_data)
+            if isinstance(assessor_data, (dict, list))
+            else assessor_data
+        )
 
     # Roof Age mapbrowser URL (shows before/after comparison view)
-    mapbrowser_url = get_value(ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD)
+    mapbrowser_url = get_value(
+        ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD
+    )
     if mapbrowser_url is not None:
         flattened[f"{prefix}{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"] = mapbrowser_url
 
     # Roof Age model version (top-level response metadata propagated to each feature)
-    model_version = get_value(ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD, ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD)
+    model_version = get_value(
+        ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD, ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD
+    )
     if model_version is not None:
         flattened[f"{prefix}{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"] = model_version
 

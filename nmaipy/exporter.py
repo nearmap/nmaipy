@@ -71,13 +71,13 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    S3_PARALLEL_READ_WORKERS,
     ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_UNTIL_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    S3_PARALLEL_READ_WORKERS,
     SINCE_COL_NAME,
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
@@ -434,6 +434,35 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
+def _batch_project_geometries(
+    parent_gdf: gpd.GeoDataFrame,
+    child_by_aoi: dict,
+    country: str,
+) -> tuple:
+    """Batch-project parent and child geometries to the local area CRS.
+
+    Projecting all geometries up front avoids initializing a PROJ transformer
+    per row inside the iterrows loop (the dominant cost in per-class export).
+
+    Args:
+        parent_gdf: GeoDataFrame whose geometry column will be projected.
+        child_by_aoi: Dict mapping aoi_id -> GeoDataFrame of child features.
+        country: Country code used to select the projected CRS.
+
+    Returns:
+        (projected_crs, parent_projected, child_proj_by_aoi) where
+        parent_projected is a GeoSeries and child_proj_by_aoi is a dict
+        mapping aoi_id -> projected GeoSeries.
+    """
+    projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+    parent_projected = parent_gdf.geometry.to_crs(projected_crs)
+    child_proj_by_aoi = {}
+    for aoi_id, children in child_by_aoi.items():
+        if len(children) > 0:
+            child_proj_by_aoi[aoi_id] = children.geometry.to_crs(projected_crs)
+    return projected_crs, parent_projected, child_proj_by_aoi
+
+
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
     class_id: str,
@@ -706,12 +735,9 @@ def export_feature_class(
                 )
 
             # Batch-project all geometries once to avoid per-row CRS transformer init
-            projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
-            roof_geoms_projected = class_features.geometry.to_crs(projected_crs)
-            child_proj_by_aoi = {}
-            for aoi_id, children in child_by_aoi.items():
-                if len(children) > 0 and hasattr(children, "geometry"):
-                    child_proj_by_aoi[aoi_id] = children.geometry.to_crs(projected_crs)
+            _, roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
+                class_features, child_by_aoi, country
+            )
 
             t_roof_flatten = time.monotonic()
             attr_records = []
@@ -727,7 +753,9 @@ def export_feature_class(
                         child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     )
                     attrs = flatten_roof_attributes(
-                        [row], country=country, child_features=aoi_children,
+                        [row],
+                        country=country,
+                        child_features=aoi_children,
                         parent_projected=roof_geoms_projected.iloc[idx],
                         children_projected=child_proj_by_aoi.get(roof_aoi),
                     )
@@ -768,25 +796,29 @@ def export_feature_class(
 
                 height_col = "Building 3d attributes.height"
                 if height_col in class_features.columns:
+                    height_vals = class_features[height_col].where(has_3d)
                     if country in IMPERIAL_COUNTRIES:
-                        bldg_batch["height_ft"] = (
-                            class_features[height_col] * METERS_TO_FEET
-                        ).round(1)
+                        bldg_batch["height_ft"] = (height_vals * METERS_TO_FEET).round(
+                            1
+                        )
                     else:
-                        bldg_batch["height_m"] = class_features[height_col].round(1)
+                        bldg_batch["height_m"] = height_vals.round(1)
 
                 # Discover numStories columns dynamically (e.g. numStories.1, numStories.2, ...)
                 num_stories_prefix = "Building 3d attributes.numStories."
                 for col in class_features.columns:
                     if isinstance(col, str) and col.startswith(num_stories_prefix):
-                        k = col[len(num_stories_prefix):]
+                        k = col[len(num_stories_prefix) :]
                         out_col = f"num_storeys_{k}_confidence"
                         if out_col not in added_cols:
-                            bldg_batch[out_col] = class_features[col]
+                            bldg_batch[out_col] = class_features[col].where(has_3d)
 
                 fidelity_col = "Building 3d attributes.fidelity"
-                if fidelity_col in class_features.columns and "fidelity" not in added_cols:
-                    bldg_batch["fidelity"] = class_features[fidelity_col]
+                if (
+                    fidelity_col in class_features.columns
+                    and "fidelity" not in added_cols
+                ):
+                    bldg_batch["fidelity"] = class_features[fidelity_col].where(has_3d)
 
             pitch_col = "Building pitch.value"
             if pitch_col in class_features.columns:
@@ -804,9 +836,7 @@ def export_feature_class(
                     ].round(1)
 
             # Remove any columns that would be duplicates
-            bldg_batch = {
-                k: v for k, v in bldg_batch.items() if k not in added_cols
-            }
+            bldg_batch = {k: v for k, v in bldg_batch.items() if k not in added_cols}
             if bldg_batch:
                 df_parts.append(pd.DataFrame(bldg_batch, index=range(n_rows)))
                 added_cols.update(bldg_batch.keys())
@@ -849,12 +879,9 @@ def export_feature_class(
                 )
 
                 # Batch-project roof and child geometries for building linkage
-                bldg_projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
-                bldg_roof_geoms_projected = roofs_linked.geometry.to_crs(bldg_projected_crs)
-                bldg_child_proj_by_aoi = {}
-                for aoi_id, children in child_by_aoi_bldg.items():
-                    if len(children) > 0 and hasattr(children, "geometry"):
-                        bldg_child_proj_by_aoi[aoi_id] = children.geometry.to_crs(bldg_projected_crs)
+                _, bldg_roof_geoms_projected, bldg_child_proj_by_aoi = (
+                    _batch_project_geometries(roofs_linked, child_by_aoi_bldg, country)
+                )
 
                 t_bldg_roof_flatten = time.monotonic()
                 roof_attrs = {}
@@ -867,13 +894,17 @@ def export_feature_class(
                             else None
                         )
                         attrs = flatten_roof_attributes(
-                            [roof_row], country=country, child_features=aoi_children,
+                            [roof_row],
+                            country=country,
+                            child_features=aoi_children,
                             parent_projected=bldg_roof_geoms_projected.iloc[idx],
                             children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
                         )
                         roof_attrs[roof_row["feature_id"]] = attrs
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            f"Could not flatten building-linked roof attributes: {e}"
+                        )
                 logger.debug(
                     f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
                 )
@@ -2875,7 +2906,9 @@ class NearmapAIExporter(BaseExporter):
             return (i, None, has_error)
 
         chunk_check_results = []
-        read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        read_workers = (
+            S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        )
         with ThreadPoolExecutor(max_workers=read_workers) as executor:
             futures = {
                 executor.submit(_check_chunk_files, i): i for i in range(num_chunks)
@@ -3241,7 +3274,9 @@ class NearmapAIExporter(BaseExporter):
                     desc_arr = meta_table.column("description").to_pylist()
                     del meta_table
 
-                    unique_classes = sorted(set(c for c in class_id_arr if c is not None))
+                    unique_classes = sorted(
+                        set(c for c in class_id_arr if c is not None)
+                    )
                     if not unique_classes:
                         self.logger.info("No features found for per-class export")
                     else:
@@ -3252,7 +3287,11 @@ class NearmapAIExporter(BaseExporter):
                         # Build class_id -> description mapping
                         class_descriptions = {}
                         for cid, desc in zip(class_id_arr, desc_arr):
-                            if cid is not None and desc is not None and cid not in class_descriptions:
+                            if (
+                                cid is not None
+                                and desc is not None
+                                and cid not in class_descriptions
+                            ):
                                 class_descriptions[cid] = desc
                         del class_id_arr, desc_arr
 
@@ -3274,8 +3313,12 @@ class NearmapAIExporter(BaseExporter):
 
                         # Classes that require cross-class data for export
                         cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
-                        independent_ids = [c for c in unique_classes if c not in cross_class_ids]
-                        dependent_ids = [c for c in unique_classes if c in cross_class_ids]
+                        independent_ids = [
+                            c for c in unique_classes if c not in cross_class_ids
+                        ]
+                        dependent_ids = [
+                            c for c in unique_classes if c in cross_class_ids
+                        ]
 
                         # Phase B: Process independent classes one at a time.
                         # Each class is read via filtered parquet read from local disk,
@@ -3302,7 +3345,8 @@ class NearmapAIExporter(BaseExporter):
                                 output_stem=output_stem,
                                 aoi_columns=aoi_input_columns,
                                 export_csv=self.class_level_files,
-                                export_parquet=self.class_level_files and self.save_features,
+                                export_parquet=self.class_level_files
+                                and self.save_features,
                                 class_features=class_features,
                                 roof_features=gpd.GeoDataFrame(),
                                 non_roof_features=gpd.GeoDataFrame(),
@@ -3324,10 +3368,11 @@ class NearmapAIExporter(BaseExporter):
                         # child features for spatial attribute recalculation on clipped roofs.
                         if dependent_ids:
                             # First load the core dependent classes
-                            core_ids = (
-                                {ROOF_ID, BUILDING_NEW_ID, ROOF_INSTANCE_CLASS_ID}
-                                & set(unique_classes)
-                            )
+                            core_ids = {
+                                ROOF_ID,
+                                BUILDING_NEW_ID,
+                                ROOF_INSTANCE_CLASS_ID,
+                            } & set(unique_classes)
                             cross_features = gpd.read_parquet(
                                 features_read_path,
                                 filters=[("class_id", "in", sorted(core_ids))],
@@ -3349,9 +3394,7 @@ class NearmapAIExporter(BaseExporter):
                             for col in component_cols:
                                 for val in roof_subset[col].dropna():
                                     items = (
-                                        json.loads(val)
-                                        if isinstance(val, str)
-                                        else val
+                                        json.loads(val) if isinstance(val, str) else val
                                     )
                                     if isinstance(items, list):
                                         for item in items:
@@ -3369,9 +3412,7 @@ class NearmapAIExporter(BaseExporter):
                             if extra_ids:
                                 extra_features = gpd.read_parquet(
                                     features_read_path,
-                                    filters=[
-                                        ("class_id", "in", sorted(extra_ids))
-                                    ],
+                                    filters=[("class_id", "in", sorted(extra_ids))],
                                 )
                                 cross_features = pd.concat(
                                     [cross_features, extra_features],
@@ -3412,7 +3453,8 @@ class NearmapAIExporter(BaseExporter):
                                     output_stem=output_stem,
                                     aoi_columns=aoi_input_columns,
                                     export_csv=self.class_level_files,
-                                    export_parquet=self.class_level_files and self.save_features,
+                                    export_parquet=self.class_level_files
+                                    and self.save_features,
                                     class_features=class_features,
                                     roof_features=roof_features,
                                     non_roof_features=roof_child_features,
@@ -3427,7 +3469,12 @@ class NearmapAIExporter(BaseExporter):
                                     self.logger.info(
                                         f"  Exported {description}: {', '.join(files)}"
                                     )
-                            del cross_features, roof_features, roof_child_features, roof_instance_features
+                            del (
+                                cross_features,
+                                roof_features,
+                                roof_child_features,
+                                roof_instance_features,
+                            )
                             gc.collect()
 
                 except Exception as e:
