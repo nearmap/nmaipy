@@ -454,7 +454,7 @@ def _batch_project_geometries(
         parent_projected is a GeoSeries and child_proj_by_aoi is a dict
         mapping aoi_id -> projected GeoSeries.
     """
-    projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+    projected_crs = AREA_CRS[country.lower()]
     parent_projected = parent_gdf.geometry.to_crs(projected_crs)
     child_proj_by_aoi = {}
     for aoi_id, children in child_by_aoi.items():

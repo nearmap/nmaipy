@@ -148,7 +148,7 @@ def calculate_child_feature_attributes(
         return None
 
     # Use pre-projected parent geometry if provided, otherwise project per call
-    projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+    projected_crs = AREA_CRS[country.lower()]
     if parent_projected is None:
         parent_projected = (
             gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
