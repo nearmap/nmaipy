@@ -3047,7 +3047,6 @@ class NearmapAIExporter(BaseExporter):
                 desc="Reading Feature API error files",
                 logger=self.logger,
                 strict=False,
-                geo=False,
             )
             feature_api_errors = (
                 pd.concat(feature_api_errors_list)
@@ -3077,7 +3076,6 @@ class NearmapAIExporter(BaseExporter):
                     desc="Reading Roof Age error files",
                     logger=self.logger,
                     strict=False,
-                    geo=False,
                 )
                 roof_age_errors = (
                     pd.concat(roof_age_errors_list)
