@@ -442,7 +442,7 @@ class TestExporter:
         assert expected_features_file.exists(), "Features parquet file was not created"
 
         # Verify chunk files were created
-        feature_chunk_files = list(chunk_path.glob("features_test_aoi_*.parquet"))
+        feature_chunk_files = list(chunk_path.glob("features_*.parquet"))
         assert (
             len(feature_chunk_files) >= 1
         ), f"Expected at least one feature chunk, got {len(feature_chunk_files)}"

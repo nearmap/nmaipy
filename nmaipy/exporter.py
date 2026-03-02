@@ -3163,7 +3163,7 @@ class NearmapAIExporter(BaseExporter):
         local_features_path = None
         if self.save_features:
             feature_paths = storage.glob_files(
-                self.chunk_path, f"features_{Path(aoi_path).stem}_*.parquet"
+                self.chunk_path, "features_*.parquet"
             )
             self.logger.info(
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
@@ -3180,7 +3180,7 @@ class NearmapAIExporter(BaseExporter):
                 )
                 # Define geoparquet path for buildings
                 outpath_buildings_geoparquet = storage.join_path(
-                    self.final_path, f"{Path(aoi_path).stem}_building_features.parquet"
+                    self.final_path, "building_features.parquet"
                 )
 
                 buildings_gdf = parcels.extract_building_features(
