@@ -575,6 +575,10 @@ def export_feature_class(
             if src in class_features.columns and dst not in added_cols:
                 ri_batch[dst] = class_features[src].values
                 added_cols.add(dst)
+            elif dst in class_features.columns and dst not in added_cols:
+                # Field already renamed to output name by _parse_response()
+                ri_batch[dst] = class_features[dst].values
+                added_cols.add(dst)
 
         # JSON serialize permits/assessor data if present
         for src, dst in [
@@ -647,6 +651,15 @@ def export_feature_class(
                     ):
                         ri_cols.append(src)
                         col_rename[src] = prefixed_dst
+                        ri_dst_cols.add(prefixed_dst)
+                    elif (
+                        dst in roof_instances.columns
+                        and prefixed_dst not in added_cols
+                        and prefixed_dst not in ri_dst_cols
+                    ):
+                        # Field already renamed to output name by _parse_response()
+                        ri_cols.append(dst)
+                        col_rename[dst] = prefixed_dst
                         ri_dst_cols.add(prefixed_dst)
 
                 # Also include the pre-calculated roof age years (calculated in process_chunk)
