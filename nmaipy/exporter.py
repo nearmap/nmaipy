@@ -476,6 +476,7 @@ def export_feature_class(
     roof_features: gpd.GeoDataFrame = None,
     non_roof_features: gpd.GeoDataFrame = None,
     roof_instance_features: gpd.GeoDataFrame = None,
+    roof_attrs_cache: dict = None,
 ) -> tuple:
     """
     Export features of a single class to CSV and/or GeoParquet.
@@ -493,6 +494,9 @@ def export_feature_class(
         roof_features: Pre-filtered roof features (avoids repeated features_gdf scans)
         non_roof_features: Pre-filtered non-roof features (avoids repeated features_gdf scans)
         roof_instance_features: Pre-filtered roof instance features (avoids repeated features_gdf scans)
+        roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts.
+                         When provided, skips the per-row flatten_roof_attributes loop for both
+                         ROOF_ID and BUILDING_NEW_ID paths (avoids duplicate flattening).
 
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
@@ -724,48 +728,66 @@ def export_feature_class(
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
         # These are from include parameters and the roof's own attributes array
         try:
-            child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
-            has_aoi_id = (
-                AOI_ID_COLUMN_NAME in class_features.columns
-                or class_features.index.name == AOI_ID_COLUMN_NAME
-            )
-            if not has_aoi_id:
-                logger.warning(
-                    "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
+            if roof_attrs_cache is not None:
+                # Use pre-computed cache (avoids duplicate flatten loop)
+                attr_records = [
+                    roof_attrs_cache.get(fid, {})
+                    for fid in class_features["feature_id"].values
+                ]
+                logger.debug(
+                    f"Roof attribute flattening: used cache for {len(class_features)} roofs"
+                )
+            else:
+                # Fallback: compute per-row (for standalone calls without cache)
+                child_by_aoi = _group_children_by_aoi(
+                    non_roof_features, features_gdf
+                )
+                has_aoi_id = (
+                    AOI_ID_COLUMN_NAME in class_features.columns
+                    or class_features.index.name == AOI_ID_COLUMN_NAME
+                )
+                if not has_aoi_id:
+                    logger.warning(
+                        "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
+                    )
+
+                roof_geoms_projected, child_proj_by_aoi = (
+                    _batch_project_geometries(
+                        class_features, child_by_aoi, country
+                    )
                 )
 
-            # Batch-project all geometries once to avoid per-row CRS transformer init
-            roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
-                class_features, child_by_aoi, country
-            )
-
-            t_roof_flatten = time.monotonic()
-            attr_records = []
-            for idx, (_, row) in enumerate(class_features.iterrows()):
-                try:
-                    if AOI_ID_COLUMN_NAME in row.index:
-                        roof_aoi = row[AOI_ID_COLUMN_NAME]
-                    elif class_features.index.name == AOI_ID_COLUMN_NAME:
-                        roof_aoi = row.name
-                    else:
-                        roof_aoi = None
-                    aoi_children = (
-                        child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
-                    )
-                    attrs = flatten_roof_attributes(
-                        [row],
-                        country=country,
-                        child_features=aoi_children,
-                        parent_projected=roof_geoms_projected.iloc[idx],
-                        children_projected=child_proj_by_aoi.get(roof_aoi),
-                    )
-                    attr_records.append(attrs)
-                except Exception as e:
-                    logger.debug(f"Could not flatten roof attributes for feature: {e}")
-                    attr_records.append({})
-            logger.debug(
-                f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} roofs"
-            )
+                t_roof_flatten = time.monotonic()
+                attr_records = []
+                for idx, (_, row) in enumerate(class_features.iterrows()):
+                    try:
+                        if AOI_ID_COLUMN_NAME in row.index:
+                            roof_aoi = row[AOI_ID_COLUMN_NAME]
+                        elif class_features.index.name == AOI_ID_COLUMN_NAME:
+                            roof_aoi = row.name
+                        else:
+                            roof_aoi = None
+                        aoi_children = (
+                            child_by_aoi.get(roof_aoi)
+                            if roof_aoi is not None
+                            else None
+                        )
+                        attrs = flatten_roof_attributes(
+                            [row],
+                            country=country,
+                            child_features=aoi_children,
+                            parent_projected=roof_geoms_projected.iloc[idx],
+                            children_projected=child_proj_by_aoi.get(roof_aoi),
+                        )
+                        attr_records.append(attrs)
+                    except Exception as e:
+                        logger.debug(
+                            f"Could not flatten roof attributes for feature: {e}"
+                        )
+                        attr_records.append({})
+                logger.debug(
+                    f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} roofs"
+                )
 
             if attr_records:
                 attr_df = pd.DataFrame(attr_records)
@@ -874,108 +896,122 @@ def export_feature_class(
                     )
 
                 # Build a mapping from roof feature_id to flattened attributes.
-                child_by_aoi_bldg = _group_children_by_aoi(
-                    non_roof_features, features_gdf
-                )
+                if roof_attrs_cache is not None:
+                    # Use pre-computed cache (avoids duplicate flatten loop)
+                    roof_attrs = {
+                        fid: roof_attrs_cache.get(fid, {})
+                        for fid in roofs_linked["feature_id"].values
+                    }
+                    logger.debug(
+                        f"Building roof attribute flattening: used cache for {len(roofs_linked)} roofs"
+                    )
+                else:
+                    # Fallback: compute per-row (for standalone calls without cache)
+                    child_by_aoi_bldg = _group_children_by_aoi(
+                        non_roof_features, features_gdf
+                    )
+                    bldg_roof_geoms_projected, bldg_child_proj_by_aoi = (
+                        _batch_project_geometries(
+                            roofs_linked, child_by_aoi_bldg, country
+                        )
+                    )
 
-                # Batch-project roof and child geometries for building linkage
-                bldg_roof_geoms_projected, bldg_child_proj_by_aoi = (
-                    _batch_project_geometries(roofs_linked, child_by_aoi_bldg, country)
-                )
-
-                t_bldg_roof_flatten = time.monotonic()
-                roof_attrs = {}
-                # roofs_linked has aoi_id as index (set by link_roofs_to_buildings)
-                for idx, (roof_aoi, roof_row) in enumerate(roofs_linked.iterrows()):
-                    try:
-                        aoi_children = (
-                            child_by_aoi_bldg.get(roof_aoi)
-                            if roof_aoi is not None
-                            else None
-                        )
-                        attrs = flatten_roof_attributes(
-                            [roof_row],
-                            country=country,
-                            child_features=aoi_children,
-                            parent_projected=bldg_roof_geoms_projected.iloc[idx],
-                            children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
-                        )
-                        roof_attrs[roof_row["feature_id"]] = attrs
-                    except Exception as e:
-                        logger.debug(
-                            f"Could not flatten building-linked roof attributes: {e}"
-                        )
-                logger.debug(
-                    f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
-                )
+                    t_bldg_roof_flatten = time.monotonic()
+                    roof_attrs = {}
+                    for idx, (roof_aoi, roof_row) in enumerate(
+                        roofs_linked.iterrows()
+                    ):
+                        try:
+                            aoi_children = (
+                                child_by_aoi_bldg.get(roof_aoi)
+                                if roof_aoi is not None
+                                else None
+                            )
+                            attrs = flatten_roof_attributes(
+                                [roof_row],
+                                country=country,
+                                child_features=aoi_children,
+                                parent_projected=bldg_roof_geoms_projected.iloc[
+                                    idx
+                                ],
+                                children_projected=bldg_child_proj_by_aoi.get(
+                                    roof_aoi
+                                ),
+                            )
+                            roof_attrs[roof_row["feature_id"]] = attrs
+                        except Exception as e:
+                            logger.debug(
+                                f"Could not flatten building-linked roof attributes: {e}"
+                            )
+                    logger.debug(
+                        f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
+                    )
 
                 if roof_attrs:
-                    # Add primary child roof attributes with prefix (batched)
-                    all_attr_keys = set()
-                    for attrs in roof_attrs.values():
-                        all_attr_keys.update(attrs.keys())
+                    # Map primary child roof attributes to buildings via DataFrame reindex
+                    # (replaces per-attribute .apply(lambda) with a single vectorized lookup)
+                    roof_attrs_df = pd.DataFrame.from_dict(
+                        roof_attrs, orient="index"
+                    )
+                    roof_attrs_df.columns = [
+                        f"primary_child_roof_{c}" for c in roof_attrs_df.columns
+                    ]
+                    primary_ids = buildings_linked[
+                        "primary_child_roof_id"
+                    ].values
+                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(
+                        drop=True
+                    )
 
                     roof_attr_batch = {}
-                    for attr_key in sorted(all_attr_keys):
-                        prefixed_key = f"primary_child_roof_{attr_key}"
-                        if prefixed_key not in added_cols:
-                            roof_attr_batch[prefixed_key] = (
-                                buildings_linked["primary_child_roof_id"]
-                                .apply(
-                                    lambda fid, ak=attr_key: (
-                                        roof_attrs.get(fid, {}).get(ak)
-                                        if pd.notna(fid)
-                                        else None
-                                    )
-                                )
-                                .values
-                            )
-                            added_cols.add(prefixed_key)
+                    for col in sorted(mapped.columns):
+                        if col not in added_cols:
+                            roof_attr_batch[col] = mapped[col].values
+                            added_cols.add(col)
 
                     # Add min/max RSI aggregation across all child roofs
                     rsi_key = "roof_spotlight_index"
-                    if any(rsi_key in attrs for attrs in roof_attrs.values()):
-
-                        def get_child_rsi_values(child_roofs_json):
-                            """Extract RSI values from all child roofs."""
-                            if pd.isna(child_roofs_json) or child_roofs_json == "[]":
-                                return []
+                    rsi_lookup = {
+                        fid: attrs[rsi_key]
+                        for fid, attrs in roof_attrs.items()
+                        if rsi_key in attrs
+                    }
+                    if rsi_lookup:
+                        n_buildings = len(buildings_linked)
+                        min_vals = np.full(n_buildings, np.nan)
+                        max_vals = np.full(n_buildings, np.nan)
+                        for i, child_json in enumerate(
+                            buildings_linked["child_roofs"].values
+                        ):
+                            if not child_json or child_json == "[]":
+                                continue
                             try:
                                 child_list = (
-                                    json.loads(child_roofs_json)
-                                    if isinstance(child_roofs_json, str)
-                                    else child_roofs_json
+                                    json.loads(child_json)
+                                    if isinstance(child_json, str)
+                                    else child_json
                                 )
-                                rsi_values = []
-                                for child in child_list:
-                                    fid = child.get("feature_id")
-                                    if fid and fid in roof_attrs:
-                                        rsi = roof_attrs[fid].get(rsi_key)
-                                        if rsi is not None:
-                                            rsi_values.append(rsi)
-                                return rsi_values
+                                rsi_vals = [
+                                    rsi_lookup[c["feature_id"]]
+                                    for c in child_list
+                                    if c.get("feature_id") in rsi_lookup
+                                ]
+                                if rsi_vals:
+                                    min_vals[i] = min(rsi_vals)
+                                    max_vals[i] = max(rsi_vals)
                             except Exception:
-                                return []
-
-                        # Compute RSI values once per building, then extract min/max
-                        rsi_series = buildings_linked["child_roofs"].apply(
-                            get_child_rsi_values
-                        )
+                                continue
 
                         if "child_roof_roof_spotlight_index_min" not in added_cols:
-                            roof_attr_batch["child_roof_roof_spotlight_index_min"] = (
-                                rsi_series.apply(
-                                    lambda vals: min(vals) if vals else None
-                                ).values
-                            )
+                            roof_attr_batch[
+                                "child_roof_roof_spotlight_index_min"
+                            ] = np.where(np.isnan(min_vals), None, min_vals)
                             added_cols.add("child_roof_roof_spotlight_index_min")
 
                         if "child_roof_roof_spotlight_index_max" not in added_cols:
-                            roof_attr_batch["child_roof_roof_spotlight_index_max"] = (
-                                rsi_series.apply(
-                                    lambda vals: max(vals) if vals else None
-                                ).values
-                            )
+                            roof_attr_batch[
+                                "child_roof_roof_spotlight_index_max"
+                            ] = np.where(np.isnan(max_vals), None, max_vals)
                             added_cols.add("child_roof_roof_spotlight_index_max")
 
                     if roof_attr_batch:
@@ -3428,6 +3464,66 @@ class NearmapAIExporter(BaseExporter):
                                 cross_features["class_id"] != ROOF_ID
                             ]
 
+                            # Pre-compute roof attribute flattening once for reuse
+                            # by both ROOF_ID and BUILDING_NEW_ID exports.
+                            roof_attrs_cache = None
+                            if ROOF_ID in dependent_ids and len(roof_features) > 0:
+                                t_cache = time.monotonic()
+                                child_by_aoi = _group_children_by_aoi(
+                                    roof_child_features, None
+                                )
+                                roof_geoms_projected, child_proj_by_aoi = (
+                                    _batch_project_geometries(
+                                        roof_features, child_by_aoi, self.country
+                                    )
+                                )
+                                has_aoi_id = (
+                                    AOI_ID_COLUMN_NAME in roof_features.columns
+                                    or roof_features.index.name
+                                    == AOI_ID_COLUMN_NAME
+                                )
+                                roof_attrs_cache = {}
+                                for idx, (_, row) in enumerate(
+                                    roof_features.iterrows()
+                                ):
+                                    try:
+                                        if AOI_ID_COLUMN_NAME in row.index:
+                                            roof_aoi = row[AOI_ID_COLUMN_NAME]
+                                        elif (
+                                            roof_features.index.name
+                                            == AOI_ID_COLUMN_NAME
+                                        ):
+                                            roof_aoi = row.name
+                                        else:
+                                            roof_aoi = None
+                                        aoi_children = (
+                                            child_by_aoi.get(roof_aoi)
+                                            if roof_aoi is not None
+                                            else None
+                                        )
+                                        attrs = flatten_roof_attributes(
+                                            [row],
+                                            country=self.country,
+                                            child_features=aoi_children,
+                                            parent_projected=roof_geoms_projected.iloc[
+                                                idx
+                                            ],
+                                            children_projected=child_proj_by_aoi.get(
+                                                roof_aoi
+                                            ),
+                                        )
+                                        roof_attrs_cache[row["feature_id"]] = (
+                                            attrs
+                                        )
+                                    except Exception as e:
+                                        self.logger.debug(
+                                            f"Could not flatten roof attributes: {e}"
+                                        )
+                                del child_by_aoi, child_proj_by_aoi
+                                self.logger.debug(
+                                    f"Roof attribute cache: {len(roof_attrs_cache)} roofs in {time.monotonic() - t_cache:.1f}s"
+                                )
+
                             for class_id in dependent_ids:
                                 class_features = cross_features[
                                     cross_features["class_id"] == class_id
@@ -3451,6 +3547,7 @@ class NearmapAIExporter(BaseExporter):
                                     roof_features=roof_features,
                                     non_roof_features=roof_child_features,
                                     roof_instance_features=roof_instance_features,
+                                    roof_attrs_cache=roof_attrs_cache,
                                 )
                                 if csv_path or parquet_path:
                                     files = [
@@ -3466,6 +3563,7 @@ class NearmapAIExporter(BaseExporter):
                                 roof_features,
                                 roof_child_features,
                                 roof_instance_features,
+                                roof_attrs_cache,
                             )
                             gc.collect()
 
