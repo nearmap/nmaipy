@@ -134,7 +134,7 @@ def _read_parquet_chunks_parallel(
         if geo:
             try:
                 df = gpd.read_parquet(path)
-            except ValueError:
+            except Exception:
                 df = pd.read_parquet(path)
         else:
             df = pd.read_parquet(path)
@@ -450,9 +450,9 @@ def _batch_project_geometries(
         country: Country code used to select the projected CRS.
 
     Returns:
-        (projected_crs, parent_projected, child_proj_by_aoi) where
-        parent_projected is a GeoSeries and child_proj_by_aoi is a dict
-        mapping aoi_id -> projected GeoSeries.
+        (parent_projected, child_proj_by_aoi) where parent_projected is a
+        GeoSeries and child_proj_by_aoi is a dict mapping aoi_id -> projected
+        GeoSeries.
     """
     projected_crs = AREA_CRS[country.lower()]
     parent_projected = parent_gdf.geometry.to_crs(projected_crs)
@@ -460,7 +460,7 @@ def _batch_project_geometries(
     for aoi_id, children in child_by_aoi.items():
         if len(children) > 0:
             child_proj_by_aoi[aoi_id] = children.geometry.to_crs(projected_crs)
-    return projected_crs, parent_projected, child_proj_by_aoi
+    return parent_projected, child_proj_by_aoi
 
 
 def export_feature_class(
@@ -735,7 +735,7 @@ def export_feature_class(
                 )
 
             # Batch-project all geometries once to avoid per-row CRS transformer init
-            _, roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
+            roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
                 class_features, child_by_aoi, country
             )
 
@@ -879,7 +879,7 @@ def export_feature_class(
                 )
 
                 # Batch-project roof and child geometries for building linkage
-                _, bldg_roof_geoms_projected, bldg_child_proj_by_aoi = (
+                bldg_roof_geoms_projected, bldg_child_proj_by_aoi = (
                     _batch_project_geometries(roofs_linked, child_by_aoi_bldg, country)
                 )
 
