@@ -26,9 +26,12 @@ from nmaipy.constants import (
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
+    ROOF_AGE_MODEL_VERSION_FIELD,
+    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_RESOURCE_ID_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
+    ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
 )
 from nmaipy.exporter import export_feature_class
@@ -185,10 +188,9 @@ def test_parse_response(roof_age_api, test_roof_age_response):
     assert isinstance(timeline_data, list)
     assert len(timeline_data) == 2  # We have 2 timeline entries in the fixture
 
-    # Check that mapbrowserURL was renamed and has ?locationMarker appended
-    assert ROOF_AGE_MAPBROWSER_URL_FIELD not in gdf.columns, "Original mapbrowserURL should be removed"
-    assert ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD in gdf.columns, "roof_age_mapbrowser_url should be present"
-    url = gdf[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0]
+    # Check that mapBrowserUrl keeps its API name but has ?locationMarker appended
+    assert ROOF_AGE_MAPBROWSER_URL_FIELD in gdf.columns, "mapBrowserUrl should be present under API name"
+    url = gdf[ROOF_AGE_MAPBROWSER_URL_FIELD].iloc[0]
     assert url.endswith("?locationMarker"), f"URL should end with ?locationMarker, got: {url}"
 
 
@@ -619,3 +621,96 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
 
         # Check evidence types are present
         assert result_df["roof_age_evidence_type"].notna().any(), "No evidence types present"
+
+
+class TestRoofAgeFieldMapping:
+    """
+    Tests that export_feature_class correctly renames Roof Age API field names
+    (camelCase) to output field names (snake_case) via ROOF_AGE_FIELD_MAP.
+
+    All fields—including mapBrowserUrl and modelVersion—should arrive from
+    _parse_response() under their API names.
+    """
+
+    @pytest.fixture
+    def roof_instance_gdf(self, test_aoi_nj):
+        """Roof instance GeoDataFrame with API field names (as _parse_response produces)."""
+        return gpd.GeoDataFrame(
+            [
+                {
+                    AOI_ID_COLUMN_NAME: 0,
+                    "feature_id": "ri_001",
+                    "class_id": ROOF_INSTANCE_CLASS_ID,
+                    "description": "Roof Instance",
+                    "area_sqm": 107.66,
+                    "installationDate": "2019-06-15",
+                    "asOfDate": "2023-01-01",
+                    "trustScore": 85.0,
+                    "evidenceType": "imagery",
+                    "kind": "roof",
+                    ROOF_AGE_MAPBROWSER_URL_FIELD: "https://example.com/map?locationMarker",
+                    ROOF_AGE_MODEL_VERSION_FIELD: "v2.1",
+                },
+            ],
+            geometry=[test_aoi_nj],
+            crs=API_CRS,
+        )
+
+    def test_roof_instance_export_renames_url_and_version(self, roof_instance_gdf):
+        """API-named mapBrowserUrl and modelVersion are renamed to output names in CSV."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path, _ = export_feature_class(
+                features_gdf=roof_instance_gdf,
+                class_id=ROOF_INSTANCE_CLASS_ID,
+                class_description=FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID],
+                output_stem=f"{tmpdir}/test",
+                export_csv=True,
+                export_parquet=False,
+                country="us",
+            )
+
+            result_df = pd.read_csv(csv_path)
+            assert ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD in result_df.columns
+            assert ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD in result_df.columns
+            assert result_df[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0] == "https://example.com/map?locationMarker"
+            assert result_df[ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD].iloc[0] == "v2.1"
+
+    def test_roof_export_includes_primary_child_url_and_version(self, test_aoi_nj, roof_instance_gdf):
+        """mapBrowserUrl and modelVersion propagate as primary_child_ prefixed output columns."""
+        roof_gdf = gpd.GeoDataFrame(
+            [
+                {
+                    AOI_ID_COLUMN_NAME: 0,
+                    "feature_id": "roof_001",
+                    "class_id": ROOF_ID,
+                    "description": "Roof",
+                    "confidence": 0.95,
+                    "area_sqm": 110.0,
+                    "clipped_area_sqm": 110.0,
+                    "unclipped_area_sqm": 110.0,
+                    "primary_child_roof_age_feature_id": "ri_001",
+                    "primary_child_roof_age_iou": 0.92,
+                },
+            ],
+            geometry=[test_aoi_nj],
+            crs=API_CRS,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path, _ = export_feature_class(
+                features_gdf=None,
+                class_id=ROOF_ID,
+                class_description="Roof",
+                output_stem=f"{tmpdir}/test",
+                export_csv=True,
+                export_parquet=False,
+                country="us",
+                class_features=roof_gdf,
+                roof_instance_features=roof_instance_gdf,
+            )
+
+            result_df = pd.read_csv(csv_path)
+            assert f"primary_child_{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}" in result_df.columns
+            assert f"primary_child_{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}" in result_df.columns
+            assert result_df[f"primary_child_{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"].iloc[0] == "https://example.com/map?locationMarker"
+            assert result_df[f"primary_child_{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"].iloc[0] == "v2.1"

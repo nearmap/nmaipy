@@ -55,11 +55,9 @@ from nmaipy.constants import (
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
-    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
     ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
     ROOF_AGE_MODEL_VERSION_FIELD,
-    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_RESOURCE_ENDPOINT,
@@ -311,12 +309,12 @@ class RoofAgeApi(BaseApiClient):
             if ROOF_AGE_TIMELINE_FIELD in props:
                 props[ROOF_AGE_TIMELINE_FIELD] = json.dumps(props[ROOF_AGE_TIMELINE_FIELD])
 
-            # Rename mapbrowserURL to roof_age_mapbrowser_url and add ?locationMarker if not present
+            # Append ?locationMarker to mapBrowserUrl if not present
+            # Keep the API field name — ROOF_AGE_FIELD_MAP handles renaming during export
             if ROOF_AGE_MAPBROWSER_URL_FIELD in props:
-                url = props.pop(ROOF_AGE_MAPBROWSER_URL_FIELD)
+                url = props[ROOF_AGE_MAPBROWSER_URL_FIELD]
                 if url and not url.endswith("?locationMarker"):
-                    url = f"{url}?locationMarker"
-                props[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD] = url
+                    props[ROOF_AGE_MAPBROWSER_URL_FIELD] = f"{url}?locationMarker"
 
             records.append(props)
 
@@ -338,7 +336,7 @@ class RoofAgeApi(BaseApiClient):
         if ROOF_AGE_RESOURCE_ID_FIELD in response_data:
             gdf[ROOF_AGE_RESOURCE_ID_FIELD] = response_data[ROOF_AGE_RESOURCE_ID_FIELD]
         if ROOF_AGE_MODEL_VERSION_FIELD in response_data:
-            gdf[ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD] = response_data[ROOF_AGE_MODEL_VERSION_FIELD]
+            gdf[ROOF_AGE_MODEL_VERSION_FIELD] = response_data[ROOF_AGE_MODEL_VERSION_FIELD]
 
         return gdf
 
