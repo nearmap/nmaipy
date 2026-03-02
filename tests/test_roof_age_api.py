@@ -26,6 +26,7 @@ from nmaipy.constants import (
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
+    ROOF_AGE_MODEL_VERSION_FIELD,
     ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
     ROOF_AGE_RESOURCE_ID_FIELD,
@@ -187,10 +188,9 @@ def test_parse_response(roof_age_api, test_roof_age_response):
     assert isinstance(timeline_data, list)
     assert len(timeline_data) == 2  # We have 2 timeline entries in the fixture
 
-    # Check that mapbrowserURL was renamed and has ?locationMarker appended
-    assert ROOF_AGE_MAPBROWSER_URL_FIELD not in gdf.columns, "Original mapbrowserURL should be removed"
-    assert ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD in gdf.columns, "roof_age_mapbrowser_url should be present"
-    url = gdf[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0]
+    # Check that mapBrowserUrl keeps its API name but has ?locationMarker appended
+    assert ROOF_AGE_MAPBROWSER_URL_FIELD in gdf.columns, "mapBrowserUrl should be present under API name"
+    url = gdf[ROOF_AGE_MAPBROWSER_URL_FIELD].iloc[0]
     assert url.endswith("?locationMarker"), f"URL should end with ?locationMarker, got: {url}"
 
 
@@ -623,18 +623,18 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
         assert result_df["roof_age_evidence_type"].notna().any(), "No evidence types present"
 
 
-class TestExportPreRenamedFields:
+class TestRoofAgeFieldMapping:
     """
-    Tests that export_feature_class handles fields already renamed by _parse_response().
+    Tests that export_feature_class correctly renames Roof Age API field names
+    (camelCase) to output field names (snake_case) via ROOF_AGE_FIELD_MAP.
 
-    _parse_response() early-renames mapBrowserUrl -> roof_age_mapbrowser_url and
-    modelVersion -> roof_age_model_version, while all other fields keep their API names.
-    export_feature_class must handle both naming conventions.
+    All fields—including mapBrowserUrl and modelVersion—should arrive from
+    _parse_response() under their API names.
     """
 
     @pytest.fixture
     def roof_instance_gdf(self, test_aoi_nj):
-        """Roof instance GeoDataFrame with pre-renamed fields (as _parse_response produces)."""
+        """Roof instance GeoDataFrame with API field names (as _parse_response produces)."""
         return gpd.GeoDataFrame(
             [
                 {
@@ -643,23 +643,21 @@ class TestExportPreRenamedFields:
                     "class_id": ROOF_INSTANCE_CLASS_ID,
                     "description": "Roof Instance",
                     "area_sqm": 107.66,
-                    # API field names (not yet renamed)
                     "installationDate": "2019-06-15",
                     "asOfDate": "2023-01-01",
                     "trustScore": 85.0,
                     "evidenceType": "imagery",
                     "kind": "roof",
-                    # Pre-renamed by _parse_response()
-                    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD: "https://example.com/map?locationMarker",
-                    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD: "v2.1",
+                    ROOF_AGE_MAPBROWSER_URL_FIELD: "https://example.com/map?locationMarker",
+                    ROOF_AGE_MODEL_VERSION_FIELD: "v2.1",
                 },
             ],
             geometry=[test_aoi_nj],
             crs=API_CRS,
         )
 
-    def test_roof_instance_export_includes_pre_renamed_fields(self, roof_instance_gdf):
-        """Pre-renamed mapbrowser_url and model_version appear in roof instance CSV output."""
+    def test_roof_instance_export_renames_url_and_version(self, roof_instance_gdf):
+        """API-named mapBrowserUrl and modelVersion are renamed to output names in CSV."""
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path, _ = export_feature_class(
                 features_gdf=roof_instance_gdf,
@@ -677,8 +675,8 @@ class TestExportPreRenamedFields:
             assert result_df[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0] == "https://example.com/map?locationMarker"
             assert result_df[ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD].iloc[0] == "v2.1"
 
-    def test_roof_export_includes_primary_child_pre_renamed_fields(self, test_aoi_nj, roof_instance_gdf):
-        """Pre-renamed fields propagate as primary_child_ prefixed columns on roof export."""
+    def test_roof_export_includes_primary_child_url_and_version(self, test_aoi_nj, roof_instance_gdf):
+        """mapBrowserUrl and modelVersion propagate as primary_child_ prefixed output columns."""
         roof_gdf = gpd.GeoDataFrame(
             [
                 {
