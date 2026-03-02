@@ -52,7 +52,7 @@ class TestIntegration:
             assert final_dir.exists(), "Final directory not created"
 
             # Check for rollup file
-            rollup_file = final_dir / "sydney_parcels_aoi_rollup.csv"
+            rollup_file = final_dir / "rollup.csv"
             assert rollup_file.exists(), f"Rollup CSV not created. Files in final: {list(final_dir.iterdir())}"
 
             # Load and verify rollup data
@@ -78,10 +78,10 @@ class TestIntegration:
 
             # Verify outputs - check for the actual filename pattern
             final_dir = output_dir / "final"
-            rollup_files = list(final_dir.glob("*_aoi_rollup.csv"))
-            assert len(rollup_files) > 0, f"US parcels rollup not created. Files: {list(final_dir.iterdir())}"
+            rollup_file = final_dir / "rollup.csv"
+            assert rollup_file.exists(), f"US parcels rollup not created. Files: {list(final_dir.iterdir())}"
 
-            df = pd.read_csv(rollup_files[0])
+            df = pd.read_csv(rollup_file)
             assert len(df) >= 1, f"Expected at least 1 parcel, got {len(df)}"
     
     @pytest.mark.integration
@@ -126,10 +126,10 @@ class TestIntegration:
 
             # Check for rollup file with actual naming pattern
             final_dir = output_dir / "final"
-            rollup_files = list(final_dir.glob("*_aoi_rollup.csv"))
-            assert len(rollup_files) > 0, f"No rollup file created. Files: {list(final_dir.iterdir())}"
+            rollup_file = final_dir / "rollup.csv"
+            assert rollup_file.exists(), f"No rollup file created. Files: {list(final_dir.iterdir())}"
 
-            df = pd.read_csv(rollup_files[0])
+            df = pd.read_csv(rollup_file)
             # Should have columns for both building and vegetation
             assert any('roof' in col.lower() for col in df.columns), "No building/roof columns found"
 
@@ -179,7 +179,7 @@ class TestIntegration:
             # Check for parquet file instead of CSV
             final_dir = output_dir / "final"
             parquet_files = list(final_dir.glob("*.parquet"))
-            csv_files = list(final_dir.glob("*_aoi_rollup.csv"))
+            csv_files = [final_dir / "rollup.csv"] if (final_dir / "rollup.csv").exists() else []
 
             # Either parquet or csv should exist
             assert len(parquet_files) > 0 or len(csv_files) > 0, \
@@ -207,10 +207,10 @@ class TestIntegration:
 
             # Verify real outputs
             final_dir = output_dir / "final"
-            rollup_files = list(final_dir.glob("*_aoi_rollup.csv"))
-            assert len(rollup_files) > 0, f"Live API test: rollup not created. Files: {list(final_dir.iterdir())}"
+            rollup_file = final_dir / "rollup.csv"
+            assert rollup_file.exists(), f"Live API test: rollup not created. Files: {list(final_dir.iterdir())}"
 
-            df = pd.read_csv(rollup_files[0])
+            df = pd.read_csv(rollup_file)
             assert len(df) > 0, "Live API test: no data returned"
     
     @pytest.mark.integration

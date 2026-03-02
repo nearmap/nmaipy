@@ -34,14 +34,14 @@ class TestDiscoverFiles:
 
     def test_discover_files_excludes_readme(self, tmp_path):
         (tmp_path / "README.md").write_text("# Test")
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("col1,col2\n1,2")
+        (tmp_path / "rollup.csv").write_text("col1,col2\n1,2")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
         filenames = [os.path.basename(f) for f in files]
         assert "README.md" not in filenames
-        assert "parcels_aoi_rollup.csv" in filenames
+        assert "rollup.csv" in filenames
 
     def test_discover_files_excludes_ds_store(self, tmp_path):
         (tmp_path / ".DS_Store").write_text("")
@@ -67,108 +67,65 @@ class TestDiscoverFiles:
     def test_discover_files_uses_final_subdirectory(self, tmp_path):
         final_dir = tmp_path / "final"
         final_dir.mkdir()
-        (final_dir / "parcels_aoi_rollup.csv").write_text("col1\n1")
+        (final_dir / "rollup.csv").write_text("col1\n1")
         (tmp_path / "other_file.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
         filenames = [os.path.basename(f) for f in files]
-        assert "parcels_aoi_rollup.csv" in filenames
+        assert "rollup.csv" in filenames
         assert "other_file.csv" not in filenames
 
-
-class TestGetFilePrefix:
-    """Tests for prefix extraction from filenames."""
-
-    def test_get_file_prefix_from_rollup_csv(self, tmp_path):
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("col1\n1")
-
-        gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-
-        assert prefix == "parcels_"
-
-    def test_get_file_prefix_from_rollup_parquet(self, tmp_path):
-        (tmp_path / "myproject_aoi_rollup.parquet").write_bytes(b"")
-
-        gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-
-        assert prefix == "myproject_"
-
-    def test_get_file_prefix_from_roof_csv(self, tmp_path):
-        (tmp_path / "export_roof.csv").write_text("col1\n1")
-
-        gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-
-        assert prefix == "export_"
-
-    def test_get_file_prefix_empty_when_no_pattern(self, tmp_path):
-        (tmp_path / "random_data.csv").write_text("col1\n1")
-
-        gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-
-        assert prefix == ""
 
 
 class TestDetectClasses:
     """Tests for class detection from CSV filenames."""
 
     def test_detect_classes_from_csv_files(self, tmp_path):
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("col1\n1")
-        (tmp_path / "parcels_roof.csv").write_text("col1\n1")
-        (tmp_path / "parcels_building.csv").write_text("col1\n1")
+        (tmp_path / "rollup.csv").write_text("col1\n1")
+        (tmp_path / "roof.csv").write_text("col1\n1")
+        (tmp_path / "building.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
         assert "roof" in class_columns
         assert "building" in class_columns
 
     def test_detect_classes_skips_error_files(self, tmp_path):
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("col1\n1")
-        (tmp_path / "parcels_feature_api_errors.csv").write_text("col1\n1")
+        (tmp_path / "rollup.csv").write_text("col1\n1")
+        (tmp_path / "feature_api_errors.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
         assert "feature_api_errors" not in class_columns
 
     def test_detect_classes_skips_buildings_file(self, tmp_path):
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("col1\n1")
-        (tmp_path / "parcels_buildings.csv").write_text("col1\n1")
-        (tmp_path / "parcels_roof.csv").write_text("col1\n1")
+        (tmp_path / "rollup.csv").write_text("col1\n1")
+        (tmp_path / "buildings.csv").write_text("col1\n1")
+        (tmp_path / "roof.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
         assert "buildings" not in class_columns
         assert "roof" in class_columns
 
     def test_detect_classes_formats_display_name(self, tmp_path):
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("col1\n1")
-        (tmp_path / "parcels_roof_instance.csv").write_text("col1\n1")
+        (tmp_path / "rollup.csv").write_text("col1\n1")
+        (tmp_path / "roof_instance.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         roof_instance = next((c for c in classes if c["column"] == "roof_instance"), None)
         assert roof_instance is not None
@@ -285,8 +242,8 @@ class TestLoadExportConfig:
     def test_column_patterns_uses_correct_unit_for_au(self, tmp_path):
         config = {"_metadata": {}, "parameters": {"country": "au"}}
         (tmp_path / "export_config.json").write_text(json.dumps(config))
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id,roof_present\n0,Y\n")
-        (tmp_path / "parcels_roof.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "rollup.csv").write_text("aoi_id,roof_present\n0,Y\n")
+        (tmp_path / "roof.csv").write_text("aoi_id\n0\n")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -301,8 +258,8 @@ class TestLoadExportConfig:
             "parameters": {"primary_decision": "nearest"},
         }
         (tmp_path / "export_config.json").write_text(json.dumps(config))
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id,roof_present\n0,Y\n")
-        (tmp_path / "parcels_roof.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "rollup.csv").write_text("aoi_id,roof_present\n0,Y\n")
+        (tmp_path / "roof.csv").write_text("aoi_id\n0\n")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -316,9 +273,9 @@ class TestGenerateWithRollupFile:
     def test_generate_with_basic_rollup(self, tmp_path):
         rollup_content = "aoi_id,mesh_date,roof_present,roof_count,building_present,building_count\n"
         rollup_content += "0,2024-01-15,Y,2,Y,1\n"
-        (tmp_path / "test_aoi_rollup.csv").write_text(rollup_content)
-        (tmp_path / "test_roof.csv").write_text("aoi_id,roof_id\n0,r1\n")
-        (tmp_path / "test_building.csv").write_text("aoi_id,building_id\n0,b1\n")
+        (tmp_path / "rollup.csv").write_text(rollup_content)
+        (tmp_path / "roof.csv").write_text("aoi_id,roof_id\n0,r1\n")
+        (tmp_path / "building.csv").write_text("aoi_id,building_id\n0,b1\n")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         readme_path = gen.generate_and_save()
@@ -328,9 +285,9 @@ class TestGenerateWithRollupFile:
 
         assert "# Nearmap AI Export" in content
         assert "## Files in This Export" in content
-        assert "test_aoi_rollup.csv" in content
-        assert "test_roof.csv" in content
-        assert "test_building.csv" in content
+        assert "rollup.csv" in content
+        assert "roof.csv" in content
+        assert "building.csv" in content
         assert "## Feature Classes in This Export" in content
         assert "## Column Naming Patterns" in content
         assert "## Common Columns" in content
@@ -338,7 +295,7 @@ class TestGenerateWithRollupFile:
     def test_generate_with_rsi_columns(self, tmp_path):
         rollup_content = "aoi_id,roof_spotlight_index,roof_spotlight_index_confidence\n"
         rollup_content += "0,45,0.85\n"
-        (tmp_path / "parcels_aoi_rollup.csv").write_text(rollup_content)
+        (tmp_path / "rollup.csv").write_text(rollup_content)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -349,7 +306,7 @@ class TestGenerateWithRollupFile:
     def test_generate_with_roof_age_columns(self, tmp_path):
         rollup_content = "aoi_id,roof_age_installation_date,roof_age_years_as_of_date\n"
         rollup_content += "0,2015-06-01,9\n"
-        (tmp_path / "parcels_aoi_rollup.csv").write_text(rollup_content)
+        (tmp_path / "rollup.csv").write_text(rollup_content)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -360,7 +317,7 @@ class TestGenerateWithRollupFile:
     def test_generate_with_address_query_columns(self, tmp_path):
         rollup_content = "aoi_id,streetAddress,city,state,zip\n"
         rollup_content += "0,123 Main St,Springfield,IL,62704\n"
-        (tmp_path / "parcels_aoi_rollup.csv").write_text(rollup_content)
+        (tmp_path / "rollup.csv").write_text(rollup_content)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -372,7 +329,7 @@ class TestGenerateWithRollupFile:
     def test_generate_with_geometry_query_columns(self, tmp_path):
         rollup_content = "aoi_id,query_aoi_lat,query_aoi_lon\n"
         rollup_content += "0,40.7128,-74.0060\n"
-        (tmp_path / "parcels_aoi_rollup.csv").write_text(rollup_content)
+        (tmp_path / "rollup.csv").write_text(rollup_content)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -386,7 +343,7 @@ class TestGenerateWithRollupFile:
     def test_generate_omits_unused_sections(self, tmp_path):
         rollup_content = "aoi_id,mesh_date,roof_present\n"
         rollup_content += "0,2024-01-15,Y\n"
-        (tmp_path / "parcels_aoi_rollup.csv").write_text(rollup_content)
+        (tmp_path / "rollup.csv").write_text(rollup_content)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -425,19 +382,19 @@ class TestReadmeIntegration:
             "35,0.92,"
             "2018-05-01,6\n"
         )
-        (final_dir / "parcels_aoi_rollup.csv").write_text(rollup_content)
+        (final_dir / "rollup.csv").write_text(rollup_content)
 
         # Create per-class CSV files
-        (final_dir / "parcels_roof.csv").write_text("aoi_id,feature_id,area_sqft\n0,r1,800\n0,r2,700\n")
-        (final_dir / "parcels_building.csv").write_text("aoi_id,feature_id,area_sqft\n0,b1,2000\n")
+        (final_dir / "roof.csv").write_text("aoi_id,feature_id,area_sqft\n0,r1,800\n0,r2,700\n")
+        (final_dir / "building.csv").write_text("aoi_id,feature_id,area_sqft\n0,b1,2000\n")
 
         # Create parquet files
-        (final_dir / "parcels_roof_features.parquet").write_bytes(b"")
-        (final_dir / "parcels_building_features.parquet").write_bytes(b"")
+        (final_dir / "roof_features.parquet").write_bytes(b"")
+        (final_dir / "building_features.parquet").write_bytes(b"")
 
         # Create error and latency files
-        (final_dir / "parcels_feature_api_errors.csv").write_text("aoi_id,error\n")
-        (final_dir / "parcels_latency_stats.csv").write_text("chunk,p50\n")
+        (final_dir / "feature_api_errors.csv").write_text("aoi_id,error\n")
+        (final_dir / "latency_stats.csv").write_text("chunk,p50\n")
 
         # Generate README
         gen = ReadmeGenerator(output_dir=tmp_path)
@@ -475,8 +432,8 @@ class TestReadmeIntegration:
         final_dir.mkdir()
 
         rollup_content = "aoi_id,roof_present\n0,Y\n"
-        (final_dir / "parcels_aoi_rollup.csv").write_text(rollup_content)
-        (final_dir / "parcels_roof.csv").write_text("aoi_id,feature_id\n0,r1\n")
+        (final_dir / "rollup.csv").write_text(rollup_content)
+        (final_dir / "roof.csv").write_text("aoi_id,feature_id\n0,r1\n")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -487,23 +444,21 @@ class TestReadmeIntegration:
         assert "latency_stats.csv" not in content
 
         # Should mention files that DO exist
-        assert "parcels_aoi_rollup.csv" in content
-        assert "parcels_roof.csv" in content
+        assert "rollup.csv" in content
+        assert "roof.csv" in content
 
     def test_file_descriptions_match_known_patterns(self, tmp_path):
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_roof.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_feature_api_errors.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_features.parquet").write_bytes(b"")
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "roof.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "feature_api_errors.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "features.parquet").write_bytes(b"")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
 
-        assert "Property-level summary" in gen._get_file_description("parcels_aoi_rollup.csv", prefix)
-        assert "Feature API" in gen._get_file_description("parcels_feature_api_errors.csv", prefix)
-        assert "All detected features" in gen._get_file_description("parcels_features.parquet", prefix)
-        assert "Export data file" == gen._get_file_description("unknown_file.xyz", prefix)
+        assert "Property-level summary" in gen._get_file_description("rollup.csv")
+        assert "Feature API" in gen._get_file_description("feature_api_errors.csv")
+        assert "All detected features" in gen._get_file_description("features.parquet")
+        assert "Export data file" == gen._get_file_description("unknown_file.xyz")
 
 
 class TestConfigCaching:
@@ -534,11 +489,10 @@ class TestParquetRollupColumns:
             "roof_spotlight_index": [45],
             "roof_age_installation_date": ["2020-01-01"],
         })
-        pq.write_table(table, tmp_path / "parcels_aoi_rollup.parquet")
+        pq.write_table(table, tmp_path / "rollup.parquet")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
         columns = gen._get_rollup_columns(files)
 
         assert "aoi_id" in columns
@@ -547,13 +501,12 @@ class TestParquetRollupColumns:
 
     def test_csv_rollup_preferred_over_parquet(self, tmp_path):
         """When both CSV and parquet rollup exist, CSV is used."""
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id,csv_only_col\n0,1\n")
+        (tmp_path / "rollup.csv").write_text("aoi_id,csv_only_col\n0,1\n")
         table = pa.table({"aoi_id": [0], "parquet_only_col": [1]})
-        pq.write_table(table, tmp_path / "parcels_aoi_rollup.parquet")
+        pq.write_table(table, tmp_path / "rollup.parquet")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
         columns = gen._get_rollup_columns(files)
 
         assert "csv_only_col" in columns
@@ -569,7 +522,7 @@ class TestParquetRollupColumns:
             "roof_spotlight_index": [45],
             "roof_spotlight_index_confidence": [0.85],
         })
-        pq.write_table(table, tmp_path / "parcels_aoi_rollup.parquet")
+        pq.write_table(table, tmp_path / "rollup.parquet")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         content = gen._generate()
@@ -583,14 +536,13 @@ class TestParquetClassDetection:
     def test_detect_classes_fallback_to_parquet(self, tmp_path):
         """When no per-class CSVs exist, detect classes from _features.parquet files."""
         # Only parquet files, no CSVs except rollup
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_roof_features.parquet").write_bytes(b"")
-        (tmp_path / "parcels_building_features.parquet").write_bytes(b"")
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "roof_features.parquet").write_bytes(b"")
+        (tmp_path / "building_features.parquet").write_bytes(b"")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
         assert "roof" in class_columns
@@ -598,26 +550,24 @@ class TestParquetClassDetection:
 
     def test_detect_classes_parquet_skips_bare_features(self, tmp_path):
         """Combined _features.parquet (no class prefix) should not create a class."""
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_features.parquet").write_bytes(b"")
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "features.parquet").write_bytes(b"")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         assert classes == []
 
     def test_detect_classes_csv_preferred_over_parquet(self, tmp_path):
         """When CSVs exist, parquet fallback should not run."""
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_roof.csv").write_text("aoi_id\n0\n")
-        (tmp_path / "parcels_building_features.parquet").write_bytes(b"")
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "roof.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "building_features.parquet").write_bytes(b"")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
         assert "roof" in class_columns
@@ -629,41 +579,14 @@ class TestExactSkipMatch:
 
     def test_detect_classes_exact_skip_match(self, tmp_path):
         """A class name that is a superstring of a skip name should NOT be skipped."""
-        (tmp_path / "parcels_aoi_rollup.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
         # "latency_stats_detail" contains "latency_stats" as substring
-        (tmp_path / "parcels_latency_stats_detail.csv").write_text("aoi_id\n0\n")
+        (tmp_path / "latency_stats_detail.csv").write_text("aoi_id\n0\n")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-        classes = gen._detect_classes(files, prefix)
+        classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
         assert "latency_stats_detail" in class_columns, "Superstrings of skip names should not be skipped"
 
-
-class TestPrefixEndswithSafety:
-    """Tests for safe prefix extraction (Fix 5)."""
-
-    def test_get_file_prefix_endswith_safety(self, tmp_path):
-        """Prefix extraction should only match suffixes, not substrings."""
-        # Regression test: a file like "roof.csv_backup_roof.csv" should not confuse the logic
-        # More realistically, ensure standard cases still work correctly
-        (tmp_path / "my_project_roof.csv").write_text("aoi_id\n0\n")
-
-        gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-
-        assert prefix == "my_project_"
-
-    def test_get_file_prefix_from_parquet_rollup(self, tmp_path):
-        """Prefix extraction works from parquet rollup files."""
-        table = pa.table({"aoi_id": [0]})
-        pq.write_table(table, tmp_path / "export_aoi_rollup.parquet")
-
-        gen = ReadmeGenerator(output_dir=tmp_path)
-        files = gen._discover_files()
-        prefix = gen._get_file_prefix(files)
-
-        assert prefix == "export_"

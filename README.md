@@ -216,14 +216,14 @@ The exporter writes results to `{output_dir}/final/` with the following structur
 
 | File | Description |
 |------|-------------|
-| `{stem}_aoi_rollup.csv` or `.parquet` | One row per AOI with summary statistics (counts, areas, confidences) |
-| `{stem}_{class}.csv` | Per-class attribute tables (e.g. `roof.csv`, `building.csv`) |
-| `{stem}_{class}_features.parquet` | Per-class GeoParquet with feature geometries (when `save_features=True`) |
-| `{stem}_features.parquet` | All features combined as GeoParquet (when `save_features=True`) |
-| `{stem}_buildings.csv` or `.parquet` | Per-building detail rows (when `save_buildings=True`) |
-| `{stem}_feature_api_errors.csv` | AOIs where the Feature API returned errors |
-| `{stem}_roof_age_errors.csv` | AOIs where the Roof Age API returned errors (US only) |
-| `{stem}_latency_stats.csv` | API timing diagnostics |
+| `rollup.csv` or `.parquet` | One row per AOI with summary statistics (counts, areas, confidences) |
+| `{class}.csv` | Per-class attribute tables (e.g. `roof.csv`, `building.csv`) |
+| `{class}_features.parquet` | Per-class GeoParquet with feature geometries (when `save_features=True`) |
+| `features.parquet` | All features combined as GeoParquet (when `save_features=True`) |
+| `buildings.csv` or `.parquet` | Per-building detail rows (when `save_buildings=True`) |
+| `feature_api_errors.csv` | AOIs where the Feature API returned errors |
+| `roof_age_errors.csv` | AOIs where the Roof Age API returned errors (US only) |
+| `latency_stats.csv` | API timing diagnostics |
 | `export_config.json` | Full record of export parameters and nmaipy version |
 | `README.md` | Auto-generated data dictionary describing all output files and columns |
 

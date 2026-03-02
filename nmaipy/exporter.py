@@ -468,7 +468,7 @@ def export_feature_class(
     class_id: str,
     class_description: str,
     country: str,
-    output_stem: Path,
+    output_dir: str,
     aoi_columns: list = None,
     export_csv: bool = True,
     export_parquet: bool = True,
@@ -485,7 +485,7 @@ def export_feature_class(
         class_id: UUID of the feature class to export
         class_description: Human-readable description (used in filename)
         country: Country code for units (us, au, etc.)
-        output_stem: Base path for output files (without extension)
+        output_dir: Directory path for output files
         aoi_columns: Additional columns from the AOI input file to include (e.g., ["Property Id"])
         export_csv: Whether to export CSV files (attributes only, no geometry)
         export_parquet: Whether to export GeoParquet files (with geometry)
@@ -508,8 +508,8 @@ def export_feature_class(
     # Normalize class description for filename (sanitize characters that break paths)
     # Replace any non-alphanumeric characters with underscores (handles /, \, :, etc.)
     class_name = re.sub(r"[^a-z0-9]+", "_", class_description.lower()).strip("_")
-    csv_path = f"{output_stem}_{class_name}.csv"
-    parquet_path = f"{output_stem}_{class_name}_features.parquet"
+    csv_path = storage.join_path(output_dir, f"{class_name}.csv")
+    parquet_path = storage.join_path(output_dir, f"{class_name}_features.parquet")
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
     # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
@@ -2748,20 +2748,16 @@ class NearmapAIExporter(BaseExporter):
             )
             classes_df = pd.concat([classes_df, roof_instance_row])
 
-        # Modify output file paths using the AOI file name
-        # Renamed from {stem}.csv to {stem}_aoi_rollup.csv for clarity
-        aoi_stem = Path(aoi_path).stem
+        # Output file paths in final directory (no stem prefix — directory provides context)
         outpath = storage.join_path(
-            self.final_path, f"{aoi_stem}_aoi_rollup.{self.rollup_format}"
+            self.final_path, f"rollup.{self.rollup_format}"
         )
         outpath_features = storage.join_path(
-            self.final_path, f"{aoi_stem}_features.parquet"
+            self.final_path, "features.parquet"
         )
         outpath_buildings = storage.join_path(
-            self.final_path, f"{aoi_stem}_buildings.{self.rollup_format}"
+            self.final_path, f"buildings.{self.rollup_format}"
         )
-        # Base stem for per-class output files
-        output_stem = storage.join_path(self.final_path, aoi_stem)
 
         # Check for existing output files and warn about overwriting.
         # We always rebuild from chunks (the source of truth) to avoid leaving
@@ -2836,9 +2832,8 @@ class NearmapAIExporter(BaseExporter):
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        aoi_stem = Path(aoi_path).stem
         chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
-            aoi_gdf, aoi_stem, check_cache=True
+            aoi_gdf, check_cache=True
         )
 
         # Calculate initial AOI count for progress tracking (excluding skipped)
@@ -2848,19 +2843,18 @@ class NearmapAIExporter(BaseExporter):
             initial_aoi_count *= 2
 
         latency_csv_path = storage.join_path(
-            self.final_path, f"{Path(aoi_path).stem}_latency_stats.csv"
+            self.final_path, "latency_stats.csv"
         )
 
         self.run_parallel(
             chunks_to_process,
-            aoi_stem,
             initial_aoi_count=initial_aoi_count,
             use_progress_tracking=True,  # Enable progress counters for Feature API
             classes_df=classes_df,  # Pass classes_df to process_chunk
         )
 
         all_latency_stats = combine_chunk_latency_stats(
-            self.chunk_path, aoi_stem, latency_csv_path
+            self.chunk_path, latency_csv_path
         )
         if all_latency_stats:
             global_stats = compute_global_latency_stats(all_latency_stats)
@@ -2886,10 +2880,8 @@ class NearmapAIExporter(BaseExporter):
         num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
 
         # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
-        aoi_stem = Path(aoi_path).stem
-
         def _check_chunk_files(i):
-            chunk_filename = f"rollup_{aoi_stem}_{str(i).zfill(4)}.parquet"
+            chunk_filename = f"rollup_{str(i).zfill(4)}.parquet"
             cp = storage.join_path(self.chunk_path, chunk_filename)
             if storage.file_exists(cp):
                 if storage.validate_parquet(cp):
@@ -2899,7 +2891,7 @@ class NearmapAIExporter(BaseExporter):
                         f"Chunk {i}: rollup file {cp} exists but is corrupted "
                         f"(invalid parquet footer). Treating as missing."
                     )
-            error_filename = f"feature_api_errors_{aoi_stem}_{str(i).zfill(4)}.parquet"
+            error_filename = f"feature_api_errors_{str(i).zfill(4)}.parquet"
             has_error = storage.file_exists(
                 storage.join_path(self.chunk_path, error_filename)
             )
@@ -3003,14 +2995,14 @@ class NearmapAIExporter(BaseExporter):
 
         # Collect and save Feature API errors
         outpath_feature_api_errors = storage.join_path(
-            self.final_path, f"{Path(aoi_path).stem}_feature_api_errors.csv"
+            self.final_path, "feature_api_errors.csv"
         )
         outpath_feature_api_errors_geoparquet = storage.join_path(
-            self.final_path, f"{Path(aoi_path).stem}_feature_api_errors.parquet"
+            self.final_path, "feature_api_errors.parquet"
         )
         self.logger.debug("Collecting Feature API errors")
         feature_api_error_paths = storage.glob_files(
-            self.chunk_path, f"feature_api_errors_{Path(aoi_path).stem}_*.parquet"
+            self.chunk_path, "feature_api_errors_*.parquet"
         )
         if feature_api_error_paths:
             feature_api_errors_list = _read_parquet_chunks_parallel(
@@ -3033,14 +3025,14 @@ class NearmapAIExporter(BaseExporter):
         roof_age_errors = pd.DataFrame()
         if self.roof_age:
             outpath_roof_age_errors = storage.join_path(
-                self.final_path, f"{Path(aoi_path).stem}_roof_age_errors.csv"
+                self.final_path, "roof_age_errors.csv"
             )
             outpath_roof_age_errors_geoparquet = storage.join_path(
-                self.final_path, f"{Path(aoi_path).stem}_roof_age_errors.parquet"
+                self.final_path, "roof_age_errors.parquet"
             )
             self.logger.debug("Collecting Roof Age API errors")
             roof_age_error_paths = storage.glob_files(
-                self.chunk_path, f"roof_age_errors_{Path(aoi_path).stem}_*.parquet"
+                self.chunk_path, "roof_age_errors_*.parquet"
             )
             if roof_age_error_paths:
                 roof_age_errors_list = _read_parquet_chunks_parallel(
@@ -3342,7 +3334,7 @@ class NearmapAIExporter(BaseExporter):
                                 class_id=class_id,
                                 class_description=description,
                                 country=self.country,
-                                output_stem=output_stem,
+                                output_dir=self.final_path,
                                 aoi_columns=aoi_input_columns,
                                 export_csv=self.class_level_files,
                                 export_parquet=self.class_level_files
@@ -3450,7 +3442,7 @@ class NearmapAIExporter(BaseExporter):
                                     class_id=class_id,
                                     class_description=description,
                                     country=self.country,
-                                    output_stem=output_stem,
+                                    output_dir=self.final_path,
                                     aoi_columns=aoi_input_columns,
                                     export_csv=self.class_level_files,
                                     export_parquet=self.class_level_files

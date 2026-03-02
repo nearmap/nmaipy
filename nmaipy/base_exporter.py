@@ -229,7 +229,7 @@ class BaseExporter(ABC):
         pass
 
     def split_into_chunks(
-        self, aoi_gdf: gpd.GeoDataFrame, file_stem: str, check_cache: bool = True
+        self, aoi_gdf: gpd.GeoDataFrame, check_cache: bool = True
     ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int]:
         """
         Split a GeoDataFrame into chunks for parallel processing.
@@ -238,7 +238,6 @@ class BaseExporter(ABC):
 
         Args:
             aoi_gdf: GeoDataFrame to split
-            file_stem: Base filename for chunk IDs
             check_cache: If True, skip chunks with existing output files
 
         Returns:
@@ -284,7 +283,7 @@ class BaseExporter(ABC):
             # so running them concurrently overlaps network latency.
             def _check_cache(i_batch):
                 i, batch = i_batch
-                chunk_id = f"{file_stem}_{str(i).zfill(4)}"
+                chunk_id = str(i).zfill(4)
                 outfile = self.get_chunk_output_file(chunk_id)
                 if storage.file_exists(outfile):
                     if storage.validate_parquet(outfile):
@@ -327,7 +326,6 @@ class BaseExporter(ABC):
     def run_parallel(
         self,
         chunks_to_process: List[Tuple[int, gpd.GeoDataFrame]],
-        file_stem: str,
         initial_aoi_count: int,
         use_progress_tracking: bool = True,
         **process_chunk_kwargs,
@@ -345,7 +343,6 @@ class BaseExporter(ABC):
 
         Args:
             chunks_to_process: List of (chunk_index, chunk_gdf) tuples
-            file_stem: Base filename for chunk IDs
             initial_aoi_count: Total number of AOIs (for initial progress estimate)
             use_progress_tracking: Enable shared progress counters and dynamic tqdm
             **process_chunk_kwargs: Additional kwargs to pass to process_chunk()
@@ -418,7 +415,7 @@ class BaseExporter(ABC):
 
                             chunks_submitted = 0
                             for i, batch in chunks_to_process:
-                                chunk_id = f"{file_stem}_{str(i).zfill(4)}"
+                                chunk_id = str(i).zfill(4)
 
                                 # API warmup: gradually ramp up concurrency to allow API autoscaling
                                 # Start with 1 worker, add 1 more every warmup_interval seconds

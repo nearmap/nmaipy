@@ -14,26 +14,18 @@ import pyarrow.parquet as pq
 from nmaipy import storage
 from nmaipy.__version__ import __version__
 
-# File patterns (suffixes) mapped to descriptions.
-# The README displays full filenames (e.g., "parcels_aoi_rollup.csv"),
-# these patterns are used to match and describe them.
+# Known output filenames mapped to descriptions.
 FILE_PATTERNS = {
-    "_aoi_rollup.csv": "Property-level summary with one row per property containing aggregated statistics",
-    "_aoi_rollup.parquet": "Property-level summary with one row per property containing aggregated statistics (Parquet format)",
-    "_building.csv": "Per-building data with building-specific attributes",
-    "_building_features.parquet": "Building polygons with geometry (GeoParquet)",
-    "_roof.csv": "Per-roof data with roof condition and optional child roof age",
-    "_roof_features.parquet": "Roof polygons with geometry (GeoParquet)",
-    "_roof_instance.csv": "Per-roof-instance data for roof age analysis",
-    "_roof_instance_features.parquet": "Roof instance polygons with geometry (GeoParquet)",
-    "_features.parquet": "All detected features with geometry (GeoParquet)",
-    "_feature_api_errors.csv": "Properties where Feature API calls failed",
-    "_feature_api_errors.parquet": "Feature API errors with geometry (GeoParquet)",
-    "_roof_age_errors.csv": "Properties where Roof Age API calls failed",
-    "_roof_age_errors.parquet": "Roof Age API errors with geometry (GeoParquet)",
-    "_latency_stats.csv": "API call timing statistics",
-    "_buildings.csv": "Building-level summary data",
-    "_buildings.parquet": "Building-level summary data (Parquet format)",
+    "rollup.csv": "Property-level summary with one row per property containing aggregated statistics",
+    "rollup.parquet": "Property-level summary with one row per property containing aggregated statistics (Parquet format)",
+    "features.parquet": "All detected features with geometry (GeoParquet)",
+    "feature_api_errors.csv": "Properties where Feature API calls failed",
+    "feature_api_errors.parquet": "Feature API errors with geometry (GeoParquet)",
+    "roof_age_errors.csv": "Properties where Roof Age API calls failed",
+    "roof_age_errors.parquet": "Roof Age API errors with geometry (GeoParquet)",
+    "latency_stats.csv": "API call timing statistics",
+    "buildings.csv": "Building-level summary data",
+    "buildings.parquet": "Building-level summary data (Parquet format)",
 }
 
 # Files to exclude from documentation
@@ -140,8 +132,7 @@ class ReadmeGenerator:
     def _generate(self) -> str:
         """Generate the README markdown content."""
         files = self._discover_files()
-        prefix = self._get_file_prefix(files)
-        classes = self._detect_classes(files, prefix)
+        classes = self._detect_classes(files)
         rollup_columns = self._get_rollup_columns(files)
 
         has_address_query = self._has_address_query_columns(rollup_columns)
@@ -151,7 +142,7 @@ class ReadmeGenerator:
 
         sections = []
         sections.append(self._generate_header())
-        sections.append(self._generate_files_table(files, prefix))
+        sections.append(self._generate_files_table(files))
         sections.append(self._generate_classes_section(classes))
         sections.append(self._generate_column_patterns_section(classes, area_unit))
         sections.append(self._generate_common_columns_section())
@@ -178,31 +169,14 @@ class ReadmeGenerator:
                 files.append(f)
         return files
 
-    def _get_file_prefix(self, files: list[str]) -> str:
-        """Detect the common filename prefix (e.g., 'parcels_')."""
-        for f in files:
-            name = storage.basename(f)
-            if name.endswith("_aoi_rollup.csv"):
-                return name[: -len("aoi_rollup.csv")]
-            if name.endswith("_aoi_rollup.parquet"):
-                return name[: -len("aoi_rollup.parquet")]
-        # Fallback: try to find common prefix from per-class CSV files
-        csv_files = [f for f in files if storage.basename(f).endswith(".csv")]
-        for f in csv_files:
-            name = storage.basename(f)
-            for suffix in ["_roof.csv", "_building.csv"]:
-                if name.endswith(suffix):
-                    return name[: -len(suffix)] + "_"
-        return ""
-
-    def _detect_classes(self, files: list[str], prefix: str) -> list[dict]:
+    def _detect_classes(self, files: list[str]) -> list[dict]:
         """
         Detect feature classes from filenames.
 
         Returns list of dicts with 'name' (display) and 'column' (snake_case).
         Prefers CSV files; falls back to _features.parquet files if no CSVs found.
         """
-        skip_names = {"aoi_rollup", "feature_api_errors", "roof_age_errors", "latency_stats", "buildings"}
+        skip_names = {"rollup", "feature_api_errors", "roof_age_errors", "latency_stats", "buildings"}
         classes = []
         seen = set()
 
@@ -221,8 +195,6 @@ class ReadmeGenerator:
             if _get_suffix(f) != ".csv":
                 continue
             name = _get_stem(f)
-            if prefix:
-                name = name.replace(prefix.rstrip("_"), "", 1).lstrip("_")
 
             if name in skip_names:
                 continue
@@ -244,8 +216,6 @@ class ReadmeGenerator:
                 if _get_suffix(f) != ".parquet" or not _get_stem(f).endswith("_features"):
                     continue
                 name = _get_stem(f)
-                if prefix:
-                    name = name.replace(prefix.rstrip("_"), "", 1).lstrip("_")
 
                 # Strip _features suffix to get class name
                 name = name[: -len("_features")]
@@ -270,9 +240,9 @@ class ReadmeGenerator:
         rollup_parquet = None
         for f in files:
             name = storage.basename(f)
-            if name.endswith("_aoi_rollup.csv"):
+            if name == "rollup.csv":
                 rollup_csv = f
-            elif name.endswith("_aoi_rollup.parquet"):
+            elif name == "rollup.parquet":
                 rollup_parquet = f
 
         if rollup_csv:
@@ -323,28 +293,32 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 ---
 """
 
-    def _generate_files_table(self, files: list[str], prefix: str) -> str:
+    def _generate_files_table(self, files: list[str]) -> str:
         """Generate the files table section."""
         lines = ["## Files in This Export", "", "| File Name | Description |", "|-----------|-------------|"]
 
         for f in files:
             name = storage.basename(f)
-            description = self._get_file_description(name, prefix)
+            description = self._get_file_description(name)
             lines.append(f"| `{name}` | {description} |")
 
         lines.append("")
         return "\n".join(lines)
 
-    def _get_file_description(self, filename: str, prefix: str) -> str:
-        """Get description for a file based on pattern matching."""
-        # Check exact matches first
+    def _get_file_description(self, filename: str) -> str:
+        """Get description for a file based on exact filename or pattern matching."""
         if filename in FILE_PATTERNS:
             return FILE_PATTERNS[filename]
 
-        # Check suffix patterns
-        for pattern, description in FILE_PATTERNS.items():
-            if pattern.startswith("_") and filename.endswith(pattern):
-                return description
+        # Per-class feature geometry files: {class}_features.parquet
+        if filename.endswith("_features.parquet"):
+            class_name = filename[: -len("_features.parquet")].replace("_", " ").title()
+            return f"{class_name} polygons with geometry (GeoParquet)"
+
+        # Per-class attribute files: {class}.csv
+        if filename.endswith(".csv"):
+            class_name = filename[: -len(".csv")].replace("_", " ").title()
+            return f"Per-{class_name.lower()} data with feature attributes"
 
         return "Export data file"
 
@@ -389,7 +363,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines = [
             "## Column Naming Patterns",
             "",
-            "### Rollup Columns (aoi_rollup file)",
+            "### Rollup Columns (rollup file)",
             "",
             "For each feature class, the following columns are generated:",
             "",

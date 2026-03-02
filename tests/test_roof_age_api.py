@@ -596,7 +596,7 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
             features_gdf=roofs_gdf,
             class_id=ROOF_INSTANCE_CLASS_ID,
             class_description=FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID],
-            output_stem=f"{tmpdir}/test",
+            output_dir=tmpdir,
             export_csv=True,
             export_parquet=False,
             country="us",

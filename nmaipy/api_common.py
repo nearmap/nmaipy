@@ -1085,19 +1085,18 @@ def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> No
     storage.write_parquet(df, outfile, index=False)
 
 
-def combine_chunk_latency_stats(chunk_path: Path, file_stem: str, output_csv_path: Path) -> List[Dict]:
+def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List[Dict]:
     """
     Combine per-chunk latency parquet files into a final CSV and return stats list.
 
     Args:
         chunk_path: Path to directory containing per-chunk latency files
-        file_stem: Base filename stem for matching latency files (e.g., "mydata")
         output_csv_path: Path to write the combined CSV file
 
     Returns:
         List of latency stats dicts suitable for compute_global_latency_stats()
     """
-    latency_files = storage.glob_files(str(chunk_path), f"latency_{file_stem}_*.parquet")
+    latency_files = storage.glob_files(str(chunk_path), "latency_*.parquet")
     if not latency_files:
         return []
 
