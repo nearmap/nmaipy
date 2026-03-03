@@ -124,7 +124,7 @@ def test_single_address_export(api_key, single_address_csv, tmp_path):
             )
 
     # Check that features were exported
-    features_file = output_dir / "final" / "single_address_features.parquet"
+    features_file = output_dir / "final" / "features.parquet"
     assert features_file.exists(), (
         f"Features file not created: {features_file}\n"
         f"This likely means the API request failed.\n"

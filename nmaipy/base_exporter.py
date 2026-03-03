@@ -44,7 +44,11 @@ from nmaipy.cgroup_memory import (
     get_memory_info_cgroup_aware,
     is_running_in_container,
 )
-from nmaipy.constants import API_WARMUP_INTERVAL_SECONDS
+from nmaipy.constants import (
+    API_WARMUP_INTERVAL_SECONDS,
+    PARALLEL_READ_WORKERS,
+    S3_PARALLEL_READ_WORKERS,
+)
 
 logger = log.get_logger()
 
@@ -86,7 +90,9 @@ class BaseExporter(ABC):
         """Build progress bar description with memory and CPU info."""
         used_gb, total_gb = get_memory_info_cgroup_aware()
         cpu_pct, cpu_count = get_cpu_info_cgroup_aware()
-        cpu_count_str = f"{cpu_count:.0f}" if cpu_count == int(cpu_count) else f"{cpu_count:.1f}"
+        cpu_count_str = (
+            f"{cpu_count:.0f}" if cpu_count == int(cpu_count) else f"{cpu_count:.1f}"
+        )
         return (
             f"API requests - {used_gb:.1f}/{total_gb:.1f}GB | "
             f"CPU {cpu_pct:.0f}% ({cpu_count_str}) | "
@@ -143,7 +149,9 @@ class BaseExporter(ABC):
             self._local_staging_dir = None
             self._local_final_staging = None
 
-    def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
+    def _save_config(
+        self, config: Dict[str, Any], config_name: str = "export_config.json"
+    ):
         """
         Save export configuration to the final output directory.
 
@@ -221,8 +229,8 @@ class BaseExporter(ABC):
         pass
 
     def split_into_chunks(
-        self, aoi_gdf: gpd.GeoDataFrame, file_stem: str, check_cache: bool = True
-    ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int]:
+        self, aoi_gdf: gpd.GeoDataFrame, check_cache: bool = True
+    ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int, int]:
         """
         Split a GeoDataFrame into chunks for parallel processing.
 
@@ -230,7 +238,6 @@ class BaseExporter(ABC):
 
         Args:
             aoi_gdf: GeoDataFrame to split
-            file_stem: Base filename for chunk IDs
             check_cache: If True, skip chunks with existing output files
 
         Returns:
@@ -238,6 +245,7 @@ class BaseExporter(ABC):
             - List of (chunk_index, chunk_gdf) tuples to process
             - Number of skipped chunks
             - Number of skipped AOIs
+            - Total number of chunks (including cached)
         """
         # Filter AOIs with zero area if geometry-based
         if isinstance(aoi_gdf, gpd.GeoDataFrame):
@@ -271,21 +279,42 @@ class BaseExporter(ABC):
         skipped_chunks = 0
         skipped_aois = 0
 
-        for i, batch in enumerate(chunks):
-            chunk_id = f"{file_stem}_{str(i).zfill(4)}"
-            if check_cache:
+        if check_cache:
+            # Parallelize cache checking — each check is an S3 HEAD + footer read,
+            # so running them concurrently overlaps network latency.
+            def _check_cache(i_batch):
+                i, batch = i_batch
+                chunk_id = str(i).zfill(4)
                 outfile = self.get_chunk_output_file(chunk_id)
                 if storage.file_exists(outfile):
                     if storage.validate_parquet(outfile):
-                        skipped_chunks += 1
-                        skipped_aois += len(batch)
-                        continue
+                        return (i, batch, True, None)
                     else:
+                        return (i, batch, False, chunk_id)
+                return (i, batch, False, None)
+
+            cache_workers = (
+                S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+            )
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=cache_workers
+            ) as executor:
+                results = list(executor.map(_check_cache, enumerate(chunks)))
+
+            for i, batch, is_cached, corrupt_chunk_id in results:
+                if is_cached:
+                    skipped_chunks += 1
+                    skipped_aois += len(batch)
+                else:
+                    if corrupt_chunk_id is not None:
+                        outfile = self.get_chunk_output_file(corrupt_chunk_id)
                         self.logger.warning(
-                            f"Chunk {chunk_id}: cached file {outfile} is corrupted "
+                            f"Chunk {corrupt_chunk_id}: cached file {outfile} is corrupted "
                             f"(invalid parquet footer). Will reprocess."
                         )
-            chunks_to_process.append((i, batch))
+                    chunks_to_process.append((i, batch))
+        else:
+            chunks_to_process = list(enumerate(chunks))
 
         if skipped_chunks > 0:
             self.logger.info(
@@ -293,12 +322,11 @@ class BaseExporter(ABC):
                 f"{len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})"
             )
 
-        return chunks_to_process, skipped_chunks, skipped_aois
+        return chunks_to_process, skipped_chunks, skipped_aois, num_chunks
 
     def run_parallel(
         self,
         chunks_to_process: List[Tuple[int, gpd.GeoDataFrame]],
-        file_stem: str,
         initial_aoi_count: int,
         use_progress_tracking: bool = True,
         **process_chunk_kwargs,
@@ -316,7 +344,6 @@ class BaseExporter(ABC):
 
         Args:
             chunks_to_process: List of (chunk_index, chunk_gdf) tuples
-            file_stem: Base filename for chunk IDs
             initial_aoi_count: Total number of AOIs (for initial progress estimate)
             use_progress_tracking: Enable shared progress counters and dynamic tqdm
             **process_chunk_kwargs: Additional kwargs to pass to process_chunk()
@@ -362,7 +389,9 @@ class BaseExporter(ABC):
         try:
             for attempt in range(max_retries):
                 try:
-                    with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context) as executor:
+                    with ProcessPoolExecutor(
+                        max_workers=self.processes, mp_context=mp_context
+                    ) as executor:
                         try:
                             # Submit all chunks
                             # Track warmup start time to gradually ramp up concurrency
@@ -370,7 +399,9 @@ class BaseExporter(ABC):
 
                             # Log warmup plan once at the start
                             if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
-                                warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
+                                warmup_duration = (
+                                    self.processes - 1
+                                ) * API_WARMUP_INTERVAL_SECONDS
                                 self.logger.info(
                                     f"API warmup: ramping parallel workers from 1 to {self.processes} "
                                     f"over {warmup_duration:.0f}s"
@@ -385,27 +416,41 @@ class BaseExporter(ABC):
 
                             chunks_submitted = 0
                             for i, batch in chunks_to_process:
-                                chunk_id = f"{file_stem}_{str(i).zfill(4)}"
+                                chunk_id = str(i).zfill(4)
 
                                 # API warmup: gradually ramp up concurrency to allow API autoscaling
                                 # Start with 1 worker, add 1 more every warmup_interval seconds
-                                if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
+                                if (
+                                    API_WARMUP_INTERVAL_SECONDS > 0
+                                    and i < self.processes
+                                ):
                                     while True:
                                         elapsed = time.time() - warmup_start_time
                                         # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
                                         max_concurrent = min(
-                                            1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
-                                            self.processes
+                                            1
+                                            + int(
+                                                elapsed // API_WARMUP_INTERVAL_SECONDS
+                                            ),
+                                            self.processes,
                                         )
-                                        active_jobs = sum(1 for j in jobs if not j.done())
+                                        active_jobs = sum(
+                                            1 for j in jobs if not j.done()
+                                        )
 
                                         if active_jobs < max_concurrent:
                                             break
                                         else:
                                             # At capacity for current warmup stage - update progress while waiting
-                                            if pbar is not None and progress_counters is not None:
+                                            if (
+                                                pbar is not None
+                                                and progress_counters is not None
+                                            ):
                                                 self._update_pbar_during_warmup(
-                                                    pbar, progress_counters, chunks_submitted, len(chunks_to_process)
+                                                    pbar,
+                                                    progress_counters,
+                                                    chunks_submitted,
+                                                    len(chunks_to_process),
                                                 )
                                             time.sleep(1.0)
 
@@ -441,7 +486,9 @@ class BaseExporter(ABC):
                             else:
                                 if pbar is not None:
                                     pbar.close()
-                                all_latency_stats = self._monitor_progress_simple(jobs, job_to_chunk)
+                                all_latency_stats = self._monitor_progress_simple(
+                                    jobs, job_to_chunk
+                                )
 
                             return all_latency_stats  # Success - exit retry loop
 
@@ -661,9 +708,7 @@ class BaseExporter(ABC):
             pbar.n = requests_completed
             pbar.total = requests_total
             pbar.set_description(
-                self._format_progress_description(
-                    num_jobs, num_jobs, lat_str=lat_str
-                )
+                self._format_progress_description(num_jobs, num_jobs, lat_str=lat_str)
             )
             pbar.refresh()
 

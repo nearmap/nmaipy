@@ -27,10 +27,8 @@ MIN_ROOF_INSTANCE_IOU_THRESHOLD = 0.005
 # Roof Age API response field names
 ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
 ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
-ROOF_AGE_AS_OF_DATE_FIELD = "asOfDate"  # New API field name (replacing untilDate)
-ROOF_AGE_UNTIL_DATE_FIELD = (
-    "untilDate"  # Legacy API field name (fallback until API change is complete)
-)
+ROOF_AGE_AS_OF_DATE_FIELD = "asOfDate"
+ROOF_AGE_UNTIL_DATE_FIELD = "untilDate"  # Legacy field name, retained for cached data compatibility
 ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD = "afterInstallationCaptureDate"
 ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD = "beforeInstallationCaptureDate"
 ROOF_AGE_AREA_FIELD = "area"
@@ -61,12 +59,9 @@ ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD = (
 )
 
 # Roof Age API field mapping: API field -> output column name
-# Note: Both asOfDate and untilDate map to the same output column because
-# different API versions use different field names for the same concept.
 ROOF_AGE_FIELD_MAP = {
     ROOF_AGE_INSTALLATION_DATE_FIELD: "roof_age_installation_date",
     ROOF_AGE_AS_OF_DATE_FIELD: "roof_age_as_of_date",
-    ROOF_AGE_UNTIL_DATE_FIELD: "roof_age_as_of_date",
     ROOF_AGE_TRUST_SCORE_FIELD: "roof_age_trust_score",
     ROOF_AGE_EVIDENCE_TYPE_FIELD: "roof_age_evidence_type",
     ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD: "roof_age_evidence_type_description",
@@ -136,10 +131,15 @@ API_WARMUP_INTERVAL_SECONDS = 10.0
 # These reads are I/O-bound (S3 GET requests), so threads overlap network latency.
 PARALLEL_READ_WORKERS = 8
 
+# Higher thread count for S3 I/O-bound operations. S3 reads have high per-request
+# latency (~50-200ms) so more threads overlap network round-trips effectively.
+# Memory impact is negligible (thread stacks only, no extra data in flight).
+S3_PARALLEL_READ_WORKERS = 24
+
 # Feature streaming prefetch: number of worker threads to read chunks ahead
 # while the main thread processes and writes the current chunk.
 # Memory bounded: at most FEATURE_PREFETCH_WORKERS + 1 chunks in memory.
-FEATURE_PREFETCH_WORKERS = 4
+FEATURE_PREFETCH_WORKERS = 8
 
 # ============================================================================
 # Primary Feature Selection Configuration

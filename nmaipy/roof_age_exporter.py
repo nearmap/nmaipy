@@ -365,23 +365,21 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        aoi_stem = Path(self.aoi_file).stem
-        chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
-            aoi_gdf, aoi_stem, check_cache=True
+        chunks_to_process, skipped_chunks, skipped_aois, _ = self.split_into_chunks(
+            aoi_gdf, check_cache=True
         )
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
-        latency_csv_path = storage.join_path(self.final_path, f"{aoi_stem}_latency_stats.csv")
+        latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
 
         self.run_parallel(
             chunks_to_process,
-            aoi_stem,
             initial_aoi_count=initial_aoi_count,
             use_progress_tracking=True,
         )
 
         all_latency_stats = combine_chunk_latency_stats(
-            self.chunk_path, aoi_stem, latency_csv_path
+            self.chunk_path, latency_csv_path
         )
         if all_latency_stats:
             global_stats = compute_global_latency_stats(all_latency_stats)
@@ -406,7 +404,7 @@ class RoofAgeExporter(BaseExporter):
         num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
 
         for i in range(num_chunks):
-            chunk_id = f"{aoi_stem}_{str(i).zfill(4)}"
+            chunk_id = str(i).zfill(4)
 
             # Load roofs
             roofs_file = storage.join_path(self.chunk_path, f"roofs_{chunk_id}.parquet")
@@ -494,13 +492,12 @@ class RoofAgeExporter(BaseExporter):
                 )
 
         # Save outputs
-        self._save_outputs(aoi_stem, roofs_gdf, metadata_df, errors_df, self.final_path)
+        self._save_outputs(roofs_gdf, metadata_df, errors_df, self.final_path)
 
         self.logger.info("Export complete!")
 
     def _save_outputs(
         self,
-        file_stem: str,
         roofs_gdf: gpd.GeoDataFrame,
         metadata_df: pd.DataFrame,
         errors_df: pd.DataFrame,
@@ -510,7 +507,6 @@ class RoofAgeExporter(BaseExporter):
         Save output files.
 
         Args:
-            file_stem: Base filename (without extension)
             roofs_gdf: GeoDataFrame with roof features
             metadata_df: DataFrame with metadata
             errors_df: DataFrame with errors
@@ -518,17 +514,11 @@ class RoofAgeExporter(BaseExporter):
         """
         # Save roofs
         if len(roofs_gdf) > 0:
-            # Drop untilDate if asOfDate is present (both map to same output, prefer asOfDate)
-            if "asOfDate" in roofs_gdf.columns and "untilDate" in roofs_gdf.columns:
-                roofs_gdf = roofs_gdf.drop(columns=["untilDate"])
-
             # Rename camelCase API fields to snake_case with roof_age_ prefix for consistency
-            # Note: asOfDate is the new API field name, untilDate is legacy fallback
             column_rename_map = {
                 "kind": "roof_age_kind",
                 "installationDate": "roof_age_installation_date",
                 "asOfDate": "roof_age_as_of_date",
-                "untilDate": "roof_age_as_of_date",  # Legacy fallback (only used if asOfDate absent)
                 "trustScore": "roof_age_trust_score",
                 "area": "roof_age_area_sqm",
                 "evidenceType": "roof_age_evidence_type",
@@ -553,12 +543,12 @@ class RoofAgeExporter(BaseExporter):
                 )
 
             if self.output_format in ["geoparquet", "both"]:
-                roofs_path = storage.join_path(output_path, f"{file_stem}_roofs.parquet")
+                roofs_path = storage.join_path(output_path, "roofs.parquet")
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
                 storage.write_parquet(roofs_gdf, roofs_path, index=True)
 
             if self.output_format in ["csv", "both"]:
-                roofs_path = storage.join_path(output_path, f"{file_stem}_roofs.csv")
+                roofs_path = storage.join_path(output_path, "roofs.csv")
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
                 # Convert geometry to WKT for CSV
                 roofs_df = pd.DataFrame(roofs_gdf)
@@ -605,13 +595,13 @@ class RoofAgeExporter(BaseExporter):
 
         # Save metadata
         if len(metadata_df) > 0:
-            metadata_path = storage.join_path(output_path, f"{file_stem}_metadata.csv")
+            metadata_path = storage.join_path(output_path, "metadata.csv")
             self.logger.info(f"Saving metadata to {metadata_path}")
             metadata_df.to_csv(metadata_path, index=True)
 
         # Save errors
         if len(errors_df) > 0:
-            errors_path = storage.join_path(output_path, f"{file_stem}_errors.csv")
+            errors_path = storage.join_path(output_path, "errors.csv")
             self.logger.info(f"Saving {len(errors_df)} errors to {errors_path}")
             errors_df.to_csv(errors_path, index=True)
 

@@ -192,13 +192,13 @@ def test_exporter_integration(test_aoi_file, test_output_dir):
     final_dir = test_output_dir / "final"
 
     # Should create at least the metadata file (even if no roofs found)
-    metadata_file = final_dir / "test_aois_metadata.csv"
+    metadata_file = final_dir / "metadata.csv"
     if metadata_file.exists():
         metadata_df = pd.read_csv(metadata_file)
         assert len(metadata_df) >= 0  # May be empty if all errors
 
     # Check if roofs were found
-    roofs_file = final_dir / "test_aois_roofs.parquet"
+    roofs_file = final_dir / "roofs.parquet"
     if roofs_file.exists():
         roofs_gdf = gpd.read_parquet(roofs_file)
         assert len(roofs_gdf) >= 0

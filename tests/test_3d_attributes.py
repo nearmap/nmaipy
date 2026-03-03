@@ -75,7 +75,7 @@ def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
     exporter.run()
     
     # Check the features file
-    features_file = test_output_dir / 'final' / 'test_aoi_features.parquet'
+    features_file = test_output_dir / 'final' / 'features.parquet'
     assert features_file.exists(), "Features file should be created"
     
     # Load and verify

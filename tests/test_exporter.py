@@ -433,9 +433,8 @@ class TestExporter:
         final_path = output_dir / "final"
         chunk_path = output_dir / "chunks"
 
-        # Note: Output filename changed from test_aoi.csv to test_aoi_aoi_rollup.csv
-        expected_rollup_file = final_path / "test_aoi_aoi_rollup.csv"
-        expected_features_file = final_path / "test_aoi_features.parquet"
+        expected_rollup_file = final_path / "rollup.csv"
+        expected_features_file = final_path / "features.parquet"
 
         assert (
             expected_rollup_file.exists()
@@ -443,7 +442,7 @@ class TestExporter:
         assert expected_features_file.exists(), "Features parquet file was not created"
 
         # Verify chunk files were created
-        feature_chunk_files = list(chunk_path.glob("features_test_aoi_*.parquet"))
+        feature_chunk_files = list(chunk_path.glob("features_*.parquet"))
         assert (
             len(feature_chunk_files) >= 1
         ), f"Expected at least one feature chunk, got {len(feature_chunk_files)}"

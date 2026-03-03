@@ -55,6 +55,7 @@ from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
@@ -63,17 +64,18 @@ from nmaipy.constants import (
     FEATURE_CLASS_DESCRIPTIONS,
     FEATURE_PREFETCH_WORKERS,
     GRID_SIZE_DEGREES,
+    IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MAX_RETRIES,
+    METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
-    ROOF_AGE_UNTIL_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    S3_PARALLEL_READ_WORKERS,
     SINCE_COL_NAME,
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
@@ -81,6 +83,8 @@ from nmaipy.constants import (
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
+    FALSE_STRING,
+    TRUE_STRING,
     calculate_roof_age_years,
     flatten_building_attributes,
     flatten_roof_attributes,
@@ -96,6 +100,7 @@ def _read_parquet_chunks_parallel(
     desc: str = "Reading chunks",
     logger=None,
     strict: bool = True,
+    geo: bool = True,
 ) -> List[pd.DataFrame]:
     """
     Read parquet files in parallel using threads, with a tqdm progress bar.
@@ -110,6 +115,9 @@ def _read_parquet_chunks_parallel(
         logger: Optional logger for warnings on read failures.
         strict: If True (default), raise on any read failure. If False,
             log a warning and continue, collecting as many results as possible.
+        geo: If True (default), attempt geoparquet read first. If False,
+            use plain pd.read_parquet directly (avoids a wasted S3 round-trip
+            for files known to have no geometry, such as error files).
 
     Returns:
         List of non-empty DataFrames, in arbitrary order.
@@ -121,9 +129,12 @@ def _read_parquet_chunks_parallel(
         return []
 
     def _read_one(path: str):
-        try:
-            df = gpd.read_parquet(path)
-        except ValueError:
+        if geo:
+            try:
+                df = gpd.read_parquet(path)
+            except Exception:
+                df = pd.read_parquet(path)
+        else:
             df = pd.read_parquet(path)
         if len(df) > 0:
             return df
@@ -421,12 +432,63 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
+def _batch_project_geometries(
+    parent_gdf: gpd.GeoDataFrame,
+    child_by_aoi: dict,
+    country: str,
+) -> tuple:
+    """Batch-project parent and child geometries to the local area CRS.
+
+    Projecting all geometries up front avoids initializing a PROJ transformer
+    per row inside the iterrows loop (the dominant cost in per-class export).
+
+    Args:
+        parent_gdf: GeoDataFrame whose geometry column will be projected.
+        child_by_aoi: Dict mapping aoi_id -> GeoDataFrame of child features.
+        country: Country code used to select the projected CRS.
+
+    Returns:
+        (parent_projected, child_proj_by_aoi) where parent_projected is a
+        GeoSeries and child_proj_by_aoi is a dict mapping aoi_id -> projected
+        GeoSeries.
+    """
+    projected_crs = AREA_CRS[country.lower()]
+    parent_projected = parent_gdf.geometry.to_crs(projected_crs)
+    child_proj_by_aoi = {}
+    for aoi_id, children in child_by_aoi.items():
+        if len(children) > 0:
+            child_proj_by_aoi[aoi_id] = children.geometry.to_crs(projected_crs)
+    return parent_projected, child_proj_by_aoi
+
+
+def _is_details_present(v):
+    """Check if a _details value represents actual data (not null/empty)."""
+    if v is None:
+        return False
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return False
+    return str(v) not in ("", "null", "nan", "None", "[]", "{}")
+
+
+def _add_present_from_details(batch, added_cols):
+    """For any _details key in batch, add a corresponding _present Y/N column."""
+    for key in list(batch.keys()):
+        if key.endswith("_details"):
+            present_key = key.replace("_details", "_present")
+            if present_key not in added_cols:
+                batch[present_key] = [
+                    TRUE_STRING if _is_details_present(v) else FALSE_STRING
+                    for v in batch[key]
+                ]
+                added_cols.add(present_key)
+
+
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
     class_id: str,
     class_description: str,
     country: str,
-    output_stem: Path,
+    output_dir: str,
     aoi_columns: list = None,
     export_csv: bool = True,
     export_parquet: bool = True,
@@ -434,6 +496,7 @@ def export_feature_class(
     roof_features: gpd.GeoDataFrame = None,
     non_roof_features: gpd.GeoDataFrame = None,
     roof_instance_features: gpd.GeoDataFrame = None,
+    roof_attrs_cache: dict = None,
 ) -> tuple:
     """
     Export features of a single class to CSV and/or GeoParquet.
@@ -443,7 +506,7 @@ def export_feature_class(
         class_id: UUID of the feature class to export
         class_description: Human-readable description (used in filename)
         country: Country code for units (us, au, etc.)
-        output_stem: Base path for output files (without extension)
+        output_dir: Directory path for output files
         aoi_columns: Additional columns from the AOI input file to include (e.g., ["Property Id"])
         export_csv: Whether to export CSV files (attributes only, no geometry)
         export_parquet: Whether to export GeoParquet files (with geometry)
@@ -451,6 +514,9 @@ def export_feature_class(
         roof_features: Pre-filtered roof features (avoids repeated features_gdf scans)
         non_roof_features: Pre-filtered non-roof features (avoids repeated features_gdf scans)
         roof_instance_features: Pre-filtered roof instance features (avoids repeated features_gdf scans)
+        roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts.
+                         When provided, skips the per-row flatten_roof_attributes loop for both
+                         ROOF_ID and BUILDING_NEW_ID paths (avoids duplicate flattening).
 
     Returns:
         Tuple of (csv_path, parquet_path) or (None, None) if no features
@@ -466,8 +532,8 @@ def export_feature_class(
     # Normalize class description for filename (sanitize characters that break paths)
     # Replace any non-alphanumeric characters with underscores (handles /, \, :, etc.)
     class_name = re.sub(r"[^a-z0-9]+", "_", class_description.lower()).strip("_")
-    csv_path = f"{output_stem}_{class_name}.csv"
-    parquet_path = f"{output_stem}_{class_name}_features.parquet"
+    csv_path = storage.join_path(output_dir, f"{class_name}.csv")
+    parquet_path = storage.join_path(output_dir, f"{class_name}_features.parquet")
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
     # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
@@ -591,6 +657,9 @@ def export_feature_class(
                 )
                 added_cols.add(dst)
 
+        # Derive _present Y/N columns from _details columns
+        _add_present_from_details(ri_batch, added_cols)
+
         # Copy pre-calculated roof age in years (calculated in process_chunk)
         if "roof_age_years_as_of_date" in class_features.columns:
             ri_batch["roof_age_years_as_of_date"] = class_features[
@@ -627,27 +696,16 @@ def export_feature_class(
             )
             if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
                 # Build lookup table with prefixed column names
-                # Track destination columns to prevent duplicates (asOfDate and untilDate
-                # both map to roof_age_as_of_date - prefer asOfDate if both present)
                 ri_cols = ["feature_id"]
                 col_rename = {}
-                ri_dst_cols = set()
                 for src, dst in ROOF_AGE_FIELD_MAP.items():
                     prefixed_dst = f"primary_child_{dst}"
-                    # Skip untilDate if asOfDate is present (both map to same destination)
-                    if (
-                        src == ROOF_AGE_UNTIL_DATE_FIELD
-                        and ROOF_AGE_AS_OF_DATE_FIELD in roof_instances.columns
-                    ):
-                        continue
                     if (
                         src in roof_instances.columns
                         and prefixed_dst not in added_cols
-                        and prefixed_dst not in ri_dst_cols
                     ):
                         ri_cols.append(src)
                         col_rename[src] = prefixed_dst
-                        ri_dst_cols.add(prefixed_dst)
 
                 # Also include the pre-calculated roof age years (calculated in process_chunk)
                 if "roof_age_years_as_of_date" in roof_instances.columns:
@@ -674,6 +732,7 @@ def export_feature_class(
                             ri_lookup[col]
                         ).values
                         added_cols.add(col)
+                    _add_present_from_details(ri_mapped_batch, added_cols)
                     if ri_mapped_batch:
                         df_parts.append(
                             pd.DataFrame(ri_mapped_batch, index=range(n_rows))
@@ -682,39 +741,66 @@ def export_feature_class(
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
         # These are from include parameters and the roof's own attributes array
         try:
-            child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
-            has_aoi_id = (
-                AOI_ID_COLUMN_NAME in class_features.columns
-                or class_features.index.name == AOI_ID_COLUMN_NAME
-            )
-            if not has_aoi_id:
-                logger.warning(
-                    "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
+            if roof_attrs_cache is not None:
+                # Use pre-computed cache (avoids duplicate flatten loop)
+                attr_records = [
+                    roof_attrs_cache.get(fid, {})
+                    for fid in class_features["feature_id"].values
+                ]
+                logger.debug(
+                    f"Roof attribute flattening: used cache for {len(class_features)} roofs"
+                )
+            else:
+                # Fallback: compute per-row (for standalone calls without cache)
+                child_by_aoi = _group_children_by_aoi(
+                    non_roof_features, features_gdf
+                )
+                has_aoi_id = (
+                    AOI_ID_COLUMN_NAME in class_features.columns
+                    or class_features.index.name == AOI_ID_COLUMN_NAME
+                )
+                if not has_aoi_id:
+                    logger.warning(
+                        "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
+                    )
+
+                roof_geoms_projected, child_proj_by_aoi = (
+                    _batch_project_geometries(
+                        class_features, child_by_aoi, country
+                    )
                 )
 
-            t_roof_flatten = time.monotonic()
-            attr_records = []
-            for _, row in class_features.iterrows():
-                try:
-                    if AOI_ID_COLUMN_NAME in row.index:
-                        roof_aoi = row[AOI_ID_COLUMN_NAME]
-                    elif class_features.index.name == AOI_ID_COLUMN_NAME:
-                        roof_aoi = row.name
-                    else:
-                        roof_aoi = None
-                    aoi_children = (
-                        child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
-                    )
-                    attrs = flatten_roof_attributes(
-                        [row], country=country, child_features=aoi_children
-                    )
-                    attr_records.append(attrs)
-                except Exception as e:
-                    logger.debug(f"Could not flatten roof attributes for feature: {e}")
-                    attr_records.append({})
-            logger.debug(
-                f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} roofs"
-            )
+                t_roof_flatten = time.monotonic()
+                attr_records = []
+                for idx, (_, row) in enumerate(class_features.iterrows()):
+                    try:
+                        if AOI_ID_COLUMN_NAME in row.index:
+                            roof_aoi = row[AOI_ID_COLUMN_NAME]
+                        elif class_features.index.name == AOI_ID_COLUMN_NAME:
+                            roof_aoi = row.name
+                        else:
+                            roof_aoi = None
+                        aoi_children = (
+                            child_by_aoi.get(roof_aoi)
+                            if roof_aoi is not None
+                            else None
+                        )
+                        attrs = flatten_roof_attributes(
+                            [row],
+                            country=country,
+                            child_features=aoi_children,
+                            parent_projected=roof_geoms_projected.iloc[idx],
+                            children_projected=child_proj_by_aoi.get(roof_aoi),
+                        )
+                        attr_records.append(attrs)
+                    except Exception as e:
+                        logger.debug(
+                            f"Could not flatten roof attributes for feature: {e}"
+                        )
+                        attr_records.append({})
+                logger.debug(
+                    f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} roofs"
+                )
 
             if attr_records:
                 attr_df = pd.DataFrame(attr_records)
@@ -732,27 +818,63 @@ def export_feature_class(
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
         # Flatten building's own 3D attributes (height, pitch, ground_height, numStories)
+        # Uses dot-notation columns created by process_chunk's _flatten_attribute_list,
+        # avoiding per-row JSON parsing of the 'attributes' column.
         try:
-            bldg_attr_records = []
-            for _, row in class_features.iterrows():
-                try:
-                    attrs = flatten_building_attributes([row], country=country)
-                    bldg_attr_records.append(attrs)
-                except Exception as e:
-                    logger.debug(
-                        f"Could not flatten building attributes for feature: {e}"
-                    )
-                    bldg_attr_records.append({})
+            bldg_batch = {}
+            h3d_col = "Building 3d attributes.has3dAttributes"
+            if h3d_col in class_features.columns:
+                has_3d = class_features[h3d_col].infer_objects(copy=False).fillna(False)
+                bldg_batch["has_3d_attributes"] = has_3d.map(
+                    {True: TRUE_STRING, False: FALSE_STRING}
+                ).fillna(FALSE_STRING)
 
-            if bldg_attr_records:
-                bldg_attr_df = pd.DataFrame(bldg_attr_records)
-                bldg_attr_df = bldg_attr_df.drop(
-                    columns=[c for c in bldg_attr_df.columns if c in added_cols],
-                    errors="ignore",
-                )
-                if len(bldg_attr_df.columns) > 0:
-                    df_parts.append(bldg_attr_df.reset_index(drop=True))
-                    added_cols.update(bldg_attr_df.columns)
+                height_col = "Building 3d attributes.height"
+                if height_col in class_features.columns:
+                    height_vals = class_features[height_col].where(has_3d)
+                    if country in IMPERIAL_COUNTRIES:
+                        bldg_batch["height_ft"] = (height_vals * METERS_TO_FEET).round(
+                            1
+                        )
+                    else:
+                        bldg_batch["height_m"] = height_vals.round(1)
+
+                # Discover numStories columns dynamically (e.g. numStories.1, numStories.2, ...)
+                num_stories_prefix = "Building 3d attributes.numStories."
+                for col in class_features.columns:
+                    if isinstance(col, str) and col.startswith(num_stories_prefix):
+                        k = col[len(num_stories_prefix) :]
+                        out_col = f"num_storeys_{k}_confidence"
+                        if out_col not in added_cols:
+                            bldg_batch[out_col] = class_features[col].where(has_3d)
+
+                fidelity_col = "Building 3d attributes.fidelity"
+                if (
+                    fidelity_col in class_features.columns
+                    and "fidelity" not in added_cols
+                ):
+                    bldg_batch["fidelity"] = class_features[fidelity_col].where(has_3d)
+
+            pitch_col = "Building pitch.value"
+            if pitch_col in class_features.columns:
+                bldg_batch["pitch_degrees"] = class_features[pitch_col].round(2)
+
+            ground_height_col = "Ground height.value"
+            if ground_height_col in class_features.columns:
+                if country in IMPERIAL_COUNTRIES:
+                    bldg_batch["ground_height_ft"] = (
+                        class_features[ground_height_col] * METERS_TO_FEET
+                    ).round(1)
+                else:
+                    bldg_batch["ground_height_m"] = class_features[
+                        ground_height_col
+                    ].round(1)
+
+            # Remove any columns that would be duplicates
+            bldg_batch = {k: v for k, v in bldg_batch.items() if k not in added_cols}
+            if bldg_batch:
+                df_parts.append(pd.DataFrame(bldg_batch, index=range(n_rows)))
+                added_cols.update(bldg_batch.keys())
         except Exception as e:
             logger.debug(f"Could not flatten building attributes: {e}")
 
@@ -787,97 +909,122 @@ def export_feature_class(
                     )
 
                 # Build a mapping from roof feature_id to flattened attributes.
-                child_by_aoi_bldg = _group_children_by_aoi(
-                    non_roof_features, features_gdf
-                )
+                if roof_attrs_cache is not None:
+                    # Use pre-computed cache (avoids duplicate flatten loop)
+                    roof_attrs = {
+                        fid: roof_attrs_cache.get(fid, {})
+                        for fid in roofs_linked["feature_id"].values
+                    }
+                    logger.debug(
+                        f"Building roof attribute flattening: used cache for {len(roofs_linked)} roofs"
+                    )
+                else:
+                    # Fallback: compute per-row (for standalone calls without cache)
+                    child_by_aoi_bldg = _group_children_by_aoi(
+                        non_roof_features, features_gdf
+                    )
+                    bldg_roof_geoms_projected, bldg_child_proj_by_aoi = (
+                        _batch_project_geometries(
+                            roofs_linked, child_by_aoi_bldg, country
+                        )
+                    )
 
-                t_bldg_roof_flatten = time.monotonic()
-                roof_attrs = {}
-                # roofs_linked has aoi_id as index (set by link_roofs_to_buildings)
-                for roof_aoi, roof_row in roofs_linked.iterrows():
-                    try:
-                        aoi_children = (
-                            child_by_aoi_bldg.get(roof_aoi)
-                            if roof_aoi is not None
-                            else None
-                        )
-                        attrs = flatten_roof_attributes(
-                            [roof_row], country=country, child_features=aoi_children
-                        )
-                        roof_attrs[roof_row["feature_id"]] = attrs
-                    except Exception:
-                        pass
-                logger.debug(
-                    f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
-                )
+                    t_bldg_roof_flatten = time.monotonic()
+                    roof_attrs = {}
+                    for idx, (roof_aoi, roof_row) in enumerate(
+                        roofs_linked.iterrows()
+                    ):
+                        try:
+                            aoi_children = (
+                                child_by_aoi_bldg.get(roof_aoi)
+                                if roof_aoi is not None
+                                else None
+                            )
+                            attrs = flatten_roof_attributes(
+                                [roof_row],
+                                country=country,
+                                child_features=aoi_children,
+                                parent_projected=bldg_roof_geoms_projected.iloc[
+                                    idx
+                                ],
+                                children_projected=bldg_child_proj_by_aoi.get(
+                                    roof_aoi
+                                ),
+                            )
+                            roof_attrs[roof_row["feature_id"]] = attrs
+                        except Exception as e:
+                            logger.debug(
+                                f"Could not flatten building-linked roof attributes: {e}"
+                            )
+                    logger.debug(
+                        f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
+                    )
 
                 if roof_attrs:
-                    # Add primary child roof attributes with prefix (batched)
-                    all_attr_keys = set()
-                    for attrs in roof_attrs.values():
-                        all_attr_keys.update(attrs.keys())
+                    # Map primary child roof attributes to buildings via DataFrame reindex
+                    # (replaces per-attribute .apply(lambda) with a single vectorized lookup)
+                    roof_attrs_df = pd.DataFrame.from_dict(
+                        roof_attrs, orient="index"
+                    )
+                    roof_attrs_df.columns = [
+                        f"primary_child_roof_{c}" for c in roof_attrs_df.columns
+                    ]
+                    primary_ids = buildings_linked[
+                        "primary_child_roof_id"
+                    ].values
+                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(
+                        drop=True
+                    )
 
                     roof_attr_batch = {}
-                    for attr_key in sorted(all_attr_keys):
-                        prefixed_key = f"primary_child_roof_{attr_key}"
-                        if prefixed_key not in added_cols:
-                            roof_attr_batch[prefixed_key] = (
-                                buildings_linked["primary_child_roof_id"]
-                                .apply(
-                                    lambda fid, ak=attr_key: (
-                                        roof_attrs.get(fid, {}).get(ak)
-                                        if pd.notna(fid)
-                                        else None
-                                    )
-                                )
-                                .values
-                            )
-                            added_cols.add(prefixed_key)
+                    for col in sorted(mapped.columns):
+                        if col not in added_cols:
+                            roof_attr_batch[col] = mapped[col].values
+                            added_cols.add(col)
 
                     # Add min/max RSI aggregation across all child roofs
                     rsi_key = "roof_spotlight_index"
-                    if any(rsi_key in attrs for attrs in roof_attrs.values()):
-
-                        def get_child_rsi_values(child_roofs_json):
-                            """Extract RSI values from all child roofs."""
-                            if pd.isna(child_roofs_json) or child_roofs_json == "[]":
-                                return []
+                    rsi_lookup = {
+                        fid: attrs[rsi_key]
+                        for fid, attrs in roof_attrs.items()
+                        if rsi_key in attrs
+                    }
+                    if rsi_lookup:
+                        n_buildings = len(buildings_linked)
+                        min_vals = np.full(n_buildings, np.nan)
+                        max_vals = np.full(n_buildings, np.nan)
+                        for i, child_json in enumerate(
+                            buildings_linked["child_roofs"].values
+                        ):
+                            if not child_json or child_json == "[]":
+                                continue
                             try:
                                 child_list = (
-                                    json.loads(child_roofs_json)
-                                    if isinstance(child_roofs_json, str)
-                                    else child_roofs_json
+                                    json.loads(child_json)
+                                    if isinstance(child_json, str)
+                                    else child_json
                                 )
-                                rsi_values = []
-                                for child in child_list:
-                                    fid = child.get("feature_id")
-                                    if fid and fid in roof_attrs:
-                                        rsi = roof_attrs[fid].get(rsi_key)
-                                        if rsi is not None:
-                                            rsi_values.append(rsi)
-                                return rsi_values
+                                rsi_vals = [
+                                    rsi_lookup[c["feature_id"]]
+                                    for c in child_list
+                                    if c.get("feature_id") in rsi_lookup
+                                ]
+                                if rsi_vals:
+                                    min_vals[i] = min(rsi_vals)
+                                    max_vals[i] = max(rsi_vals)
                             except Exception:
-                                return []
-
-                        # Compute RSI values once per building, then extract min/max
-                        rsi_series = buildings_linked["child_roofs"].apply(
-                            get_child_rsi_values
-                        )
+                                continue
 
                         if "child_roof_roof_spotlight_index_min" not in added_cols:
-                            roof_attr_batch["child_roof_roof_spotlight_index_min"] = (
-                                rsi_series.apply(
-                                    lambda vals: min(vals) if vals else None
-                                ).values
-                            )
+                            roof_attr_batch[
+                                "child_roof_roof_spotlight_index_min"
+                            ] = np.where(np.isnan(min_vals), None, min_vals)
                             added_cols.add("child_roof_roof_spotlight_index_min")
 
                         if "child_roof_roof_spotlight_index_max" not in added_cols:
-                            roof_attr_batch["child_roof_roof_spotlight_index_max"] = (
-                                rsi_series.apply(
-                                    lambda vals: max(vals) if vals else None
-                                ).values
-                            )
+                            roof_attr_batch[
+                                "child_roof_roof_spotlight_index_max"
+                            ] = np.where(np.isnan(max_vals), None, max_vals)
                             added_cols.add("child_roof_roof_spotlight_index_max")
 
                     if roof_attr_batch:
@@ -935,6 +1082,7 @@ def export_feature_class(
                                         ri_lookup[col]
                                     ).values
                                     added_cols.add(col)
+                            _add_present_from_details(bldg_ri_batch, added_cols)
                             if bldg_ri_batch:
                                 df_parts.append(
                                     pd.DataFrame(bldg_ri_batch, index=range(n_rows))
@@ -2650,20 +2798,16 @@ class NearmapAIExporter(BaseExporter):
             )
             classes_df = pd.concat([classes_df, roof_instance_row])
 
-        # Modify output file paths using the AOI file name
-        # Renamed from {stem}.csv to {stem}_aoi_rollup.csv for clarity
-        aoi_stem = Path(aoi_path).stem
+        # Output file paths in final directory (no stem prefix — directory provides context)
         outpath = storage.join_path(
-            self.final_path, f"{aoi_stem}_aoi_rollup.{self.rollup_format}"
+            self.final_path, f"rollup.{self.rollup_format}"
         )
         outpath_features = storage.join_path(
-            self.final_path, f"{aoi_stem}_features.parquet"
+            self.final_path, "features.parquet"
         )
         outpath_buildings = storage.join_path(
-            self.final_path, f"{aoi_stem}_buildings.{self.rollup_format}"
+            self.final_path, f"buildings.{self.rollup_format}"
         )
-        # Base stem for per-class output files
-        output_stem = storage.join_path(self.final_path, aoi_stem)
 
         # Check for existing output files and warn about overwriting.
         # We always rebuild from chunks (the source of truth) to avoid leaving
@@ -2738,9 +2882,8 @@ class NearmapAIExporter(BaseExporter):
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        aoi_stem = Path(aoi_path).stem
-        chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
-            aoi_gdf, aoi_stem, check_cache=True
+        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = (
+            self.split_into_chunks(aoi_gdf, check_cache=True)
         )
 
         # Calculate initial AOI count for progress tracking (excluding skipped)
@@ -2750,19 +2893,18 @@ class NearmapAIExporter(BaseExporter):
             initial_aoi_count *= 2
 
         latency_csv_path = storage.join_path(
-            self.final_path, f"{Path(aoi_path).stem}_latency_stats.csv"
+            self.final_path, "latency_stats.csv"
         )
 
         self.run_parallel(
             chunks_to_process,
-            aoi_stem,
             initial_aoi_count=initial_aoi_count,
             use_progress_tracking=True,  # Enable progress counters for Feature API
             classes_df=classes_df,  # Pass classes_df to process_chunk
         )
 
         all_latency_stats = combine_chunk_latency_stats(
-            self.chunk_path, aoi_stem, latency_csv_path
+            self.chunk_path, latency_csv_path
         )
         if all_latency_stats:
             global_stats = compute_global_latency_stats(all_latency_stats)
@@ -2784,14 +2926,9 @@ class NearmapAIExporter(BaseExporter):
             f"Saving rollup data as {self.rollup_format} file to {outpath}"
         )
 
-        # Calculate total number of chunks (including cached ones)
-        num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
-
         # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
-        aoi_stem = Path(aoi_path).stem
-
         def _check_chunk_files(i):
-            chunk_filename = f"rollup_{aoi_stem}_{str(i).zfill(4)}.parquet"
+            chunk_filename = f"rollup_{str(i).zfill(4)}.parquet"
             cp = storage.join_path(self.chunk_path, chunk_filename)
             if storage.file_exists(cp):
                 if storage.validate_parquet(cp):
@@ -2801,14 +2938,17 @@ class NearmapAIExporter(BaseExporter):
                         f"Chunk {i}: rollup file {cp} exists but is corrupted "
                         f"(invalid parquet footer). Treating as missing."
                     )
-            error_filename = f"feature_api_errors_{aoi_stem}_{str(i).zfill(4)}.parquet"
+            error_filename = f"feature_api_errors_{str(i).zfill(4)}.parquet"
             has_error = storage.file_exists(
                 storage.join_path(self.chunk_path, error_filename)
             )
             return (i, None, has_error)
 
         chunk_check_results = []
-        with ThreadPoolExecutor(max_workers=PARALLEL_READ_WORKERS) as executor:
+        read_workers = (
+            S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        )
+        with ThreadPoolExecutor(max_workers=read_workers) as executor:
             futures = {
                 executor.submit(_check_chunk_files, i): i for i in range(num_chunks)
             }
@@ -2846,6 +2986,7 @@ class NearmapAIExporter(BaseExporter):
         if rollup_paths_to_read:
             data = _read_parquet_chunks_parallel(
                 rollup_paths_to_read,
+                max_workers=read_workers,
                 desc=f"Reading {len(rollup_paths_to_read)} rollup chunks",
                 logger=self.logger,
             )
@@ -2901,18 +3042,19 @@ class NearmapAIExporter(BaseExporter):
 
         # Collect and save Feature API errors
         outpath_feature_api_errors = storage.join_path(
-            self.final_path, f"{Path(aoi_path).stem}_feature_api_errors.csv"
+            self.final_path, "feature_api_errors.csv"
         )
         outpath_feature_api_errors_geoparquet = storage.join_path(
-            self.final_path, f"{Path(aoi_path).stem}_feature_api_errors.parquet"
+            self.final_path, "feature_api_errors.parquet"
         )
         self.logger.debug("Collecting Feature API errors")
         feature_api_error_paths = storage.glob_files(
-            self.chunk_path, f"feature_api_errors_{Path(aoi_path).stem}_*.parquet"
+            self.chunk_path, "feature_api_errors_*.parquet"
         )
         if feature_api_error_paths:
             feature_api_errors_list = _read_parquet_chunks_parallel(
                 feature_api_error_paths,
+                max_workers=read_workers,
                 desc="Reading Feature API error files",
                 logger=self.logger,
                 strict=False,
@@ -2929,18 +3071,19 @@ class NearmapAIExporter(BaseExporter):
         roof_age_errors = pd.DataFrame()
         if self.roof_age:
             outpath_roof_age_errors = storage.join_path(
-                self.final_path, f"{Path(aoi_path).stem}_roof_age_errors.csv"
+                self.final_path, "roof_age_errors.csv"
             )
             outpath_roof_age_errors_geoparquet = storage.join_path(
-                self.final_path, f"{Path(aoi_path).stem}_roof_age_errors.parquet"
+                self.final_path, "roof_age_errors.parquet"
             )
             self.logger.debug("Collecting Roof Age API errors")
             roof_age_error_paths = storage.glob_files(
-                self.chunk_path, f"roof_age_errors_{Path(aoi_path).stem}_*.parquet"
+                self.chunk_path, "roof_age_errors_*.parquet"
             )
             if roof_age_error_paths:
                 roof_age_errors_list = _read_parquet_chunks_parallel(
                     roof_age_error_paths,
+                    max_workers=read_workers,
                     desc="Reading Roof Age error files",
                     logger=self.logger,
                     strict=False,
@@ -3065,7 +3208,7 @@ class NearmapAIExporter(BaseExporter):
         local_features_path = None
         if self.save_features:
             feature_paths = storage.glob_files(
-                self.chunk_path, f"features_{Path(aoi_path).stem}_*.parquet"
+                self.chunk_path, "features_*.parquet"
             )
             self.logger.info(
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
@@ -3082,7 +3225,7 @@ class NearmapAIExporter(BaseExporter):
                 )
                 # Define geoparquet path for buildings
                 outpath_buildings_geoparquet = storage.join_path(
-                    self.final_path, f"{Path(aoi_path).stem}_building_features.parquet"
+                    self.final_path, "building_features.parquet"
                 )
 
                 buildings_gdf = parcels.extract_building_features(
@@ -3168,7 +3311,9 @@ class NearmapAIExporter(BaseExporter):
                     desc_arr = meta_table.column("description").to_pylist()
                     del meta_table
 
-                    unique_classes = sorted(set(c for c in class_id_arr if c is not None))
+                    unique_classes = sorted(
+                        set(c for c in class_id_arr if c is not None)
+                    )
                     if not unique_classes:
                         self.logger.info("No features found for per-class export")
                     else:
@@ -3179,7 +3324,11 @@ class NearmapAIExporter(BaseExporter):
                         # Build class_id -> description mapping
                         class_descriptions = {}
                         for cid, desc in zip(class_id_arr, desc_arr):
-                            if cid is not None and desc is not None and cid not in class_descriptions:
+                            if (
+                                cid is not None
+                                and desc is not None
+                                and cid not in class_descriptions
+                            ):
                                 class_descriptions[cid] = desc
                         del class_id_arr, desc_arr
 
@@ -3201,8 +3350,12 @@ class NearmapAIExporter(BaseExporter):
 
                         # Classes that require cross-class data for export
                         cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
-                        independent_ids = [c for c in unique_classes if c not in cross_class_ids]
-                        dependent_ids = [c for c in unique_classes if c in cross_class_ids]
+                        independent_ids = [
+                            c for c in unique_classes if c not in cross_class_ids
+                        ]
+                        dependent_ids = [
+                            c for c in unique_classes if c in cross_class_ids
+                        ]
 
                         # Phase B: Process independent classes one at a time.
                         # Each class is read via filtered parquet read from local disk,
@@ -3226,10 +3379,11 @@ class NearmapAIExporter(BaseExporter):
                                 class_id=class_id,
                                 class_description=description,
                                 country=self.country,
-                                output_stem=output_stem,
+                                output_dir=self.final_path,
                                 aoi_columns=aoi_input_columns,
                                 export_csv=self.class_level_files,
-                                export_parquet=self.class_level_files and self.save_features,
+                                export_parquet=self.class_level_files
+                                and self.save_features,
                                 class_features=class_features,
                                 roof_features=gpd.GeoDataFrame(),
                                 non_roof_features=gpd.GeoDataFrame(),
@@ -3251,10 +3405,11 @@ class NearmapAIExporter(BaseExporter):
                         # child features for spatial attribute recalculation on clipped roofs.
                         if dependent_ids:
                             # First load the core dependent classes
-                            core_ids = (
-                                {ROOF_ID, BUILDING_NEW_ID, ROOF_INSTANCE_CLASS_ID}
-                                & set(unique_classes)
-                            )
+                            core_ids = {
+                                ROOF_ID,
+                                BUILDING_NEW_ID,
+                                ROOF_INSTANCE_CLASS_ID,
+                            } & set(unique_classes)
                             cross_features = gpd.read_parquet(
                                 features_read_path,
                                 filters=[("class_id", "in", sorted(core_ids))],
@@ -3276,9 +3431,7 @@ class NearmapAIExporter(BaseExporter):
                             for col in component_cols:
                                 for val in roof_subset[col].dropna():
                                     items = (
-                                        json.loads(val)
-                                        if isinstance(val, str)
-                                        else val
+                                        json.loads(val) if isinstance(val, str) else val
                                     )
                                     if isinstance(items, list):
                                         for item in items:
@@ -3296,9 +3449,7 @@ class NearmapAIExporter(BaseExporter):
                             if extra_ids:
                                 extra_features = gpd.read_parquet(
                                     features_read_path,
-                                    filters=[
-                                        ("class_id", "in", sorted(extra_ids))
-                                    ],
+                                    filters=[("class_id", "in", sorted(extra_ids))],
                                 )
                                 cross_features = pd.concat(
                                     [cross_features, extra_features],
@@ -3322,6 +3473,66 @@ class NearmapAIExporter(BaseExporter):
                                 cross_features["class_id"] != ROOF_ID
                             ]
 
+                            # Pre-compute roof attribute flattening once for reuse
+                            # by both ROOF_ID and BUILDING_NEW_ID exports.
+                            roof_attrs_cache = None
+                            if ROOF_ID in dependent_ids and len(roof_features) > 0:
+                                t_cache = time.monotonic()
+                                child_by_aoi = _group_children_by_aoi(
+                                    roof_child_features, None
+                                )
+                                roof_geoms_projected, child_proj_by_aoi = (
+                                    _batch_project_geometries(
+                                        roof_features, child_by_aoi, self.country
+                                    )
+                                )
+                                has_aoi_id = (
+                                    AOI_ID_COLUMN_NAME in roof_features.columns
+                                    or roof_features.index.name
+                                    == AOI_ID_COLUMN_NAME
+                                )
+                                roof_attrs_cache = {}
+                                for idx, (_, row) in enumerate(
+                                    roof_features.iterrows()
+                                ):
+                                    try:
+                                        if AOI_ID_COLUMN_NAME in row.index:
+                                            roof_aoi = row[AOI_ID_COLUMN_NAME]
+                                        elif (
+                                            roof_features.index.name
+                                            == AOI_ID_COLUMN_NAME
+                                        ):
+                                            roof_aoi = row.name
+                                        else:
+                                            roof_aoi = None
+                                        aoi_children = (
+                                            child_by_aoi.get(roof_aoi)
+                                            if roof_aoi is not None
+                                            else None
+                                        )
+                                        attrs = flatten_roof_attributes(
+                                            [row],
+                                            country=self.country,
+                                            child_features=aoi_children,
+                                            parent_projected=roof_geoms_projected.iloc[
+                                                idx
+                                            ],
+                                            children_projected=child_proj_by_aoi.get(
+                                                roof_aoi
+                                            ),
+                                        )
+                                        roof_attrs_cache[row["feature_id"]] = (
+                                            attrs
+                                        )
+                                    except Exception as e:
+                                        self.logger.debug(
+                                            f"Could not flatten roof attributes: {e}"
+                                        )
+                                del child_by_aoi, child_proj_by_aoi
+                                self.logger.debug(
+                                    f"Roof attribute cache: {len(roof_attrs_cache)} roofs in {time.monotonic() - t_cache:.1f}s"
+                                )
+
                             for class_id in dependent_ids:
                                 class_features = cross_features[
                                     cross_features["class_id"] == class_id
@@ -3336,14 +3547,16 @@ class NearmapAIExporter(BaseExporter):
                                     class_id=class_id,
                                     class_description=description,
                                     country=self.country,
-                                    output_stem=output_stem,
+                                    output_dir=self.final_path,
                                     aoi_columns=aoi_input_columns,
                                     export_csv=self.class_level_files,
-                                    export_parquet=self.class_level_files and self.save_features,
+                                    export_parquet=self.class_level_files
+                                    and self.save_features,
                                     class_features=class_features,
                                     roof_features=roof_features,
                                     non_roof_features=roof_child_features,
                                     roof_instance_features=roof_instance_features,
+                                    roof_attrs_cache=roof_attrs_cache,
                                 )
                                 if csv_path or parquet_path:
                                     files = [
@@ -3354,7 +3567,13 @@ class NearmapAIExporter(BaseExporter):
                                     self.logger.info(
                                         f"  Exported {description}: {', '.join(files)}"
                                     )
-                            del cross_features, roof_features, roof_child_features, roof_instance_features
+                            del (
+                                cross_features,
+                                roof_features,
+                                roof_child_features,
+                                roof_instance_features,
+                                roof_attrs_cache,
+                            )
                             gc.collect()
 
                 except Exception as e:

@@ -81,7 +81,7 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
     final_dir = integration_test_dir / 'final'
     
     # 1. Check rollup CSV
-    rollup_file = final_dir / 'test_aoi_buildings.csv'
+    rollup_file = final_dir / 'buildings.csv'
     if rollup_file.exists():
         rollup_df = pd.read_csv(rollup_file)
         
@@ -116,7 +116,7 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
         print(f"✅ Rollup CSV has {len(rollup_df)} rows with special formatting")
     
     # 2. Check features GeoParquet
-    features_file = final_dir / 'test_aoi_features.parquet'
+    features_file = final_dir / 'features.parquet'
     if not features_file.exists():
         # Check what files were actually created
         if final_dir.exists():
@@ -215,8 +215,8 @@ def test_features_without_rollup(integration_test_dir):
     final_dir = integration_test_dir / 'final'
     
     # Should have features but no buildings CSV
-    features_file = final_dir / 'test_aoi_features.parquet'
-    buildings_file = final_dir / 'test_aoi_buildings.csv'
+    features_file = final_dir / 'features.parquet'
+    buildings_file = final_dir / 'buildings.csv'
     
     assert features_file.exists(), "Features file should exist"
     assert not buildings_file.exists(), "Buildings rollup should not exist"
@@ -280,8 +280,7 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     chunk_dir = integration_test_dir / 'chunks'
 
     # 1. Verify rollup CSV exists and has include parameter columns
-    # The exporter now uses _aoi_rollup suffix
-    rollup_file = final_dir / 'test_aoi_phoenix_aoi_rollup.csv'
+    rollup_file = final_dir / 'rollup.csv'
     assert rollup_file.exists(), f"Rollup CSV should be created at {rollup_file}. Files in final: {list(final_dir.iterdir()) if final_dir.exists() else []}"
 
     rollup_df = pd.read_csv(rollup_file)
@@ -314,19 +313,19 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     print(f"   - Extreme bins: {len(extreme_bins)}")
 
     # 2. Verify features parquet exists and was created successfully
-    features_file = final_dir / 'test_aoi_phoenix_features.parquet'
+    features_file = final_dir / 'features.parquet'
     assert features_file.exists(), f"Features parquet should be created at {features_file}"
 
     features_gdf = gpd.read_parquet(features_file)
     print(f"✅ Features file has {len(features_gdf)} features")
 
     # 3. Verify rollup chunks were created
-    rollup_chunks = list(chunk_dir.glob('rollup_test_aoi_phoenix_*.parquet'))
+    rollup_chunks = list(chunk_dir.glob('rollup_*.parquet'))
     assert len(rollup_chunks) > 0, f"Should have created rollup chunks"
     print(f"✅ Created {len(rollup_chunks)} rollup chunks")
 
     # 4. Verify feature chunks were created
-    feature_chunks = list(chunk_dir.glob('features_test_aoi_phoenix_*.parquet'))
+    feature_chunks = list(chunk_dir.glob('features_*.parquet'))
     assert len(feature_chunks) > 0, f"Should have created feature chunks"
     print(f"✅ Created {len(feature_chunks)} feature chunks")
 
@@ -441,7 +440,7 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
     exporter.run()
 
     final_dir = integration_test_dir / 'final'
-    features_file = final_dir / 'test_aoi_parquet_features.parquet'
+    features_file = final_dir / 'features.parquet'
 
     assert features_file.exists(), f"Features file should exist at {features_file}"
 
@@ -540,7 +539,7 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
 
     # 1. Check per-class CSV files have is_primary column
     # Find all per-class CSV files (exclude rollup, buildings, and stats files)
-    exclude_patterns = ['_aoi_rollup', '_buildings', '_latency_stats']
+    exclude_patterns = ['rollup', 'buildings', 'latency_stats', 'feature_api_errors', 'roof_age_errors']
     per_class_csvs = [
         f for f in final_dir.glob('*.csv')
         if not any(pattern in f.name for pattern in exclude_patterns)
@@ -560,7 +559,7 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
     # 2. Check per-class GeoParquet files have is_primary column
     per_class_parquets = [
         f for f in final_dir.glob('*_features.parquet')
-        if f.name != 'test_aoi_features.parquet'
+        if f.name != 'features.parquet'
     ]
 
     assert len(per_class_parquets) > 0, \
@@ -576,7 +575,7 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
         print(f"  ✅ {parquet_path.name} has is_primary column (dtype: {class_gdf['is_primary'].dtype})")
 
     # 3. Cross-verify: primary features in per-class parquets match rollup data
-    rollup_file = final_dir / 'test_aoi_buildings.csv'
+    rollup_file = final_dir / 'buildings.csv'
     if rollup_file.exists():
         rollup_df = pd.read_csv(rollup_file, index_col='aoi_id')
 
@@ -631,11 +630,11 @@ def test_us_aoi_for_roof_age(integration_test_dir):
 def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roof_age):
     """
     Integration test to verify that roof age in years is calculated and present in ALL output files:
-    - Combined features parquet (*_features.parquet)
-    - Per-class CSV (*_roof.csv)
-    - Per-class parquet (*_roof_features.parquet)
-    - Roof instances (*_roof_instance.csv, *_roof_instance_features.parquet)
-    - Rollup (*_aoi_rollup.csv)
+    - Combined features parquet (features.parquet)
+    - Per-class CSV (roof.csv)
+    - Per-class parquet (roof_features.parquet)
+    - Roof instances (roof_instance.csv, roof_instance_features.parquet)
+    - Rollup (rollup.csv)
 
     This test ensures consistency across all export formats.
     """
@@ -666,7 +665,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
 
     # 1. Check combined features parquet
     print("\n1. Checking combined features parquet...")
-    combined_features_path = final_dir / 'test_us_roof_age_features.parquet'
+    combined_features_path = final_dir / 'features.parquet'
     if combined_features_path.exists():
         features_gdf = gpd.read_parquet(combined_features_path)
 
@@ -719,7 +718,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     print("\n2. Checking per-class CSV files...")
 
     # Roof instances CSV
-    roof_instance_csv = final_dir / 'test_us_roof_age_roof_instance.csv'
+    roof_instance_csv = final_dir / 'roof_instance.csv'
     if roof_instance_csv.exists():
         ri_df = pd.read_csv(roof_instance_csv)
         assert 'roof_age_years_as_of_date' in ri_df.columns, \
@@ -730,7 +729,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         print("  ⚠️  Roof instance CSV not found (no roof instances in AOI?)")
 
     # Roofs CSV
-    roof_csv = final_dir / 'test_us_roof_age_roof.csv'
+    roof_csv = final_dir / 'roof.csv'
     if roof_csv.exists():
         roof_df = pd.read_csv(roof_csv)
         if 'primary_child_roof_age_installation_date' in roof_df.columns:
@@ -751,7 +750,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     print("\n3. Checking per-class parquet files...")
 
     # Roof instances parquet
-    roof_instance_parquet = final_dir / 'test_us_roof_age_roof_instance_features.parquet'
+    roof_instance_parquet = final_dir / 'roof_instance_features.parquet'
     if roof_instance_parquet.exists():
         ri_gdf = gpd.read_parquet(roof_instance_parquet)
         assert 'roof_age_years_as_of_date' in ri_gdf.columns, \
@@ -762,7 +761,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         print("  ⚠️  Roof instance parquet not found (no roof instances in AOI?)")
 
     # Roofs parquet
-    roof_parquet = final_dir / 'test_us_roof_age_roof_features.parquet'
+    roof_parquet = final_dir / 'roof_features.parquet'
     if roof_parquet.exists():
         roof_gdf = gpd.read_parquet(roof_parquet)
         if 'primary_child_roof_age_installation_date' in roof_gdf.columns:
@@ -781,7 +780,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
 
     # 4. Check rollup CSV
     print("\n4. Checking rollup CSV...")
-    rollup_csv = final_dir / 'test_us_roof_age_aoi_rollup.csv'
+    rollup_csv = final_dir / 'rollup.csv'
     if rollup_csv.exists():
         rollup_df = pd.read_csv(rollup_csv)
         if 'primary_child_roof_age_installation_date' in rollup_df.columns:

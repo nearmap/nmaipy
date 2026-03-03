@@ -313,7 +313,7 @@ class TestLatencyIO:
 
             # Combine them
             output_csv = chunk_path / "combined_latency.csv"
-            combined = combine_chunk_latency_stats(chunk_path, "file", output_csv)
+            combined = combine_chunk_latency_stats(chunk_path, output_csv)
 
             assert len(combined) == 2
             assert output_csv.exists()
