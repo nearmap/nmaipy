@@ -10,6 +10,7 @@ These tests verify:
 import json
 import os
 import tempfile
+import warnings
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -18,8 +19,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
-import warnings
-
+from nmaipy import parcels
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -749,8 +749,6 @@ class TestRoofAgeFieldMapping:
 
     def test_roof_export_includes_primary_child_columns(self, combined_features_gdf, features_2_gdf):
         """Roof age columns propagate as primary_child_roof_age_ on parent roofs."""
-        from nmaipy import parcels
-
         ri_features = combined_features_gdf[
             combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
         ]
