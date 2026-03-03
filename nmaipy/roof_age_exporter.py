@@ -365,7 +365,7 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
+        chunks_to_process, skipped_chunks, skipped_aois, _ = self.split_into_chunks(
             aoi_gdf, check_cache=True
         )
 
@@ -514,17 +514,11 @@ class RoofAgeExporter(BaseExporter):
         """
         # Save roofs
         if len(roofs_gdf) > 0:
-            # Drop untilDate if asOfDate is present (both map to same output, prefer asOfDate)
-            if "asOfDate" in roofs_gdf.columns and "untilDate" in roofs_gdf.columns:
-                roofs_gdf = roofs_gdf.drop(columns=["untilDate"])
-
             # Rename camelCase API fields to snake_case with roof_age_ prefix for consistency
-            # Note: asOfDate is the new API field name, untilDate is legacy fallback
             column_rename_map = {
                 "kind": "roof_age_kind",
                 "installationDate": "roof_age_installation_date",
                 "asOfDate": "roof_age_as_of_date",
-                "untilDate": "roof_age_as_of_date",  # Legacy fallback (only used if asOfDate absent)
                 "trustScore": "roof_age_trust_score",
                 "area": "roof_age_area_sqm",
                 "evidenceType": "roof_age_evidence_type",

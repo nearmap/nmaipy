@@ -230,7 +230,7 @@ class BaseExporter(ABC):
 
     def split_into_chunks(
         self, aoi_gdf: gpd.GeoDataFrame, check_cache: bool = True
-    ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int]:
+    ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int, int]:
         """
         Split a GeoDataFrame into chunks for parallel processing.
 
@@ -245,6 +245,7 @@ class BaseExporter(ABC):
             - List of (chunk_index, chunk_gdf) tuples to process
             - Number of skipped chunks
             - Number of skipped AOIs
+            - Total number of chunks (including cached)
         """
         # Filter AOIs with zero area if geometry-based
         if isinstance(aoi_gdf, gpd.GeoDataFrame):
@@ -321,7 +322,7 @@ class BaseExporter(ABC):
                 f"{len(aoi_gdf) - skipped_aois} AOIs (skipping {skipped_aois})"
             )
 
-        return chunks_to_process, skipped_chunks, skipped_aois
+        return chunks_to_process, skipped_chunks, skipped_aois, num_chunks
 
     def run_parallel(
         self,

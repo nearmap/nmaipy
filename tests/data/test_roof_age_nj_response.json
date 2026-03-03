@@ -44,7 +44,7 @@
           {"sdSurveyId": 32700, "captureDate": "2025-07-04", "primaryResourceWebtileUid": "9d5d2f02-ba27-4223-84a6-dc712dbad058"}
         ],
         "trustScore": 51.5,
-        "untilDate": "2025-09-05"
+        "asOfDate": "2025-09-05"
       }
     }
   ],

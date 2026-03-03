@@ -71,7 +71,14 @@ ROOF_AGE_COLUMNS = {
     "roof_age_max_capture_date": "Latest imagery capture date analyzed",
     "roof_age_number_of_captures": "Number of aerial captures analyzed",
     "roof_age_mapbrowser_url": "URL to view roof age timeline in MapBrowser",
+    "roof_age_model_version": "Version of the roof age prediction model used",
     "roof_age_kind": "Type of estimate: 'roof' (section) or 'parcel' (property-level)",
+    "roof_age_relevant_permits": "Whether relevant building permits were found (true/false)",
+    "roof_age_relevant_permits_details": "Details of relevant building permits (JSON)",
+    "roof_age_relevant_permits_present": "Y/N — whether permit detail data is available",
+    "roof_age_assessor_data": "Whether assessor records were found (true/false)",
+    "roof_age_assessor_data_details": "Details of assessor records (JSON)",
+    "roof_age_assessor_data_present": "Y/N — whether assessor detail data is available",
 }
 
 

@@ -71,10 +71,8 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    ROOF_AGE_AS_OF_DATE_FIELD,
     ROOF_AGE_FIELD_MAP,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
-    ROOF_AGE_UNTIL_DATE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     S3_PARALLEL_READ_WORKERS,
@@ -463,6 +461,15 @@ def _batch_project_geometries(
     return parent_projected, child_proj_by_aoi
 
 
+def _is_details_present(v):
+    """Check if a _details value represents actual data (not null/empty)."""
+    if v is None:
+        return False
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return False
+    return str(v) not in ("", "null", "nan", "None", "[]", "{}")
+
+
 def _add_present_from_details(batch, added_cols):
     """For any _details key in batch, add a corresponding _present Y/N column."""
     for key in list(batch.keys()):
@@ -470,9 +477,7 @@ def _add_present_from_details(batch, added_cols):
             present_key = key.replace("_details", "_present")
             if present_key not in added_cols:
                 batch[present_key] = [
-                    TRUE_STRING
-                    if (v is not None and str(v) not in ("", "null", "nan", "None"))
-                    else FALSE_STRING
+                    TRUE_STRING if _is_details_present(v) else FALSE_STRING
                     for v in batch[key]
                 ]
                 added_cols.add(present_key)
@@ -691,27 +696,16 @@ def export_feature_class(
             )
             if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
                 # Build lookup table with prefixed column names
-                # Track destination columns to prevent duplicates (asOfDate and untilDate
-                # both map to roof_age_as_of_date - prefer asOfDate if both present)
                 ri_cols = ["feature_id"]
                 col_rename = {}
-                ri_dst_cols = set()
                 for src, dst in ROOF_AGE_FIELD_MAP.items():
                     prefixed_dst = f"primary_child_{dst}"
-                    # Skip untilDate if asOfDate is present (both map to same destination)
-                    if (
-                        src == ROOF_AGE_UNTIL_DATE_FIELD
-                        and ROOF_AGE_AS_OF_DATE_FIELD in roof_instances.columns
-                    ):
-                        continue
                     if (
                         src in roof_instances.columns
                         and prefixed_dst not in added_cols
-                        and prefixed_dst not in ri_dst_cols
                     ):
                         ri_cols.append(src)
                         col_rename[src] = prefixed_dst
-                        ri_dst_cols.add(prefixed_dst)
 
                 # Also include the pre-calculated roof age years (calculated in process_chunk)
                 if "roof_age_years_as_of_date" in roof_instances.columns:
@@ -2888,8 +2882,8 @@ class NearmapAIExporter(BaseExporter):
         self.logger.debug(f"Using endpoint '{self.endpoint}' for rollups.")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois = self.split_into_chunks(
-            aoi_gdf, check_cache=True
+        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = (
+            self.split_into_chunks(aoi_gdf, check_cache=True)
         )
 
         # Calculate initial AOI count for progress tracking (excluding skipped)
@@ -2931,9 +2925,6 @@ class NearmapAIExporter(BaseExporter):
         self.logger.debug(
             f"Saving rollup data as {self.rollup_format} file to {outpath}"
         )
-
-        # Calculate total number of chunks (including cached ones)
-        num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
 
         # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
         def _check_chunk_files(i):

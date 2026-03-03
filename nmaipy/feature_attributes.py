@@ -767,7 +767,7 @@ def flatten_roof_instance_attributes(
         flattened[f"{prefix}roof_age_installation_date"] = installation_date
 
     # As-of date (when this estimate was computed)
-    # Try new API field name first (asOfDate), fall back to legacy (untilDate)
+    # Fall back to legacy untilDate for compatibility with cached API responses
     as_of_date = get_value(ROOF_AGE_AS_OF_DATE_FIELD, "as_of_date")
     if as_of_date is None:
         as_of_date = get_value(ROOF_AGE_UNTIL_DATE_FIELD, "until_date")
