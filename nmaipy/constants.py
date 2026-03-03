@@ -24,57 +24,22 @@ ROOF_AGE_NEXT_CURSOR_FIELD = (
 # Matches below this threshold are not trusted and will not be assigned as parent/primary
 MIN_ROOF_INSTANCE_IOU_THRESHOLD = 0.005
 
-# Roof Age API response field names
-ROOF_AGE_INSTALLATION_DATE_FIELD = "installationDate"
-ROOF_AGE_TRUST_SCORE_FIELD = "trustScore"
-ROOF_AGE_AS_OF_DATE_FIELD = "asOfDate"
-ROOF_AGE_UNTIL_DATE_FIELD = "untilDate"  # Legacy field name, retained for cached data compatibility
-ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD = "afterInstallationCaptureDate"
-ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD = "beforeInstallationCaptureDate"
+# Roof Age API response field names (camelCase, used for pre-conversion logic in roof_age_api.py)
 ROOF_AGE_AREA_FIELD = "area"
-ROOF_AGE_EVIDENCE_TYPE_FIELD = "evidenceType"
-ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD = "evidenceTypeDescription"
-ROOF_AGE_MIN_CAPTURE_DATE_FIELD = "minCaptureDate"
-ROOF_AGE_MAX_CAPTURE_DATE_FIELD = "maxCaptureDate"
-ROOF_AGE_NUM_CAPTURES_FIELD = "numberOfCaptures"
-ROOF_AGE_KIND_FIELD = "kind"
-ROOF_AGE_RELEVANT_PERMITS_FIELD = "relevantPermits"
-ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD = "relevantPermitsDetails"
-ROOF_AGE_ASSESSOR_DATA_FIELD = "assessorData"
-ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD = "assessorDataDetails"
 ROOF_AGE_TIMELINE_FIELD = "timeline"
-ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
 ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
-ROOF_AGE_MAPBROWSER_URL_FIELD = (
-    "mapBrowserUrl"  # API field name (note: API uses mixed case)
-)
-ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD = (
-    "roof_age_mapbrowser_url"  # Output field name (snake_case)
-)
-ROOF_AGE_MODEL_VERSION_FIELD = (
-    "modelVersion"  # API field name (top-level response metadata)
-)
-ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD = (
-    "roof_age_model_version"  # Output field name (snake_case)
-)
+ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
+ROOF_AGE_MODEL_VERSION_FIELD = "modelVersion"
+ROOF_AGE_MAPBROWSER_URL_FIELD = "mapBrowserUrl"
 
-# Roof Age API field mapping: API field -> output column name
-ROOF_AGE_FIELD_MAP = {
-    ROOF_AGE_INSTALLATION_DATE_FIELD: "roof_age_installation_date",
-    ROOF_AGE_AS_OF_DATE_FIELD: "roof_age_as_of_date",
-    ROOF_AGE_TRUST_SCORE_FIELD: "roof_age_trust_score",
-    ROOF_AGE_EVIDENCE_TYPE_FIELD: "roof_age_evidence_type",
-    ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD: "roof_age_evidence_type_description",
-    ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD: "roof_age_before_installation_capture_date",
-    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD: "roof_age_after_installation_capture_date",
-    ROOF_AGE_MIN_CAPTURE_DATE_FIELD: "roof_age_min_capture_date",
-    ROOF_AGE_MAX_CAPTURE_DATE_FIELD: "roof_age_max_capture_date",
-    ROOF_AGE_NUM_CAPTURES_FIELD: "roof_age_number_of_captures",
-    ROOF_AGE_KIND_FIELD: "roof_age_kind",
-    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD: "roof_age_relevant_permits_details",
-    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD: "roof_age_assessor_data_details",
-    ROOF_AGE_MAPBROWSER_URL_FIELD: ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
-    ROOF_AGE_MODEL_VERSION_FIELD: ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
+# Columns to exclude when adding roof_age_ prefix during export.
+# These are standard columns already handled by the common export path,
+# or internal fields that shouldn't appear in output.
+ROOF_AGE_NO_PREFIX_COLUMNS = {
+    "aoi_id", "class_id", "description", "geometry", "geometry_feature", "feature_id",
+    "area_sqm", "area_sqft", "confidence", "fidelity",
+    "survey_date", "mesh_date", "parent_id", "parent_iou",
+    "resource_id",
 }
 
 

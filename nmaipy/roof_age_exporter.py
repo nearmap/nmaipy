@@ -39,8 +39,8 @@ from nmaipy.api_common import (
     save_chunk_latency_stats,
 )
 from nmaipy.base_exporter import BaseExporter
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
-from nmaipy.feature_attributes import calculate_roof_age_years
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, ROOF_AGE_NO_PREFIX_COLUMNS
+from nmaipy.feature_attributes import calculate_roof_age_years, convert_bool_columns_to_yn
 from nmaipy.roof_age_api import RoofAgeApi
 
 logger = log.get_logger()
@@ -514,26 +514,16 @@ class RoofAgeExporter(BaseExporter):
         """
         # Save roofs
         if len(roofs_gdf) > 0:
-            # Rename camelCase API fields to snake_case with roof_age_ prefix for consistency
-            column_rename_map = {
-                "kind": "roof_age_kind",
-                "installationDate": "roof_age_installation_date",
-                "asOfDate": "roof_age_as_of_date",
-                "trustScore": "roof_age_trust_score",
-                "area": "roof_age_area_sqm",
-                "evidenceType": "roof_age_evidence_type",
-                "evidenceTypeDescription": "roof_age_evidence_type_description",
-                "beforeInstallationCaptureDate": "roof_age_before_installation_capture_date",
-                "afterInstallationCaptureDate": "roof_age_after_installation_capture_date",
-                "minCaptureDate": "roof_age_min_capture_date",
-                "maxCaptureDate": "roof_age_max_capture_date",
-                "numberOfCaptures": "roof_age_number_of_captures",
-                "assessorData": "roof_age_assessor_data",
-                "assessorDataDetails": "roof_age_assessor_data_details",
-                "relevantPermits": "roof_age_relevant_permits",
-                "relevantPermitsDetails": "roof_age_relevant_permits_details",
-            }
-            roofs_gdf = roofs_gdf.rename(columns=column_rename_map)
+            # Add roof_age_ prefix to snake_case columns (columns arrive as snake_case from API client)
+            rename_map = {}
+            for col in roofs_gdf.columns:
+                if col in ROOF_AGE_NO_PREFIX_COLUMNS:
+                    continue
+                if col.startswith("roof_age_"):
+                    continue
+                rename_map[col] = f"roof_age_{col}"
+            roofs_gdf = roofs_gdf.rename(columns=rename_map)
+            convert_bool_columns_to_yn(roofs_gdf)
 
             # Calculate roof_age_years_as_of_date
             if "roof_age_installation_date" in roofs_gdf.columns and "roof_age_as_of_date" in roofs_gdf.columns:
@@ -575,7 +565,7 @@ class RoofAgeExporter(BaseExporter):
                     "roof_age_max_capture_date",
                     "roof_age_number_of_captures",
                     "roof_age_years_as_of_date",
-                    "roof_age_mapbrowser_url",
+                    "roof_age_map_browser_url",
                     "roof_age_assessor_data",
                     "roof_age_relevant_permits",
                     "roof_age_model_version",

@@ -19,6 +19,7 @@ import json
 from typing import Any, Dict, List, Optional, Union, overload
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from dateutil.parser import parse as parse_date
 from shapely import wkb
@@ -27,25 +28,7 @@ from nmaipy import log
 from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
-    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
-    ROOF_AGE_AREA_FIELD,
-    ROOF_AGE_AS_OF_DATE_FIELD,
-    ROOF_AGE_ASSESSOR_DATA_FIELD,
-    ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD,
-    ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
-    ROOF_AGE_EVIDENCE_TYPE_FIELD,
-    ROOF_AGE_INSTALLATION_DATE_FIELD,
-    ROOF_AGE_KIND_FIELD,
-    ROOF_AGE_MAPBROWSER_URL_FIELD,
-    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
-    ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
-    ROOF_AGE_MODEL_VERSION_FIELD,
-    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
-    ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
-    ROOF_AGE_NUM_CAPTURES_FIELD,
-    ROOF_AGE_RELEVANT_PERMITS_FIELD,
-    ROOF_AGE_TRUST_SCORE_FIELD,
-    ROOF_AGE_UNTIL_DATE_FIELD,
+    ROOF_AGE_NO_PREFIX_COLUMNS,
 )
 
 logger = log.get_logger()
@@ -53,6 +36,14 @@ logger = log.get_logger()
 # String representations for boolean values in CSV outputs
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
+
+
+def convert_bool_columns_to_yn(batch):
+    """Convert any boolean numpy arrays in a dict to Y/N string arrays in-place."""
+    for key in list(batch.keys()):
+        arr = batch[key]
+        if hasattr(arr, "dtype") and arr.dtype == bool:
+            batch[key] = np.where(arr, TRUE_STRING, FALSE_STRING)
 
 
 def _parse_include_param(val):
@@ -723,136 +714,66 @@ def flatten_roof_instance_attributes(
     Flatten roof instance attributes from Roof Age API.
 
     Roof instances are temporal slices of roofs with installation date information.
-    This function extracts Roof Age specific fields like installation date, trust score,
-    and evidence type. It excludes internal fields (timeline, hilbertId, resourceId).
-
-    Note: Area fields (area_sqm, area_sqft, etc.) are NOT added here because they're
-    already handled by the standard Feature API column mapping in roof_age_api._parse_response()
-    and exporter.py.
+    Columns arrive as snake_case (converted at parse time in roof_age_api._parse_response,
+    matching the feature_api.py pattern). This function adds the roof_age_ prefix and
+    converts booleans to Y/N.
 
     Args:
         roof_instance: A roof instance feature (dict or pandas Series)
         country: Country code for units (e.g. "us" for imperial)
-        prefix: Optional prefix for flattened keys (e.g., "primary_roof_instance_")
+        prefix: Optional prefix for flattened keys (e.g., "primary_child_")
 
     Returns:
         Flattened dictionary with roof instance attributes
 
     Example:
-        >>> instance = {"installationDate": "2019-06", "trustScore": 0.85, "evidenceType": 1}
+        >>> instance = {"installation_date": "2019-06", "trust_score": 0.85, "evidence_type": 1}
         >>> attrs = flatten_roof_instance_attributes(instance, country="us")
         >>> print(attrs)
         {'roof_age_installation_date': '2019-06', 'roof_age_trust_score': 0.85, 'roof_age_evidence_type': 1}
     """
     flattened = {}
 
-    # Helper to get value from dict or Series, checking both camelCase and snake_case
-    def get_value(camel_key, snake_key=None):
-        """Get value checking both camelCase (API default) and snake_case (potential conversion)."""
+    # Boolean fields that should be converted to Y/N
+    boolean_fields = {"relevant_permits", "assessor_data"}
+
+    def get_value(key):
+        """Get value from dict or Series."""
         if isinstance(roof_instance, dict):
-            val = roof_instance.get(camel_key)
-            if val is None and snake_key:
-                val = roof_instance.get(snake_key)
-            return val
+            return roof_instance.get(key)
         elif isinstance(roof_instance, pd.Series):
-            if camel_key in roof_instance.index:
-                return roof_instance.get(camel_key)
-            elif snake_key and snake_key in roof_instance.index:
-                return roof_instance.get(snake_key)
+            if key in roof_instance.index:
+                return roof_instance.get(key)
         return None
 
-    # Installation date
-    installation_date = get_value(ROOF_AGE_INSTALLATION_DATE_FIELD, "installation_date")
-    if installation_date is not None:
-        flattened[f"{prefix}roof_age_installation_date"] = installation_date
+    # Get keys from the instance
+    keys = roof_instance.keys() if isinstance(roof_instance, dict) else roof_instance.index
 
-    # As-of date (when this estimate was computed)
-    # Fall back to legacy untilDate for compatibility with cached API responses
-    as_of_date = get_value(ROOF_AGE_AS_OF_DATE_FIELD, "as_of_date")
+    # Generic loop: add roof_age_ prefix to all non-standard columns
+    installation_date = None
+    as_of_date = None
+    for key in keys:
+        if key in ROOF_AGE_NO_PREFIX_COLUMNS:
+            continue
+        value = get_value(key)
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            continue
+        output_key = f"{prefix}roof_age_{key}"
+        if key in boolean_fields:
+            flattened[output_key] = TRUE_STRING if value else FALSE_STRING
+        else:
+            flattened[output_key] = value
+        # Track values needed for calculated fields
+        if key == "installation_date":
+            installation_date = value
+        elif key == "as_of_date":
+            as_of_date = value
+
+    # Legacy fallback: untilDate → as_of_date for cached API responses
     if as_of_date is None:
-        as_of_date = get_value(ROOF_AGE_UNTIL_DATE_FIELD, "until_date")
-    if as_of_date is not None:
-        flattened[f"{prefix}roof_age_as_of_date"] = as_of_date
-
-    # Trust score (confidence in the installation date)
-    trust_score = get_value(ROOF_AGE_TRUST_SCORE_FIELD, "trust_score")
-    if trust_score is not None:
-        flattened[f"{prefix}roof_age_trust_score"] = trust_score
-
-    # Note: Area fields (area_sqm, area_sqft, etc.) are NOT added here because they're
-    # already handled by the standard Feature API column mapping in roof_age_api._parse_response()
-    # and exporter.py. Adding them here would create duplicate columns.
-
-    # Evidence type and description
-    evidence_type = get_value(ROOF_AGE_EVIDENCE_TYPE_FIELD, "evidence_type")
-    if evidence_type is not None:
-        flattened[f"{prefix}roof_age_evidence_type"] = evidence_type
-
-    evidence_desc = get_value(
-        ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD, "evidence_type_description"
-    )
-    if evidence_desc is not None:
-        flattened[f"{prefix}roof_age_evidence_type_description"] = evidence_desc
-
-    # Capture date information
-    before_capture = get_value(
-        ROOF_AGE_BEFORE_INSTALLATION_CAPTURE_DATE_FIELD,
-        "before_installation_capture_date",
-    )
-    if before_capture is not None:
-        flattened[f"{prefix}roof_age_before_installation_capture_date"] = before_capture
-
-    after_capture = get_value(
-        ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
-        "after_installation_capture_date",
-    )
-    if after_capture is not None:
-        flattened[f"{prefix}roof_age_after_installation_capture_date"] = after_capture
-
-    min_capture = get_value(ROOF_AGE_MIN_CAPTURE_DATE_FIELD, "min_capture_date")
-    if min_capture is not None:
-        flattened[f"{prefix}roof_age_min_capture_date"] = min_capture
-
-    max_capture = get_value(ROOF_AGE_MAX_CAPTURE_DATE_FIELD, "max_capture_date")
-    if max_capture is not None:
-        flattened[f"{prefix}roof_age_max_capture_date"] = max_capture
-
-    num_captures = get_value(ROOF_AGE_NUM_CAPTURES_FIELD, "number_of_captures")
-    if num_captures is not None:
-        flattened[f"{prefix}roof_age_number_of_captures"] = num_captures
-
-    # Kind (roof type classification)
-    kind = get_value(ROOF_AGE_KIND_FIELD, "kind")
-    if kind is not None:
-        flattened[f"{prefix}roof_age_kind"] = kind
-
-    # Relevant permits (JSON serialized for parquet compatibility)
-    relevant_permits = get_value(ROOF_AGE_RELEVANT_PERMITS_FIELD, "relevant_permits")
-    if relevant_permits is not None:
-        flattened[f"{prefix}roof_age_relevant_permits"] = (
-            json.dumps(relevant_permits)
-            if isinstance(relevant_permits, (dict, list))
-            else relevant_permits
-        )
-
-    # Assessor data (JSON serialized for parquet compatibility)
-    assessor_data = get_value(ROOF_AGE_ASSESSOR_DATA_FIELD, "assessor_data")
-    if assessor_data is not None:
-        flattened[f"{prefix}roof_age_assessor_data"] = (
-            json.dumps(assessor_data)
-            if isinstance(assessor_data, (dict, list))
-            else assessor_data
-        )
-
-    # Roof Age mapbrowser URL (shows before/after comparison view)
-    mapbrowser_url = get_value(ROOF_AGE_MAPBROWSER_URL_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD)
-    if mapbrowser_url is not None:
-        flattened[f"{prefix}{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"] = mapbrowser_url
-
-    # Roof Age model version (top-level response metadata propagated to each feature)
-    model_version = get_value(ROOF_AGE_MODEL_VERSION_FIELD, ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD)
-    if model_version is not None:
-        flattened[f"{prefix}{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"] = model_version
+        as_of_date = get_value("until_date")
+        if as_of_date is not None:
+            flattened[f"{prefix}roof_age_as_of_date"] = as_of_date
 
     # Calculate roof age in years as of as_of_date
     age_years = calculate_roof_age_years(installation_date, as_of_date)

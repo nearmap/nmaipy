@@ -71,8 +71,7 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    ROOF_AGE_FIELD_MAP,
-    ROOF_AGE_INSTALLATION_DATE_FIELD,
+    ROOF_AGE_NO_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     S3_PARALLEL_READ_WORKERS,
@@ -86,6 +85,7 @@ from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
     calculate_roof_age_years,
+    convert_bool_columns_to_yn,
     flatten_building_attributes,
     flatten_roof_attributes,
 )
@@ -461,27 +461,6 @@ def _batch_project_geometries(
     return parent_projected, child_proj_by_aoi
 
 
-def _is_details_present(v):
-    """Check if a _details value represents actual data (not null/empty)."""
-    if v is None:
-        return False
-    if isinstance(v, (list, dict)) and len(v) == 0:
-        return False
-    return str(v) not in ("", "null", "nan", "None", "[]", "{}")
-
-
-def _add_present_from_details(batch, added_cols):
-    """For any _details key in batch, add a corresponding _present Y/N column."""
-    for key in list(batch.keys()):
-        if key.endswith("_details"):
-            present_key = key.replace("_details", "_present")
-            if present_key not in added_cols:
-                batch[present_key] = [
-                    TRUE_STRING if _is_details_present(v) else FALSE_STRING
-                    for v in batch[key]
-                ]
-                added_cols.add(present_key)
-
 
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
@@ -637,35 +616,17 @@ def export_feature_class(
                 ri_batch[col] = class_features[col].values
                 added_cols.add(col)
 
-        for src, dst in ROOF_AGE_FIELD_MAP.items():
-            if src in class_features.columns and dst not in added_cols:
-                ri_batch[dst] = class_features[src].values
+        # Add roof_age_ prefix to Roof Age API columns (already snake_case from parse).
+        # Columns already prefixed with roof_age_ (e.g. calculated fields) pass through as-is.
+        for col in class_features.columns:
+            if col in ROOF_AGE_NO_PREFIX_COLUMNS or col in added_cols:
+                continue
+            dst = col if col.startswith("roof_age_") else f"roof_age_{col}"
+            if dst not in added_cols:
+                ri_batch[dst] = class_features[col].values
                 added_cols.add(dst)
 
-        # JSON serialize permits/assessor data if present
-        for src, dst in [
-            ("relevantPermits", "roof_age_relevant_permits"),
-            ("assessorData", "roof_age_assessor_data"),
-        ]:
-            if src in class_features.columns and dst not in added_cols:
-                ri_batch[dst] = (
-                    class_features[src]
-                    .apply(
-                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
-                    )
-                    .values
-                )
-                added_cols.add(dst)
-
-        # Derive _present Y/N columns from _details columns
-        _add_present_from_details(ri_batch, added_cols)
-
-        # Copy pre-calculated roof age in years (calculated in process_chunk)
-        if "roof_age_years_as_of_date" in class_features.columns:
-            ri_batch["roof_age_years_as_of_date"] = class_features[
-                "roof_age_years_as_of_date"
-            ].values
-            added_cols.add("roof_age_years_as_of_date")
+        convert_bool_columns_to_yn(ri_batch)
 
         if ri_batch:
             df_parts.append(pd.DataFrame(ri_batch, index=range(n_rows)))
@@ -695,24 +656,17 @@ def export_feature_class(
                 else features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID]
             )
             if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
-                # Build lookup table with prefixed column names
+                # Build lookup table with primary_child_roof_age_ prefixed column names
                 ri_cols = ["feature_id"]
                 col_rename = {}
-                for src, dst in ROOF_AGE_FIELD_MAP.items():
-                    prefixed_dst = f"primary_child_{dst}"
-                    if (
-                        src in roof_instances.columns
-                        and prefixed_dst not in added_cols
-                    ):
-                        ri_cols.append(src)
-                        col_rename[src] = prefixed_dst
-
-                # Also include the pre-calculated roof age years (calculated in process_chunk)
-                if "roof_age_years_as_of_date" in roof_instances.columns:
-                    ri_cols.append("roof_age_years_as_of_date")
-                    col_rename["roof_age_years_as_of_date"] = (
-                        "primary_child_roof_age_years_as_of_date"
-                    )
+                for col in roof_instances.columns:
+                    if col in ROOF_AGE_NO_PREFIX_COLUMNS or col == "feature_id":
+                        continue
+                    base = col if col.startswith("roof_age_") else f"roof_age_{col}"
+                    prefixed_dst = f"primary_child_{base}"
+                    if prefixed_dst not in added_cols:
+                        ri_cols.append(col)
+                        col_rename[col] = prefixed_dst
 
                 if len(ri_cols) > 1:  # More than just feature_id
                     ri_lookup = roof_instances[ri_cols].drop_duplicates(
@@ -732,7 +686,7 @@ def export_feature_class(
                             ri_lookup[col]
                         ).values
                         added_cols.add(col)
-                    _add_present_from_details(ri_mapped_batch, added_cols)
+                    convert_bool_columns_to_yn(ri_mapped_batch)
                     if ri_mapped_batch:
                         df_parts.append(
                             pd.DataFrame(ri_mapped_batch, index=range(n_rows))
@@ -1051,17 +1005,13 @@ def export_feature_class(
                         # Roof age columns to link through (same as what roofs get)
                         ri_cols = ["feature_id"]
                         col_rename = {}
-                        for src, dst in ROOF_AGE_FIELD_MAP.items():
-                            if src in roof_instances.columns:
-                                ri_cols.append(src)
-                                col_rename[src] = f"primary_child_{dst}"
-
-                        # Include calculated roof_age_years_as_of_date
-                        if "roof_age_years_as_of_date" in roof_instances.columns:
-                            ri_cols.append("roof_age_years_as_of_date")
-                            col_rename["roof_age_years_as_of_date"] = (
-                                "primary_child_roof_age_years_as_of_date"
-                            )
+                        for col in roof_instances.columns:
+                            if col in ROOF_AGE_NO_PREFIX_COLUMNS or col == "feature_id":
+                                continue
+                            base = col if col.startswith("roof_age_") else f"roof_age_{col}"
+                            prefixed_dst = f"primary_child_{base}"
+                            ri_cols.append(col)
+                            col_rename[col] = prefixed_dst
 
                         if len(ri_cols) > 1:  # More than just feature_id
                             ri_lookup = roof_instances[ri_cols].drop_duplicates(
@@ -1082,7 +1032,7 @@ def export_feature_class(
                                         ri_lookup[col]
                                     ).values
                                     added_cols.add(col)
-                            _add_present_from_details(bldg_ri_batch, added_cols)
+                            convert_bool_columns_to_yn(bldg_ri_batch)
                             if bldg_ri_batch:
                                 df_parts.append(
                                     pd.DataFrame(bldg_ri_batch, index=range(n_rows))
@@ -1122,9 +1072,7 @@ def export_feature_class(
 
         # Determine date column based on class type
         if class_id == ROOF_INSTANCE_CLASS_ID:
-            if ROOF_AGE_INSTALLATION_DATE_FIELD in class_features.columns:
-                date_col = ROOF_AGE_INSTALLATION_DATE_FIELD
-            elif "installation_date" in class_features.columns:
+            if "installation_date" in class_features.columns:
                 date_col = "installation_date"
             else:
                 date_col = None
@@ -2328,8 +2276,8 @@ class NearmapAIExporter(BaseExporter):
                         # Calculate roof age in years for roof instances
                         # Roof instances use raw API field names (installationDate, asOfDate)
                         if (
-                            "installationDate" in features_gdf.columns
-                            and "asOfDate" in features_gdf.columns
+                            "installation_date" in features_gdf.columns
+                            and "as_of_date" in features_gdf.columns
                         ):
                             roof_instance_mask = (
                                 features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
@@ -2337,9 +2285,9 @@ class NearmapAIExporter(BaseExporter):
                             if roof_instance_mask.any():
                                 age_years = calculate_roof_age_years(
                                     features_gdf.loc[
-                                        roof_instance_mask, "installationDate"
+                                        roof_instance_mask, "installation_date"
                                     ],
-                                    features_gdf.loc[roof_instance_mask, "asOfDate"],
+                                    features_gdf.loc[roof_instance_mask, "as_of_date"],
                                 )
                                 if age_years is not None:
                                     features_gdf.loc[

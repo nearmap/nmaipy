@@ -92,21 +92,21 @@ def test_exporter_process_chunk_mocked(test_aoi_file, test_output_dir, data_dire
         mock_api = Mock()
         mock_api_class.return_value = mock_api
 
-        # Create mock return data
+        # Create mock return data (columns are snake_case after _parse_response)
         roofs_gdf = gpd.GeoDataFrame(
             [
                 {
                     AOI_ID_COLUMN_NAME: 0,
-                    "installationDate": "2001-07-09",
-                    "trustScore": 51.5,
-                    "area": 107.66,
+                    "installation_date": "2001-07-09",
+                    "trust_score": 51.5,
+                    "area_sqm": 107.66,
                     "kind": "roof",
                     "geometry": aois[0],
                 }
             ],
             crs=API_CRS
         )
-        metadata_df = pd.DataFrame([{AOI_ID_COLUMN_NAME: 0, "resourceId": "test-resource"}])
+        metadata_df = pd.DataFrame([{AOI_ID_COLUMN_NAME: 0, "resource_id": "test-resource"}])
         metadata_df = metadata_df.set_index(AOI_ID_COLUMN_NAME)
         errors_df = pd.DataFrame()
 
