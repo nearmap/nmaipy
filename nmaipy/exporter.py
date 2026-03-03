@@ -604,6 +604,8 @@ def export_feature_class(
                 initial_batch[col] = class_features[col].values
                 added_cols.add(col)
 
+    convert_bool_columns_to_yn(initial_batch)
+
     if initial_batch:
         df_parts.append(pd.DataFrame(initial_batch, index=range(n_rows)))
 

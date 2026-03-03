@@ -897,7 +897,7 @@ def feature_attributes(
             if class_id in BUILDING_STYLE_CLASS_IDS:
                 col = "multiparcel_feature"
                 if col in primary_feature:
-                    parcel[f"primary_{name}_{col}"] = primary_feature[col]
+                    parcel[f"primary_{name}_{col}"] = TRUE_STRING if primary_feature[col] else FALSE_STRING
                 if class_id == ROOF_ID:
                     # Get non-roof features as children for clipped roof recalculation
                     geom_col = (
