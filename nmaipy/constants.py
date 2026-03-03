@@ -168,7 +168,7 @@ LAT_LONG_CRS = "WGS 84"
 AREA_CRS = {
     "au": "epsg:3577",
     "ca": "esri:102001",
-    "nz": "epsg:3577",
+    "nz": "epsg:2193",
     "us": "esri:102003",
 }
 API_CRS = "EPSG:4326"
