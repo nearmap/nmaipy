@@ -463,6 +463,21 @@ def _batch_project_geometries(
     return parent_projected, child_proj_by_aoi
 
 
+def _add_present_from_details(batch, added_cols):
+    """For any _details key in batch, add a corresponding _present Y/N column."""
+    for key in list(batch.keys()):
+        if key.endswith("_details"):
+            present_key = key.replace("_details", "_present")
+            if present_key not in added_cols:
+                batch[present_key] = [
+                    TRUE_STRING
+                    if (v is not None and str(v) not in ("", "null", "nan", "None"))
+                    else FALSE_STRING
+                    for v in batch[key]
+                ]
+                added_cols.add(present_key)
+
+
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
     class_id: str,
@@ -637,6 +652,9 @@ def export_feature_class(
                 )
                 added_cols.add(dst)
 
+        # Derive _present Y/N columns from _details columns
+        _add_present_from_details(ri_batch, added_cols)
+
         # Copy pre-calculated roof age in years (calculated in process_chunk)
         if "roof_age_years_as_of_date" in class_features.columns:
             ri_batch["roof_age_years_as_of_date"] = class_features[
@@ -720,6 +738,7 @@ def export_feature_class(
                             ri_lookup[col]
                         ).values
                         added_cols.add(col)
+                    _add_present_from_details(ri_mapped_batch, added_cols)
                     if ri_mapped_batch:
                         df_parts.append(
                             pd.DataFrame(ri_mapped_batch, index=range(n_rows))
@@ -1069,6 +1088,7 @@ def export_feature_class(
                                         ri_lookup[col]
                                     ).values
                                     added_cols.add(col)
+                            _add_present_from_details(bldg_ri_batch, added_cols)
                             if bldg_ri_batch:
                                 df_parts.append(
                                     pd.DataFrame(bldg_ri_batch, index=range(n_rows))

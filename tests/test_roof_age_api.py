@@ -23,12 +23,14 @@ from nmaipy.constants import (
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
     ROOF_AGE_AREA_FIELD,
+    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MODEL_VERSION_FIELD,
     ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
+    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD,
     ROOF_AGE_RESOURCE_ID_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_ID,
@@ -650,9 +652,27 @@ class TestRoofAgeFieldMapping:
                     "kind": "roof",
                     ROOF_AGE_MAPBROWSER_URL_FIELD: "https://example.com/map?locationMarker",
                     ROOF_AGE_MODEL_VERSION_FIELD: "v2.1",
+                    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD: '[{"type": "building", "date": "2019-05"}]',
+                    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD: '{"yearBuilt": 2019}',
+                },
+                {
+                    AOI_ID_COLUMN_NAME: 0,
+                    "feature_id": "ri_002",
+                    "class_id": ROOF_INSTANCE_CLASS_ID,
+                    "description": "Roof Instance",
+                    "area_sqm": 50.0,
+                    "installationDate": "2020-01-01",
+                    "asOfDate": "2023-01-01",
+                    "trustScore": 70.0,
+                    "evidenceType": "imagery",
+                    "kind": "roof",
+                    ROOF_AGE_MAPBROWSER_URL_FIELD: "https://example.com/map2?locationMarker",
+                    ROOF_AGE_MODEL_VERSION_FIELD: "v2.1",
+                    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD: None,
+                    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD: None,
                 },
             ],
-            geometry=[test_aoi_nj],
+            geometry=[test_aoi_nj, test_aoi_nj],
             crs=API_CRS,
         )
 
@@ -674,6 +694,14 @@ class TestRoofAgeFieldMapping:
             assert ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD in result_df.columns
             assert result_df[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0] == "https://example.com/map?locationMarker"
             assert result_df[ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD].iloc[0] == "v2.1"
+
+            # _present columns derived from _details
+            assert "roof_age_relevant_permits_present" in result_df.columns
+            assert "roof_age_assessor_data_present" in result_df.columns
+            assert result_df["roof_age_relevant_permits_present"].iloc[0] == "Y", "Row with data should be Y"
+            assert result_df["roof_age_assessor_data_present"].iloc[0] == "Y", "Row with data should be Y"
+            assert result_df["roof_age_relevant_permits_present"].iloc[1] == "N", "Row with null should be N"
+            assert result_df["roof_age_assessor_data_present"].iloc[1] == "N", "Row with null should be N"
 
     def test_roof_export_includes_primary_child_url_and_version(self, test_aoi_nj, roof_instance_gdf):
         """mapBrowserUrl and modelVersion propagate as primary_child_ prefixed output columns."""
@@ -714,3 +742,9 @@ class TestRoofAgeFieldMapping:
             assert f"primary_child_{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}" in result_df.columns
             assert result_df[f"primary_child_{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"].iloc[0] == "https://example.com/map?locationMarker"
             assert result_df[f"primary_child_{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"].iloc[0] == "v2.1"
+
+            # _present columns derived from primary_child _details
+            assert "primary_child_roof_age_relevant_permits_present" in result_df.columns
+            assert "primary_child_roof_age_assessor_data_present" in result_df.columns
+            assert result_df["primary_child_roof_age_relevant_permits_present"].iloc[0] == "Y"
+            assert result_df["primary_child_roof_age_assessor_data_present"].iloc[0] == "Y"
