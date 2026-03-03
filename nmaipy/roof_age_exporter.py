@@ -39,7 +39,7 @@ from nmaipy.api_common import (
     save_chunk_latency_stats,
 )
 from nmaipy.base_exporter import BaseExporter
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, ROOF_AGE_NO_PREFIX_COLUMNS
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, ROOF_AGE_PREFIX_COLUMNS
 from nmaipy.feature_attributes import calculate_roof_age_years, convert_bool_columns_to_yn
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -514,14 +514,11 @@ class RoofAgeExporter(BaseExporter):
         """
         # Save roofs
         if len(roofs_gdf) > 0:
-            # Add roof_age_ prefix to snake_case columns (columns arrive as snake_case from API client)
+            # Add roof_age_ prefix to known Roof Age API columns (whitelist)
             rename_map = {}
             for col in roofs_gdf.columns:
-                if col in ROOF_AGE_NO_PREFIX_COLUMNS:
-                    continue
-                if col.startswith("roof_age_"):
-                    continue
-                rename_map[col] = f"roof_age_{col}"
+                if col in ROOF_AGE_PREFIX_COLUMNS:
+                    rename_map[col] = f"roof_age_{col}"
             roofs_gdf = roofs_gdf.rename(columns=rename_map)
             convert_bool_columns_to_yn(roofs_gdf)
 
@@ -556,7 +553,7 @@ class RoofAgeExporter(BaseExporter):
                     "roof_age_installation_date",
                     "roof_age_as_of_date",
                     "roof_age_trust_score",
-                    "roof_age_area_sqm",
+                    "area_sqm",
                     "roof_age_evidence_type",
                     "roof_age_evidence_type_description",
                     "roof_age_before_installation_capture_date",

@@ -71,7 +71,7 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    ROOF_AGE_NO_PREFIX_COLUMNS,
+    ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     S3_PARALLEL_READ_WORKERS,
@@ -616,12 +616,17 @@ def export_feature_class(
                 ri_batch[col] = class_features[col].values
                 added_cols.add(col)
 
-        # Add roof_age_ prefix to Roof Age API columns (already snake_case from parse).
-        # Columns already prefixed with roof_age_ (e.g. calculated fields) pass through as-is.
+        # Add roof_age_ prefix to Roof Age API columns (whitelist).
+        # Only known Roof Age columns get prefixed; all other columns are ignored.
         for col in class_features.columns:
-            if col in ROOF_AGE_NO_PREFIX_COLUMNS or col in added_cols:
+            if col in added_cols:
                 continue
-            dst = col if col.startswith("roof_age_") else f"roof_age_{col}"
+            if col in ROOF_AGE_PREFIX_COLUMNS:
+                dst = f"roof_age_{col}"
+            elif col.startswith("roof_age_"):
+                dst = col  # calculated fields like roof_age_years_as_of_date
+            else:
+                continue
             if dst not in added_cols:
                 ri_batch[dst] = class_features[col].values
                 added_cols.add(dst)
@@ -660,9 +665,14 @@ def export_feature_class(
                 ri_cols = ["feature_id"]
                 col_rename = {}
                 for col in roof_instances.columns:
-                    if col in ROOF_AGE_NO_PREFIX_COLUMNS or col == "feature_id":
+                    if col == "feature_id":
                         continue
-                    base = col if col.startswith("roof_age_") else f"roof_age_{col}"
+                    if col in ROOF_AGE_PREFIX_COLUMNS:
+                        base = f"roof_age_{col}"
+                    elif col.startswith("roof_age_"):
+                        base = col
+                    else:
+                        continue
                     prefixed_dst = f"primary_child_{base}"
                     if prefixed_dst not in added_cols:
                         ri_cols.append(col)
@@ -1006,9 +1016,14 @@ def export_feature_class(
                         ri_cols = ["feature_id"]
                         col_rename = {}
                         for col in roof_instances.columns:
-                            if col in ROOF_AGE_NO_PREFIX_COLUMNS or col == "feature_id":
+                            if col == "feature_id":
                                 continue
-                            base = col if col.startswith("roof_age_") else f"roof_age_{col}"
+                            if col in ROOF_AGE_PREFIX_COLUMNS:
+                                base = f"roof_age_{col}"
+                            elif col.startswith("roof_age_"):
+                                base = col
+                            else:
+                                continue
                             prefixed_dst = f"primary_child_{base}"
                             ri_cols.append(col)
                             col_rename[col] = prefixed_dst
@@ -2274,7 +2289,6 @@ class NearmapAIExporter(BaseExporter):
                                     )
 
                         # Calculate roof age in years for roof instances
-                        # Roof instances use raw API field names (installationDate, asOfDate)
                         if (
                             "installation_date" in features_gdf.columns
                             and "as_of_date" in features_gdf.columns

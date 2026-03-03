@@ -62,9 +62,13 @@ def test_exporter_validates_country(test_aoi_file, test_output_dir):
         )
 
 
-def test_exporter_process_chunk_mocked(test_aoi_file, test_output_dir, data_directory):
-    """Test process_chunk method directly with mocked API (bypasses multiprocessing)"""
-    # Create exporter
+def test_exporter_process_chunk_with_cached_data(test_aoi_file, test_output_dir, roof_age_gdf, roof_age_metadata_df):
+    """Test process_chunk method with real cached API data (bypasses multiprocessing).
+
+    Uses real Roof Age API response data cached in test_roof_age_bulk_nj.parquet
+    instead of hand-crafted mock data. This ensures the test validates against
+    the actual column schema returned by the API.
+    """
     exporter = RoofAgeExporter(
         aoi_file=str(test_aoi_file),
         output_dir=str(test_output_dir),
@@ -74,54 +78,46 @@ def test_exporter_process_chunk_mocked(test_aoi_file, test_output_dir, data_dire
         processes=1,
     )
 
-    # Prepare test AOI data
+    # Prepare AOI GeoDataFrame matching the cached data's AOI IDs
+    aoi_ids = roof_age_gdf[AOI_ID_COLUMN_NAME].unique()
     aois = [
-        Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]),
+        Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]])
+        for _ in aoi_ids
     ]
     aoi_gdf = gpd.GeoDataFrame(
         geometry=aois,
         crs=API_CRS,
-        index=pd.Index([0], name=AOI_ID_COLUMN_NAME)
+        index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME)
     )
 
     # Ensure chunk directory exists
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
 
-    # Mock RoofAgeApi at the module level where process_chunk imports it
+    # Patch the API to return real cached data instead of making network calls
     with patch('nmaipy.roof_age_exporter.RoofAgeApi') as mock_api_class:
         mock_api = Mock()
         mock_api_class.return_value = mock_api
-
-        # Create mock return data (columns are snake_case after _parse_response)
-        roofs_gdf = gpd.GeoDataFrame(
-            [
-                {
-                    AOI_ID_COLUMN_NAME: 0,
-                    "installation_date": "2001-07-09",
-                    "trust_score": 51.5,
-                    "area_sqm": 107.66,
-                    "kind": "roof",
-                    "geometry": aois[0],
-                }
-            ],
-            crs=API_CRS
-        )
-        metadata_df = pd.DataFrame([{AOI_ID_COLUMN_NAME: 0, "resource_id": "test-resource"}])
-        metadata_df = metadata_df.set_index(AOI_ID_COLUMN_NAME)
-        errors_df = pd.DataFrame()
-
-        mock_api.get_roof_age_bulk.return_value = (roofs_gdf, metadata_df, errors_df)
+        mock_api.get_roof_age_bulk.return_value = (roof_age_gdf.copy(), roof_age_metadata_df.copy(), pd.DataFrame())
         mock_api.get_latency_stats.return_value = None
 
-        # Call process_chunk directly (bypasses multiprocessing)
         exporter.process_chunk("test_chunk_0000", aoi_gdf)
 
-        # Verify API was called
         assert mock_api.get_roof_age_bulk.called
 
         # Verify chunk output files were created
-        assert (Path(exporter.chunk_path) /"roofs_test_chunk_0000.parquet").exists()
-        assert (Path(exporter.chunk_path) /"metadata_test_chunk_0000.parquet").exists()
+        roofs_path = Path(exporter.chunk_path) / "roofs_test_chunk_0000.parquet"
+        metadata_path = Path(exporter.chunk_path) / "metadata_test_chunk_0000.parquet"
+        assert roofs_path.exists(), "Roofs chunk parquet should be created"
+        assert metadata_path.exists(), "Metadata chunk parquet should be created"
+
+        # Read back and validate the output has expected columns
+        # Note: RoofAgeExporter writes raw API columns (no roof_age_ prefix);
+        # the prefix is added later by the main NearmapAIExporter's export_feature_class()
+        result_gdf = gpd.read_parquet(roofs_path)
+        assert len(result_gdf) == len(roof_age_gdf), "All roof instances should be written"
+
+        for col in ["installation_date", "trust_score", "kind", "map_browser_url"]:
+            assert col in result_gdf.columns, f"Missing expected column: {col}"
 
 
 def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):

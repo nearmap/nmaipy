@@ -28,7 +28,7 @@ from nmaipy import log
 from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
-    ROOF_AGE_NO_PREFIX_COLUMNS,
+    ROOF_AGE_PREFIX_COLUMNS,
 )
 
 logger = log.get_logger()
@@ -39,11 +39,23 @@ FALSE_STRING = "N"
 
 
 def convert_bool_columns_to_yn(batch):
-    """Convert any boolean numpy arrays in a dict to Y/N string arrays in-place."""
+    """Convert any boolean numpy arrays in a dict to Y/N string arrays in-place.
+
+    Handles both native bool dtype arrays and object dtype arrays containing
+    Python bools (which occur after pd.concat of columns with missing values).
+    """
     for key in list(batch.keys()):
         arr = batch[key]
-        if hasattr(arr, "dtype") and arr.dtype == bool:
+        if not hasattr(arr, "dtype"):
+            continue
+        if arr.dtype == bool:
             batch[key] = np.where(arr, TRUE_STRING, FALSE_STRING)
+        elif arr.dtype == object:
+            # After pd.concat, bool columns with NaN become object dtype.
+            # Check if non-null values are booleans.
+            non_null = arr[pd.notna(arr)]
+            if len(non_null) > 0 and all(isinstance(v, (bool, np.bool_)) for v in non_null):
+                batch[key] = np.where(pd.isna(arr), arr, np.where(arr.astype(object), TRUE_STRING, FALSE_STRING))
 
 
 def _parse_include_param(val):
@@ -753,7 +765,7 @@ def flatten_roof_instance_attributes(
     installation_date = None
     as_of_date = None
     for key in keys:
-        if key in ROOF_AGE_NO_PREFIX_COLUMNS:
+        if key not in ROOF_AGE_PREFIX_COLUMNS:
             continue
         value = get_value(key)
         if value is None or (isinstance(value, float) and pd.isna(value)):
