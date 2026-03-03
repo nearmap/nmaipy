@@ -36,10 +36,12 @@ from nmaipy.constants import (
     ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_KIND_FIELD,
+    ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
     ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
-    ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
+    ROOF_AGE_MODEL_VERSION_FIELD,
     ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
+    ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
     ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_RELEVANT_PERMITS_FIELD,
     ROOF_AGE_TRUST_SCORE_FIELD,
@@ -843,16 +845,12 @@ def flatten_roof_instance_attributes(
         )
 
     # Roof Age mapbrowser URL (shows before/after comparison view)
-    mapbrowser_url = get_value(
-        ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD
-    )
+    mapbrowser_url = get_value(ROOF_AGE_MAPBROWSER_URL_FIELD, ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD)
     if mapbrowser_url is not None:
         flattened[f"{prefix}{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"] = mapbrowser_url
 
     # Roof Age model version (top-level response metadata propagated to each feature)
-    model_version = get_value(
-        ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD, ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD
-    )
+    model_version = get_value(ROOF_AGE_MODEL_VERSION_FIELD, ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD)
     if model_version is not None:
         flattened[f"{prefix}{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"] = model_version
 

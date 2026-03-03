@@ -1038,10 +1038,10 @@ def export_feature_class(
                         # Roof age columns to link through (same as what roofs get)
                         ri_cols = ["feature_id"]
                         col_rename = {}
-                        for col in ROOF_AGE_FIELD_MAP.values():
-                            if col in roof_instances.columns:
-                                ri_cols.append(col)
-                                col_rename[col] = f"primary_child_{col}"
+                        for src, dst in ROOF_AGE_FIELD_MAP.items():
+                            if src in roof_instances.columns:
+                                ri_cols.append(src)
+                                col_rename[src] = f"primary_child_{dst}"
 
                         # Include calculated roof_age_years_as_of_date
                         if "roof_age_years_as_of_date" in roof_instances.columns:
