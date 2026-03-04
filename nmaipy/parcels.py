@@ -33,7 +33,6 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MIN_ROOF_INSTANCE_IOU_THRESHOLD,
-    ROOF_AGE_TRUST_SCORE_FIELD,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -823,8 +822,8 @@ def feature_attributes(
                             target_lat=primary_lat,
                             target_lon=primary_lon,
                             confidence_col=(
-                                ROOF_AGE_TRUST_SCORE_FIELD
-                                if ROOF_AGE_TRUST_SCORE_FIELD
+                                "trust_score"
+                                if "trust_score"
                                 in features_for_selection.columns
                                 else None
                             ),
@@ -898,7 +897,7 @@ def feature_attributes(
             if class_id in BUILDING_STYLE_CLASS_IDS:
                 col = "multiparcel_feature"
                 if col in primary_feature:
-                    parcel[f"primary_{name}_{col}"] = primary_feature[col]
+                    parcel[f"primary_{name}_{col}"] = TRUE_STRING if primary_feature[col] else FALSE_STRING
                 if class_id == ROOF_ID:
                     # Get non-roof features as children for clipped roof recalculation
                     geom_col = (

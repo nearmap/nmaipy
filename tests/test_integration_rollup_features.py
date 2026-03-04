@@ -570,9 +570,9 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
         class_gdf = gpd.read_parquet(parquet_path)
         assert 'is_primary' in class_gdf.columns, \
             f"Per-class parquet {parquet_path.name} should have is_primary column. Columns: {class_gdf.columns.tolist()}"
-        assert class_gdf['is_primary'].dtype == bool, \
-            f"is_primary in {parquet_path.name} should be boolean, got {class_gdf['is_primary'].dtype}"
-        print(f"  ✅ {parquet_path.name} has is_primary column (dtype: {class_gdf['is_primary'].dtype})")
+        assert set(class_gdf['is_primary'].dropna().unique()) <= {"Y", "N"}, \
+            f"is_primary in {parquet_path.name} should contain only Y/N, got {class_gdf['is_primary'].unique()}"
+        print(f"  ✅ {parquet_path.name} has is_primary column (values: {class_gdf['is_primary'].unique()})")
 
     # 3. Cross-verify: primary features in per-class parquets match rollup data
     rollup_file = final_dir / 'buildings.csv'
@@ -593,7 +593,7 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
                             class_features = class_gdf[class_gdf['class_id'] == class_id]
                             if len(class_features) > 0:
                                 # Check that primary features are marked correctly
-                                primary_features = class_features[class_features['is_primary'] == True]
+                                primary_features = class_features[class_features['is_primary'] == "Y"]
                                 primary_feature_ids = primary_features['feature_id'].astype(str).tolist()
 
                                 # Verify at least some primary IDs match

@@ -10,6 +10,7 @@ These tests verify:
 import json
 import os
 import tempfile
+import warnings
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -18,26 +19,29 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
+from nmaipy import parcels
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
     ROOF_AGE_AREA_FIELD,
-    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
-    ROOF_AGE_INSTALLATION_DATE_FIELD,
-    ROOF_AGE_MAPBROWSER_URL_FIELD,
-    ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD,
-    ROOF_AGE_MODEL_VERSION_FIELD,
-    ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
-    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD,
-    ROOF_AGE_RESOURCE_ID_FIELD,
-    ROOF_AGE_TRUST_SCORE_FIELD,
+    ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
 )
 from nmaipy.exporter import export_feature_class
 from nmaipy.roof_age_api import RoofAgeApi, RoofAgeAPIError
+
+
+@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+def test_gen_roof_age_data(parcels_2_gdf, data_directory: Path, cache_directory: Path):
+    """Generate cached roof age data for NJ parcels (3 AOIs)."""
+    small_gdf = parcels_2_gdf.head(3)
+    api = RoofAgeApi(cache_dir=cache_directory)
+    roofs_gdf, metadata_df, errors_df = api.get_roof_age_bulk(small_gdf)
+    roofs_gdf.to_csv(data_directory / "test_roof_age_bulk_nj.csv", index=False)
+    metadata_df.to_csv(data_directory / "test_roof_age_metadata_nj.csv")
 
 
 @pytest.fixture
@@ -169,30 +173,32 @@ def test_parse_response(roof_age_api, test_roof_age_response):
     assert AOI_ID_COLUMN_NAME in gdf.columns
     assert gdf[AOI_ID_COLUMN_NAME].iloc[0] == aoi_id
 
-    # Check key fields
-    assert ROOF_AGE_INSTALLATION_DATE_FIELD in gdf.columns
-    assert gdf[ROOF_AGE_INSTALLATION_DATE_FIELD].iloc[0] == "2001-07-09"
+    # Check key fields (snake_case after parse, matching feature_api.py pattern)
+    assert "installation_date" in gdf.columns
+    assert gdf["installation_date"].iloc[0] == "2001-07-09"
 
-    assert ROOF_AGE_TRUST_SCORE_FIELD in gdf.columns
-    assert gdf[ROOF_AGE_TRUST_SCORE_FIELD].iloc[0] == 51.5
+    assert "trust_score" in gdf.columns
+    assert gdf["trust_score"].iloc[0] == 51.5
 
-    assert ROOF_AGE_AREA_FIELD in gdf.columns
-    assert gdf[ROOF_AGE_AREA_FIELD].iloc[0] == 107.66206
+    # area is dropped (mapped to area_sqm)
+    assert "area" not in gdf.columns
+    assert "area_sqm" in gdf.columns
+    assert gdf["area_sqm"].iloc[0] == 107.66206
 
     # Check geometry
     assert not gdf.geometry.is_empty.any()
     assert all(gdf.geometry.geom_type == "Polygon")
 
-    # Check that timeline was serialized to JSON string
-    assert "timeline" in gdf.columns
-    assert isinstance(gdf["timeline"].iloc[0], str)
-    timeline_data = json.loads(gdf["timeline"].iloc[0])
-    assert isinstance(timeline_data, list)
-    assert len(timeline_data) == 2  # We have 2 timeline entries in the fixture
+    # timeline is dropped after serialization (internal field)
+    assert "timeline" not in gdf.columns
 
-    # Check that mapBrowserUrl keeps its API name but has ?locationMarker appended
-    assert ROOF_AGE_MAPBROWSER_URL_FIELD in gdf.columns, "mapBrowserUrl should be present under API name"
-    url = gdf[ROOF_AGE_MAPBROWSER_URL_FIELD].iloc[0]
+    # hilbert_id is dropped (mapped to feature_id)
+    assert "hilbert_id" not in gdf.columns
+    assert "feature_id" in gdf.columns
+
+    # mapBrowserUrl → map_browser_url with ?locationMarker appended
+    assert "map_browser_url" in gdf.columns
+    url = gdf["map_browser_url"].iloc[0]
     assert url.endswith("?locationMarker"), f"URL should end with ?locationMarker, got: {url}"
 
 
@@ -228,8 +234,8 @@ def test_get_roof_age_by_aoi_real_api(test_aoi_nj):
 
     # Should get at least one roof (there's a house in this AOI)
     assert len(gdf) >= 1
-    assert ROOF_AGE_INSTALLATION_DATE_FIELD in gdf.columns
-    assert ROOF_AGE_TRUST_SCORE_FIELD in gdf.columns
+    assert "installation_date" in gdf.columns
+    assert "trust_score" in gdf.columns
 
 
 def test_get_roof_age_by_aoi_mocked(roof_age_api, test_aoi_nj, test_roof_age_response):
@@ -247,7 +253,7 @@ def test_get_roof_age_by_aoi_mocked(roof_age_api, test_aoi_nj, test_roof_age_res
         gdf = roof_age_api.get_roof_age_by_aoi(test_aoi_nj, aoi_id="test_aoi")
 
         assert len(gdf) == 1
-        assert gdf[ROOF_AGE_INSTALLATION_DATE_FIELD].iloc[0] == "2001-07-09"
+        assert gdf["installation_date"].iloc[0] == "2001-07-09"
 
 
 def test_get_roof_age_by_aoi_error(roof_age_api, test_aoi_nj):
@@ -288,7 +294,7 @@ def test_caching(roof_age_api, test_aoi_nj, test_roof_age_response):
 
         # Results should be identical
         assert len(gdf1) == len(gdf2)
-        assert gdf1[ROOF_AGE_INSTALLATION_DATE_FIELD].iloc[0] == gdf2[ROOF_AGE_INSTALLATION_DATE_FIELD].iloc[0]
+        assert gdf1["installation_date"].iloc[0] == gdf2["installation_date"].iloc[0]
 
 
 def test_bulk_query(roof_age_api, test_roof_age_response):
@@ -320,7 +326,7 @@ def test_bulk_query(roof_age_api, test_roof_age_response):
         assert len(roofs_gdf) == 3  # One roof per AOI
         assert len(metadata_df) == 3
         assert len(errors_df) == 0
-        assert ROOF_AGE_RESOURCE_ID_FIELD in metadata_df.columns
+        assert "resource_id" in metadata_df.columns
 
 
 def test_bulk_query_with_errors(roof_age_api):
@@ -342,7 +348,7 @@ def test_bulk_query_with_errors(roof_age_api):
             if aoi_id == 0:
                 # Return a valid GeoDataFrame
                 return gpd.GeoDataFrame(
-                    [{AOI_ID_COLUMN_NAME: aoi_id, ROOF_AGE_INSTALLATION_DATE_FIELD: "2020-01-01"}],
+                    [{AOI_ID_COLUMN_NAME: aoi_id, "installation_date": "2020-01-01"}],
                     geometry=[aoi],
                     crs=API_CRS
                 )
@@ -392,12 +398,12 @@ def test_pagination(roof_age_api, test_aoi_nj):
             {
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [[[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]]},
-                "properties": {ROOF_AGE_INSTALLATION_DATE_FIELD: "2020-01-01", ROOF_AGE_TRUST_SCORE_FIELD: 80.0, ROOF_AGE_AREA_FIELD: 100.0, "kind": "roof"}
+                "properties": {"installationDate": "2020-01-01", "trustScore": 80.0, ROOF_AGE_AREA_FIELD: 100.0, "kind": "roof"}
             },
             {
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [[[-74.276, 40.643], [-74.275, 40.643], [-74.275, 40.642], [-74.276, 40.642], [-74.276, 40.643]]]},
-                "properties": {ROOF_AGE_INSTALLATION_DATE_FIELD: "2019-05-15", ROOF_AGE_TRUST_SCORE_FIELD: 75.0, ROOF_AGE_AREA_FIELD: 150.0, "kind": "roof"}
+                "properties": {"installationDate": "2019-05-15", "trustScore": 75.0, ROOF_AGE_AREA_FIELD: 150.0, "kind": "roof"}
             }
         ]
     }
@@ -409,7 +415,7 @@ def test_pagination(roof_age_api, test_aoi_nj):
             {
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [[[-74.277, 40.644], [-74.276, 40.644], [-74.276, 40.643], [-74.277, 40.643], [-74.277, 40.644]]]},
-                "properties": {ROOF_AGE_INSTALLATION_DATE_FIELD: "2018-08-20", ROOF_AGE_TRUST_SCORE_FIELD: 90.0, ROOF_AGE_AREA_FIELD: 200.0, "kind": "roof"}
+                "properties": {"installationDate": "2018-08-20", "trustScore": 90.0, ROOF_AGE_AREA_FIELD: 200.0, "kind": "roof"}
             }
         ]
     }
@@ -442,14 +448,14 @@ def test_pagination(roof_age_api, test_aoi_nj):
         assert len(gdf) == 3
 
         # Verify features from both pages are present
-        dates = gdf[ROOF_AGE_INSTALLATION_DATE_FIELD].tolist()
+        dates = gdf["installation_date"].tolist()
         assert "2020-01-01" in dates
         assert "2019-05-15" in dates
         assert "2018-08-20" in dates
 
         # Verify resource ID was captured from first page
-        assert ROOF_AGE_RESOURCE_ID_FIELD in gdf.columns
-        assert gdf[ROOF_AGE_RESOURCE_ID_FIELD].iloc[0] == "test-resource-123"
+        assert "resource_id" in gdf.columns
+        assert gdf["resource_id"].iloc[0] == "test-resource-123"
 
 
 def test_pagination_with_limit(roof_age_api, test_aoi_nj):
@@ -522,8 +528,8 @@ def test_pagination_real_api():
 
     # Breezy Point has >1000 roof instances, so pagination must have occurred
     assert len(gdf) > 1000, f"Expected >1000 features (pagination required), got {len(gdf)}"
-    assert ROOF_AGE_INSTALLATION_DATE_FIELD in gdf.columns
-    assert ROOF_AGE_RESOURCE_ID_FIELD in gdf.columns
+    assert "installation_date" in gdf.columns
+    assert "resource_id" in gdf.columns
 
 
 def test_bulk_mode_parameter_included_in_request(cache_directory, test_aoi_nj):
@@ -625,62 +631,70 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
         assert result_df["roof_age_evidence_type"].notna().any(), "No evidence types present"
 
 
+def test_all_roof_age_fields_accounted_for(roof_age_api, test_roof_age_response):
+    """Every column from _parse_response must be in ROOF_AGE_PREFIX_COLUMNS or known structural columns.
+
+    This guards against new API fields being silently dropped by the whitelist.
+    If a new field appears in the Roof Age API response, this test will fail and
+    prompt you to add it to ROOF_AGE_PREFIX_COLUMNS in constants.py.
+    """
+    gdf = roof_age_api._parse_response(test_roof_age_response, "test_aoi")
+    structural = {AOI_ID_COLUMN_NAME, "feature_id", "class_id", "geometry", "area_sqm", "resource_id", "description"}
+    for col in gdf.columns:
+        assert col in ROOF_AGE_PREFIX_COLUMNS or col in structural, (
+            f"Column '{col}' from Roof Age API not in ROOF_AGE_PREFIX_COLUMNS or structural columns — "
+            f"add it to the whitelist in constants.py"
+        )
+
+
 class TestRoofAgeFieldMapping:
     """
-    Tests that export_feature_class correctly renames Roof Age API field names
-    (camelCase) to output field names (snake_case) via ROOF_AGE_FIELD_MAP.
+    Tests that export_feature_class correctly adds roof_age_ prefix to
+    Roof Age API columns and rejects Feature API columns that leak through
+    after pd.concat(feature_api_features, roof_age_features).
 
-    All fields—including mapBrowserUrl and modelVersion—should arrive from
-    _parse_response() under their API names.
+    Uses real cached data from the Roof Age API (test_roof_age_bulk_nj.parquet)
+    combined with real Feature API data (test_features_2.csv) to replicate the
+    actual data flow in the exporter.
     """
 
     @pytest.fixture
-    def roof_instance_gdf(self, test_aoi_nj):
-        """Roof instance GeoDataFrame with API field names (as _parse_response produces)."""
-        return gpd.GeoDataFrame(
-            [
-                {
-                    AOI_ID_COLUMN_NAME: 0,
-                    "feature_id": "ri_001",
-                    "class_id": ROOF_INSTANCE_CLASS_ID,
-                    "description": "Roof Instance",
-                    "area_sqm": 107.66,
-                    "installationDate": "2019-06-15",
-                    "asOfDate": "2023-01-01",
-                    "trustScore": 85.0,
-                    "evidenceType": "imagery",
-                    "kind": "roof",
-                    ROOF_AGE_MAPBROWSER_URL_FIELD: "https://example.com/map?locationMarker",
-                    ROOF_AGE_MODEL_VERSION_FIELD: "v2.1",
-                    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD: '[{"type": "building", "date": "2019-05"}]',
-                    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD: '{"yearBuilt": 2019}',
-                },
-                {
-                    AOI_ID_COLUMN_NAME: 0,
-                    "feature_id": "ri_002",
-                    "class_id": ROOF_INSTANCE_CLASS_ID,
-                    "description": "Roof Instance",
-                    "area_sqm": 50.0,
-                    "installationDate": "2020-01-01",
-                    "asOfDate": "2023-01-01",
-                    "trustScore": 70.0,
-                    "evidenceType": "imagery",
-                    "kind": "roof",
-                    ROOF_AGE_MAPBROWSER_URL_FIELD: "https://example.com/map2?locationMarker",
-                    ROOF_AGE_MODEL_VERSION_FIELD: "v2.1",
-                    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD: None,
-                    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD: None,
-                },
-            ],
-            geometry=[test_aoi_nj, test_aoi_nj],
-            crs=API_CRS,
-        )
+    def combined_features_gdf(self, roof_age_gdf, features_2_gdf):
+        """Simulate the pd.concat that happens in the exporter's process_chunk.
 
-    def test_roof_instance_export_renames_url_and_version(self, roof_instance_gdf):
-        """API-named mapBrowserUrl and modelVersion are renamed to output names in CSV."""
+        This is the critical test setup: after concat, roof instance rows inherit
+        ALL Feature API columns (link, system_version, aoi_geometry, etc.) with NaN values.
+        The whitelist in export_feature_class must filter these out.
+        """
+        # Prepare roof age data with aoi_id as index (matching exporter behaviour)
+        ra = roof_age_gdf.copy()
+        if AOI_ID_COLUMN_NAME in ra.columns:
+            ra = ra.set_index(AOI_ID_COLUMN_NAME)
+
+        # Take a small slice of Feature API features for the same AOIs
+        matching_aoi_ids = ra.index.unique()
+        fa = features_2_gdf[features_2_gdf.index.isin(matching_aoi_ids)].copy()
+
+        # Concat just like exporter.py line ~2203
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*concatenation with empty or all-NA.*")
+            combined = gpd.GeoDataFrame(
+                pd.concat([fa, ra], ignore_index=False),
+                crs=API_CRS,
+            )
+        return combined
+
+    def test_roof_instance_export_whitelists_columns(self, combined_features_gdf):
+        """Only ROOF_AGE_PREFIX_COLUMNS get roof_age_ prefix; Feature API columns are excluded."""
+        # Extract just the roof instance rows (as the exporter does)
+        ri_features = combined_features_gdf[
+            combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+        ]
+        assert len(ri_features) > 0, "Should have roof instance features in combined data"
+
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path, _ = export_feature_class(
-                features_gdf=roof_instance_gdf,
+                features_gdf=ri_features,
                 class_id=ROOF_INSTANCE_CLASS_ID,
                 class_description=FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID],
                 output_dir=tmpdir,
@@ -690,39 +704,72 @@ class TestRoofAgeFieldMapping:
             )
 
             result_df = pd.read_csv(csv_path)
-            assert ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD in result_df.columns
-            assert ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD in result_df.columns
-            assert result_df[ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD].iloc[0] == "https://example.com/map?locationMarker"
-            assert result_df[ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD].iloc[0] == "v2.1"
 
-            # _present columns derived from _details
-            assert "roof_age_relevant_permits_present" in result_df.columns
-            assert "roof_age_assessor_data_present" in result_df.columns
-            assert result_df["roof_age_relevant_permits_present"].iloc[0] == "Y", "Row with data should be Y"
-            assert result_df["roof_age_assessor_data_present"].iloc[0] == "Y", "Row with data should be Y"
-            assert result_df["roof_age_relevant_permits_present"].iloc[1] == "N", "Row with null should be N"
-            assert result_df["roof_age_assessor_data_present"].iloc[1] == "N", "Row with null should be N"
+            # Core roof age columns must be present (these exist for all properties)
+            for col in ["roof_age_installation_date", "roof_age_trust_score",
+                        "roof_age_kind", "roof_age_map_browser_url", "roof_age_model_version",
+                        "roof_age_evidence_type", "roof_age_as_of_date"]:
+                assert col in result_df.columns, f"Missing expected column: {col}"
 
-    def test_roof_export_includes_primary_child_url_and_version(self, test_aoi_nj, roof_instance_gdf):
-        """mapBrowserUrl and modelVersion propagate as primary_child_ prefixed output columns."""
-        roof_gdf = gpd.GeoDataFrame(
-            [
-                {
-                    AOI_ID_COLUMN_NAME: 0,
-                    "feature_id": "roof_001",
-                    "class_id": ROOF_ID,
-                    "description": "Roof",
-                    "confidence": 0.95,
-                    "area_sqm": 110.0,
-                    "clipped_area_sqm": 110.0,
-                    "unclipped_area_sqm": 110.0,
-                    "primary_child_roof_age_feature_id": "ri_001",
-                    "primary_child_roof_age_iou": 0.92,
-                },
-            ],
-            geometry=[test_aoi_nj],
-            crs=API_CRS,
+            # Every roof_age_ prefixed column must come from the whitelist
+            for col in result_df.columns:
+                if col.startswith("roof_age_"):
+                    base = col[len("roof_age_"):]
+                    assert base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date", \
+                        f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
+
+            # Boolean fields converted to Y/N
+            assert set(result_df["roof_age_relevant_permits"].dropna().unique()) <= {"Y", "N"}, \
+                "Boolean relevant_permits should be Y/N"
+            assert set(result_df["roof_age_assessor_data"].dropna().unique()) <= {"Y", "N"}, \
+                "Boolean assessor_data should be Y/N"
+
+            # CRITICAL: Feature API columns must NOT leak through with roof_age_ prefix
+            # These are the exact columns that leaked in v4.4.0
+            forbidden_columns = [
+                "roof_age_link",
+                "roof_age_system_version",
+                "roof_age_survey_id",
+                "roof_age_aoi_geometry",
+                "roof_age_perspective",
+                "roof_age_survey_date",
+                "roof_age_mesh_date",
+                "roof_age_confidence",
+                "roof_age_fidelity",
+                "roof_age_attributes",
+                "roof_age_parent_id",
+                "roof_age_belongs_to_parcel",
+                "roof_age_multiparcel_feature",
+                "roof_age_is_footprint",
+                "roof_age_damage",
+            ]
+            for col in forbidden_columns:
+                assert col not in result_df.columns, \
+                    f"Feature API column leaked into roof instance export: {col}"
+
+    def test_roof_export_includes_primary_child_columns(self, combined_features_gdf, features_2_gdf):
+        """Roof age columns propagate as primary_child_roof_age_ on parent roofs."""
+        ri_features = combined_features_gdf[
+            combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+        ]
+        roof_features = combined_features_gdf[
+            combined_features_gdf["class_id"] == ROOF_ID
+        ]
+
+        if len(ri_features) == 0 or len(roof_features) == 0:
+            pytest.skip("Need both roof instances and roofs in combined data")
+
+        # Link roof instances to roofs (replicating exporter flow)
+        ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(
+            ri_features, roof_features
         )
+
+        # Only test roofs that have a linked primary child
+        roofs_with_link = roofs_linked[
+            roofs_linked["primary_child_roof_age_feature_id"].notna()
+        ]
+        if len(roofs_with_link) == 0:
+            pytest.skip("No roofs linked to roof instances in test data")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path, _ = export_feature_class(
@@ -733,18 +780,44 @@ class TestRoofAgeFieldMapping:
                 export_csv=True,
                 export_parquet=False,
                 country="us",
-                class_features=roof_gdf,
-                roof_instance_features=roof_instance_gdf,
+                class_features=roofs_with_link,
+                roof_instance_features=ri_features,
             )
 
             result_df = pd.read_csv(csv_path)
-            assert f"primary_child_{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}" in result_df.columns
-            assert f"primary_child_{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}" in result_df.columns
-            assert result_df[f"primary_child_{ROOF_AGE_MAPBROWSER_URL_OUTPUT_FIELD}"].iloc[0] == "https://example.com/map?locationMarker"
-            assert result_df[f"primary_child_{ROOF_AGE_MODEL_VERSION_OUTPUT_FIELD}"].iloc[0] == "v2.1"
 
-            # _present columns derived from primary_child _details
-            assert "primary_child_roof_age_relevant_permits_present" in result_df.columns
-            assert "primary_child_roof_age_assessor_data_present" in result_df.columns
-            assert result_df["primary_child_roof_age_relevant_permits_present"].iloc[0] == "Y"
-            assert result_df["primary_child_roof_age_assessor_data_present"].iloc[0] == "Y"
+            # Primary child roof age columns should be present
+            for col in ["installation_date", "trust_score", "map_browser_url", "model_version"]:
+                prefixed = f"primary_child_roof_age_{col}"
+                assert prefixed in result_df.columns, f"Missing expected column: {prefixed}"
+
+            # Every primary_child_roof_age_ column must come from the whitelist
+            for col in result_df.columns:
+                if col.startswith("primary_child_roof_age_"):
+                    base = col[len("primary_child_roof_age_"):]
+                    allowed = (
+                        base in ROOF_AGE_PREFIX_COLUMNS
+                        or base in {"feature_id", "iou"}  # linkage columns
+                        or col.startswith("primary_child_roof_age_years_")  # calculated
+                    )
+                    assert allowed, \
+                        f"Unexpected primary_child_roof_age_ column: {col} (base '{base}')"
+
+            # Boolean primary child columns should be Y/N
+            if "primary_child_roof_age_relevant_permits" in result_df.columns:
+                vals = result_df["primary_child_roof_age_relevant_permits"].dropna().unique()
+                assert set(vals) <= {"Y", "N"}, "Boolean should be Y/N"
+
+            # Feature API columns must NOT leak through with primary_child_roof_age_ prefix
+            forbidden_columns = [
+                "primary_child_roof_age_link",
+                "primary_child_roof_age_system_version",
+                "primary_child_roof_age_aoi_geometry",
+                "primary_child_roof_age_survey_date",
+                "primary_child_roof_age_perspective",
+                "primary_child_roof_age_confidence",
+                "primary_child_roof_age_fidelity",
+            ]
+            for col in forbidden_columns:
+                assert col not in result_df.columns, \
+                    f"Feature API column leaked into roof export: {col}"

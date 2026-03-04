@@ -189,6 +189,23 @@ def features_3d_gdf(data_directory: Path) -> gpd.GeoDataFrame:
 
 
 @pytest.fixture(scope="session")
+def roof_age_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    """Roof age instances from cached Roof Age API bulk query for 3 NJ parcels."""
+    df = pd.read_csv(data_directory / "test_roof_age_bulk_nj.csv")
+    return gpd.GeoDataFrame(
+        df.drop("geometry", axis=1),
+        geometry=df.geometry.apply(loads),
+        crs=API_CRS,
+    )
+
+
+@pytest.fixture(scope="session")
+def roof_age_metadata_df(data_directory: Path) -> pd.DataFrame:
+    """Roof age metadata from cached bulk query."""
+    return pd.read_csv(data_directory / "test_roof_age_metadata_nj.csv", index_col=AOI_ID_COLUMN_NAME)
+
+
+@pytest.fixture(scope="session")
 def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd.GeoDataFrame:
     """
     A very large AOI in Adelaide, and a smaller AOI in Sydney to test gridding / large scale behaviour.

@@ -38,6 +38,7 @@ from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import pandas as pd
+import stringcase
 from shapely.geometry import Polygon, shape
 
 from nmaipy import log, storage
@@ -47,24 +48,15 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
-    ROOF_AGE_AFTER_INSTALLATION_CAPTURE_DATE_FIELD,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_DEFAULT_PAGE_LIMIT,
-    ROOF_AGE_EVIDENCE_TYPE_DESC_FIELD,
-    ROOF_AGE_EVIDENCE_TYPE_FIELD,
     ROOF_AGE_HILBERT_ID_FIELD,
-    ROOF_AGE_INSTALLATION_DATE_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
-    ROOF_AGE_MAX_CAPTURE_DATE_FIELD,
-    ROOF_AGE_MIN_CAPTURE_DATE_FIELD,
     ROOF_AGE_MODEL_VERSION_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
-    ROOF_AGE_NUM_CAPTURES_FIELD,
     ROOF_AGE_RESOURCE_ENDPOINT,
     ROOF_AGE_RESOURCE_ID_FIELD,
     ROOF_AGE_TIMELINE_FIELD,
-    ROOF_AGE_TRUST_SCORE_FIELD,
-    ROOF_AGE_UNTIL_DATE_FIELD,
     ROOF_AGE_URL_ROOT,
     ROOF_INSTANCE_CLASS_ID,
 )
@@ -274,14 +266,10 @@ class RoofAgeApi(BaseApiClient):
         features = response_data.get("features", [])
         if not features:
             logger.debug(f"No roof features found for {aoi_id}")
-            # Return empty GeoDataFrame with expected columns
+            # Return empty GeoDataFrame with expected columns (snake_case)
             return gpd.GeoDataFrame(
-                columns=[AOI_ID_COLUMN_NAME, "class_id", "description", "geometry"] + [
-                    ROOF_AGE_INSTALLATION_DATE_FIELD,
-                    ROOF_AGE_TRUST_SCORE_FIELD,
-                    ROOF_AGE_AREA_FIELD,
-                    "area_sqm",
-                ],
+                columns=[AOI_ID_COLUMN_NAME, "class_id", "description", "geometry",
+                         "installation_date", "trust_score", "area_sqm"],
                 crs=API_CRS
             )
 
@@ -310,7 +298,6 @@ class RoofAgeApi(BaseApiClient):
                 props[ROOF_AGE_TIMELINE_FIELD] = json.dumps(props[ROOF_AGE_TIMELINE_FIELD])
 
             # Append ?locationMarker to mapBrowserUrl if not present
-            # Keep the API field name — ROOF_AGE_FIELD_MAP handles renaming during export
             if ROOF_AGE_MAPBROWSER_URL_FIELD in props:
                 url = props[ROOF_AGE_MAPBROWSER_URL_FIELD]
                 if url and not url.endswith("?locationMarker"):
@@ -337,6 +324,14 @@ class RoofAgeApi(BaseApiClient):
             gdf[ROOF_AGE_RESOURCE_ID_FIELD] = response_data[ROOF_AGE_RESOURCE_ID_FIELD]
         if ROOF_AGE_MODEL_VERSION_FIELD in response_data:
             gdf[ROOF_AGE_MODEL_VERSION_FIELD] = response_data[ROOF_AGE_MODEL_VERSION_FIELD]
+
+        # Convert camelCase API columns to snake_case, matching feature_api.py pattern
+        gdf.columns = [stringcase.snakecase(c) for c in gdf.columns]
+
+        # Drop redundant/internal columns (originals already mapped above)
+        gdf = gdf.drop(
+            columns=[c for c in ["timeline", "hilbert_id", "area"] if c in gdf.columns]
+        )
 
         return gdf
 
@@ -584,8 +579,8 @@ class RoofAgeApi(BaseApiClient):
                     AOI_ID_COLUMN_NAME: aoi_id,
                 }
                 # Only extract resourceId if we have roofs (DataFrame may be empty after filtering)
-                if len(roofs_gdf) > 0 and ROOF_AGE_RESOURCE_ID_FIELD in roofs_gdf.columns:
-                    metadata[ROOF_AGE_RESOURCE_ID_FIELD] = roofs_gdf[ROOF_AGE_RESOURCE_ID_FIELD].iloc[0]
+                if len(roofs_gdf) > 0 and "resource_id" in roofs_gdf.columns:
+                    metadata["resource_id"] = roofs_gdf["resource_id"].iloc[0]
 
                 return ("success", roofs_gdf, metadata, None)
             except Exception as e:
