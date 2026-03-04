@@ -9,11 +9,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box, shape
 
 from nmaipy.constants import ROOF_ID, AOI_ID_COLUMN_NAME
 from nmaipy.feature_api import FeatureApi
-from nmaipy.parcels import flatten_roof_attributes
+from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
 
 data_directory = Path(__file__).parent / "data"
 
@@ -76,7 +76,6 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
     api = FeatureApi(api_key=api_key, cache_dir=cache_directory)
 
     # Get the raw payload to save
-    print("Fetching raw payload...")
     raw_payload = api.get_features(
         geometry=test_polygon,
         region="us",
@@ -88,7 +87,6 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
     raw_payload_file = data_directory / "test_roof_condition_confidence_stats_raw_payload.json"
     with open(raw_payload_file, 'w') as f:
         json.dump(raw_payload, f, indent=2)
-    print(f"Saved raw payload to {raw_payload_file}")
 
     # Now get the processed GeoDataFrame
     features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
@@ -98,25 +96,19 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
         include=["roofConditionConfidenceStats"]
     )
 
-    if len(errors_df) > 0:
-        print(f"Errors fetching data: {errors_df}")
-
     # Save the features
     outfile = data_directory / "test_features_roof_condition_confidence_stats.csv"
     features_gdf.to_csv(outfile)
-    print(f"Saved {len(features_gdf)} features to {outfile}")
 
     # Check if we got roofConditionConfidenceStats data
     roof_features = features_gdf[features_gdf['class_id'] == ROOF_ID]
     rccs_count = 0
 
     # Check raw payload for roofConditionConfidenceStats
-    print("\nChecking raw payload for roofConditionConfidenceStats...")
     for feature in raw_payload.get('features', []):
         if feature.get('classId') == ROOF_ID:
             if 'roofConditionConfidenceStats' in feature:
                 rccs_count += 1
-                print(f"Found roofConditionConfidenceStats: {feature['roofConditionConfidenceStats']}")
                 # Save a sample with RCCS
                 rccs_sample_file = data_directory / "test_roof_condition_confidence_stats_sample.json"
                 with open(rccs_sample_file, 'w') as f:
@@ -124,17 +116,7 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
                         'feature_id': feature.get('id'),
                         'roofConditionConfidenceStats': feature['roofConditionConfidenceStats']
                     }, f, indent=2)
-                print(f"Saved RCCS sample to {rccs_sample_file}")
                 break
-
-    print(f"Found {rccs_count} roofs with roofConditionConfidenceStats out of {len(roof_features)} total roofs")
-    if rccs_count == 0:
-        print("WARNING: No roofConditionConfidenceStats data found in API response.")
-        print("This might be because:")
-        print("  1. The API doesn't have RCCS data for this location")
-        print("  2. The include parameter isn't working as expected")
-        print("  3. This feature isn't available yet")
-        print("\nThe test data has been saved but without roofConditionConfidenceStats.")
 
 
 def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
@@ -180,10 +162,6 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
 
 def test_rollup_with_roof_condition_confidence_stats(roof_condition_confidence_stats_payload):
     """Test parcel rollup with roofConditionConfidenceStats to generate CSV output."""
-    from nmaipy.parcels import parcel_rollup
-    from shapely.geometry import shape, box
-    import pandas as pd
-
     # Use payload from fixture
     payload = roof_condition_confidence_stats_payload
 
@@ -239,28 +217,11 @@ def test_rollup_with_roof_condition_confidence_stats(roof_condition_confidence_s
     # Save to CSV
     outfile = data_directory / "test_parcels_rollup_roof_condition_confidence_stats.csv"
     rollup_df.to_csv(outfile)
-    print(f"\nSaved rollup with {len(rollup_df.columns)} columns to {outfile}")
 
     # Verify histogram bin columns are present
     columns = list(rollup_df.columns)
     default_bin_cols = [col for col in columns if "confidence_stats_default_bin_" in col]
     extreme_bin_cols = [col for col in columns if "confidence_stats_extreme_bin_" in col]
-
-    print(f"Found {len(default_bin_cols)} default histogram bin columns")
-    print(f"Found {len(extreme_bin_cols)} extreme histogram bin columns")
-    print(f"Total confidence stats columns: {len(default_bin_cols) + len(extreme_bin_cols)}")
-
-    print(f"\nSample default bins:")
-    for col in default_bin_cols[:5]:  # Show first 5
-        print(f"  - {col}")
-    if len(default_bin_cols) > 5:
-        print(f"  ... and {len(default_bin_cols) - 5} more")
-
-    print(f"\nSample extreme bins:")
-    for col in extreme_bin_cols[:5]:  # Show first 5
-        print(f"  - {col}")
-    if len(extreme_bin_cols) > 5:
-        print(f"  ... and {len(extreme_bin_cols) - 5} more")
 
     assert len(default_bin_cols) > 0, "Should have default histogram bin columns in rollup"
     assert len(extreme_bin_cols) > 0, "Should have extreme histogram bin columns in rollup"
@@ -307,5 +268,3 @@ def test_handles_missing_rccs_gracefully():
     # Verify no RCCS fields in result
     assert "roof_condition_confidence_stats" not in result, \
         "roof_condition_confidence_stats should not be present when not in source data"
-
-    print("Successfully handled missing roofConditionConfidenceStats")

@@ -77,11 +77,9 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
     
     # Check for output files
     final_dir = test_output_dir / 'final'
-    # The exporter now creates both a main features file and per-class feature files
-    # Look specifically for the main combined features file (not per-class files)
-    all_features_files = list(final_dir.glob('*_features.parquet'))
-    # Main file is poles_test_aoi_features.parquet, per-class are poles_test_aoi_{class}_features.parquet
-    main_features_file = final_dir / 'poles_test_aoi_features.parquet'
+    # The exporter creates a combined features.parquet and per-class {class}_features.parquet files
+    all_features_files = list(final_dir.glob('*features.parquet'))
+    main_features_file = final_dir / 'features.parquet'
 
     assert main_features_file.exists(), f"Expected main feature file at {main_features_file}. Found: {all_features_files}"
     features_files = [main_features_file]
@@ -155,7 +153,3 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
             null_dtype_columns.append(col)
     
     assert len(null_dtype_columns) == 0, f"Found columns with 'null' dtype: {null_dtype_columns}"
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '-s'])

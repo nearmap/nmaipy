@@ -22,6 +22,7 @@ from http.client import RemoteDisconnected
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
@@ -32,6 +33,7 @@ from urllib3.util.retry import Retry
 
 from nmaipy import log, storage
 from nmaipy.constants import (
+    AREA_CRS,
     BACKOFF_FACTOR,
     DUMMY_STATUS_CODE,
     MAX_RETRIES,
@@ -148,7 +150,7 @@ class RetryRequest(Retry):
     """
     Inherited retry request with controlled backoff timing.
 
-    BACKOFF_MAX set to 20s to allow more time for transient failures to resolve.
+    BACKOFF_MAX set to 10s to allow more time for transient failures to resolve.
     BACKOFF_MIN set to 2s to provide more breathing room before retrying.
     """
 
@@ -794,9 +796,6 @@ class GriddedApiClient(BaseApiClient):
         Returns:
             True if geometry area exceeds threshold and should be gridded
         """
-        from nmaipy.constants import AREA_CRS
-        import geopandas as gpd
-
         # Calculate area in appropriate projected CRS
         gdf = gpd.GeoDataFrame(geometry=[geometry], crs="EPSG:4326")
         area_sqm = gdf.to_crs(AREA_CRS.get(region, AREA_CRS["us"])).area.iloc[0]

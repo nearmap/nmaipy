@@ -469,8 +469,8 @@ def export_feature_class(
     country: str,
     output_dir: str,
     aoi_columns: list = None,
-    export_csv: bool = True,
-    export_parquet: bool = True,
+    tabular_file_format: str = "csv",
+    export_geo_parquet: bool = True,
     class_features: gpd.GeoDataFrame = None,
     roof_features: gpd.GeoDataFrame = None,
     non_roof_features: gpd.GeoDataFrame = None,
@@ -478,7 +478,7 @@ def export_feature_class(
     roof_attrs_cache: dict = None,
 ) -> tuple:
     """
-    Export features of a single class to CSV and/or GeoParquet.
+    Export features of a single class to tabular file (CSV or Parquet) and/or GeoParquet.
 
     Args:
         features_gdf: GeoDataFrame with all features (used for cross-class lookups)
@@ -487,8 +487,8 @@ def export_feature_class(
         country: Country code for units (us, au, etc.)
         output_dir: Directory path for output files
         aoi_columns: Additional columns from the AOI input file to include (e.g., ["Property Id"])
-        export_csv: Whether to export CSV files (attributes only, no geometry)
-        export_parquet: Whether to export GeoParquet files (with geometry)
+        tabular_file_format: Format for the flat attribute file — "csv" or "parquet". None to skip.
+        export_geo_parquet: Whether to export GeoParquet files (with geometry)
         class_features: Pre-filtered features for this class (avoids re-filtering features_gdf)
         roof_features: Pre-filtered roof features (avoids repeated features_gdf scans)
         non_roof_features: Pre-filtered non-roof features (avoids repeated features_gdf scans)
@@ -498,7 +498,7 @@ def export_feature_class(
                          ROOF_ID and BUILDING_NEW_ID paths (avoids duplicate flattening).
 
     Returns:
-        Tuple of (csv_path, parquet_path) or (None, None) if no features
+        Tuple of (tabular_path, geo_parquet_path) or (None, None) if no features
     """
     # Use pre-filtered class features if provided, otherwise filter from features_gdf
     if class_features is None:
@@ -511,8 +511,8 @@ def export_feature_class(
     # Normalize class description for filename (sanitize characters that break paths)
     # Replace any non-alphanumeric characters with underscores (handles /, \, :, etc.)
     class_name = re.sub(r"[^a-z0-9]+", "_", class_description.lower()).strip("_")
-    csv_path = storage.join_path(output_dir, f"{class_name}.csv")
-    parquet_path = storage.join_path(output_dir, f"{class_name}_features.parquet")
+    tabular_path = storage.join_path(output_dir, f"{class_name}.{tabular_file_format}") if tabular_file_format else None
+    geo_parquet_path = storage.join_path(output_dir, f"{class_name}_features.parquet")
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
     # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
@@ -1151,27 +1151,29 @@ def export_feature_class(
     else:
         flat_df = pd.DataFrame()
 
-    # Save CSV (attributes only, no geometry)
-    if export_csv:
-        flat_df.to_csv(csv_path, index=False)
+    # Save tabular file (attributes only, no geometry)
+    if tabular_file_format == "parquet":
+        storage.write_parquet(flat_df, tabular_path, index=False)
+    elif tabular_file_format == "csv":
+        flat_df.to_csv(tabular_path, index=False)
     else:
-        csv_path = None
+        tabular_path = None
 
     # Save GeoParquet (with geometry)
-    if export_parquet and "geometry" in class_features.columns:
+    if export_geo_parquet and "geometry" in class_features.columns:
         geo_df = gpd.GeoDataFrame(
             flat_df.copy(), geometry=class_features.geometry.values, crs=API_CRS
         )
         try:
             storage.write_parquet(
-                geo_df, parquet_path, index=False, schema_version="1.0.0"
+                geo_df, geo_parquet_path, index=False, schema_version="1.0.0"
             )
         except (TypeError, ValueError):
-            storage.write_parquet(geo_df, parquet_path, index=False)
+            storage.write_parquet(geo_df, geo_parquet_path, index=False)
     else:
-        parquet_path = None
+        geo_parquet_path = None
 
-    return (csv_path, parquet_path)
+    return (tabular_path, geo_parquet_path)
 
 
 def cleanup_process_feature_api():
@@ -1314,12 +1316,12 @@ def parse_arguments():
     )
     parser.add_argument(
         "--no-class-level-files",
-        help="If set, disable per-feature-class CSV exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
+        help="If set, disable per-feature-class tabular exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
         action="store_true",
     )
     parser.add_argument(
-        "--rollup-format",
-        help="csv | parquet: Whether to store output as .csv or .parquet (defaults to csv)",
+        "--tabular-file-format",
+        help="csv | parquet: Format for tabular output files — rollup, buildings, and per-class attribute files (defaults to csv)",
         type=str,
         required=False,
         default="csv",
@@ -1500,7 +1502,7 @@ class NearmapAIExporter(BaseExporter):
         include_parcel_geometry=False,
         save_features=False,
         save_buildings=False,
-        rollup_format="csv",
+        tabular_file_format="csv",
         cache_dir=None,
         no_cache=False,
         overwrite_cache=False,
@@ -1548,7 +1550,7 @@ class NearmapAIExporter(BaseExporter):
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
         self.save_buildings = save_buildings
-        self.rollup_format = rollup_format
+        self.tabular_file_format = tabular_file_format
         self.cache_dir = cache_dir
         self.no_cache = no_cache
         self.overwrite_cache = overwrite_cache
@@ -1600,7 +1602,7 @@ class NearmapAIExporter(BaseExporter):
                 "include_parcel_geometry": include_parcel_geometry,
                 "save_features": save_features,
                 "save_buildings": save_buildings,
-                "rollup_format": rollup_format,
+                "tabular_file_format": tabular_file_format,
                 "cache_dir": str(cache_dir) if cache_dir else None,
                 "no_cache": no_cache,
                 "overwrite_cache": overwrite_cache,
@@ -2352,13 +2354,13 @@ class NearmapAIExporter(BaseExporter):
                 "perspective",
                 "postcat",
             ]
-            # Validate columns
-            for meta_data_column in meta_data_columns:
-                if meta_data_column in aoi_gdf.columns:
-                    metadata_df = metadata_df.rename(
-                        columns={meta_data_column: f"nmaipy_{meta_data_column}"}
-                    )
-                    meta_data_columns.remove(meta_data_column)
+            # Rename metadata columns that clash with user's AOI columns
+            conflicting_columns = [c for c in meta_data_columns if c in aoi_gdf.columns]
+            for meta_data_column in conflicting_columns:
+                metadata_df = metadata_df.rename(
+                    columns={meta_data_column: f"nmaipy_{meta_data_column}"}
+                )
+                meta_data_columns.remove(meta_data_column)
 
             # Use rollup_df as base to preserve all AOIs (including those where Feature API
             # failed but Roof Age API succeeded). Left-merge with metadata_df to add
@@ -2764,13 +2766,13 @@ class NearmapAIExporter(BaseExporter):
 
         # Output file paths in final directory (no stem prefix — directory provides context)
         outpath = storage.join_path(
-            self.final_path, f"rollup.{self.rollup_format}"
+            self.final_path, f"rollup.{self.tabular_file_format}"
         )
         outpath_features = storage.join_path(
             self.final_path, "features.parquet"
         )
         outpath_buildings = storage.join_path(
-            self.final_path, f"buildings.{self.rollup_format}"
+            self.final_path, f"buildings.{self.tabular_file_format}"
         )
 
         # Check for existing output files and warn about overwriting.
@@ -2887,7 +2889,7 @@ class NearmapAIExporter(BaseExporter):
         data_features = []
         errors = []
         self.logger.debug(
-            f"Saving rollup data as {self.rollup_format} file to {outpath}"
+            f"Saving rollup data as {self.tabular_file_format} file to {outpath}"
         )
 
         # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
@@ -2977,9 +2979,9 @@ class NearmapAIExporter(BaseExporter):
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
-            if self.rollup_format == "parquet":
+            if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)
-            elif self.rollup_format == "csv":
+            elif self.tabular_file_format == "csv":
                 if "geometry" in data.columns:
                     if hasattr(data.geometry, "to_wkt") and callable(
                         data.geometry.to_wkt
@@ -3185,7 +3187,7 @@ class NearmapAIExporter(BaseExporter):
             # If buildings export is enabled, process building features
             if self.save_buildings:
                 self.logger.info(
-                    f"Saving building-level data as {self.rollup_format} to {outpath_buildings}"
+                    f"Saving building-level data as {self.tabular_file_format} to {outpath_buildings}"
                 )
                 # Define geoparquet path for buildings
                 outpath_buildings_geoparquet = storage.join_path(
@@ -3231,11 +3233,11 @@ class NearmapAIExporter(BaseExporter):
                         )
 
                     # Save in the same format as rollup
-                    if self.rollup_format == "parquet":
+                    if self.tabular_file_format == "parquet":
                         storage.write_parquet(
                             buildings_df, outpath_buildings, index=True
                         )
-                    elif self.rollup_format == "csv":
+                    elif self.tabular_file_format == "csv":
                         buildings_df.to_csv(outpath_buildings, index=True)
                     else:
                         self.logger.info(
@@ -3338,15 +3340,17 @@ class NearmapAIExporter(BaseExporter):
                             description = class_descriptions.get(
                                 class_id, f"class_{class_id[:8]}"
                             )
-                            csv_path, parquet_path = export_feature_class(
+                            tabular_path, geo_parquet_path = export_feature_class(
                                 features_gdf=None,
                                 class_id=class_id,
                                 class_description=description,
                                 country=self.country,
                                 output_dir=self.final_path,
                                 aoi_columns=aoi_input_columns,
-                                export_csv=self.class_level_files,
-                                export_parquet=self.class_level_files
+                                tabular_file_format=self.tabular_file_format
+                                if self.class_level_files
+                                else None,
+                                export_geo_parquet=self.class_level_files
                                 and self.save_features,
                                 class_features=class_features,
                                 roof_features=gpd.GeoDataFrame(),
@@ -3354,10 +3358,10 @@ class NearmapAIExporter(BaseExporter):
                                 roof_instance_features=gpd.GeoDataFrame(),
                             )
                             del class_features
-                            if csv_path or parquet_path:
+                            if tabular_path or geo_parquet_path:
                                 files = [
                                     storage.basename(f)
-                                    for f in [csv_path, parquet_path]
+                                    for f in [tabular_path, geo_parquet_path]
                                     if f
                                 ]
                                 self.logger.info(
@@ -3506,15 +3510,17 @@ class NearmapAIExporter(BaseExporter):
                                 description = class_descriptions.get(
                                     class_id, f"class_{class_id[:8]}"
                                 )
-                                csv_path, parquet_path = export_feature_class(
+                                tabular_path, geo_parquet_path = export_feature_class(
                                     features_gdf=None,
                                     class_id=class_id,
                                     class_description=description,
                                     country=self.country,
                                     output_dir=self.final_path,
                                     aoi_columns=aoi_input_columns,
-                                    export_csv=self.class_level_files,
-                                    export_parquet=self.class_level_files
+                                    tabular_file_format=self.tabular_file_format
+                                    if self.class_level_files
+                                    else None,
+                                    export_geo_parquet=self.class_level_files
                                     and self.save_features,
                                     class_features=class_features,
                                     roof_features=roof_features,
@@ -3522,10 +3528,10 @@ class NearmapAIExporter(BaseExporter):
                                     roof_instance_features=roof_instance_features,
                                     roof_attrs_cache=roof_attrs_cache,
                                 )
-                                if csv_path or parquet_path:
+                                if tabular_path or geo_parquet_path:
                                     files = [
                                         storage.basename(f)
-                                        for f in [csv_path, parquet_path]
+                                        for f in [tabular_path, geo_parquet_path]
                                         if f
                                     ]
                                     self.logger.info(
@@ -3603,7 +3609,7 @@ def main():
         include_parcel_geometry=args.include_parcel_geometry,
         save_features=args.save_features,
         save_buildings=args.save_buildings,
-        rollup_format=args.rollup_format,
+        tabular_file_format=args.tabular_file_format,
         cache_dir=args.cache_dir,
         no_cache=args.no_cache,
         overwrite_cache=args.overwrite_cache,

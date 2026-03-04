@@ -46,6 +46,7 @@ LARGE_AUSTRALIA_AOI_WKT = (
 )
 
 
+@pytest.mark.live_api
 class TestGriddingDtypeBug:
     def test_gridded_aoi_with_integer_id_dtype_consistency(self, cache_directory):
         """

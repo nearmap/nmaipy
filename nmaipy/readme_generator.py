@@ -195,17 +195,18 @@ class ReadmeGenerator:
             name = storage.basename(filepath)
             return "." + name.rsplit(".", 1)[1] if "." in name else ""
 
-        # Primary: detect from CSV files
+        # Primary: detect from per-class tabular files (CSV or Parquet)
         for f in files:
-            if _get_suffix(f) != ".csv":
+            suffix = _get_suffix(f)
+            if suffix not in (".csv", ".parquet"):
                 continue
             name = _get_stem(f)
 
             if name in skip_names:
                 continue
 
-            # Skip parquet companion files
-            if name.endswith("_features"):
+            # Skip GeoParquet companion files and known non-class files
+            if name.endswith("_features") or name == "features":
                 continue
 
             column_name = name
@@ -215,7 +216,7 @@ class ReadmeGenerator:
                 seen.add(column_name)
                 classes.append({"name": display_name, "column": column_name})
 
-        # Fallback: detect from _features.parquet files if no CSV classes found
+        # Fallback: detect from _features.parquet files if no tabular class files found
         if not classes:
             for f in files:
                 if _get_suffix(f) != ".parquet" or not _get_stem(f).endswith("_features"):
@@ -320,10 +321,14 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             class_name = filename[: -len("_features.parquet")].replace("_", " ").title()
             return f"{class_name} polygons with geometry (GeoParquet)"
 
-        # Per-class attribute files: {class}.csv
+        # Per-class attribute files: {class}.csv or {class}.parquet
         if filename.endswith(".csv"):
             class_name = filename[: -len(".csv")].replace("_", " ").title()
             return f"Per-{class_name.lower()} data with feature attributes"
+
+        if filename.endswith(".parquet") and not filename.endswith("_features.parquet"):
+            class_name = filename[: -len(".parquet")].replace("_", " ").title()
+            return f"Per-{class_name.lower()} data with feature attributes (Parquet format)"
 
         return "Export data file"
 

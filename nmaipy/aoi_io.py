@@ -148,7 +148,7 @@ def read_from_file(
     if "geometry" in parcels_gdf:
         # Set CRS and project if data CRS is not equal to target CRS
         if parcels_gdf.crs is None:
-            parcels_gdf.set_crs(source_crs)
+            parcels_gdf = parcels_gdf.set_crs(source_crs)
         if parcels_gdf.crs != target_crs:
             parcels_gdf = parcels_gdf.to_crs(target_crs)
 

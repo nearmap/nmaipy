@@ -6,7 +6,6 @@ import json
 import logging
 import math
 import os
-import threading
 import time
 import uuid
 from http import HTTPStatus
@@ -21,8 +20,8 @@ import requests
 import shapely.geometry
 import stringcase
 from requests.adapters import HTTPAdapter
-from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
-from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, quote
+from shapely.geometry import MultiPolygon, Polygon, shape
+from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from nmaipy import log, geometry_utils, storage
 from nmaipy.api_common import (
@@ -67,37 +66,9 @@ from nmaipy.constants import (
 logger = log.get_logger()
 
 
-# Backward compatibility aliases - use generic versions from api_common
+# Deprecated aliases — prefer APIGridError/APIRequestSizeError from api_common
 AIFeatureAPIGridError = APIGridError
 AIFeatureAPIRequestSizeError = APIRequestSizeError
-
-
-# Add these helper functions at the top of ai_offline_parcel.py
-def close_sessions(sessions):
-    """Helper function to properly close request sessions"""
-    for session in sessions:
-        try:
-            session.close()
-        except Exception:
-            pass
-
-
-def cleanup_executor(executor):
-    """Helper function to cleanup executor and its sessions"""
-    try:
-        # Get any sessions stored on the executor's threads
-        sessions = []
-        for thread in executor._threads:
-            if hasattr(thread, "_local") and hasattr(thread._local, "session"):
-                sessions.append(thread._local.session)
-
-        # Close all sessions
-        close_sessions(sessions)
-
-        # Shutdown the executor
-        executor.shutdown(wait=True)
-    except Exception:
-        pass
 
 
 class FeatureApi(GriddedApiClient):
@@ -107,10 +78,6 @@ class FeatureApi(GriddedApiClient):
     Inherits from GriddedApiClient for automatic gridding support.
     """
     
-    # Thread-local storage for executor reuse in gridding scenarios
-    # This prevents nested thread pool creation
-    _thread_local = threading.local()
-
     SOURCE_CRS = LAT_LONG_CRS
     FLOAT_COLS = [
         "fidelity",
@@ -124,8 +91,7 @@ class FeatureApi(GriddedApiClient):
     ]
     API_TYPE_FEATURES = "features"
     API_TYPE_ROLLUPS = "rollups"
-    POOL_SIZE = 10
-    
+
     # HTTP status codes for retry logic
     RETRY_STATUS_CODES_BASE = [
         HTTPStatus.TOO_MANY_REQUESTS,      # 429
@@ -403,8 +369,6 @@ class FeatureApi(GriddedApiClient):
         Uses lon/lat based caching for geometry queries, or country/state/city/zip
         based caching for address-only queries (shared with Roof Age API).
         """
-        from urllib.parse import parse_qs, urlparse
-
         # Clean API key from URL
         clean_url = self._clean_api_key(url)
 
@@ -1011,7 +975,9 @@ class FeatureApi(GriddedApiClient):
                 logger.error(
                     f"Problem setting aoi_id to {AOI_ID_COLUMN_NAME} as {aoi_id=} (dataframe has {len(df)} rows)."
                 )
-                raise ValueError
+                raise ValueError(
+                    f"Failed to set aoi_id '{aoi_id}' on feature DataFrame with {len(df)} rows"
+                ) from e
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
 
         # Cast to GeoDataFrame - now we drop clipped_geometry since we've already used it
@@ -1063,7 +1029,9 @@ class FeatureApi(GriddedApiClient):
                 logger.error(
                     f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
                 )
-                raise ValueError
+                raise ValueError(
+                    f"Failed to set aoi_id '{aoi_id}' on rollup DataFrame with {len(df)} rows"
+                ) from e
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
         return df, metadata
 
@@ -1221,10 +1189,10 @@ class FeatureApi(GriddedApiClient):
             API response features GeoDataFrame, metadata dictionary, and an error dictionary
         """
         if geometry is None and address_fields is None:
-            raise Exception(
+            raise ValueError(
                 f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
-        
+
         # Check if AOI is too large and should be gridded directly
         if geometry is not None and not fail_hard_regrid and not in_gridding_mode:
             # Validate region parameter
@@ -1278,46 +1246,15 @@ class FeatureApi(GriddedApiClient):
             # If the query was too big, split it up into a grid, and recombine as though it was one query.
             # Do not get stuck in an infinite loop of re-gridding and timing out
             if fail_hard_regrid or geometry is None:
-                # If we're in gridding mode and this is a 400 (polygon complexity) error, try simplification
-                if fail_hard_regrid and e.status_code == HTTPStatus.BAD_REQUEST and geometry is not None:
-                    logger.warning(f"Grid cell still too complex for aoi_id {aoi_id}, applying minimal geometry simplification")
-                    try:
-                        simplified_geometry = geometry.simplify(tolerance=0.000001)  # ~5-11cm accuracy in EPSG:4326
-                        # Retry with simplified geometry
-                        payload = self.feature_request_payload(
-                            geojson=simplified_geometry.__geo_interface__,
-                            region=region,
-                            packs=packs,
-                            classes=classes,
-                            include=include,
-                            since=since,
-                            until=until,
-                            survey_resource_id=survey_resource_id,
-                            in_gridding_mode=in_gridding_mode
-                        )
-                        features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
-                        error = None
-                        logger.info(f"Geometry simplification successful for aoi_id {aoi_id}")
-                    except Exception as simplify_error:
-                        logger.error(f"Geometry simplification failed for aoi_id {aoi_id}: {simplify_error}")
-                        error = {
-                            AOI_ID_COLUMN_NAME: aoi_id,
-                            "status_code": e.status_code,
-                            "message": e.message,
-                            "text": e.text[:200] if e.text else "",  # Truncate long text
-                            "request": "Size error - geometry simplification failed",
-                            "failure_type": "standard",
-                        }
-                else:
-                    logger.debug("Failing hard and NOT re-gridding....")
-                    error = {
-                        AOI_ID_COLUMN_NAME: aoi_id,
-                        "status_code": e.status_code,
-                        "message": e.message,
-                        "text": e.text[:200] if e.text else "",  # Truncate long text
-                        "request": "Size error - request too large",
-                        "failure_type": "standard",
-                    }
+                logger.debug("Failing hard and NOT re-gridding....")
+                error = {
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "status_code": e.status_code,
+                    "message": e.message,
+                    "text": e.text[:200] if e.text else "",  # Truncate long text
+                    "request": "Size error - request too large",
+                    "failure_type": "standard",
+                }
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
@@ -1675,7 +1612,7 @@ class FeatureApi(GriddedApiClient):
                         metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     if len(errors) > max_allowed_error_count:
-                        cleanup_executor(executor)
+                        executor.shutdown(wait=True)
                         logger.debug(
                             f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
                         )
@@ -1752,17 +1689,12 @@ class FeatureApi(GriddedApiClient):
             until: Latest date to pull data for
             address_fields: dictionary with values for the address fields, if available, or else None
             survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
-            fail_hard_regrid: If set to true, don't try and grid on an AIFeatureAPIRequestSizeError,
-                              This option is here because we can get stuck in an infinite loop of
-                              get_features_gdf -> get_features_gdf_gridded -> get_features_gdf_bulk -> get_features_gdf
-                              and we need to be able to stop at 2nd call to get_features_gdf if we get another
-                              AIFeatureAPIRequestSizeError
         Returns:
-            API response features GeoDataFrame, metadata dictionary, and an error dictionary
+            API response rollup DataFrame, metadata dictionary, and an error dictionary
         """
         if geometry is None and address_fields is None:
-            raise Exception(
-                f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
+            raise ValueError(
+                f"Internal Error: get_rollup_df was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
 
         try:

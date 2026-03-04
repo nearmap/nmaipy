@@ -109,19 +109,13 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
         )
         
         assert has_rollup_patterns, f"Rollup CSV should have special column naming. Columns: {rollup_columns[:10]}"
-        
+
         # Check that components are NOT in rollup (they're expanded)
         assert not any('.components' in col for col in rollup_columns), "Rollup should not have .components columns"
-        
-        print(f"✅ Rollup CSV has {len(rollup_df)} rows with special formatting")
     
     # 2. Check features GeoParquet
     features_file = final_dir / 'features.parquet'
     if not features_file.exists():
-        # Check what files were actually created
-        if final_dir.exists():
-            files = list(final_dir.glob('*'))
-            print(f"Files in final dir: {files}")
         assert features_file.exists(), f"Features GeoParquet should be created at {features_file}"
     
     features_gdf = gpd.read_parquet(features_file)
@@ -143,9 +137,6 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
         any(pattern in col for col in dot_notation_cols)
         for pattern in features_patterns
     )
-    
-    # May not always have all patterns depending on data
-    print(f"✅ Features GeoParquet has {len(features_gdf)} features with {len(dot_notation_cols)} flattened columns")
     
     # 3. Verify no internalClassId in features
     assert not any('internalClassId' in col for col in features_columns), "Features should not expose internalClassId"
@@ -173,8 +164,6 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
     if rollup_file.exists() and len(rollup_df) > 0:
         # Rollup aggregates, so it should have fewer rows than raw features
         assert len(features_gdf) >= len(rollup_df), "Features should have at least as many rows as rollup"
-    
-    print(f"✅ Integration test passed: Rollup uses special format, Features use generic flattening")
 
 
 @pytest.mark.integration
@@ -225,8 +214,6 @@ def test_features_without_rollup(integration_test_dir):
     features_gdf = gpd.read_parquet(features_file)
     if len(features_gdf) > 0:
         dot_cols = [c for c in features_gdf.columns if '.' in c]
-        if dot_cols:
-            print(f"✅ Features-only export has {len(dot_cols)} dot-notation columns")
 
 
 @pytest.mark.integration
@@ -298,47 +285,32 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     for include_name, pattern in include_patterns.items():
         matching_cols = [col for col in rollup_cols if pattern in col]
         found_includes[include_name] = len(matching_cols)
-        if matching_cols:
-            print(f"✅ Found {len(matching_cols)} columns for {include_name}")
 
     # Verify roofConditionConfidenceStats histogram bins are present
     confidence_bins = [col for col in rollup_cols if 'confidence_stats_default_bin_' in col or 'confidence_stats_extreme_bin_' in col]
     assert len(confidence_bins) > 0, f"Should have roofConditionConfidenceStats histogram bins in rollup. Columns: {rollup_cols[:20]}"
-    print(f"✅ Found {len(confidence_bins)} roofConditionConfidenceStats histogram bin columns")
 
-    # Verify default bins (18 per component) and extreme bins (3 per component)
+    # Verify both default and extreme bins are present
     default_bins = [col for col in confidence_bins if '_default_bin_' in col]
     extreme_bins = [col for col in confidence_bins if '_extreme_bin_' in col]
-    print(f"   - Default bins: {len(default_bins)}")
-    print(f"   - Extreme bins: {len(extreme_bins)}")
+    assert len(default_bins) > 0, f"Should have default histogram bins. Columns: {rollup_cols[:20]}"
+    assert len(extreme_bins) > 0, f"Should have extreme histogram bins. Columns: {rollup_cols[:20]}"
 
     # 2. Verify features parquet exists and was created successfully
     features_file = final_dir / 'features.parquet'
     assert features_file.exists(), f"Features parquet should be created at {features_file}"
 
     features_gdf = gpd.read_parquet(features_file)
-    print(f"✅ Features file has {len(features_gdf)} features")
 
     # 3. Verify rollup chunks were created
     rollup_chunks = list(chunk_dir.glob('rollup_*.parquet'))
     assert len(rollup_chunks) > 0, f"Should have created rollup chunks"
-    print(f"✅ Created {len(rollup_chunks)} rollup chunks")
 
     # 4. Verify feature chunks were created
     feature_chunks = list(chunk_dir.glob('features_*.parquet'))
     assert len(feature_chunks) > 0, f"Should have created feature chunks"
-    print(f"✅ Created {len(feature_chunks)} feature chunks")
 
-    # 5. Verify chunks have include parameter data
-    for chunk_file in rollup_chunks[:1]:  # Check first chunk
-        chunk_df = pd.read_parquet(chunk_file)
-        if len(chunk_df) > 0:
-            chunk_cols = chunk_df.columns.tolist()
-            chunk_confidence_bins = [col for col in chunk_cols if 'confidence_stats_default_bin_' in col]
-            if len(chunk_confidence_bins) > 0:
-                print(f"✅ Rollup chunks contain confidence stats columns ({len(chunk_confidence_bins)} bins)")
-
-    # 6. Verify chunk features match consolidated features
+    # 5. Verify chunk features match consolidated features
     chunk_features = []
     for chunk_file in feature_chunks:
         chunk_gdf = gpd.read_parquet(chunk_file)
@@ -349,51 +321,6 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
         total_chunk_features = sum(len(df) for df in chunk_features)
         assert total_chunk_features == len(features_gdf), \
             f"Chunk features ({total_chunk_features}) should match consolidated features ({len(features_gdf)})"
-        print(f"✅ Chunk feature count matches consolidated file: {total_chunk_features}")
-
-    # 7. Verify features have proper dot-notation columns
-    if len(features_gdf) > 0:
-        features_cols = features_gdf.columns.tolist()
-        dot_cols = [col for col in features_cols if '.' in col]
-        print(f"✅ Features have {len(dot_cols)} dot-notation columns")
-
-        # Verify features have multiple feature types from different packs
-        feature_descriptions = features_gdf['description'].unique()
-        print(f"✅ Found {len(feature_descriptions)} unique feature types")
-
-        has_building = any('Building' in d for d in feature_descriptions)
-        has_vegetation = any('Vegetation' in d or 'Tree' in d for d in feature_descriptions)
-        has_roof = any('Roof' in d for d in feature_descriptions)
-
-        found_packs = []
-        if has_building:
-            found_packs.append('building')
-        if has_vegetation:
-            found_packs.append('vegetation')
-        if has_roof:
-            found_packs.append('roof features')
-
-        if found_packs:
-            print(f"✅ Found features from: {', '.join(found_packs)}")
-
-    # 8. Verify rollup has data from multiple packs
-    if len(rollup_df) > 0:
-        has_building_cols = any('building' in col.lower() for col in rollup_cols)
-        has_vegetation_cols = any('vegetation' in col.lower() or 'tree' in col.lower() for col in rollup_cols)
-        has_roof_cols = any('roof' in col.lower() for col in rollup_cols)
-
-        rollup_packs = []
-        if has_building_cols:
-            rollup_packs.append('building')
-        if has_vegetation_cols:
-            rollup_packs.append('vegetation')
-        if has_roof_cols:
-            rollup_packs.append('roof features')
-
-        if rollup_packs:
-            print(f"✅ Found rollup columns from: {', '.join(rollup_packs)}")
-
-    print(f"\n✅ Full end-to-end test passed with all packs, include='all', and chunking")
 
 
 @pytest.mark.integration
@@ -489,7 +416,6 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
                     f"Deserialized {col_name} should not be empty"
 
                 deserialized_successfully.append(col_name)
-                print(f"✅ Successfully deserialized {col_name}: {list(deserialized.keys())[:5]}")
 
             except json.JSONDecodeError as e:
                 pytest.fail(f"Failed to deserialize {col_name}: {e}")
@@ -500,10 +426,6 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
 
     assert len(deserialized_successfully) > 0, \
         f"Should successfully deserialize at least one include parameter"
-
-    print(f"\n✅ Parquet deserialization test passed:")
-    print(f"   - Found {len(found_includes)} include parameters: {found_includes}")
-    print(f"   - Successfully deserialized {len(deserialized_successfully)}: {deserialized_successfully}")
 
 
 @pytest.mark.integration
@@ -548,13 +470,10 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
     assert len(per_class_csvs) > 0, \
         f"Should have per-class CSV files. Files in final: {list(final_dir.glob('*'))}"
 
-    print(f"Found {len(per_class_csvs)} per-class CSV files")
     for csv_path in per_class_csvs:
         class_df = pd.read_csv(csv_path)
         assert 'is_primary' in class_df.columns, \
             f"Per-class CSV {csv_path.name} should have is_primary column. Columns: {class_df.columns.tolist()}"
-        # Check dtype is bool-like (could be object with True/False strings after CSV round-trip)
-        print(f"  ✅ {csv_path.name} has is_primary column")
 
     # 2. Check per-class GeoParquet files have is_primary column
     per_class_parquets = [
@@ -565,14 +484,12 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
     assert len(per_class_parquets) > 0, \
         f"Should have per-class GeoParquet files. Files in final: {list(final_dir.glob('*'))}"
 
-    print(f"Found {len(per_class_parquets)} per-class GeoParquet files")
     for parquet_path in per_class_parquets:
         class_gdf = gpd.read_parquet(parquet_path)
         assert 'is_primary' in class_gdf.columns, \
             f"Per-class parquet {parquet_path.name} should have is_primary column. Columns: {class_gdf.columns.tolist()}"
         assert set(class_gdf['is_primary'].dropna().unique()) <= {"Y", "N"}, \
             f"is_primary in {parquet_path.name} should contain only Y/N, got {class_gdf['is_primary'].unique()}"
-        print(f"  ✅ {parquet_path.name} has is_primary column (values: {class_gdf['is_primary'].unique()})")
 
     # 3. Cross-verify: primary features in per-class parquets match rollup data
     rollup_file = final_dir / 'buildings.csv'
@@ -598,8 +515,6 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
 
                                 # Verify at least some primary IDs match
                                 matching = set(primary_ids) & set(primary_feature_ids)
-                                if matching:
-                                    print(f"  ✅ {col_name}: {len(matching)} primary features match rollup")
 
 
 @pytest.fixture
@@ -659,12 +574,7 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     final_dir = integration_test_dir / 'final'
     assert final_dir.exists(), "Final output directory should exist"
 
-    print("\n" + "="*80)
-    print("Testing roof age years calculation in all export files")
-    print("="*80)
-
     # 1. Check combined features parquet
-    print("\n1. Checking combined features parquet...")
     combined_features_path = final_dir / 'features.parquet'
     if combined_features_path.exists():
         features_gdf = gpd.read_parquet(combined_features_path)
@@ -675,25 +585,16 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
             assert 'roof_age_years_as_of_date' in roof_instances.columns, \
                 "Roof instances should have roof_age_years_as_of_date in combined features"
 
-            # Check some values are not null
-            non_null_ages = roof_instances['roof_age_years_as_of_date'].notna().sum()
-            print(f"  ✅ Roof instances have roof_age_years_as_of_date ({non_null_ages} non-null values)")
-
         # Check roofs have primary_child_roof_age_years_as_of_date
         roofs = features_gdf[features_gdf['class_id'] == ROOF_ID]
         if len(roofs) > 0:
             # Check if linkage columns exist
             has_linkage = 'primary_child_roof_age_installation_date' in roofs.columns
-            print(f"  Roofs have linkage columns: {has_linkage}")
             if has_linkage:
                 roofs_with_age_data = roofs[roofs['primary_child_roof_age_installation_date'].notna()]
                 if len(roofs_with_age_data) > 0:
                     assert 'primary_child_roof_age_years_as_of_date' in roofs_with_age_data.columns, \
                         "Roofs with linked roof instances should have primary_child_roof_age_years_as_of_date in combined features"
-
-                    # Check some values are not null
-                    non_null_ages = roofs_with_age_data['primary_child_roof_age_years_as_of_date'].notna().sum()
-                    print(f"  ✅ Roofs have primary_child_roof_age_years_as_of_date ({non_null_ages} non-null values)")
 
                     # Verify calculation is correct for a sample
                     sample = roofs_with_age_data.iloc[0]
@@ -706,16 +607,8 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                         actual_age = sample['primary_child_roof_age_years_as_of_date']
                         assert abs(expected_age - actual_age) < 0.1, \
                             f"Age calculation mismatch: expected {expected_age}, got {actual_age}"
-                        print(f"  ✅ Age calculation verified: {actual_age} years")
-                else:
-                    print("  ⚠️  No roofs have linked roof instances")
-            else:
-                print("  ⚠️  Roofs don't have linkage columns in combined features (this is expected if no linkage occurred)")
-    else:
-        print("  ⚠️  Combined features parquet not found (no features in AOI?)")
 
     # 2. Check per-class CSV files
-    print("\n2. Checking per-class CSV files...")
 
     # Roof instances CSV
     roof_instance_csv = final_dir / 'roof_instance.csv'
@@ -723,10 +616,6 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         ri_df = pd.read_csv(roof_instance_csv)
         assert 'roof_age_years_as_of_date' in ri_df.columns, \
             "Roof instance CSV should have roof_age_years_as_of_date"
-        non_null = ri_df['roof_age_years_as_of_date'].notna().sum()
-        print(f"  ✅ Roof instance CSV has roof_age_years_as_of_date ({non_null} non-null values)")
-    else:
-        print("  ⚠️  Roof instance CSV not found (no roof instances in AOI?)")
 
     # Roofs CSV
     roof_csv = final_dir / 'roof.csv'
@@ -737,17 +626,8 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
             if len(roofs_with_age) > 0:
                 assert 'primary_child_roof_age_years_as_of_date' in roof_df.columns, \
                     "Roof CSV should have primary_child_roof_age_years_as_of_date"
-                non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
-                print(f"  ✅ Roof CSV has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
-            else:
-                print("  ⚠️  No roofs have linked roof instances in CSV")
-        else:
-            print("  ⚠️  Roof CSV doesn't have linkage columns (no linkage occurred)")
-    else:
-        print("  ⚠️  Roof CSV not found (no roofs in AOI?)")
 
     # 3. Check per-class parquet files
-    print("\n3. Checking per-class parquet files...")
 
     # Roof instances parquet
     roof_instance_parquet = final_dir / 'roof_instance_features.parquet'
@@ -755,10 +635,6 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         ri_gdf = gpd.read_parquet(roof_instance_parquet)
         assert 'roof_age_years_as_of_date' in ri_gdf.columns, \
             "Roof instance parquet should have roof_age_years_as_of_date"
-        non_null = ri_gdf['roof_age_years_as_of_date'].notna().sum()
-        print(f"  ✅ Roof instance parquet has roof_age_years_as_of_date ({non_null} non-null values)")
-    else:
-        print("  ⚠️  Roof instance parquet not found (no roof instances in AOI?)")
 
     # Roofs parquet
     roof_parquet = final_dir / 'roof_features.parquet'
@@ -769,17 +645,8 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
             if len(roofs_with_age) > 0:
                 assert 'primary_child_roof_age_years_as_of_date' in roof_gdf.columns, \
                     "Roof parquet should have primary_child_roof_age_years_as_of_date"
-                non_null = roofs_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
-                print(f"  ✅ Roof parquet has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
-            else:
-                print("  ⚠️  No roofs have linked roof instances in parquet")
-        else:
-            print("  ⚠️  Roof parquet doesn't have linkage columns (no linkage occurred)")
-    else:
-        print("  ⚠️  Roof parquet not found (no roofs in AOI?)")
 
     # 4. Check rollup CSV
-    print("\n4. Checking rollup CSV...")
     rollup_csv = final_dir / 'rollup.csv'
     if rollup_csv.exists():
         rollup_df = pd.read_csv(rollup_csv)
@@ -788,13 +655,8 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
             if len(rollups_with_age) > 0:
                 assert 'primary_child_roof_age_years_as_of_date' in rollup_df.columns, \
                     "Rollup should have primary_child_roof_age_years_as_of_date"
-                non_null = rollups_with_age['primary_child_roof_age_years_as_of_date'].notna().sum()
-                print(f"  ✅ Rollup has primary_child_roof_age_years_as_of_date ({non_null} non-null values)")
-    else:
-        print("  ⚠️  Rollup CSV not found")
 
     # 5. Cross-verify consistency between files
-    print("\n5. Checking consistency across files...")
     if roof_csv.exists() and roof_parquet.exists():
         roof_csv_df = pd.read_csv(roof_csv)
         roof_parquet_gdf = gpd.read_parquet(roof_parquet)
@@ -814,11 +676,3 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                         if pd.notna(csv_val) and pd.notna(parquet_val):
                             assert abs(csv_val - parquet_val) < 0.01, \
                                 f"Age mismatch for feature {fid}: CSV={csv_val}, Parquet={parquet_val}"
-
-                print(f"  ✅ Roof age values consistent between CSV and parquet for {len(common_ids)} features")
-
-    print("\n" + "="*80)
-    print("All roof age year calculations verified successfully!")
-    print("="*80 + "\n")
-
-    print(f"\n✅ is_primary integration test passed")

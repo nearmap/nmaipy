@@ -4,7 +4,7 @@ Parcel/AOI Processing and Rollup Utilities
 This module provides functions for:
 - Creating rollup summaries of AI features at the parcel/AOI level
 - Extracting building-style features for detailed export
-- Linking roof instances to parent roof objects (future)
+- Linking roof instances to parent roof objects
 
 The rollup functions aggregate multiple features within each AOI into summary statistics
 and select "primary" features for detailed attribute extraction.
@@ -1203,10 +1203,7 @@ def parcel_rollup(
         parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
     # Loop over parcels without features in them
-    if country in IMPERIAL_COUNTRIES:
-        area_name = f"area_{area_units}"
-    else:
-        area_name = f"area_{area_units}"
+    area_name = f"area_{area_units}"
 
     hasgeom = "geometry" in parcels_gdf.columns
     for row in parcels_gdf[~parcels_gdf.index.isin(features_gdf.index)].itertuples():

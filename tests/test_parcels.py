@@ -17,8 +17,10 @@ from nmaipy.constants import (
     AREA_CRS,
     BUILDING_ID,
     LAWN_GRASS_ID,
+    MIN_ROOF_INSTANCE_IOU_THRESHOLD,
     POOL_ID,
     ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     VEG_MEDHIGH_ID,
     WATER_BODY_ID,
@@ -443,11 +445,10 @@ class TestParcels:
             country=country,
             primary_decision="largest_intersection",
         )
-        df.to_csv(data_directory / "test_parcels_2_rollup.csv")
         expected = pd.read_csv(
             data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME
-        )  # Expected ground truth results
-        pd.testing.assert_frame_equal(df, expected, rtol=0.8)
+        )
+        pd.testing.assert_frame_equal(df, expected, check_dtype=False)
 
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -456,10 +457,10 @@ class TestParcels:
             country=country,
             primary_decision="largest_intersection",
         )
-        df.to_csv(data_directory / "test_parcels_rollup.csv")
         expected = pd.read_csv(
             data_directory / "test_parcels_rollup.csv", index_col=AOI_ID_COLUMN_NAME
         )
+        pd.testing.assert_frame_equal(df, expected, check_dtype=False)
 
     def test_nearest_primary(self):
         parcels_gdf = gpd.GeoDataFrame(
@@ -721,8 +722,6 @@ class TestParcels:
         df["pct_tree_cover"] = (
             df["medium_and_high_vegetation_(>2m)_total_clipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET
         ) / df["parcel_area_sqm"]
-        print(metadata)
-        print(df.T)
         features_gdf.drop(columns="attributes").to_file(cache_directory / "snake_test_features.geojson")
         np.testing.assert_approx_equal(df.loc[51310013081068, "parcel_area_sqm"], 17236.0, significant=5)
         assert df.loc[51310013081068, "pct_tree_cover"] < 1
@@ -769,8 +768,6 @@ class TestParcels:
             country="us",
             primary_decision="largest_intersection",
         )
-        print(metadata)
-        print(df.T)
         # DEBUG for manual checks in QGIS (using QuickWKT plugin)
         # str(parcels_gdf.geometry.union_all())
         # str(features_gdf.query("confidence >= 0.65 & fidelity >= 0.15").union_all())
@@ -848,10 +845,6 @@ class TestLinkRoofInstancesToRoofs:
 
     def test_iou_threshold_filters_low_iou_matches(self):
         """Matches below MIN_ROOF_INSTANCE_IOU_THRESHOLD should not be assigned as primary/parent."""
-        from shapely.geometry import box
-
-        from nmaipy.constants import MIN_ROOF_INSTANCE_IOU_THRESHOLD
-
         # Create a roof polygon
         roof_geom = box(0, 0, 100, 100)  # 100x100 unit roof
 
@@ -879,7 +872,6 @@ class TestLinkRoofInstancesToRoofs:
             f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_age_feature_id']}"
 
         # But the child list should still contain the instance for reference
-        import json
         children = json.loads(roofs_linked.loc["aoi-1", "child_roof_instances"])
         assert len(children) == 1, "Child list should still contain the low-IoU match for reference"
         assert children[0]["iou"] < MIN_ROOF_INSTANCE_IOU_THRESHOLD, \
@@ -891,10 +883,6 @@ class TestLinkRoofInstancesToRoofs:
 
     def test_iou_above_threshold_assigns_primary(self):
         """Matches at or above MIN_ROOF_INSTANCE_IOU_THRESHOLD should be assigned."""
-        from shapely.geometry import box
-
-        from nmaipy.constants import MIN_ROOF_INSTANCE_IOU_THRESHOLD
-
         # Create overlapping geometries with high IoU
         roof_geom = box(0, 0, 100, 100)
         # Same geometry = IoU of 1.0
@@ -939,10 +927,6 @@ class TestIoUBasedPrimaryRoofInstance:
         - Primary roof instance should be ri-1 (derived from roof-1's IoU link)
         - NOT ri-2, even though ri-2 is larger
         """
-        from shapely.geometry import box
-
-        from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
-
         # Create parcels with geocode point at (50, 50)
         parcels_gdf = gpd.GeoDataFrame(
             [
@@ -1059,10 +1043,6 @@ class TestIoUBasedPrimaryRoofInstance:
 
     def test_fallback_when_primary_roof_has_no_iou_link(self):
         """When primary roof has no IoU-linked roof instance, fall back to independent selection."""
-        from shapely.geometry import box
-
-        from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
-
         parcels_gdf = gpd.GeoDataFrame(
             [
                 {
@@ -1153,10 +1133,6 @@ class TestIoUBasedPrimaryRoofInstance:
 
     def test_fallback_when_no_roof_features(self):
         """When no roof features exist, independent roof instance selection should be used."""
-        from shapely.geometry import box
-
-        from nmaipy.constants import ROOF_INSTANCE_CLASS_ID
-
         parcels_gdf = gpd.GeoDataFrame(
             [
                 {

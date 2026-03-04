@@ -5,8 +5,10 @@ These tests verify that the progress counter infrastructure works correctly
 across process boundaries on all platforms (both fork and spawn modes).
 """
 import multiprocessing
+import pickle
 import time
 from concurrent.futures import ProcessPoolExecutor
+
 import pytest
 
 
@@ -155,8 +157,6 @@ def test_progress_counters_concurrent_access():
 
 def test_progress_counters_picklable():
     """Test that progress counters can be pickled (required for spawn mode)"""
-    import pickle
-
     manager = multiprocessing.Manager()
     progress_counters = manager.dict({
         'total': 10,
@@ -207,27 +207,3 @@ def test_progress_counters_with_skipped_work():
     assert progress_counters['completed'] == 10
     assert progress_counters['total'] == 10
     # Total work was 20, but we only tracked the 10 that needed to be done
-
-
-if __name__ == "__main__":
-    # Run tests manually for debugging
-    print("Running progress tracking tests...")
-    test_progress_counters_basic()
-    print("✓ Basic test passed")
-
-    test_progress_counters_with_process_pool()
-    print("✓ Process pool test passed")
-
-    test_progress_counters_with_gridding()
-    print("✓ Gridding simulation test passed")
-
-    test_progress_counters_concurrent_access()
-    print("✓ Concurrent access test passed")
-
-    test_progress_counters_picklable()
-    print("✓ Picklable test passed")
-
-    test_progress_counters_with_skipped_work()
-    print("✓ Skipped work test passed")
-
-    print("\nAll tests passed!")

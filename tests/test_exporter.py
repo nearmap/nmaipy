@@ -11,7 +11,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nmaipy.constants import *
+from nmaipy.constants import (
+    ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID,
+    ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
+    ROLLUP_SURVEY_DATE_ID,
+    ROLLUP_SYSTEM_VERSION_ID,
+    ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID,
+    ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID,
+    ROLLUP_TREE_CANOPY_COUNT_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
+)
 from nmaipy.exporter import AOIExporter, _read_parquet_chunks_parallel
 from nmaipy.feature_api import FeatureApi
 
@@ -58,7 +67,6 @@ class TestExporter:
         feature_api = FeatureApi()
         classes_df = feature_api.get_feature_classes(packs)
 
-        print("Processing Chunk")
         my_exporter = AOIExporter(
             output_dir=output_dir_rollup_api,
             country=country,
@@ -90,10 +98,6 @@ class TestExporter:
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
             data_rollup_api.append(pd.read_parquet(cp))
         data_rollup_api = pd.concat(data_rollup_api)
-        print("data rollup api")
-        print(data_rollup_api.T)
-        print(data_rollup_api.loc[:, "link"].values)
-
     @pytest.mark.live_api
     @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
     def test_process_chunk_au(
@@ -176,7 +180,6 @@ class TestExporter:
         assert len(data) == len(
             parcel_gdf_au_tests
         )  # Assert got a result for every parcel.
-        print(data.T)
 
     @pytest.mark.skip(reason="Rollup API not yet updated to be compatible with output.")
     def test_process_chunk_rollup_vs_feature_calc(
@@ -259,12 +262,6 @@ class TestExporter:
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
             data_rollup_api.append(pd.read_parquet(cp))
         data_rollup_api = pd.concat(data_rollup_api)
-
-        # print("data feature api")
-        # print(data_feature_api.T)
-        print("data rollup api")
-        print(data_rollup_api.T)
-        print(data_rollup_api.loc[:, "link"].values)
 
         # Test continuous class - tree canopy
         ## Check that counts differ by at most one - sometimes a tiny touching part of a polygon differs between rollup API and local computation due to rounding.
@@ -574,9 +571,9 @@ class TestExporter:
                 output_dir=tmpdir,
                 country="au",
                 packs=["building"],
-                rollup_format="csv",
+                tabular_file_format="csv",
             )
-            assert exporter_csv.rollup_format == "csv"
+            assert exporter_csv.tabular_file_format == "csv"
 
             # Test Parquet format
             exporter_parquet = AOIExporter(
@@ -584,9 +581,9 @@ class TestExporter:
                 output_dir=tmpdir,
                 country="au",
                 packs=["building"],
-                rollup_format="parquet",
+                tabular_file_format="parquet",
             )
-            assert exporter_parquet.rollup_format == "parquet"
+            assert exporter_parquet.tabular_file_format == "parquet"
 
     def test_aoi_exporter_save_features_flag(self):
         """Test save_features parameter."""

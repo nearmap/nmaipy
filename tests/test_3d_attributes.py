@@ -57,6 +57,7 @@ def salt_lake_aoi(test_output_dir):
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
     """Test that 3D attributes are properly flattened in feature exports."""
     
@@ -131,7 +132,8 @@ def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
         assert len(roof_attr_cols) > 0 or len(roof_rows) < 2, "Roofs should have attributes like pitch or material"
 
 
-@pytest.mark.integration 
+@pytest.mark.integration
+@pytest.mark.live_api
 def test_attributes_list_handling():
     """Test that attributes list is properly handled in the flattening process."""
     
@@ -162,8 +164,6 @@ def test_attributes_list_handling():
                 
                 # Test the flattening logic (function is internal to exporter)
                 # Replicate the flattening logic here for testing
-                import json
-                
                 flattened = {}
                 for i, attr_obj in enumerate(attrs):
                     if not isinstance(attr_obj, dict):
