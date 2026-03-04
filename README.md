@@ -318,7 +318,7 @@ Key options:
 - `--roof-age`: Include Roof Age API data (US only)
 - `--save-features`: Save per-class GeoParquet files with feature geometries
 - `--save-buildings`: Save per-building detail rows
-- `--rollup-format`: Output format for rollup file (`csv` or `parquet`, default: `csv`)
+- `--tabular-file-format`: Format for tabular output files — rollup, buildings, and per-class attribute files (`csv` or `parquet`, default: `csv`)
 - `--cache-dir`: Directory for caching API responses
 - `--no-cache`: Disable caching entirely
 - `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)

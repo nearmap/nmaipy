@@ -171,7 +171,7 @@ class TestIntegration:
                 country='au',
                 packs=['building'],
                 processes=1,
-                rollup_format='parquet',
+                tabular_file_format='parquet',
             )
 
             exporter.run()

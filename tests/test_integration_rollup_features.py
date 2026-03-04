@@ -290,9 +290,11 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     confidence_bins = [col for col in rollup_cols if 'confidence_stats_default_bin_' in col or 'confidence_stats_extreme_bin_' in col]
     assert len(confidence_bins) > 0, f"Should have roofConditionConfidenceStats histogram bins in rollup. Columns: {rollup_cols[:20]}"
 
-    # Verify default bins (18 per component) and extreme bins (3 per component)
+    # Verify both default and extreme bins are present
     default_bins = [col for col in confidence_bins if '_default_bin_' in col]
     extreme_bins = [col for col in confidence_bins if '_extreme_bin_' in col]
+    assert len(default_bins) > 0, f"Should have default histogram bins. Columns: {rollup_cols[:20]}"
+    assert len(extreme_bins) > 0, f"Should have extreme histogram bins. Columns: {rollup_cols[:20]}"
 
     # 2. Verify features parquet exists and was created successfully
     features_file = final_dir / 'features.parquet'
@@ -308,13 +310,7 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     feature_chunks = list(chunk_dir.glob('features_*.parquet'))
     assert len(feature_chunks) > 0, f"Should have created feature chunks"
 
-    # 5. Verify chunks have include parameter data
-    for chunk_file in rollup_chunks[:1]:  # Check first chunk
-        chunk_df = pd.read_parquet(chunk_file)
-        if len(chunk_df) > 0:
-            chunk_cols = chunk_df.columns.tolist()
-
-    # 6. Verify chunk features match consolidated features
+    # 5. Verify chunk features match consolidated features
     chunk_features = []
     for chunk_file in feature_chunks:
         chunk_gdf = gpd.read_parquet(chunk_file)

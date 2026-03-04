@@ -606,8 +606,8 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
             class_id=ROOF_INSTANCE_CLASS_ID,
             class_description=FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID],
             output_dir=tmpdir,
-            export_csv=True,
-            export_parquet=False,
+            tabular_file_format="csv",
+            export_geo_parquet=False,
             country="us",
         )
 
@@ -697,8 +697,8 @@ class TestRoofAgeFieldMapping:
                 class_id=ROOF_INSTANCE_CLASS_ID,
                 class_description=FEATURE_CLASS_DESCRIPTIONS[ROOF_INSTANCE_CLASS_ID],
                 output_dir=tmpdir,
-                export_csv=True,
-                export_parquet=False,
+                tabular_file_format="csv",
+                export_geo_parquet=False,
                 country="us",
             )
 
@@ -776,8 +776,8 @@ class TestRoofAgeFieldMapping:
                 class_id=ROOF_ID,
                 class_description="Roof",
                 output_dir=tmpdir,
-                export_csv=True,
-                export_parquet=False,
+                tabular_file_format="csv",
+                export_geo_parquet=False,
                 country="us",
                 class_features=roofs_with_link,
                 roof_instance_features=ri_features,

@@ -18,9 +18,6 @@ import ast
 import json
 from typing import Any, Dict, List, Optional, Union, overload
 
-# 1% tolerance for detecting clipped roofs by comparing clipped vs unclipped area
-CLIPPED_AREA_TOLERANCE = 0.99
-
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -33,6 +30,9 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     ROOF_AGE_PREFIX_COLUMNS,
 )
+
+# 1% tolerance for detecting clipped roofs by comparing clipped vs unclipped area
+CLIPPED_AREA_TOLERANCE = 0.99
 
 logger = log.get_logger()
 

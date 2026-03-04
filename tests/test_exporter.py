@@ -571,9 +571,9 @@ class TestExporter:
                 output_dir=tmpdir,
                 country="au",
                 packs=["building"],
-                rollup_format="csv",
+                tabular_file_format="csv",
             )
-            assert exporter_csv.rollup_format == "csv"
+            assert exporter_csv.tabular_file_format == "csv"
 
             # Test Parquet format
             exporter_parquet = AOIExporter(
@@ -581,9 +581,9 @@ class TestExporter:
                 output_dir=tmpdir,
                 country="au",
                 packs=["building"],
-                rollup_format="parquet",
+                tabular_file_format="parquet",
             )
-            assert exporter_parquet.rollup_format == "parquet"
+            assert exporter_parquet.tabular_file_format == "parquet"
 
     def test_aoi_exporter_save_features_flag(self):
         """Test save_features parameter."""
