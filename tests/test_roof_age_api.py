@@ -99,7 +99,6 @@ def test_roof_age_api_bulk_mode_disabled():
 def test_roof_age_api_missing_key():
     """Test that RoofAgeApi raises error when no API key is provided"""
     # Clear environment variable temporarily
-    import os
     old_key = os.environ.get("API_KEY")
     if "API_KEY" in os.environ:
         del os.environ["API_KEY"]

@@ -8,11 +8,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box, shape
 
 from nmaipy.constants import ROOF_ID, AOI_ID_COLUMN_NAME
 from nmaipy.feature_api import FeatureApi
-from nmaipy.parcels import flatten_roof_attributes
+from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
 
 data_directory = Path(__file__).parent / "data"
 
@@ -86,7 +86,6 @@ def test_gen_hurricane_score_data(cache_directory: Path):
     api = FeatureApi(api_key=api_key, cache_dir=cache_directory)
 
     # Also get the raw payload to save
-    print("Fetching raw payload...")
     raw_payload = api.get_features(
         geometry=test_polygon,
         region="us",
@@ -99,7 +98,6 @@ def test_gen_hurricane_score_data(cache_directory: Path):
     raw_payload_file = data_directory / "test_hurricane_score_raw_payload.json"
     with open(raw_payload_file, 'w') as f:
         json.dump(raw_payload, f, indent=2)
-    print(f"Saved raw payload to {raw_payload_file}")
 
     # Now get the processed GeoDataFrame (without date constraints)
     features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
@@ -110,13 +108,9 @@ def test_gen_hurricane_score_data(cache_directory: Path):
         # No date constraints - get the latest available
     )
 
-    if len(errors_df) > 0:
-        print(f"Errors fetching data: {errors_df}")
-
     # Save the features
     outfile = data_directory / "test_features_hurricane_score.csv"
     features_gdf.to_csv(outfile)
-    print(f"Saved {len(features_gdf)} features to {outfile}")
 
     # Check if we got hurricaneScore data
     roof_features = features_gdf[features_gdf['class_id'] == ROOF_ID]
@@ -143,29 +137,17 @@ def test_gen_hurricane_score_data(cache_directory: Path):
                 'attributes': row.get('attributes')
             }
             roof_samples.append(roof_sample)
-            print(f"Found hurricaneScore: {roof_sample['hurricane_score']}")
 
             # Save a sample with hurricane score
             hurricane_score_sample_file = data_directory / "test_hurricane_score_sample.json"
             with open(hurricane_score_sample_file, 'w') as f:
                 json.dump(roof_sample, f, indent=2)
-            print(f"Saved hurricaneScore sample to {hurricane_score_sample_file}")
 
     # Save samples of roofs with hurricaneScore
     if roof_samples:
         samples_file = data_directory / "test_roof_hurricane_score_samples.json"
         with open(samples_file, 'w') as f:
             json.dump(roof_samples, f, indent=2)
-        print(f"Saved {len(roof_samples)} roof hurricaneScore samples to {samples_file}")
-
-    print(f"Found {hurricane_score_count} roofs with hurricaneScore out of {len(roof_features)} total roof features")
-    if hurricane_score_count == 0:
-        print("WARNING: No hurricaneScore data found in API response.")
-        print("This might be because:")
-        print("  1. The API doesn't have hurricaneScore data for this location")
-        print("  2. The date doesn't have hurricaneScore data available")
-        print("  3. The include parameter isn't working as expected")
-        print("\nThe test data has been saved but without hurricaneScore.")
 
 
 def test_hurricane_score_with_real_data(roof_with_hurricane_score):
@@ -344,9 +326,6 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
     and roofSpotlightIndex appear in the flattened output.
     Uses real API data from the payload fixture.
     """
-    from nmaipy.parcels import parcel_rollup
-    from shapely.geometry import shape, box
-
     # Use payload from fixture
     payload = hurricane_score_payload
 

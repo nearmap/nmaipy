@@ -2352,13 +2352,13 @@ class NearmapAIExporter(BaseExporter):
                 "perspective",
                 "postcat",
             ]
-            # Validate columns
-            for meta_data_column in meta_data_columns:
-                if meta_data_column in aoi_gdf.columns:
-                    metadata_df = metadata_df.rename(
-                        columns={meta_data_column: f"nmaipy_{meta_data_column}"}
-                    )
-                    meta_data_columns.remove(meta_data_column)
+            # Rename metadata columns that clash with user's AOI columns
+            conflicting_columns = [c for c in meta_data_columns if c in aoi_gdf.columns]
+            for meta_data_column in conflicting_columns:
+                metadata_df = metadata_df.rename(
+                    columns={meta_data_column: f"nmaipy_{meta_data_column}"}
+                )
+                meta_data_columns.remove(meta_data_column)
 
             # Use rollup_df as base to preserve all AOIs (including those where Feature API
             # failed but Roof Age API succeeded). Left-merge with metadata_df to add

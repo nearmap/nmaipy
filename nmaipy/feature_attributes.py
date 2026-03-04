@@ -18,6 +18,9 @@ import ast
 import json
 from typing import Any, Dict, List, Optional, Union, overload
 
+# 1% tolerance for detecting clipped roofs by comparing clipped vs unclipped area
+CLIPPED_AREA_TOLERANCE = 0.99
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -381,6 +384,8 @@ def flatten_roof_attributes(
         Flattened dictionary with roof attributes including material components,
         3D attributes, roof spotlight index, hurricane scores, and defensible space data.
     """
+    # Circular import: feature_attributes.py <-> parcels.py
+    # This must remain a function-level import to break the cycle.
     from nmaipy.parcels import calculate_child_feature_attributes
 
     flattened = {}
@@ -567,7 +572,7 @@ def flatten_roof_attributes(
         is_clipped = (
             clipped_area is not None
             and unclipped_area is not None
-            and clipped_area < unclipped_area * 0.99  # 1% tolerance
+            and clipped_area < unclipped_area * CLIPPED_AREA_TOLERANCE
         )
 
         for attribute in attributes or []:

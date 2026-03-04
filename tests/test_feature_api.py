@@ -35,6 +35,7 @@ from nmaipy.constants import (
 from nmaipy.feature_api import FeatureApi
 
 
+@pytest.mark.live_api
 class TestFeatureAPI:
     def test_get_rollup_df(self, sydney_aoi: Polygon, cache_directory: Path):
         date_1 = "2025-01-20"
@@ -47,8 +48,7 @@ class TestFeatureAPI:
         rollup_df, metadata, error = feature_api.get_rollup_df(
             sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
-        print(rollup_df.T)
-        print(f"WKT of Query AOI: {sydney_aoi}")
+
 
         # No error
         assert error is None
@@ -112,8 +112,7 @@ class TestFeatureAPI:
             aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
 
-        print(metadata)
-        print(features_gdf.T)
+
 
         assert len(features_gdf.feature_id.unique()) == len(features_gdf)
         # TODO: Make this test richer/quantitative info, not just that we end up with unique feature IDs.
@@ -463,7 +462,6 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
-        print(metadata_df.iloc[0].T)
 
         # Check metadata
         assert len(metadata_df) == 16
@@ -487,12 +485,10 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"])
         features_gdf[AOI_ID_COLUMN_NAME] = 0
-        print(features_gdf.T)
         assert len(features_gdf) == 1  # 1 pole found
 
     def test_multipolygon_1(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = sydney_aoi.union(translate(sydney_aoi, 0.002, 0.01))
-        print(f"Multipolygon 1 (use QuickWKT in QGIS to visualise): {aoi}")
         date_1 = "2025-01-20"
         date_2 = "2025-01-20"
         country = "au"
@@ -504,7 +500,7 @@ class TestFeatureAPI:
         assert error is None
         assert metadata is not None
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
-        print(metadata)
+
         # No error
         assert error is None
         # Date is in range
@@ -519,7 +515,7 @@ class TestFeatureAPI:
 
     def test_multipolygon_2(self, cache_directory: Path, sydney_aoi: Polygon):
         aoi = MultiPolygon([translate(sydney_aoi, 0.001, 0.001), translate(sydney_aoi, 0.003, 0.003)])
-        print(f"Multipolygon 2 (use QuickWKT in QGIS to visualise): {aoi}")
+
         date_1 = "2025-01-20"
         date_2 = "2025-01-20"
         country = "au"
@@ -530,7 +526,7 @@ class TestFeatureAPI:
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
 
-        print(metadata)
+
 
         # No error
         assert error is None
@@ -551,7 +547,7 @@ class TestFeatureAPI:
         aoi = loads(
             "MultiPolygon (((-88.40618111505668253 43.06538384370446693, -88.40618111505668253 43.06557268197261834, -88.40601285961312783 43.06557268197261834, -88.40601285961312783 43.06538384370446693, -88.40618111505668253 43.06538384370446693)),((-88.40590800477149003 43.06555664855734022, -88.40590394063035262 43.06538028071267377, -88.40578689336528839 43.06537434239258033, -88.40577307528538142 43.06555189791498606, -88.40577307528538142 43.06555189791498606, -88.40590800477149003 43.06555664855734022)))"
         )
-        print(f"Multipolygon 2 (use QuickWKT in QGIS to visualise): {aoi}")
+
         date_1 = "2020-01-01"
         date_2 = "2022-07-01"
         country = "us"
@@ -561,7 +557,7 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
-        print(metadata)
+
 
         # No error
         assert error is None
@@ -593,7 +589,7 @@ class TestFeatureAPI:
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
-        print(metadata)
+
 
         # No error
         assert error is None
@@ -618,7 +614,7 @@ class TestFeatureAPI:
 
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
-        print(metadata)
+
 
         # No error
         assert error is None

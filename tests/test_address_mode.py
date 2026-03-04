@@ -5,18 +5,13 @@ This test verifies that address-only parcel files work correctly with nmaipy's
 address-based Feature API endpoint.
 """
 import os
-import pytest
+
 import pandas as pd
+import pytest
+from shapely.geometry import Point
+
 from nmaipy.exporter import AOIExporter
-
-
-@pytest.fixture
-def api_key():
-    """Get API key from environment"""
-    key = os.getenv('API_KEY')
-    if not key:
-        pytest.skip("API_KEY environment variable not set")
-    return key
+from nmaipy.feature_api import FeatureApi
 
 
 @pytest.fixture
@@ -70,7 +65,8 @@ def test_address_mode_detection(single_address_csv):
         assert df[field].notna().all(), f"Address field {field} has null values"
 
 
-def test_single_address_export(api_key, single_address_csv, tmp_path):
+@pytest.mark.live_api
+def test_single_address_export(single_address_csv, tmp_path):
     """
     Test that a single address can be exported using nmaipy's address mode.
 
@@ -101,7 +97,7 @@ def test_single_address_export(api_key, single_address_csv, tmp_path):
         chunk_size=10,
         parcel_mode=True,  # Use parcel mode for AOI-filtered queries
         country='au',  # Australian address
-        api_key=api_key
+        api_key=os.getenv('API_KEY')
     )
 
     # Run export
@@ -143,6 +139,7 @@ def test_single_address_export(api_key, single_address_csv, tmp_path):
     assert len(df_features) > 0, f"No features found (expected building features)"
 
 
+@pytest.mark.live_api
 def test_url_encoding_in_address_fields():
     """
     Test that address fields are properly URL-encoded when creating POST requests.
@@ -150,17 +147,8 @@ def test_url_encoding_in_address_fields():
     Verifies that special characters in address fields (spaces, apostrophes, etc.)
     are correctly encoded in the query string.
     """
-    from nmaipy.feature_api import FeatureApi
-    from shapely.geometry import Point
-    import os
-
-    # Get API key
-    api_key = os.getenv('API_KEY')
-    if not api_key:
-        pytest.skip("API_KEY environment variable not set")
-
     # Create API instance
-    api = FeatureApi(api_key=api_key)
+    api = FeatureApi(api_key=os.getenv('API_KEY'))
 
     # Test address with special characters
     address_fields = {
@@ -194,21 +182,13 @@ def test_url_encoding_in_address_fields():
     assert "zip=" in url
 
 
+@pytest.mark.live_api
 def test_invalid_region_validation():
     """
     Test that invalid region codes are rejected with helpful error messages.
     """
-    from nmaipy.feature_api import FeatureApi
-    from shapely.geometry import Point
-    import os
-
-    # Get API key
-    api_key = os.getenv('API_KEY')
-    if not api_key:
-        pytest.skip("API_KEY environment variable not set")
-
     # Create API instance
-    api = FeatureApi(api_key=api_key)
+    api = FeatureApi(api_key=os.getenv('API_KEY'))
 
     # Test address fields
     address_fields = {
@@ -237,7 +217,3 @@ def test_invalid_region_validation():
     assert "ca" in error_msg
     assert "nz" in error_msg
     assert "us" in error_msg
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '-s'])

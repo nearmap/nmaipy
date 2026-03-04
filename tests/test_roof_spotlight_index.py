@@ -66,7 +66,6 @@ def test_gen_rsi_data(cache_directory: Path):
     api = FeatureApi(api_key=api_key, cache_dir=cache_directory)
     
     # Also get the raw payload to save
-    print("Fetching raw payload...")
     raw_payload = api.get_features(
         geometry=test_polygon,
         region="us", 
@@ -79,7 +78,6 @@ def test_gen_rsi_data(cache_directory: Path):
     raw_payload_file = data_directory / "test_rsi_raw_payload.json"
     with open(raw_payload_file, 'w') as f:
         json.dump(raw_payload, f, indent=2)
-    print(f"Saved raw payload to {raw_payload_file}")
     
     # Now get the processed GeoDataFrame (without date constraints)
     features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
@@ -90,13 +88,9 @@ def test_gen_rsi_data(cache_directory: Path):
         # No date constraints - get the latest available
     )
     
-    if len(errors_df) > 0:
-        print(f"Errors fetching data: {errors_df}")
-    
     # Save the features
     outfile = data_directory / "test_features_rsi.csv"
     features_gdf.to_csv(outfile)
-    print(f"Saved {len(features_gdf)} features to {outfile}")
     
     # Check if we got roofSpotlightIndex data
     roof_features = features_gdf[features_gdf['class_id'] == ROOF_ID]
@@ -122,7 +116,6 @@ def test_gen_rsi_data(cache_directory: Path):
                 for attr in attrs:
                     if isinstance(attr, dict) and attr.get('description') == 'roofSpotlightIndex':
                         rsi_count += 1
-                        print(f"Found roofSpotlightIndex: {attr}")
                         # Save a sample with RSI
                         rsi_sample_file = data_directory / "test_rsi_sample.json"
                         with open(rsi_sample_file, 'w') as f:
@@ -131,7 +124,6 @@ def test_gen_rsi_data(cache_directory: Path):
                                 'roofSpotlightIndex_attribute': attr,
                                 'all_attributes': attrs
                             }, f, indent=2)
-                        print(f"Saved RSI sample to {rsi_sample_file}")
                         break
     
     # Save samples of roofs with attributes
@@ -139,16 +131,6 @@ def test_gen_rsi_data(cache_directory: Path):
         samples_file = data_directory / "test_roof_attributes_samples.json"
         with open(samples_file, 'w') as f:
             json.dump(roof_samples, f, indent=2)
-        print(f"Saved {len(roof_samples)} roof attribute samples to {samples_file}")
-    
-    print(f"Found {rsi_count} roofs with roofSpotlightIndex out of {len(roof_features)} total roofs")
-    if rsi_count == 0:
-        print("WARNING: No roofSpotlightIndex data found in API response.")
-        print("This might be because:")
-        print("  1. The API doesn't have RSI data for this location")
-        print("  2. The date doesn't have RSI data available")
-        print("  3. The include parameter isn't working as expected")
-        print("\nThe test data has been saved but without roofSpotlightIndex.")
     # Don't fail - we can still test that the code handles missing RSI gracefully
 
 
@@ -231,5 +213,3 @@ def test_handles_missing_rsi_gracefully():
         "roof_spotlight_index should not be present when not in source data"
     assert "roof_spotlight_index_confidence" not in result
     assert "roof_spotlight_index_model_version" not in result
-    
-    print("Successfully handled missing roofSpotlightIndex")

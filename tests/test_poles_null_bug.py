@@ -155,7 +155,3 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
             null_dtype_columns.append(col)
     
     assert len(null_dtype_columns) == 0, f"Found columns with 'null' dtype: {null_dtype_columns}"
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '-s'])

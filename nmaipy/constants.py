@@ -66,14 +66,12 @@ ROOF_AGE_PREFIX_COLUMNS = {
 # gracefully while preventing indefinite blocking on persistent errors.
 
 # Maximum number of retry attempts for failed requests
-# Set to 22 to handle transient 500-series errors more robustly. With exponential
-# backoff (0.5s factor, min 2s, capped at 20s), retry delays are approximately:
-# 2s, 2s, 2s, 4s, 8s, 16s, 20s (capped), 20s, ...
-# This allows for more patience with transient failures.
+# With exponential backoff (0.5s factor, min 2s, capped at 10s), retry delays are approximately:
+# 2s, 2s, 2s, 4s, 8s, 10s (capped), 10s, ...
 MAX_RETRIES = 10
 
 # Exponential backoff multiplier for retries
-# With factor 0.5, combined with BACKOFF_MIN=2s and BACKOFF_MAX=20s in RetryRequest class
+# With factor 0.5, combined with BACKOFF_MIN=2s and BACKOFF_MAX=10s in RetryRequest class
 BACKOFF_FACTOR = 0.5
 
 # Maximum time to wait for initial server response (connection + waiting for first byte)

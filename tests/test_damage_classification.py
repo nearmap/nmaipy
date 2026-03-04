@@ -1,5 +1,7 @@
 """Test damage classification functionality."""
 
+# TODO: Replace fabricated test data with cached real API data (see project MEMORY.md)
+
 import os
 import pytest
 import pandas as pd
@@ -320,20 +322,14 @@ class TestDamageClassification:
         # Assertions
         assert error is None, f"API request failed with error: {error}"
         assert features_gdf is not None, "No features returned"
-        
-        # Debug: print what we got
-        print(f"\nTotal features returned: {len(features_gdf)}")
+
         if len(features_gdf) > 0:
-            print(f"Columns: {list(features_gdf.columns)}")
-            print(f"Unique descriptions: {features_gdf['description'].unique()}")
-            
             # Check if we have damage-related data
             has_damage_data = False
             if 'damage' in features_gdf.columns:
                 damage_features = features_gdf[features_gdf['damage'].notna()]
                 has_damage_data = len(damage_features) > 0
-                print(f"Damage column present with {len(damage_features)} non-null values")
-            
+
             if 'attributes' in features_gdf.columns:
                 # Check for damage in attributes
                 attrs_with_damage = features_gdf[features_gdf['attributes'].notna()]
@@ -342,24 +338,18 @@ class TestDamageClassification:
                     sample_attr = attrs_with_damage['attributes'].iloc[0]
                     if isinstance(sample_attr, dict) and 'damage' in sample_attr:
                         has_damage_data = True
-                        print(f"Found damage data in attributes column")
-            
+
             assert has_damage_data, "No damage classification data found in features"
-        
+
         assert len(features_gdf) > 0, "No features found in test area"
-        
+
         # Check metadata
         assert metadata is not None, "No metadata returned"
         assert 'survey_date' in metadata, "No survey_date in metadata"
-        
-        print(f"\nFound {len(features_gdf)} total features")
-        if 'description' in features_gdf.columns:
-            print(f"Feature types: {features_gdf['description'].value_counts().to_dict()}")
-        
+
         # Optional: Save results for inspection
         TEST_OUTPUT_DIR = Path(__file__).parent / "data" / "damage_classification_results"
         if os.environ.get('SAVE_TEST_OUTPUT'):
             TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
             output_file = TEST_OUTPUT_DIR / "beryl_damage_test.gpkg"
             features_gdf.to_file(output_file, driver='GPKG', layer='damage_features')
-            print(f"\nSaved damage classification results to: {output_file}")
