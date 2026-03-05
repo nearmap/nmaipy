@@ -70,6 +70,7 @@ from nmaipy.constants import (
     MAX_RETRIES,
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
+    PER_CLASS_FILE_CLASS_IDS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
@@ -3314,13 +3315,34 @@ class NearmapAIExporter(BaseExporter):
                             if c not in system_columns and c not in ADDRESS_FIELDS
                         ]
 
+                        # Filter to whitelisted classes for per-class files
+                        whitelisted_classes = [
+                            c
+                            for c in unique_classes
+                            if c in PER_CLASS_FILE_CLASS_IDS
+                        ]
+                        skipped_count = len(unique_classes) - len(
+                            whitelisted_classes
+                        )
+                        if skipped_count > 0:
+                            self.logger.info(
+                                f"Skipping per-class files for {skipped_count} "
+                                f"classes (not in PER_CLASS_FILE_CLASS_IDS "
+                                f"whitelist). Exporting "
+                                f"{len(whitelisted_classes)} whitelisted classes."
+                            )
+
                         # Classes that require cross-class data for export
                         cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
                         independent_ids = [
-                            c for c in unique_classes if c not in cross_class_ids
+                            c
+                            for c in whitelisted_classes
+                            if c not in cross_class_ids
                         ]
                         dependent_ids = [
-                            c for c in unique_classes if c in cross_class_ids
+                            c
+                            for c in whitelisted_classes
+                            if c in cross_class_ids
                         ]
 
                         # Phase B: Process independent classes one at a time.

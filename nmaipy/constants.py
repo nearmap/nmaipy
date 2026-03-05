@@ -284,6 +284,18 @@ CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [
     ROOF_INSTANCE_CLASS_ID,
 ]  # Can add more where we particularly care about attributes for the largest feature
 
+# Whitelist of class IDs that get individual per-class files (e.g. "roof.csv",
+# "roof_features.parquet"). Classes not in this set are still included in the
+# combined features.parquet but do not get their own tabular/geo exports.
+PER_CLASS_FILE_CLASS_IDS = {
+    BUILDING_LIFECYCLE_ID,
+    BUILDING_NEW_ID,
+    ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
+    POOL_ID,
+    SOLAR_ID,
+}
+
 # Map rollup column names to class IDs for is_primary merge
 # Used to mark which features are primary in per-class exports
 PRIMARY_FEATURE_COLUMN_TO_CLASS = {
