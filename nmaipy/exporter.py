@@ -23,6 +23,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pyproj
 import shapely
@@ -1867,7 +1868,21 @@ class NearmapAIExporter(BaseExporter):
                                     f"{', '.join(type_warnings)}"
                                 )
                             schema_promotion_count += 1
-                    pqwriter.write_table(table)
+                    # Write one row group per class_id so pyarrow's predicate
+                    # pushdown can skip non-matching row groups during filtered reads.
+                    if "class_id" in table.column_names:
+                        table = table.sort_by("class_id")
+                        class_col = table.column("class_id")
+                        unique_classes = class_col.unique().to_pylist()
+                        has_nulls = None in unique_classes
+                        for cls in unique_classes:
+                            if cls is None:
+                                mask = pc.is_null(class_col)
+                            else:
+                                mask = pc.equal(class_col, cls)
+                            pqwriter.write_table(table.filter(mask))
+                    else:
+                        pqwriter.write_table(table)
 
         finally:
             # Cancel queued futures and wait for running ones to finish,
@@ -3391,23 +3406,25 @@ class NearmapAIExporter(BaseExporter):
                             for c in whitelisted_classes
                             if c not in cross_class_ids
                         ]
+                        # Explicit ordering: Building first, then Roof
                         dependent_ids = [
                             c
-                            for c in whitelisted_classes
-                            if c in cross_class_ids
+                            for c in [BUILDING_NEW_ID, ROOF_ID]
+                            if c in whitelisted_classes
                         ]
 
-                        # Phase B: Process independent classes one at a time.
+                        # Phase B: Process independent classes in parallel (4 workers).
                         # Each class is read via filtered parquet read from local disk,
-                        # exported, then freed.  OS page cache warms on the first read
-                        # so subsequent reads are served from RAM.
-                        for class_id in independent_ids:
+                        # exported, then freed.  Sorted row groups enable fast predicate
+                        # pushdown so each read only touches matching row groups.
+                        def _export_independent_class(class_id):
+                            t0 = time.monotonic()
                             class_features = gpd.read_parquet(
                                 features_read_path,
                                 filters=[("class_id", "==", class_id)],
                             )
                             if len(class_features) == 0:
-                                continue
+                                return None
                             class_features = _add_is_primary_column(
                                 class_features, primary_ids_df
                             )
@@ -3432,20 +3449,45 @@ class NearmapAIExporter(BaseExporter):
                                 roof_instance_features=gpd.GeoDataFrame(),
                             )
                             del class_features
+                            elapsed = time.monotonic() - t0
                             if tabular_path or geo_parquet_path:
-                                files = [
-                                    storage.basename(f)
-                                    for f in [tabular_path, geo_parquet_path]
-                                    if f
-                                ]
-                                self.logger.info(
-                                    f"  Exported {description}: {', '.join(files)}"
-                                )
+                                return (description, tabular_path, geo_parquet_path, elapsed)
+                            return None
+
+                        if independent_ids:
+                            n_workers = min(4, len(independent_ids))
+                            self.logger.info(
+                                f"Exporting {len(independent_ids)} independent "
+                                f"classes ({n_workers} parallel workers)..."
+                            )
+                            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                                futures = {
+                                    pool.submit(_export_independent_class, cid): cid
+                                    for cid in independent_ids
+                                }
+                                for future in as_completed(futures):
+                                    result = future.result()
+                                    if result:
+                                        description, tabular_path, geo_parquet_path, elapsed = result
+                                        files = [
+                                            storage.basename(f)
+                                            for f in [tabular_path, geo_parquet_path]
+                                            if f
+                                        ]
+                                        self.logger.info(
+                                            f"  Exported {description}: "
+                                            f"{', '.join(files)} ({elapsed:.1f}s)"
+                                        )
 
                         # Phase C: Process dependent classes (ROOF_ID, BUILDING_NEW_ID).
                         # These need cross-class data: roof instances for linkage, and
                         # child features for spatial attribute recalculation on clipped roofs.
                         if dependent_ids:
+                            t_phase_c = time.monotonic()
+                            self.logger.info(
+                                f"Loading cross-class features for "
+                                f"{len(dependent_ids)} dependent classes..."
+                            )
                             # First load the core dependent classes
                             core_ids = {
                                 ROOF_ID,
@@ -3455,6 +3497,10 @@ class NearmapAIExporter(BaseExporter):
                             cross_features = gpd.read_parquet(
                                 features_read_path,
                                 filters=[("class_id", "in", sorted(core_ids))],
+                            )
+                            self.logger.info(
+                                f"Loaded {len(cross_features)} cross-class features "
+                                f"({time.monotonic() - t_phase_c:.1f}s)"
                             )
 
                             # Dynamically discover child class IDs from roof component
@@ -3571,11 +3617,12 @@ class NearmapAIExporter(BaseExporter):
                                             f"Could not flatten roof attributes: {e}"
                                         )
                                 del child_by_aoi, child_proj_by_aoi
-                                self.logger.debug(
+                                self.logger.info(
                                     f"Roof attribute cache: {len(roof_attrs_cache)} roofs in {time.monotonic() - t_cache:.1f}s"
                                 )
 
                             for class_id in dependent_ids:
+                                t_dep = time.monotonic()
                                 class_features = cross_features[
                                     cross_features["class_id"] == class_id
                                 ]
@@ -3602,6 +3649,7 @@ class NearmapAIExporter(BaseExporter):
                                     roof_instance_features=roof_instance_features,
                                     roof_attrs_cache=roof_attrs_cache,
                                 )
+                                elapsed_dep = time.monotonic() - t_dep
                                 if tabular_path or geo_parquet_path:
                                     files = [
                                         storage.basename(f)
@@ -3609,7 +3657,8 @@ class NearmapAIExporter(BaseExporter):
                                         if f
                                     ]
                                     self.logger.info(
-                                        f"  Exported {description}: {', '.join(files)}"
+                                        f"  Exported {description}: "
+                                        f"{', '.join(files)} ({elapsed_dep:.1f}s)"
                                     )
                             del (
                                 cross_features,
