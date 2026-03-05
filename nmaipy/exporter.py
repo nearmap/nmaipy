@@ -1660,17 +1660,43 @@ class NearmapAIExporter(BaseExporter):
         """
 
         pqwriter = None
-        reference_columns = None  # Store column order from first chunk
         reference_schema = None  # Store PyArrow schema from first chunk
         schema_promotion_count = 0  # Count chunks needing null-type promotions
         mismatch_count = 0
-        missing_col_counts = collections.Counter()  # col_name -> num chunks missing it
-        extra_col_counts = collections.Counter()
+        variable_col_counts = collections.Counter()  # col_name -> num chunks where it differed
 
         total = len(feature_paths)
         if total == 0:
             self.logger.warning("No feature data found to write")
             return None
+
+        # Pre-scan all chunk schemas to build union column set and type map.
+        # pq.read_schema() reads only parquet footer metadata — no row data.
+        # Parallelized for S3 where each read is a network round-trip.
+        self.logger.info(f"Scanning schemas from {total} chunk files...")
+        with ThreadPoolExecutor(max_workers=FEATURE_PREFETCH_WORKERS) as scan_executor:
+            chunk_schemas = list(scan_executor.map(pq.read_schema, feature_paths))
+
+        # Build reference_columns: first chunk's order as base, extras appended sorted
+        first_chunk_columns = list(chunk_schemas[0].names)
+        all_column_names = set()
+        for schema in chunk_schemas:
+            all_column_names.update(schema.names)
+        extra_sorted = sorted(all_column_names - set(first_chunk_columns))
+        reference_columns = pd.Index(first_chunk_columns + extra_sorted)
+
+        # Build column_name -> first non-null pyarrow type lookup for null promotion
+        column_types = {}
+        for schema in chunk_schemas:
+            for field in schema:
+                if field.name not in column_types and field.type != pa.null():
+                    column_types[field.name] = field.type
+
+        if extra_sorted:
+            self.logger.info(
+                f"Union schema has {len(reference_columns)} columns "
+                f"({len(extra_sorted)} not present in first chunk)"
+            )
 
         # Set up prefetch buffer: read chunks ahead in background threads
         # while the main thread processes and writes the current chunk.
@@ -1719,30 +1745,14 @@ class NearmapAIExporter(BaseExporter):
                     next_submit_idx += 1
 
                 if len(df_feature_chunk) > 0:
-                    # Store CRS and column schema from first chunk
-                    if reference_columns is None:
-                        reference_columns = df_feature_chunk.columns
-
-                    # Validate and reorder columns for subsequent chunks
-                    current_columns = list(df_feature_chunk.columns)
-                    missing_cols = set(reference_columns) - set(current_columns)
-                    extra_cols = set(current_columns) - set(reference_columns)
-                    if missing_cols or extra_cols:
+                    # Pad missing columns with nulls and reorder to match union schema
+                    missing_cols = set(reference_columns) - set(df_feature_chunk.columns)
+                    if missing_cols:
                         mismatch_count += 1
-                        if missing_cols:
-                            for col in missing_cols:
-                                missing_col_counts[col] += 1
-                                df_feature_chunk[col] = None
-                        if extra_cols:
-                            for col in extra_cols:
-                                extra_col_counts[col] += 1
-
-                    # Ensure column order matches reference for all chunks
-                    if list(current_columns) != list(reference_columns):
-                        self.logger.debug(
-                            f"Chunk {i}: Column order differs from reference, reordering silently"
-                        )
-                        df_feature_chunk = df_feature_chunk[reference_columns]
+                        for col in missing_cols:
+                            variable_col_counts[col] += 1
+                            df_feature_chunk[col] = None
+                    df_feature_chunk = df_feature_chunk[reference_columns]
 
                     # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
                     geom_col = df_feature_chunk.geometry.to_wkb()
@@ -1755,14 +1765,14 @@ class NearmapAIExporter(BaseExporter):
                     if pqwriter is None:
                         reference_schema = table.schema
 
-                        # Promote any null-type fields in reference schema to string.
-                        # This prevents the reverse problem: if the first chunk has all-null
-                        # columns, later chunks with actual data would need string->null casts.
+                        # Promote null-type fields using real types from pre-scanned
+                        # schemas. Falls back to string if no chunk has real data.
                         promoted = []
                         for field in reference_schema:
                             if field.type == pa.null():
+                                real_type = column_types.get(field.name, pa.string())
                                 promoted.append(
-                                    pa.field(field.name, pa.string(), nullable=True)
+                                    pa.field(field.name, real_type, nullable=True)
                                 )
                             else:
                                 promoted.append(field)
@@ -1875,17 +1885,14 @@ class NearmapAIExporter(BaseExporter):
                 )
 
             if mismatch_count > 0:
-                parts = []
-                if missing_col_counts:
-                    for col in sorted(missing_col_counts):
-                        parts.append(f"{col}: {missing_col_counts[col]} chunks")
-                if extra_col_counts:
-                    for col in sorted(extra_col_counts):
-                        parts.append(f"{col} (extra): {extra_col_counts[col]} chunks")
-                detail = " | ".join(parts)
+                parts = [
+                    f"{col}: {variable_col_counts[col]} chunks"
+                    for col in sorted(variable_col_counts)
+                ]
                 self.logger.info(
                     f"Schema alignment: {mismatch_count}/{len(feature_paths)} chunks "
-                    f"had column mismatches (filled with nulls): {detail}"
+                    f"had variable columns (padded with nulls where absent): "
+                    + " | ".join(parts)
                 )
 
             # Log final status

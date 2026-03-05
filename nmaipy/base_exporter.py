@@ -55,9 +55,12 @@ logger = log.get_logger()
 
 def resource_postfix() -> str:
     """Build a compact resource usage string for tqdm postfix display."""
-    used_gb, total_gb = get_memory_info_cgroup_aware()
-    cpu_pct, _ = get_cpu_info_cgroup_aware()
-    return f"{used_gb:.1f}/{total_gb:.1f}GB | CPU {cpu_pct:.0f}%"
+    try:
+        used_gb, total_gb = get_memory_info_cgroup_aware()
+        cpu_pct, _ = get_cpu_info_cgroup_aware()
+        return f"{used_gb:.1f}/{total_gb:.1f}GB | CPU {cpu_pct:.0f}%"
+    except Exception:
+        return ""
 
 
 class BaseExporter(ABC):
