@@ -1874,7 +1874,6 @@ class NearmapAIExporter(BaseExporter):
                         table = table.sort_by("class_id")
                         class_col = table.column("class_id")
                         unique_classes = class_col.unique().to_pylist()
-                        has_nulls = None in unique_classes
                         for cls in unique_classes:
                             if cls is None:
                                 mask = pc.is_null(class_col)
