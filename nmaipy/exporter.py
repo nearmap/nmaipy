@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("PROJ_DEBUG", "OFF")
 
 import argparse
+import collections
 import concurrent.futures
 import gc
 import json
@@ -49,7 +50,7 @@ from nmaipy.api_common import (
     sanitize_error_message,
     save_chunk_latency_stats,
 )
-from nmaipy.base_exporter import BaseExporter
+from nmaipy.base_exporter import BaseExporter, resource_postfix
 from nmaipy.cgroup_memory import get_cpu_info_cgroup_aware, get_memory_info_cgroup_aware
 from nmaipy.constants import (
     ADDRESS_FIELDS,
@@ -144,16 +145,22 @@ def _read_parquet_chunks_parallel(
     results = []
     failed_paths = []
     empty_count = 0
+    last_resource_update = 0.0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {executor.submit(_read_one, p): p for p in paths}
-        for future in tqdm(
+        pbar = tqdm(
             as_completed(future_to_path),
             total=len(paths),
             desc=desc,
             file=sys.stdout,
             position=0,
             leave=True,
-        ):
+        )
+        for future in pbar:
+            now = time.time()
+            if now - last_resource_update >= 5.0:
+                pbar.set_postfix_str(resource_postfix())
+                last_resource_update = now
             path = future_to_path[future]
             try:
                 result = future.result()
@@ -1656,6 +1663,9 @@ class NearmapAIExporter(BaseExporter):
         reference_columns = None  # Store column order from first chunk
         reference_schema = None  # Store PyArrow schema from first chunk
         schema_promotion_count = 0  # Count chunks needing null-type promotions
+        mismatch_count = 0
+        missing_col_counts = collections.Counter()  # col_name -> num chunks missing it
+        extra_col_counts = collections.Counter()
 
         total = len(feature_paths)
         if total == 0:
@@ -1675,13 +1685,19 @@ class NearmapAIExporter(BaseExporter):
 
         try:
             # Stream chunks directly to geoparquet
-            for i in tqdm(
+            last_resource_update = 0.0
+            pbar = tqdm(
                 range(total),
                 desc="Streaming chunks",
                 file=sys.stdout,
                 position=0,
                 leave=True,
-            ):
+            )
+            for i in pbar:
+                now = time.time()
+                if now - last_resource_update >= 5.0:
+                    pbar.set_postfix_str(resource_postfix())
+                    last_resource_update = now
                 # Get the prefetched result for this index
                 future = prefetch_futures.pop(i)
                 try:
@@ -1712,18 +1728,14 @@ class NearmapAIExporter(BaseExporter):
                     missing_cols = set(reference_columns) - set(current_columns)
                     extra_cols = set(current_columns) - set(reference_columns)
                     if missing_cols or extra_cols:
-                        self.logger.warning(f"Chunk {i} schema mismatch detected:")
+                        mismatch_count += 1
                         if missing_cols:
-                            self.logger.warning(
-                                f"  Missing columns: {sorted(missing_cols)}"
-                            )
-                            # Add missing columns with null values
                             for col in missing_cols:
+                                missing_col_counts[col] += 1
                                 df_feature_chunk[col] = None
                         if extra_cols:
-                            self.logger.warning(
-                                f"  Extra columns: {sorted(extra_cols)}"
-                            )
+                            for col in extra_cols:
+                                extra_col_counts[col] += 1
 
                     # Ensure column order matches reference for all chunks
                     if list(current_columns) != list(reference_columns):
@@ -1862,6 +1874,20 @@ class NearmapAIExporter(BaseExporter):
                     f"chunks had null-type columns promoted to match reference schema"
                 )
 
+            if mismatch_count > 0:
+                parts = []
+                if missing_col_counts:
+                    for col in sorted(missing_col_counts):
+                        parts.append(f"{col}: {missing_col_counts[col]} chunks")
+                if extra_col_counts:
+                    for col in sorted(extra_col_counts):
+                        parts.append(f"{col} (extra): {extra_col_counts[col]} chunks")
+                detail = " | ".join(parts)
+                self.logger.info(
+                    f"Schema alignment: {mismatch_count}/{len(feature_paths)} chunks "
+                    f"had column mismatches (filled with nulls): {detail}"
+                )
+
             # Log final status
             used_gb, total_gb = get_memory_info_cgroup_aware()
             mem_pct = (used_gb / total_gb * 100) if total_gb > 0 else 0.0
@@ -1878,6 +1904,9 @@ class NearmapAIExporter(BaseExporter):
             # per-class export can read from local disk instead of re-downloading
             # from S3 for each class.  _cleanup_staging() removes it at the end.
             if self.is_s3_output:
+                self.logger.info(
+                    f"Uploading features.parquet to S3 ({final_file_size_gb:.1f}GB)..."
+                )
                 storage.upload_file(local_write_path, outpath_features)
 
             return local_write_path
@@ -2915,18 +2944,24 @@ class NearmapAIExporter(BaseExporter):
         read_workers = (
             S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
         )
+        last_resource_update = 0.0
         with ThreadPoolExecutor(max_workers=read_workers) as executor:
             futures = {
                 executor.submit(_check_chunk_files, i): i for i in range(num_chunks)
             }
-            for future in tqdm(
+            pbar = tqdm(
                 as_completed(futures),
                 total=num_chunks,
                 desc="Checking chunk files",
                 file=sys.stdout,
                 position=0,
                 leave=True,
-            ):
+            )
+            for future in pbar:
+                now = time.time()
+                if now - last_resource_update >= 5.0:
+                    pbar.set_postfix_str(resource_postfix())
+                    last_resource_update = now
                 chunk_check_results.append(future.result())
 
         # Sort by index for deterministic error reporting
@@ -2962,6 +2997,9 @@ class NearmapAIExporter(BaseExporter):
         if len(data) > 0:
             # Filter out DataFrames that are entirely NA (all values NA across all columns)
             data = [d for d in data if not d.isna().all().all()]
+            self.logger.info(
+                f"Concatenating {len(data)} rollup chunks..."
+            )
             # Suppress FutureWarning about all-NA columns in concat dtype inference.
             # Individual chunks may have all-NA columns for feature types not present
             # in that chunk; this doesn't affect correctness.
@@ -2980,6 +3018,9 @@ class NearmapAIExporter(BaseExporter):
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
+            self.logger.info(
+                f"Writing rollup {self.tabular_file_format} ({len(data)} rows)..."
+            )
             if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)
             elif self.tabular_file_format == "csv":
@@ -3271,6 +3312,10 @@ class NearmapAIExporter(BaseExporter):
                 try:
                     # Phase A: Discover unique classes and descriptions via lightweight
                     # column-only read (no geometry or attributes loaded).
+                    features_size_gb = storage.file_size(features_read_path) / (1024**3)
+                    self.logger.info(
+                        f"Scanning feature classes from {features_size_gb:.1f}GB features file..."
+                    )
                     meta_table = pq.read_table(
                         features_read_path, columns=["class_id", "description"]
                     )
