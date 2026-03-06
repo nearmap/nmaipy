@@ -1767,13 +1767,28 @@ class NearmapAIExporter(BaseExporter):
                         reference_schema = table.schema
 
                         # Promote null-type fields using real types from pre-scanned
-                        # schemas. Falls back to string if no chunk has real data.
+                        # schemas. Falls back to large_string if no chunk has real data.
+                        # Also promote string -> large_string (64-bit offsets) to avoid
+                        # ArrowInvalid offset overflow on large concatenated tables.
                         promoted = []
                         for field in reference_schema:
                             if field.type == pa.null():
-                                real_type = column_types.get(field.name, pa.string())
+                                real_type = column_types.get(
+                                    field.name, pa.large_string()
+                                )
+                                if real_type == pa.string():
+                                    real_type = pa.large_string()
                                 promoted.append(
                                     pa.field(field.name, real_type, nullable=True)
+                                )
+                            elif field.type == pa.string():
+                                promoted.append(
+                                    pa.field(
+                                        field.name,
+                                        pa.large_string(),
+                                        nullable=field.nullable,
+                                        metadata=field.metadata,
+                                    )
                                 )
                             else:
                                 promoted.append(field)
@@ -1822,6 +1837,8 @@ class NearmapAIExporter(BaseExporter):
                                 col = table.column(field.name)
                                 if col.type == pa.null():
                                     arrays.append(pa.nulls(len(table), type=field.type))
+                                elif col.type != field.type:
+                                    arrays.append(col.cast(field.type))
                                 else:
                                     arrays.append(col)
                             table = pa.Table.from_arrays(

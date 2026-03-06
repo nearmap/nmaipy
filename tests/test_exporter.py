@@ -797,12 +797,13 @@ class TestExporter:
             assert pd.isna(merged.iloc[0]["lob_bv"])
             assert merged.iloc[1]["lob_bv"] == "homeowner"
 
-            # Verify the parquet schema has string type (not null) for lob_bv
+            # Verify the parquet schema has large_string type (not null) for lob_bv.
+            # large_string uses 64-bit offsets to avoid overflow on large exports.
             schema = pq.read_schema(output_path)
             lob_field = schema.field("lob_bv")
             assert (
-                lob_field.type == pa.string()
-            ), f"Expected string type for promoted null column, got {lob_field.type}"
+                lob_field.type == pa.large_string()
+            ), f"Expected large_string type for promoted null column, got {lob_field.type}"
 
 
 class TestReadParquetChunksParallel:
