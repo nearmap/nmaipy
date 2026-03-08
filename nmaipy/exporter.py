@@ -730,15 +730,6 @@ def export_feature_class(
                 child_by_aoi = _group_children_by_aoi(
                     non_roof_features, features_gdf
                 )
-                has_aoi_id = (
-                    AOI_ID_COLUMN_NAME in class_features.columns
-                    or class_features.index.name == AOI_ID_COLUMN_NAME
-                )
-                if not has_aoi_id:
-                    logger.warning(
-                        "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
-                    )
-
                 roof_geoms_projected, child_proj_by_aoi = (
                     _batch_project_geometries(
                         class_features, child_by_aoi, country
@@ -747,14 +738,16 @@ def export_feature_class(
 
                 t_roof_flatten = time.monotonic()
                 attr_records = []
-                for idx, (_, row) in enumerate(class_features.iterrows()):
+                roof_records = class_features.to_dict("records")
+                if class_features.index.name == AOI_ID_COLUMN_NAME:
+                    for rec, aoi_id in zip(
+                        roof_records, class_features.index
+                    ):
+                        rec[AOI_ID_COLUMN_NAME] = aoi_id
+
+                for idx, row in enumerate(roof_records):
                     try:
-                        if AOI_ID_COLUMN_NAME in row.index:
-                            roof_aoi = row[AOI_ID_COLUMN_NAME]
-                        elif class_features.index.name == AOI_ID_COLUMN_NAME:
-                            roof_aoi = row.name
-                        else:
-                            roof_aoi = None
+                        roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                         aoi_children = (
                             child_by_aoi.get(roof_aoi)
                             if roof_aoi is not None
@@ -906,17 +899,23 @@ def export_feature_class(
 
                     t_bldg_roof_flatten = time.monotonic()
                     roof_attrs = {}
-                    for idx, (roof_aoi, roof_row) in enumerate(
-                        roofs_linked.iterrows()
-                    ):
+                    roof_records = roofs_linked.to_dict("records")
+                    if roofs_linked.index.name == AOI_ID_COLUMN_NAME:
+                        for rec, aoi_id in zip(
+                            roof_records, roofs_linked.index
+                        ):
+                            rec[AOI_ID_COLUMN_NAME] = aoi_id
+
+                    for idx, row in enumerate(roof_records):
                         try:
+                            roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                             aoi_children = (
                                 child_by_aoi_bldg.get(roof_aoi)
                                 if roof_aoi is not None
                                 else None
                             )
                             attrs = flatten_roof_attributes(
-                                [roof_row],
+                                [row],
                                 country=country,
                                 child_features=aoi_children,
                                 parent_projected=bldg_roof_geoms_projected.iloc[
@@ -926,7 +925,7 @@ def export_feature_class(
                                     roof_aoi
                                 ),
                             )
-                            roof_attrs[roof_row["feature_id"]] = attrs
+                            roof_attrs[row["feature_id"]] = attrs
                         except Exception as e:
                             logger.debug(
                                 f"Could not flatten building-linked roof attributes: {e}"
@@ -3590,25 +3589,17 @@ class NearmapAIExporter(BaseExporter):
                                         roof_features, child_by_aoi, self.country
                                     )
                                 )
-                                has_aoi_id = (
-                                    AOI_ID_COLUMN_NAME in roof_features.columns
-                                    or roof_features.index.name
-                                    == AOI_ID_COLUMN_NAME
-                                )
                                 roof_attrs_cache = {}
-                                for idx, (_, row) in enumerate(
-                                    roof_features.iterrows()
-                                ):
+                                roof_records = roof_features.to_dict("records")
+                                if roof_features.index.name == AOI_ID_COLUMN_NAME:
+                                    for rec, aoi_id in zip(
+                                        roof_records, roof_features.index
+                                    ):
+                                        rec[AOI_ID_COLUMN_NAME] = aoi_id
+
+                                for idx, row in enumerate(roof_records):
                                     try:
-                                        if AOI_ID_COLUMN_NAME in row.index:
-                                            roof_aoi = row[AOI_ID_COLUMN_NAME]
-                                        elif (
-                                            roof_features.index.name
-                                            == AOI_ID_COLUMN_NAME
-                                        ):
-                                            roof_aoi = row.name
-                                        else:
-                                            roof_aoi = None
+                                        roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                                         aoi_children = (
                                             child_by_aoi.get(roof_aoi)
                                             if roof_aoi is not None
