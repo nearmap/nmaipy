@@ -1674,7 +1674,8 @@ class NearmapAIExporter(BaseExporter):
         # pq.read_schema() reads only parquet footer metadata — no row data.
         # Parallelized for S3 where each read is a network round-trip.
         self.logger.info(f"Scanning schemas from {total} chunk files...")
-        with ThreadPoolExecutor(max_workers=FEATURE_PREFETCH_WORKERS) as scan_executor:
+        scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
             chunk_schemas = list(scan_executor.map(pq.read_schema, feature_paths))
 
         # Build reference_columns: first chunk's order as base, extras appended sorted
