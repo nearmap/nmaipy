@@ -1767,24 +1767,28 @@ class NearmapAIExporter(BaseExporter):
 
                         # Promote null-type fields using real types from pre-scanned
                         # schemas. Falls back to large_string if no chunk has real data.
-                        # Also promote string -> large_string (64-bit offsets) to avoid
-                        # ArrowInvalid offset overflow on large concatenated tables.
+                        # Also promote 32-bit offset types (string, binary) to 64-bit
+                        # (large_string, large_binary) to avoid ArrowInvalid offset
+                        # overflow on large concatenated tables.
+                        _LARGE_TYPE = {
+                            pa.string(): pa.large_string(),
+                            pa.binary(): pa.large_binary(),
+                        }
                         promoted = []
                         for field in reference_schema:
                             if field.type == pa.null():
                                 real_type = column_types.get(
                                     field.name, pa.large_string()
                                 )
-                                if real_type == pa.string():
-                                    real_type = pa.large_string()
+                                real_type = _LARGE_TYPE.get(real_type, real_type)
                                 promoted.append(
                                     pa.field(field.name, real_type, nullable=True)
                                 )
-                            elif field.type == pa.string():
+                            elif field.type in _LARGE_TYPE:
                                 promoted.append(
                                     pa.field(
                                         field.name,
-                                        pa.large_string(),
+                                        _LARGE_TYPE[field.type],
                                         nullable=field.nullable,
                                         metadata=field.metadata,
                                     )
