@@ -477,17 +477,29 @@ _LARGE_TYPE_MAP = {
 }
 
 
-def _promote_schema_types(schema: pa.Schema) -> pa.Schema:
-    """Promote null-type fields to large_string and 32-bit string/binary to 64-bit.
+def _promote_schema_types(schema: pa.Schema, column_types: dict = None) -> pa.Schema:
+    """Promote null-type fields and 32-bit string/binary to 64-bit equivalents.
 
     This prevents ArrowInvalid offset overflow when many chunks are written
     to the same ParquetWriter, and avoids null-type columns that can't accept
     real data in later chunks.
+
+    Args:
+        schema: The PyArrow schema to promote.
+        column_types: Optional dict mapping column name to the first non-null
+            PyArrow type seen across all chunks (from a pre-scan).  When provided,
+            null fields are promoted to the real type (itself promoted to 64-bit
+            if string/binary).  When omitted, null fields default to large_string.
     """
     promoted = []
     for field in schema:
         if field.type == pa.null():
-            promoted.append(pa.field(field.name, pa.large_string(), nullable=True))
+            if column_types is not None:
+                real_type = column_types.get(field.name, pa.large_string())
+                real_type = _LARGE_TYPE_MAP.get(real_type, real_type)
+            else:
+                real_type = pa.large_string()
+            promoted.append(pa.field(field.name, real_type, nullable=True))
         elif field.type in _LARGE_TYPE_MAP:
             promoted.append(
                 pa.field(
@@ -517,7 +529,11 @@ def _cast_table_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table
             try:
                 arrays.append(col.cast(field.type))
             except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-                arrays.append(col)
+                logger.warning(
+                    f"_cast_table_to_schema: cannot cast '{field.name}' "
+                    f"from {col.type} to {field.type}, replacing with nulls"
+                )
+                arrays.append(pa.nulls(len(table), type=field.type))
     return pa.Table.from_arrays(arrays, schema=target_schema)
 
 
@@ -1879,14 +1895,12 @@ class NearmapAIExporter(BaseExporter):
                 f"({len(extra_sorted)} not present in first chunk)"
             )
 
-        # Per-class export setup: create lazy ParquetWriters for each whitelisted class.
-        # Writers are initialized on first data for that class (schema not known until then).
-        # Two writers per class: tabular (flat attributes) and geo (with geometry).
-        per_class_tabular_writers = {}  # class_id -> pq.ParquetWriter
-        per_class_geo_writers = {}  # class_id -> pq.ParquetWriter
-        per_class_tabular_paths = {}  # class_id -> local file path
-        per_class_geo_paths = {}  # class_id -> local file path
-        per_class_names = {}  # class_id -> sanitized class name
+        # Per-class export setup: accumulate Arrow tables in memory per class,
+        # then write once after streaming completes.  This handles data-dependent
+        # schema drift (e.g. roof material components, damage classes) via
+        # pa.concat_tables(promote_options="default") which auto-pads missing columns.
+        per_class_tabular_tables = {}  # class_id -> list[pa.Table]
+        per_class_geo_tables = {}  # class_id -> list[pa.Table]
         do_per_class = class_level_files and whitelisted_classes
         if do_per_class:
             cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
@@ -1895,17 +1909,6 @@ class NearmapAIExporter(BaseExporter):
                 c for c in [BUILDING_NEW_ID, ROOF_ID] if c in whitelisted_classes
             ]
             class_descriptions = class_descriptions or {}
-            for cid in whitelisted_classes:
-                desc = class_descriptions.get(cid, f"class_{cid[:8]}")
-                cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
-                per_class_names[cid] = cname
-                # Determine local write directory for per-class files
-                if self.is_s3_output:
-                    pc_dir = self._local_final_staging
-                else:
-                    pc_dir = self.final_path
-                per_class_tabular_paths[cid] = os.path.join(pc_dir, f"{cname}.parquet")
-                per_class_geo_paths[cid] = os.path.join(pc_dir, f"{cname}_features.parquet")
             self.logger.info(
                 f"Per-class streaming enabled for {len(whitelisted_classes)} classes"
             )
@@ -1983,44 +1986,12 @@ class NearmapAIExporter(BaseExporter):
                     table = table.select(reference_columns)
 
                     if pqwriter is None:
-                        reference_schema = table.schema
-
-                        # Promote null-type fields using real types from pre-scanned
-                        # schemas. Falls back to large_string if no chunk has real data.
-                        # Also promote 32-bit offset types (string, binary) to 64-bit
-                        # (large_string, large_binary) to avoid ArrowInvalid offset
-                        # overflow on large concatenated tables.
-                        _LARGE_TYPE = {
-                            pa.string(): pa.large_string(),
-                            pa.binary(): pa.large_binary(),
-                        }
-                        promoted = []
-                        for field in reference_schema:
-                            if field.type == pa.null():
-                                real_type = column_types.get(
-                                    field.name, pa.large_string()
-                                )
-                                real_type = _LARGE_TYPE.get(real_type, real_type)
-                                promoted.append(
-                                    pa.field(field.name, real_type, nullable=True)
-                                )
-                            elif field.type in _LARGE_TYPE:
-                                promoted.append(
-                                    pa.field(
-                                        field.name,
-                                        _LARGE_TYPE[field.type],
-                                        nullable=field.nullable,
-                                        metadata=field.metadata,
-                                    )
-                                )
-                            else:
-                                promoted.append(field)
-                        reference_schema = pa.schema(
-                            promoted, metadata=reference_schema.metadata
+                        # Promote null/32-bit types using pre-scanned column_types
+                        reference_schema = _promote_schema_types(
+                            table.schema, column_types=column_types
                         )
 
-                        # Create geoparquet metadata from the start
-                        # Use PROJJSON format for CRS to ensure QGIS compatibility
+                        # Create geoparquet metadata
                         crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
                         geo_metadata = {
                             "version": "1.0.0",
@@ -2032,12 +2003,10 @@ class NearmapAIExporter(BaseExporter):
                                     "crs": crs_projjson,
                                     "edges": "planar",
                                     "orientation": "counterclockwise",
-                                    "bbox": None,
                                 }
                             },
                         }
 
-                        # Add geoparquet metadata to schema
                         schema_with_geo = reference_schema.with_metadata(
                             {b"geo": json.dumps(geo_metadata).encode("utf-8")}
                         )
@@ -2053,20 +2022,8 @@ class NearmapAIExporter(BaseExporter):
                             local_write_path = outpath_features
                         pqwriter = pq.ParquetWriter(local_write_path, schema_with_geo)
 
-                        # Reconcile first chunk's table with promoted schema
-                        if table.schema != reference_schema:
-                            arrays = []
-                            for field in reference_schema:
-                                col = table.column(field.name)
-                                if col.type == pa.null():
-                                    arrays.append(pa.nulls(len(table), type=field.type))
-                                elif col.type != field.type:
-                                    arrays.append(col.cast(field.type))
-                                else:
-                                    arrays.append(col)
-                            table = pa.Table.from_arrays(
-                                arrays, schema=reference_schema
-                            )
+                        # Cast first chunk to match promoted schema
+                        table = _cast_table_to_schema(table, reference_schema)
                     else:
                         # Reconcile schema differences column-by-column.
                         # Null-type columns (from all-null chunks) are promoted silently.
@@ -2232,7 +2189,7 @@ class NearmapAIExporter(BaseExporter):
                                         )
                                 del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
 
-                        # Process each whitelisted class present in this chunk
+                        # Accumulate per-class tables for each whitelisted class
                         for cid in whitelisted_classes:
                             if cid not in chunk_class_ids:
                                 continue
@@ -2241,87 +2198,46 @@ class NearmapAIExporter(BaseExporter):
                                 continue
 
                             desc = class_descriptions.get(cid, f"class_{cid[:8]}")
-                            flat_df, geo_gdf = _compute_feature_class_data(
-                                class_id=cid,
-                                class_description=desc,
-                                country=self.country,
-                                aoi_columns=aoi_columns,
-                                class_features=class_feats,
-                                roof_features=roof_features_chunk,
-                                non_roof_features=non_roof_chunk,
-                                roof_instance_features=roof_instance_chunk,
-                                roof_attrs_cache=roof_attrs_cache_chunk,
-                            )
+                            try:
+                                flat_df, geo_gdf = _compute_feature_class_data(
+                                    class_id=cid,
+                                    class_description=desc,
+                                    country=self.country,
+                                    aoi_columns=aoi_columns,
+                                    class_features=class_feats,
+                                    roof_features=roof_features_chunk,
+                                    non_roof_features=non_roof_chunk,
+                                    roof_instance_features=roof_instance_chunk,
+                                    roof_attrs_cache=roof_attrs_cache_chunk,
+                                )
+                            except Exception:
+                                self.logger.error(
+                                    f"Per-class export failed for "
+                                    f"{class_descriptions.get(cid, cid)} "
+                                    f"in chunk {i}. Aborting per-class export."
+                                )
+                                raise
                             if flat_df is None:
                                 continue
 
-                            # Write tabular data to per-class parquet writer
+                            # Accumulate tabular Arrow table
                             tabular_table = pa.Table.from_pandas(
                                 flat_df, preserve_index=False
                             )
-                            if cid not in per_class_tabular_writers:
-                                tab_schema = _promote_schema_types(
-                                    tabular_table.schema
-                                )
-                                tabular_table = _cast_table_to_schema(
-                                    tabular_table, tab_schema
-                                )
-                                per_class_tabular_writers[cid] = pq.ParquetWriter(
-                                    per_class_tabular_paths[cid],
-                                    tab_schema,
-                                )
-                            else:
-                                # Reconcile schema: pad missing columns, cast types
-                                ref_schema = per_class_tabular_writers[cid].schema
-                                tabular_table = _reconcile_table_schema(
-                                    tabular_table, ref_schema
-                                )
-                            per_class_tabular_writers[cid].write_table(tabular_table)
+                            per_class_tabular_tables.setdefault(cid, []).append(
+                                tabular_table
+                            )
 
-                            # Write geo data to per-class geo parquet writer.
-                            # Convert geometry to WKB for Arrow serialization.
+                            # Accumulate geo Arrow table (geometry as WKB)
                             if geo_gdf is not None:
                                 geo_wkb_df = pd.DataFrame(geo_gdf)
                                 geo_wkb_df["geometry"] = geo_gdf.geometry.to_wkb()
                                 geo_table = pa.Table.from_pandas(
                                     geo_wkb_df, preserve_index=False,
                                 )
-                                if cid not in per_class_geo_writers:
-                                    # Promote types and add geoparquet metadata
-                                    geo_schema = _promote_schema_types(
-                                        geo_table.schema
-                                    )
-                                    geo_table = _cast_table_to_schema(
-                                        geo_table, geo_schema
-                                    )
-                                    crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
-                                    geo_metadata = {
-                                        "version": "1.0.0",
-                                        "primary_column": "geometry",
-                                        "columns": {
-                                            "geometry": {
-                                                "encoding": "WKB",
-                                                "geometry_types": [],
-                                                "crs": crs_projjson,
-                                                "edges": "planar",
-                                                "orientation": "counterclockwise",
-                                                "bbox": None,
-                                            }
-                                        },
-                                    }
-                                    geo_schema = geo_schema.with_metadata(
-                                        {b"geo": json.dumps(geo_metadata).encode("utf-8")}
-                                    )
-                                    per_class_geo_writers[cid] = pq.ParquetWriter(
-                                        per_class_geo_paths[cid],
-                                        geo_schema,
-                                    )
-                                else:
-                                    ref_schema = per_class_geo_writers[cid].schema
-                                    geo_table = _reconcile_table_schema(
-                                        geo_table, ref_schema
-                                    )
-                                per_class_geo_writers[cid].write_table(geo_table)
+                                per_class_geo_tables.setdefault(cid, []).append(
+                                    geo_table
+                                )
 
                         # Free chunk GeoDataFrame
                         del chunk_gdf
@@ -2380,68 +2296,138 @@ class NearmapAIExporter(BaseExporter):
                 )
                 storage.upload_file(local_write_path, outpath_features)
 
-        # Close per-class writers, convert CSV if needed, upload to S3
-        if do_per_class:
-            for cid in whitelisted_classes:
-                cname = per_class_names[cid]
-                # Close tabular writer
-                if cid in per_class_tabular_writers:
-                    per_class_tabular_writers[cid].close()
-                # Close geo writer
-                if cid in per_class_geo_writers:
-                    per_class_geo_writers[cid].close()
+        # Write buffered per-class tables to files.
+        # Tables are concatenated with promote_options="default" to handle
+        # data-dependent schema drift (e.g. roof material components, damage classes).
+        # Files are written to a staging directory then moved to final to prevent
+        # corrupted files at the final destination if the process crashes.
+        if do_per_class and (per_class_tabular_tables or per_class_geo_tables):
+            # Set up staging directory for atomic writes
+            if self.is_s3_output:
+                staging_dir = self._local_final_staging
+            else:
+                staging_dir = os.path.join(self.final_path, ".per_class_staging")
+                os.makedirs(staging_dir, exist_ok=True)
 
-            # Convert tabular parquet to CSV if requested, then delete intermediate
+            # Build geoparquet metadata (shared across all per-class geo files)
+            crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
+            geo_metadata = {
+                "version": "1.0.0",
+                "primary_column": "geometry",
+                "columns": {
+                    "geometry": {
+                        "encoding": "WKB",
+                        "geometry_types": [],
+                        "crs": crs_projjson,
+                        "edges": "planar",
+                        "orientation": "counterclockwise",
+                    }
+                },
+            }
+
+            tabular_count = 0
+            geo_count = 0
+            per_class_final_paths = {}  # cid -> {"tabular": path, "geo": path}
+
+            all_class_ids = set(per_class_tabular_tables) | set(per_class_geo_tables)
+            for cid in sorted(all_class_ids):
+                desc = class_descriptions.get(cid, f"class_{cid[:8]}")
+                cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+                per_class_final_paths[cid] = {}
+
+                # Write tabular parquet
+                if cid in per_class_tabular_tables:
+                    combined = pa.concat_tables(
+                        per_class_tabular_tables[cid],
+                        promote_options="default",
+                    )
+                    combined_schema = _promote_schema_types(combined.schema)
+                    combined = _cast_table_to_schema(combined, combined_schema)
+                    staging_path = os.path.join(staging_dir, f"{cname}.parquet")
+                    pq.write_table(combined, staging_path)
+                    per_class_final_paths[cid]["tabular"] = staging_path
+                    tabular_count += 1
+                    del combined
+
+                # Write geo parquet
+                if cid in per_class_geo_tables:
+                    combined = pa.concat_tables(
+                        per_class_geo_tables[cid],
+                        promote_options="default",
+                    )
+                    combined_schema = _promote_schema_types(combined.schema)
+                    combined = _cast_table_to_schema(combined, combined_schema)
+                    existing_meta = combined.schema.metadata or {}
+                    existing_meta[b"geo"] = json.dumps(geo_metadata).encode(
+                        "utf-8"
+                    )
+                    combined = combined.replace_schema_metadata(existing_meta)
+                    staging_path = os.path.join(
+                        staging_dir, f"{cname}_features.parquet"
+                    )
+                    pq.write_table(combined, staging_path)
+                    per_class_final_paths[cid]["geo"] = staging_path
+                    geo_count += 1
+                    del combined
+
+            # Free accumulated tables
+            per_class_tabular_tables.clear()
+            per_class_geo_tables.clear()
+
+            # Convert tabular parquet to CSV if requested
             if tabular_file_format == "csv":
-                for cid in whitelisted_classes:
-                    parquet_path = per_class_tabular_paths[cid]
-                    if not os.path.exists(parquet_path):
+                for cid, paths in per_class_final_paths.items():
+                    if "tabular" not in paths:
                         continue
-                    cname = per_class_names[cid]
-                    if self.is_s3_output:
-                        csv_path = os.path.join(
-                            self._local_final_staging, f"{cname}.csv"
-                        )
-                    else:
-                        csv_path = storage.join_path(
-                            self.final_path, f"{cname}.csv"
-                        )
+                    parquet_path = paths["tabular"]
+                    desc = class_descriptions.get(cid, f"class_{cid[:8]}")
+                    cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+                    csv_path = os.path.join(staging_dir, f"{cname}.csv")
                     df = pd.read_parquet(parquet_path)
                     df.to_csv(csv_path, index=False)
                     os.remove(parquet_path)
-                    per_class_tabular_paths[cid] = csv_path
+                    paths["tabular"] = csv_path
 
-            # Upload per-class files to S3
+            # Move files from staging to final destination (or upload to S3)
             if self.is_s3_output:
-                for cid in whitelisted_classes:
-                    cname = per_class_names[cid]
-                    # Upload tabular file
-                    local_tab = per_class_tabular_paths[cid]
-                    if os.path.exists(local_tab):
+                for cid, paths in per_class_final_paths.items():
+                    desc = class_descriptions.get(cid, f"class_{cid[:8]}")
+                    cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+                    if "tabular" in paths:
                         ext = "csv" if tabular_file_format == "csv" else "parquet"
-                        s3_tab = storage.join_path(
+                        s3_path = storage.join_path(
                             self.final_path, f"{cname}.{ext}"
                         )
-                        storage.upload_file(local_tab, s3_tab)
+                        storage.upload_file(paths["tabular"], s3_path)
                         self.logger.info(
-                            f"  Uploaded {storage.basename(s3_tab)}"
+                            f"  Uploaded {storage.basename(s3_path)}"
                         )
-                    # Upload geo file
-                    local_geo = per_class_geo_paths[cid]
-                    if os.path.exists(local_geo):
-                        s3_geo = storage.join_path(
+                    if "geo" in paths:
+                        s3_path = storage.join_path(
                             self.final_path, f"{cname}_features.parquet"
                         )
-                        storage.upload_file(local_geo, s3_geo)
+                        storage.upload_file(paths["geo"], s3_path)
                         self.logger.info(
-                            f"  Uploaded {storage.basename(s3_geo)}"
+                            f"  Uploaded {storage.basename(s3_path)}"
                         )
+            else:
+                # Move from staging to final directory
+                for cid, paths in per_class_final_paths.items():
+                    for key in ("tabular", "geo"):
+                        if key not in paths:
+                            continue
+                        src = paths[key]
+                        dst = os.path.join(self.final_path, os.path.basename(src))
+                        os.replace(src, dst)
+                # Remove staging directory
+                try:
+                    os.rmdir(staging_dir)
+                except OSError:
+                    pass
 
-            exported_count = len(per_class_tabular_writers) + len(per_class_geo_writers)
             self.logger.info(
-                f"Per-class streaming export complete: "
-                f"{len(per_class_tabular_writers)} tabular + "
-                f"{len(per_class_geo_writers)} geo files"
+                f"Per-class export complete: "
+                f"{tabular_count} tabular + {geo_count} geo files"
             )
 
         if pqwriter is not None:
