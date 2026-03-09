@@ -26,6 +26,7 @@ from nmaipy.constants import (
     WATER_BODY_ID,
 )
 from nmaipy.feature_api import FeatureApi
+from nmaipy.roof_age_api import RoofAgeApi
 
 data_directory = Path(__file__).parent / "data"
 
@@ -70,6 +71,24 @@ def test_gen_data_3d(parcels_2_gdf, data_directory: Path, cache_directory: Path)
         small_gdf, packs=packs, region="us",
     )
     features_gdf.to_csv(outfname)
+
+
+@pytest.mark.skip("Comment out this line if you wish to regen the test data")
+def test_gen_data_2_all_packs(parcels_2_gdf, data_directory: Path, cache_directory: Path):
+    """
+    Generate NJ feature data with ALL packs + roof age for whitelist testing.
+    Uses all Feature API packs (packs=None) to get pool, solar, building_lifecycle,
+    etc. in addition to building/roof. Then pulls roof age data and combines.
+    """
+    # Feature API: all packs
+    features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1).get_features_gdf_bulk(
+        parcels_2_gdf, packs=None, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
+    )
+    # Roof Age API: first 10 parcels (enough to get roof instances)
+    roof_age_gdf, _, _ = RoofAgeApi(cache_dir=cache_directory).get_roof_age_bulk(parcels_2_gdf.head(10))
+    # Combine into a single DataFrame, matching the exporter's concat pattern
+    combined = pd.concat([features_gdf, roof_age_gdf], ignore_index=True)
+    combined.to_csv(data_directory / "test_features_2_all_packs.csv", index=False)
 
 
 class TestParcels:

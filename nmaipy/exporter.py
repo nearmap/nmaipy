@@ -470,6 +470,18 @@ def _batch_project_geometries(
     return parent_projected, child_proj_by_aoi
 
 
+def _dataframe_to_records_with_index(df):
+    """Convert DataFrame to list of dicts, re-injecting the index if it is AOI_ID_COLUMN_NAME.
+
+    to_dict("records") drops the index. When the DataFrame is indexed by AOI ID
+    (common after set_index in rollup/feature pipelines), this helper preserves it.
+    """
+    records = df.to_dict("records")
+    if df.index.name == AOI_ID_COLUMN_NAME:
+        for rec, idx_val in zip(records, df.index):
+            rec[AOI_ID_COLUMN_NAME] = idx_val
+    return records
+
 
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
@@ -738,12 +750,7 @@ def export_feature_class(
 
                 t_roof_flatten = time.monotonic()
                 attr_records = []
-                roof_records = class_features.to_dict("records")
-                if class_features.index.name == AOI_ID_COLUMN_NAME:
-                    for rec, aoi_id in zip(
-                        roof_records, class_features.index
-                    ):
-                        rec[AOI_ID_COLUMN_NAME] = aoi_id
+                roof_records = _dataframe_to_records_with_index(class_features)
 
                 for idx, row in enumerate(roof_records):
                     try:
@@ -899,12 +906,7 @@ def export_feature_class(
 
                     t_bldg_roof_flatten = time.monotonic()
                     roof_attrs = {}
-                    roof_records = roofs_linked.to_dict("records")
-                    if roofs_linked.index.name == AOI_ID_COLUMN_NAME:
-                        for rec, aoi_id in zip(
-                            roof_records, roofs_linked.index
-                        ):
-                            rec[AOI_ID_COLUMN_NAME] = aoi_id
+                    roof_records = _dataframe_to_records_with_index(roofs_linked)
 
                     for idx, row in enumerate(roof_records):
                         try:
@@ -1673,22 +1675,46 @@ class NearmapAIExporter(BaseExporter):
         # Pre-scan all chunk schemas to build union column set and type map.
         # pq.read_schema() reads only parquet footer metadata — no row data.
         # Parallelized for S3 where each read is a network round-trip.
+        # Corrupt/unreadable chunks are skipped (logged as errors) to match the
+        # resilience of the streaming loop, which also skips bad chunks.
         self.logger.info(f"Scanning schemas from {total} chunk files...")
         scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        chunk_schemas = [None] * total
         with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
-            chunk_schemas = list(scan_executor.map(pq.read_schema, feature_paths))
+            futures = {
+                scan_executor.submit(pq.read_schema, feature_paths[i]): i
+                for i in range(total)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    chunk_schemas[idx] = future.result()
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to read schema from {feature_paths[idx]}: {e}"
+                    )
 
-        # Build reference_columns: first chunk's order as base, extras appended sorted
-        first_chunk_columns = list(chunk_schemas[0].names)
+        valid_indices = {i for i, s in enumerate(chunk_schemas) if s is not None}
+        valid_schemas = [chunk_schemas[i] for i in sorted(valid_indices)]
+        if not valid_schemas:
+            self.logger.error("All chunk schemas failed to read — cannot proceed")
+            return None
+        if len(valid_schemas) < total:
+            self.logger.warning(
+                f"Skipped {total - len(valid_schemas)}/{total} unreadable chunk files"
+            )
+
+        # Build reference_columns: first valid chunk's order as base, extras appended sorted
+        first_chunk_columns = list(valid_schemas[0].names)
         all_column_names = set()
-        for schema in chunk_schemas:
+        for schema in valid_schemas:
             all_column_names.update(schema.names)
         extra_sorted = sorted(all_column_names - set(first_chunk_columns))
         reference_columns = pd.Index(first_chunk_columns + extra_sorted)
 
         # Build column_name -> first non-null pyarrow type lookup for null promotion
         column_types = {}
-        for schema in chunk_schemas:
+        for schema in valid_schemas:
             for field in schema:
                 if field.name not in column_types and field.type != pa.null():
                     column_types[field.name] = field.type
@@ -1707,9 +1733,10 @@ class NearmapAIExporter(BaseExporter):
         prefetch_futures = {}
         initial_submit = min(prefetch_workers, total)
         for idx in range(initial_submit):
-            prefetch_futures[idx] = executor.submit(
-                pq.read_table, feature_paths[idx]
-            )
+            if idx in valid_indices:
+                prefetch_futures[idx] = executor.submit(
+                    pq.read_table, feature_paths[idx]
+                )
         next_submit_idx = initial_submit
 
         try:
@@ -1727,6 +1754,17 @@ class NearmapAIExporter(BaseExporter):
                 if now - last_resource_update >= 5.0:
                     pbar.set_postfix_str(resource_postfix())
                     last_resource_update = now
+
+                # Skip chunks that failed schema scan
+                if i not in valid_indices:
+                    if next_submit_idx < total:
+                        if next_submit_idx in valid_indices:
+                            prefetch_futures[next_submit_idx] = executor.submit(
+                                pq.read_table, feature_paths[next_submit_idx]
+                            )
+                        next_submit_idx += 1
+                    continue
+
                 # Get the prefetched result for this index
                 future = prefetch_futures.pop(i)
                 try:
@@ -1734,17 +1772,19 @@ class NearmapAIExporter(BaseExporter):
                 except Exception as e:
                     self.logger.error(f"Failed to read {feature_paths[i]}: {e}")
                     if next_submit_idx < total:
-                        prefetch_futures[next_submit_idx] = executor.submit(
-                            pq.read_table, feature_paths[next_submit_idx]
-                        )
+                        if next_submit_idx in valid_indices:
+                            prefetch_futures[next_submit_idx] = executor.submit(
+                                pq.read_table, feature_paths[next_submit_idx]
+                            )
                         next_submit_idx += 1
                     continue
 
                 # Submit next prefetch read before processing current chunk
                 if next_submit_idx < total:
-                    prefetch_futures[next_submit_idx] = executor.submit(
-                        pq.read_table, feature_paths[next_submit_idx]
-                    )
+                    if next_submit_idx in valid_indices:
+                        prefetch_futures[next_submit_idx] = executor.submit(
+                            pq.read_table, feature_paths[next_submit_idx]
+                        )
                     next_submit_idx += 1
 
                 if table.num_rows > 0:
@@ -3480,7 +3520,17 @@ class NearmapAIExporter(BaseExporter):
                                     for cid in independent_ids
                                 }
                                 for future in as_completed(futures):
-                                    result = future.result()
+                                    class_id = futures[future]
+                                    try:
+                                        result = future.result()
+                                    except Exception as e:
+                                        desc = class_descriptions.get(
+                                            class_id, class_id[:8]
+                                        )
+                                        self.logger.error(
+                                            f"  Failed to export {desc}: {e}"
+                                        )
+                                        continue
                                     if result:
                                         description, tabular_path, geo_parquet_path, elapsed = result
                                         files = [
@@ -3589,12 +3639,7 @@ class NearmapAIExporter(BaseExporter):
                                     )
                                 )
                                 roof_attrs_cache = {}
-                                roof_records = roof_features.to_dict("records")
-                                if roof_features.index.name == AOI_ID_COLUMN_NAME:
-                                    for rec, aoi_id in zip(
-                                        roof_records, roof_features.index
-                                    ):
-                                        rec[AOI_ID_COLUMN_NAME] = aoi_id
+                                roof_records = _dataframe_to_records_with_index(roof_features)
 
                                 for idx, row in enumerate(roof_records):
                                     try:
