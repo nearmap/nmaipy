@@ -1701,12 +1701,14 @@ class NearmapAIExporter(BaseExporter):
 
         # Set up prefetch buffer: read chunks ahead in background threads
         # while the main thread processes and writes the current chunk.
-        executor = ThreadPoolExecutor(max_workers=FEATURE_PREFETCH_WORKERS)
+        # Use higher concurrency for S3 to overlap network round-trips.
+        prefetch_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else FEATURE_PREFETCH_WORKERS
+        executor = ThreadPoolExecutor(max_workers=prefetch_workers)
         prefetch_futures = {}
-        initial_submit = min(FEATURE_PREFETCH_WORKERS, total)
+        initial_submit = min(prefetch_workers, total)
         for idx in range(initial_submit):
             prefetch_futures[idx] = executor.submit(
-                gpd.read_parquet, feature_paths[idx]
+                pq.read_table, feature_paths[idx]
             )
         next_submit_idx = initial_submit
 
@@ -1728,12 +1730,12 @@ class NearmapAIExporter(BaseExporter):
                 # Get the prefetched result for this index
                 future = prefetch_futures.pop(i)
                 try:
-                    df_feature_chunk = future.result()
+                    table = future.result()
                 except Exception as e:
                     self.logger.error(f"Failed to read {feature_paths[i]}: {e}")
                     if next_submit_idx < total:
                         prefetch_futures[next_submit_idx] = executor.submit(
-                            gpd.read_parquet, feature_paths[next_submit_idx]
+                            pq.read_table, feature_paths[next_submit_idx]
                         )
                         next_submit_idx += 1
                     continue
@@ -1741,27 +1743,19 @@ class NearmapAIExporter(BaseExporter):
                 # Submit next prefetch read before processing current chunk
                 if next_submit_idx < total:
                     prefetch_futures[next_submit_idx] = executor.submit(
-                        gpd.read_parquet, feature_paths[next_submit_idx]
+                        pq.read_table, feature_paths[next_submit_idx]
                     )
                     next_submit_idx += 1
 
-                if len(df_feature_chunk) > 0:
+                if table.num_rows > 0:
                     # Pad missing columns with nulls and reorder to match union schema
-                    missing_cols = set(reference_columns) - set(df_feature_chunk.columns)
+                    missing_cols = set(reference_columns) - set(table.column_names)
                     if missing_cols:
                         mismatch_count += 1
                         for col in missing_cols:
                             variable_col_counts[col] += 1
-                            df_feature_chunk[col] = None
-                    df_feature_chunk = df_feature_chunk[reference_columns]
-
-                    # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
-                    geom_col = df_feature_chunk.geometry.to_wkb()
-                    df_feature_chunk = pd.DataFrame(df_feature_chunk)
-                    df_feature_chunk["geometry"] = geom_col
-
-                    # Convert to pyarrow table and stream
-                    table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
+                            table = table.append_column(col, pa.nulls(table.num_rows))
+                    table = table.select(reference_columns)
 
                     if pqwriter is None:
                         reference_schema = table.schema
@@ -1906,7 +1900,7 @@ class NearmapAIExporter(BaseExporter):
 
         finally:
             # Cancel queued futures and wait for running ones to finish,
-            # ensuring no background threads hold GeoDataFrames or S3 connections.
+            # ensuring no background threads hold pyarrow Tables or S3 connections.
             executor.shutdown(wait=True, cancel_futures=True)
 
         # Close the writer and upload to S3 if needed
