@@ -1097,6 +1097,45 @@ class TestStreamAndConvertFeaturesSchemaUnion:
             assert len(merged) == 1
             assert merged.iloc[0]["value"] == "a"
 
+    def test_large_type_promotion(self):
+        """string and binary columns are promoted to large_string/large_binary to prevent offset overflow."""
+        from shapely.geometry import Point
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            chunk_dir = tmpdir / "chunks"
+            chunk_dir.mkdir()
+
+            # Create a chunk with pa.string() and pa.binary() columns
+            table = pa.table(
+                {
+                    "text_col": pa.array(["hello"], type=pa.string()),
+                    "bin_col": pa.array([b"\x00\x01"], type=pa.binary()),
+                    "int_col": pa.array([1], type=pa.int64()),
+                    "class_id": pa.array(["c1"], type=pa.string()),
+                    "geometry": pa.array([Point(0, 0).wkb], type=pa.binary()),
+                },
+            )
+            # Write with geopandas so we get valid geoparquet metadata
+            gdf = gpd.GeoDataFrame(
+                {"text_col": ["hello"], "bin_col": [b"\x00\x01"], "int_col": [1], "class_id": ["c1"]},
+                geometry=[Point(0, 0)],
+                crs="EPSG:4326",
+            )
+            gdf.to_parquet(chunk_dir / "features_1.parquet")
+
+            exporter = AOIExporter(
+                output_dir=tmpdir, country="au", packs=["building"], save_features=True
+            )
+            output_path = tmpdir / "merged.parquet"
+            feature_paths = sorted(chunk_dir.glob("*.parquet"))
+
+            exporter._stream_and_convert_features(feature_paths, output_path)
+
+            schema = pq.read_schema(output_path)
+            text_type = schema.field("text_col").type
+            assert text_type == pa.large_string(), f"Expected large_string, got {text_type}"
+
     def test_all_corrupt_chunks_returns_none(self):
         """If all chunks are corrupt, _stream_and_convert_features returns None."""
         with tempfile.TemporaryDirectory() as tmpdir:

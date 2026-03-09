@@ -12,6 +12,7 @@ import json
 import logging
 import multiprocessing
 import re
+import resource
 import sys
 import traceback
 import warnings
@@ -502,7 +503,8 @@ def export_feature_class(
     Export features of a single class to tabular file (CSV or Parquet) and/or GeoParquet.
 
     Args:
-        features_gdf: GeoDataFrame with all features (used for cross-class lookups)
+        features_gdf: GeoDataFrame with all features (used for cross-class lookups).
+                      Can be None when class_features and related pre-filtered DataFrames are provided.
         class_id: UUID of the feature class to export
         class_description: Human-readable description (used in filename)
         country: Country code for units (us, au, etc.)
@@ -3749,9 +3751,6 @@ AOIExporter = NearmapAIExporter
 
 def main():
     # Set higher file descriptor limits for running many processes in parallel.
-    import resource
-    import sys
-
     if sys.platform != "win32":
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         desired = 32000  # Same as ulimit -n 32000
