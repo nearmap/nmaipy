@@ -53,6 +53,16 @@ from nmaipy.constants import (
 logger = log.get_logger()
 
 
+def resource_postfix() -> str:
+    """Build a compact resource usage string for tqdm postfix display."""
+    try:
+        used_gb, total_gb = get_memory_info_cgroup_aware()
+        cpu_pct, _ = get_cpu_info_cgroup_aware()
+        return f"{used_gb:.1f}/{total_gb:.1f}GB | CPU {cpu_pct:.0f}%"
+    except Exception:
+        return ""
+
+
 class BaseExporter(ABC):
     """
     Abstract base class for exporters with chunked parallel processing.
@@ -734,7 +744,13 @@ class BaseExporter(ABC):
         """
         self.logger.info(f"Processing {len(jobs)} chunks...")
         all_latency_stats = []
-        for job, _ in tqdm(list(zip(jobs, range(len(jobs)))), desc="Processing chunks"):
+        last_resource_update = 0.0
+        pbar = tqdm(list(zip(jobs, range(len(jobs)))), desc="Processing chunks")
+        for job, _ in pbar:
+            now = time.time()
+            if now - last_resource_update >= 5.0:
+                pbar.set_postfix_str(resource_postfix())
+                last_resource_update = now
             try:
                 result = job.result()  # Wait for completion and raise any exceptions
                 # Collect latency stats from chunk result

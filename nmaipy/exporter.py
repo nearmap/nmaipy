@@ -5,12 +5,14 @@ import os
 os.environ.setdefault("PROJ_DEBUG", "OFF")
 
 import argparse
+import collections
 import concurrent.futures
 import gc
 import json
 import logging
 import multiprocessing
 import re
+import resource
 import sys
 import traceback
 import warnings
@@ -22,6 +24,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pyproj
 import shapely
@@ -49,7 +52,7 @@ from nmaipy.api_common import (
     sanitize_error_message,
     save_chunk_latency_stats,
 )
-from nmaipy.base_exporter import BaseExporter
+from nmaipy.base_exporter import BaseExporter, resource_postfix
 from nmaipy.cgroup_memory import get_cpu_info_cgroup_aware, get_memory_info_cgroup_aware
 from nmaipy.constants import (
     ADDRESS_FIELDS,
@@ -70,6 +73,7 @@ from nmaipy.constants import (
     MAX_RETRIES,
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
+    PER_CLASS_FILE_CLASS_IDS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
@@ -143,16 +147,22 @@ def _read_parquet_chunks_parallel(
     results = []
     failed_paths = []
     empty_count = 0
+    last_resource_update = 0.0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {executor.submit(_read_one, p): p for p in paths}
-        for future in tqdm(
+        pbar = tqdm(
             as_completed(future_to_path),
             total=len(paths),
             desc=desc,
             file=sys.stdout,
             position=0,
             leave=True,
-        ):
+        )
+        for future in pbar:
+            now = time.time()
+            if now - last_resource_update >= 5.0:
+                pbar.set_postfix_str(resource_postfix())
+                last_resource_update = now
             path = future_to_path[future]
             try:
                 result = future.result()
@@ -461,6 +471,18 @@ def _batch_project_geometries(
     return parent_projected, child_proj_by_aoi
 
 
+def _dataframe_to_records_with_index(df):
+    """Convert DataFrame to list of dicts, re-injecting the index if it is AOI_ID_COLUMN_NAME.
+
+    to_dict("records") drops the index. When the DataFrame is indexed by AOI ID
+    (common after set_index in rollup/feature pipelines), this helper preserves it.
+    """
+    records = df.to_dict("records")
+    if df.index.name == AOI_ID_COLUMN_NAME:
+        for rec, idx_val in zip(records, df.index):
+            rec[AOI_ID_COLUMN_NAME] = idx_val
+    return records
+
 
 def export_feature_class(
     features_gdf: gpd.GeoDataFrame,
@@ -481,7 +503,8 @@ def export_feature_class(
     Export features of a single class to tabular file (CSV or Parquet) and/or GeoParquet.
 
     Args:
-        features_gdf: GeoDataFrame with all features (used for cross-class lookups)
+        features_gdf: GeoDataFrame with all features (used for cross-class lookups).
+                      Can be None when class_features and related pre-filtered DataFrames are provided.
         class_id: UUID of the feature class to export
         class_description: Human-readable description (used in filename)
         country: Country code for units (us, au, etc.)
@@ -721,15 +744,6 @@ def export_feature_class(
                 child_by_aoi = _group_children_by_aoi(
                     non_roof_features, features_gdf
                 )
-                has_aoi_id = (
-                    AOI_ID_COLUMN_NAME in class_features.columns
-                    or class_features.index.name == AOI_ID_COLUMN_NAME
-                )
-                if not has_aoi_id:
-                    logger.warning(
-                        "Roof features have no aoi_id — child feature recalculation will be skipped for all rows"
-                    )
-
                 roof_geoms_projected, child_proj_by_aoi = (
                     _batch_project_geometries(
                         class_features, child_by_aoi, country
@@ -738,14 +752,11 @@ def export_feature_class(
 
                 t_roof_flatten = time.monotonic()
                 attr_records = []
-                for idx, (_, row) in enumerate(class_features.iterrows()):
+                roof_records = _dataframe_to_records_with_index(class_features)
+
+                for idx, row in enumerate(roof_records):
                     try:
-                        if AOI_ID_COLUMN_NAME in row.index:
-                            roof_aoi = row[AOI_ID_COLUMN_NAME]
-                        elif class_features.index.name == AOI_ID_COLUMN_NAME:
-                            roof_aoi = row.name
-                        else:
-                            roof_aoi = None
+                        roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                         aoi_children = (
                             child_by_aoi.get(roof_aoi)
                             if roof_aoi is not None
@@ -897,17 +908,18 @@ def export_feature_class(
 
                     t_bldg_roof_flatten = time.monotonic()
                     roof_attrs = {}
-                    for idx, (roof_aoi, roof_row) in enumerate(
-                        roofs_linked.iterrows()
-                    ):
+                    roof_records = _dataframe_to_records_with_index(roofs_linked)
+
+                    for idx, row in enumerate(roof_records):
                         try:
+                            roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                             aoi_children = (
                                 child_by_aoi_bldg.get(roof_aoi)
                                 if roof_aoi is not None
                                 else None
                             )
                             attrs = flatten_roof_attributes(
-                                [roof_row],
+                                [row],
                                 country=country,
                                 child_features=aoi_children,
                                 parent_projected=bldg_roof_geoms_projected.iloc[
@@ -917,7 +929,7 @@ def export_feature_class(
                                     roof_aoi
                                 ),
                             )
-                            roof_attrs[roof_row["feature_id"]] = attrs
+                            roof_attrs[row["feature_id"]] = attrs
                         except Exception as e:
                             logger.debug(
                                 f"Could not flatten building-linked roof attributes: {e}"
@@ -1652,104 +1664,171 @@ class NearmapAIExporter(BaseExporter):
         """
 
         pqwriter = None
-        reference_columns = None  # Store column order from first chunk
         reference_schema = None  # Store PyArrow schema from first chunk
         schema_promotion_count = 0  # Count chunks needing null-type promotions
+        mismatch_count = 0
+        variable_col_counts = collections.Counter()  # col_name -> num chunks where it differed
 
         total = len(feature_paths)
         if total == 0:
             self.logger.warning("No feature data found to write")
             return None
 
+        # Pre-scan all chunk schemas to build union column set and type map.
+        # pq.read_schema() reads only parquet footer metadata — no row data.
+        # Parallelized for S3 where each read is a network round-trip.
+        # Corrupt/unreadable chunks are skipped (logged as errors) to match the
+        # resilience of the streaming loop, which also skips bad chunks.
+        self.logger.info(f"Scanning schemas from {total} chunk files...")
+        scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        chunk_schemas = [None] * total
+        with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
+            futures = {
+                scan_executor.submit(pq.read_schema, feature_paths[i]): i
+                for i in range(total)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    chunk_schemas[idx] = future.result()
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to read schema from {feature_paths[idx]}: {e}"
+                    )
+
+        valid_indices = {i for i, s in enumerate(chunk_schemas) if s is not None}
+        valid_schemas = [chunk_schemas[i] for i in sorted(valid_indices)]
+        if not valid_schemas:
+            self.logger.error("All chunk schemas failed to read — cannot proceed")
+            return None
+        if len(valid_schemas) < total:
+            self.logger.warning(
+                f"Skipped {total - len(valid_schemas)}/{total} unreadable chunk files"
+            )
+
+        # Build reference_columns: first valid chunk's order as base, extras appended sorted
+        first_chunk_columns = list(valid_schemas[0].names)
+        all_column_names = set()
+        for schema in valid_schemas:
+            all_column_names.update(schema.names)
+        extra_sorted = sorted(all_column_names - set(first_chunk_columns))
+        reference_columns = pd.Index(first_chunk_columns + extra_sorted)
+
+        # Build column_name -> first non-null pyarrow type lookup for null promotion
+        column_types = {}
+        for schema in valid_schemas:
+            for field in schema:
+                if field.name not in column_types and field.type != pa.null():
+                    column_types[field.name] = field.type
+
+        if extra_sorted:
+            self.logger.info(
+                f"Union schema has {len(reference_columns)} columns "
+                f"({len(extra_sorted)} not present in first chunk)"
+            )
+
         # Set up prefetch buffer: read chunks ahead in background threads
         # while the main thread processes and writes the current chunk.
-        executor = ThreadPoolExecutor(max_workers=FEATURE_PREFETCH_WORKERS)
+        # Use higher concurrency for S3 to overlap network round-trips.
+        prefetch_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else FEATURE_PREFETCH_WORKERS
+        executor = ThreadPoolExecutor(max_workers=prefetch_workers)
         prefetch_futures = {}
-        initial_submit = min(FEATURE_PREFETCH_WORKERS, total)
+        initial_submit = min(prefetch_workers, total)
         for idx in range(initial_submit):
-            prefetch_futures[idx] = executor.submit(
-                gpd.read_parquet, feature_paths[idx]
-            )
+            if idx in valid_indices:
+                prefetch_futures[idx] = executor.submit(
+                    pq.read_table, feature_paths[idx]
+                )
         next_submit_idx = initial_submit
 
         try:
             # Stream chunks directly to geoparquet
-            for i in tqdm(
+            last_resource_update = 0.0
+            pbar = tqdm(
                 range(total),
                 desc="Streaming chunks",
                 file=sys.stdout,
                 position=0,
                 leave=True,
-            ):
+            )
+            for i in pbar:
+                now = time.time()
+                if now - last_resource_update >= 5.0:
+                    pbar.set_postfix_str(resource_postfix())
+                    last_resource_update = now
+
+                # Skip chunks that failed schema scan
+                if i not in valid_indices:
+                    if next_submit_idx < total:
+                        if next_submit_idx in valid_indices:
+                            prefetch_futures[next_submit_idx] = executor.submit(
+                                pq.read_table, feature_paths[next_submit_idx]
+                            )
+                        next_submit_idx += 1
+                    continue
+
                 # Get the prefetched result for this index
                 future = prefetch_futures.pop(i)
                 try:
-                    df_feature_chunk = future.result()
+                    table = future.result()
                 except Exception as e:
                     self.logger.error(f"Failed to read {feature_paths[i]}: {e}")
                     if next_submit_idx < total:
-                        prefetch_futures[next_submit_idx] = executor.submit(
-                            gpd.read_parquet, feature_paths[next_submit_idx]
-                        )
+                        if next_submit_idx in valid_indices:
+                            prefetch_futures[next_submit_idx] = executor.submit(
+                                pq.read_table, feature_paths[next_submit_idx]
+                            )
                         next_submit_idx += 1
                     continue
 
                 # Submit next prefetch read before processing current chunk
                 if next_submit_idx < total:
-                    prefetch_futures[next_submit_idx] = executor.submit(
-                        gpd.read_parquet, feature_paths[next_submit_idx]
-                    )
+                    if next_submit_idx in valid_indices:
+                        prefetch_futures[next_submit_idx] = executor.submit(
+                            pq.read_table, feature_paths[next_submit_idx]
+                        )
                     next_submit_idx += 1
 
-                if len(df_feature_chunk) > 0:
-                    # Store CRS and column schema from first chunk
-                    if reference_columns is None:
-                        reference_columns = df_feature_chunk.columns
-
-                    # Validate and reorder columns for subsequent chunks
-                    current_columns = list(df_feature_chunk.columns)
-                    missing_cols = set(reference_columns) - set(current_columns)
-                    extra_cols = set(current_columns) - set(reference_columns)
-                    if missing_cols or extra_cols:
-                        self.logger.warning(f"Chunk {i} schema mismatch detected:")
-                        if missing_cols:
-                            self.logger.warning(
-                                f"  Missing columns: {sorted(missing_cols)}"
-                            )
-                            # Add missing columns with null values
-                            for col in missing_cols:
-                                df_feature_chunk[col] = None
-                        if extra_cols:
-                            self.logger.warning(
-                                f"  Extra columns: {sorted(extra_cols)}"
-                            )
-
-                    # Ensure column order matches reference for all chunks
-                    if list(current_columns) != list(reference_columns):
-                        self.logger.debug(
-                            f"Chunk {i}: Column order differs from reference, reordering silently"
-                        )
-                        df_feature_chunk = df_feature_chunk[reference_columns]
-
-                    # Convert to regular pandas DataFrame for pyarrow, converting geometry to WKB
-                    geom_col = df_feature_chunk.geometry.to_wkb()
-                    df_feature_chunk = pd.DataFrame(df_feature_chunk)
-                    df_feature_chunk["geometry"] = geom_col
-
-                    # Convert to pyarrow table and stream
-                    table = pa.Table.from_pandas(df_feature_chunk, preserve_index=True)
+                if table.num_rows > 0:
+                    # Pad missing columns with nulls and reorder to match union schema
+                    missing_cols = set(reference_columns) - set(table.column_names)
+                    if missing_cols:
+                        mismatch_count += 1
+                        for col in missing_cols:
+                            variable_col_counts[col] += 1
+                            table = table.append_column(col, pa.nulls(table.num_rows))
+                    table = table.select(reference_columns)
 
                     if pqwriter is None:
                         reference_schema = table.schema
 
-                        # Promote any null-type fields in reference schema to string.
-                        # This prevents the reverse problem: if the first chunk has all-null
-                        # columns, later chunks with actual data would need string->null casts.
+                        # Promote null-type fields using real types from pre-scanned
+                        # schemas. Falls back to large_string if no chunk has real data.
+                        # Also promote 32-bit offset types (string, binary) to 64-bit
+                        # (large_string, large_binary) to avoid ArrowInvalid offset
+                        # overflow on large concatenated tables.
+                        _LARGE_TYPE = {
+                            pa.string(): pa.large_string(),
+                            pa.binary(): pa.large_binary(),
+                        }
                         promoted = []
                         for field in reference_schema:
                             if field.type == pa.null():
+                                real_type = column_types.get(
+                                    field.name, pa.large_string()
+                                )
+                                real_type = _LARGE_TYPE.get(real_type, real_type)
                                 promoted.append(
-                                    pa.field(field.name, pa.string(), nullable=True)
+                                    pa.field(field.name, real_type, nullable=True)
+                                )
+                            elif field.type in _LARGE_TYPE:
+                                promoted.append(
+                                    pa.field(
+                                        field.name,
+                                        _LARGE_TYPE[field.type],
+                                        nullable=field.nullable,
+                                        metadata=field.metadata,
+                                    )
                                 )
                             else:
                                 promoted.append(field)
@@ -1798,6 +1877,8 @@ class NearmapAIExporter(BaseExporter):
                                 col = table.column(field.name)
                                 if col.type == pa.null():
                                     arrays.append(pa.nulls(len(table), type=field.type))
+                                elif col.type != field.type:
+                                    arrays.append(col.cast(field.type))
                                 else:
                                     arrays.append(col)
                             table = pa.Table.from_arrays(
@@ -1844,11 +1925,31 @@ class NearmapAIExporter(BaseExporter):
                                     f"{', '.join(type_warnings)}"
                                 )
                             schema_promotion_count += 1
-                    pqwriter.write_table(table)
+                    # Write one row group per class_id so pyarrow's predicate
+                    # pushdown can skip non-matching row groups during filtered reads.
+                    # Uses zero-copy table.slice() on the sorted table instead of
+                    # per-class filter() to avoid N full-table scans and row copies.
+                    if "class_id" in table.column_names:
+                        table = table.sort_by("class_id")
+                        n = table.num_rows
+                        if n > 0:
+                            class_vals = table.column("class_id").to_pylist()
+                            run_start = 0
+                            for j in range(1, n):
+                                if class_vals[j] != class_vals[run_start]:
+                                    pqwriter.write_table(
+                                        table.slice(run_start, j - run_start)
+                                    )
+                                    run_start = j
+                            pqwriter.write_table(
+                                table.slice(run_start, n - run_start)
+                            )
+                    else:
+                        pqwriter.write_table(table)
 
         finally:
             # Cancel queued futures and wait for running ones to finish,
-            # ensuring no background threads hold GeoDataFrames or S3 connections.
+            # ensuring no background threads hold pyarrow Tables or S3 connections.
             executor.shutdown(wait=True, cancel_futures=True)
 
         # Close the writer and upload to S3 if needed
@@ -1859,6 +1960,17 @@ class NearmapAIExporter(BaseExporter):
                 self.logger.info(
                     f"Schema promotion: {schema_promotion_count}/{len(feature_paths)} "
                     f"chunks had null-type columns promoted to match reference schema"
+                )
+
+            if mismatch_count > 0:
+                parts = [
+                    f"{col}: {variable_col_counts[col]} chunks"
+                    for col in sorted(variable_col_counts)
+                ]
+                self.logger.info(
+                    f"Schema alignment: {mismatch_count}/{len(feature_paths)} chunks "
+                    f"had variable columns (padded with nulls where absent): "
+                    + " | ".join(parts)
                 )
 
             # Log final status
@@ -1877,6 +1989,9 @@ class NearmapAIExporter(BaseExporter):
             # per-class export can read from local disk instead of re-downloading
             # from S3 for each class.  _cleanup_staging() removes it at the end.
             if self.is_s3_output:
+                self.logger.info(
+                    f"Uploading features.parquet to S3 ({final_file_size_gb:.1f}GB)..."
+                )
                 storage.upload_file(local_write_path, outpath_features)
 
             return local_write_path
@@ -2914,18 +3029,24 @@ class NearmapAIExporter(BaseExporter):
         read_workers = (
             S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
         )
+        last_resource_update = 0.0
         with ThreadPoolExecutor(max_workers=read_workers) as executor:
             futures = {
                 executor.submit(_check_chunk_files, i): i for i in range(num_chunks)
             }
-            for future in tqdm(
+            pbar = tqdm(
                 as_completed(futures),
                 total=num_chunks,
                 desc="Checking chunk files",
                 file=sys.stdout,
                 position=0,
                 leave=True,
-            ):
+            )
+            for future in pbar:
+                now = time.time()
+                if now - last_resource_update >= 5.0:
+                    pbar.set_postfix_str(resource_postfix())
+                    last_resource_update = now
                 chunk_check_results.append(future.result())
 
         # Sort by index for deterministic error reporting
@@ -2961,6 +3082,9 @@ class NearmapAIExporter(BaseExporter):
         if len(data) > 0:
             # Filter out DataFrames that are entirely NA (all values NA across all columns)
             data = [d for d in data if not d.isna().all().all()]
+            self.logger.info(
+                f"Concatenating {len(data)} rollup chunks..."
+            )
             # Suppress FutureWarning about all-NA columns in concat dtype inference.
             # Individual chunks may have all-NA columns for feature types not present
             # in that chunk; this doesn't affect correctness.
@@ -2979,6 +3103,9 @@ class NearmapAIExporter(BaseExporter):
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
+            self.logger.info(
+                f"Writing rollup {self.tabular_file_format} ({len(data)} rows)..."
+            )
             if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)
             elif self.tabular_file_format == "csv":
@@ -3270,6 +3397,10 @@ class NearmapAIExporter(BaseExporter):
                 try:
                     # Phase A: Discover unique classes and descriptions via lightweight
                     # column-only read (no geometry or attributes loaded).
+                    features_size_gb = storage.file_size(features_read_path) / (1024**3)
+                    self.logger.info(
+                        f"Scanning feature classes from {features_size_gb:.1f}GB features file..."
+                    )
                     meta_table = pq.read_table(
                         features_read_path, columns=["class_id", "description"]
                     )
@@ -3314,26 +3445,49 @@ class NearmapAIExporter(BaseExporter):
                             if c not in system_columns and c not in ADDRESS_FIELDS
                         ]
 
+                        # Filter to whitelisted classes for per-class files
+                        whitelisted_classes = [
+                            c
+                            for c in unique_classes
+                            if c in PER_CLASS_FILE_CLASS_IDS
+                        ]
+                        skipped_count = len(unique_classes) - len(
+                            whitelisted_classes
+                        )
+                        if skipped_count > 0:
+                            self.logger.info(
+                                f"Skipping per-class files for {skipped_count} "
+                                f"classes (not in PER_CLASS_FILE_CLASS_IDS "
+                                f"whitelist). Exporting "
+                                f"{len(whitelisted_classes)} whitelisted classes."
+                            )
+
                         # Classes that require cross-class data for export
                         cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
                         independent_ids = [
-                            c for c in unique_classes if c not in cross_class_ids
+                            c
+                            for c in whitelisted_classes
+                            if c not in cross_class_ids
                         ]
+                        # Explicit ordering: Building first, then Roof
                         dependent_ids = [
-                            c for c in unique_classes if c in cross_class_ids
+                            c
+                            for c in [BUILDING_NEW_ID, ROOF_ID]
+                            if c in whitelisted_classes
                         ]
 
-                        # Phase B: Process independent classes one at a time.
+                        # Phase B: Process independent classes in parallel (4 workers).
                         # Each class is read via filtered parquet read from local disk,
-                        # exported, then freed.  OS page cache warms on the first read
-                        # so subsequent reads are served from RAM.
-                        for class_id in independent_ids:
+                        # exported, then freed.  Sorted row groups enable fast predicate
+                        # pushdown so each read only touches matching row groups.
+                        def _export_independent_class(class_id):
+                            t0 = time.monotonic()
                             class_features = gpd.read_parquet(
                                 features_read_path,
                                 filters=[("class_id", "==", class_id)],
                             )
                             if len(class_features) == 0:
-                                continue
+                                return None
                             class_features = _add_is_primary_column(
                                 class_features, primary_ids_df
                             )
@@ -3358,20 +3512,55 @@ class NearmapAIExporter(BaseExporter):
                                 roof_instance_features=gpd.GeoDataFrame(),
                             )
                             del class_features
+                            elapsed = time.monotonic() - t0
                             if tabular_path or geo_parquet_path:
-                                files = [
-                                    storage.basename(f)
-                                    for f in [tabular_path, geo_parquet_path]
-                                    if f
-                                ]
-                                self.logger.info(
-                                    f"  Exported {description}: {', '.join(files)}"
-                                )
+                                return (description, tabular_path, geo_parquet_path, elapsed)
+                            return None
+
+                        if independent_ids:
+                            n_workers = min(4, len(independent_ids))
+                            self.logger.info(
+                                f"Exporting {len(independent_ids)} independent "
+                                f"classes ({n_workers} parallel workers)..."
+                            )
+                            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                                futures = {
+                                    pool.submit(_export_independent_class, cid): cid
+                                    for cid in independent_ids
+                                }
+                                for future in as_completed(futures):
+                                    class_id = futures[future]
+                                    try:
+                                        result = future.result()
+                                    except Exception as e:
+                                        desc = class_descriptions.get(
+                                            class_id, class_id[:8]
+                                        )
+                                        self.logger.error(
+                                            f"  Failed to export {desc}: {e}"
+                                        )
+                                        continue
+                                    if result:
+                                        description, tabular_path, geo_parquet_path, elapsed = result
+                                        files = [
+                                            storage.basename(f)
+                                            for f in [tabular_path, geo_parquet_path]
+                                            if f
+                                        ]
+                                        self.logger.info(
+                                            f"  Exported {description}: "
+                                            f"{', '.join(files)} ({elapsed:.1f}s)"
+                                        )
 
                         # Phase C: Process dependent classes (ROOF_ID, BUILDING_NEW_ID).
                         # These need cross-class data: roof instances for linkage, and
                         # child features for spatial attribute recalculation on clipped roofs.
                         if dependent_ids:
+                            t_phase_c = time.monotonic()
+                            self.logger.info(
+                                f"Loading cross-class features for "
+                                f"{len(dependent_ids)} dependent classes..."
+                            )
                             # First load the core dependent classes
                             core_ids = {
                                 ROOF_ID,
@@ -3381,6 +3570,10 @@ class NearmapAIExporter(BaseExporter):
                             cross_features = gpd.read_parquet(
                                 features_read_path,
                                 filters=[("class_id", "in", sorted(core_ids))],
+                            )
+                            self.logger.info(
+                                f"Loaded {len(cross_features)} cross-class features "
+                                f"({time.monotonic() - t_phase_c:.1f}s)"
                             )
 
                             # Dynamically discover child class IDs from roof component
@@ -3454,25 +3647,12 @@ class NearmapAIExporter(BaseExporter):
                                         roof_features, child_by_aoi, self.country
                                     )
                                 )
-                                has_aoi_id = (
-                                    AOI_ID_COLUMN_NAME in roof_features.columns
-                                    or roof_features.index.name
-                                    == AOI_ID_COLUMN_NAME
-                                )
                                 roof_attrs_cache = {}
-                                for idx, (_, row) in enumerate(
-                                    roof_features.iterrows()
-                                ):
+                                roof_records = _dataframe_to_records_with_index(roof_features)
+
+                                for idx, row in enumerate(roof_records):
                                     try:
-                                        if AOI_ID_COLUMN_NAME in row.index:
-                                            roof_aoi = row[AOI_ID_COLUMN_NAME]
-                                        elif (
-                                            roof_features.index.name
-                                            == AOI_ID_COLUMN_NAME
-                                        ):
-                                            roof_aoi = row.name
-                                        else:
-                                            roof_aoi = None
+                                        roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                                         aoi_children = (
                                             child_by_aoi.get(roof_aoi)
                                             if roof_aoi is not None
@@ -3497,11 +3677,12 @@ class NearmapAIExporter(BaseExporter):
                                             f"Could not flatten roof attributes: {e}"
                                         )
                                 del child_by_aoi, child_proj_by_aoi
-                                self.logger.debug(
+                                self.logger.info(
                                     f"Roof attribute cache: {len(roof_attrs_cache)} roofs in {time.monotonic() - t_cache:.1f}s"
                                 )
 
                             for class_id in dependent_ids:
+                                t_dep = time.monotonic()
                                 class_features = cross_features[
                                     cross_features["class_id"] == class_id
                                 ]
@@ -3528,6 +3709,7 @@ class NearmapAIExporter(BaseExporter):
                                     roof_instance_features=roof_instance_features,
                                     roof_attrs_cache=roof_attrs_cache,
                                 )
+                                elapsed_dep = time.monotonic() - t_dep
                                 if tabular_path or geo_parquet_path:
                                     files = [
                                         storage.basename(f)
@@ -3535,7 +3717,8 @@ class NearmapAIExporter(BaseExporter):
                                         if f
                                     ]
                                     self.logger.info(
-                                        f"  Exported {description}: {', '.join(files)}"
+                                        f"  Exported {description}: "
+                                        f"{', '.join(files)} ({elapsed_dep:.1f}s)"
                                     )
                             del (
                                 cross_features,
@@ -3568,9 +3751,6 @@ AOIExporter = NearmapAIExporter
 
 def main():
     # Set higher file descriptor limits for running many processes in parallel.
-    import resource
-    import sys
-
     if sys.platform != "win32":
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         desired = 32000  # Same as ulimit -n 32000

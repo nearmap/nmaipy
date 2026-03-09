@@ -17,6 +17,7 @@ import os
 import re
 import ssl
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from http.client import RemoteDisconnected
 from pathlib import Path
@@ -38,6 +39,7 @@ from nmaipy.constants import (
     DUMMY_STATUS_CODE,
     MAX_RETRIES,
     READ_TIMEOUT_SECONDS,
+    S3_PARALLEL_READ_WORKERS,
     TIMEOUT_SECONDS,
 )
 
@@ -1099,12 +1101,15 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
     if not latency_files:
         return []
 
-    dfs = []
-    for lf in latency_files:
+    def _read_one(path):
         try:
-            dfs.append(pd.read_parquet(lf))
+            return pd.read_parquet(path)
         except Exception:
-            pass  # Skip corrupted files
+            return None
+
+    with ThreadPoolExecutor(max_workers=S3_PARALLEL_READ_WORKERS) as executor:
+        results = executor.map(_read_one, latency_files)
+    dfs = [df for df in results if df is not None]
 
     if not dfs:
         return []
@@ -1117,9 +1122,8 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
     combined_df.to_csv(output_csv_path, index=False)
 
     bucket_names = _get_latency_bucket_names()
-    stats_list = []
-    for _, row in combined_df.iterrows():
-        stats = {
+    stats_list = [
+        {
             "chunk_id": row["chunk_id"],
             "count": int(row["count"]),
             "mean": float(row["mean"]),
@@ -1131,7 +1135,8 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
             "max": float(row["max"]),
             "histogram": [int(row[name]) for name in bucket_names if name in row],
         }
-        stats_list.append(stats)
+        for row in combined_df.to_dict("records")
+    ]
 
     return stats_list
 
