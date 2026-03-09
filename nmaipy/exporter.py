@@ -1925,16 +1925,23 @@ class NearmapAIExporter(BaseExporter):
                             schema_promotion_count += 1
                     # Write one row group per class_id so pyarrow's predicate
                     # pushdown can skip non-matching row groups during filtered reads.
+                    # Uses zero-copy table.slice() on the sorted table instead of
+                    # per-class filter() to avoid N full-table scans and row copies.
                     if "class_id" in table.column_names:
                         table = table.sort_by("class_id")
-                        class_col = table.column("class_id")
-                        unique_classes = class_col.unique().to_pylist()
-                        for cls in unique_classes:
-                            if cls is None:
-                                mask = pc.is_null(class_col)
-                            else:
-                                mask = pc.equal(class_col, cls)
-                            pqwriter.write_table(table.filter(mask))
+                        n = table.num_rows
+                        if n > 0:
+                            class_vals = table.column("class_id").to_pylist()
+                            run_start = 0
+                            for j in range(1, n):
+                                if class_vals[j] != class_vals[run_start]:
+                                    pqwriter.write_table(
+                                        table.slice(run_start, j - run_start)
+                                    )
+                                    run_start = j
+                            pqwriter.write_table(
+                                table.slice(run_start, n - run_start)
+                            )
                     else:
                         pqwriter.write_table(table)
 
