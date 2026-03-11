@@ -1454,6 +1454,117 @@ class TestFlattenRoofAttributesClippedFallback:
         assert result["roof_staining_area_sqm"] == 185.8
 
 
+class TestNullifyFeatureApiColumns:
+    """Tests for nullify_feature_api_columns()."""
+
+    @pytest.fixture
+    def classes_df(self):
+        """Minimal classes_df with one Feature API class (Roof) and one Roof Age class (Roof Instance)."""
+        return pd.DataFrame(
+            {"description": ["Roof", "Roof Instance"]},
+            index=[ROOF_ID, ROOF_INSTANCE_CLASS_ID],
+        )
+
+    @pytest.fixture
+    def rollup_df(self):
+        """Rollup with 2 AOIs: one Feature API success, one failure."""
+        return pd.DataFrame(
+            {
+                "roof_present": ["Y", "N"],
+                "roof_count": [3, 0],
+                "roof_total_area_sqft": [1500.0, 0.0],
+                "roof_total_clipped_area_sqft": [1400.0, 0.0],
+                "primary_roof_area_sqft": [800.0, 0.0],
+                "primary_roof_confidence": [0.95, None],
+                "roof_instance_present": ["Y", "Y"],
+                "roof_instance_count": [2, 1],
+                "roof_instance_total_area_sqft": [1200.0, 600.0],
+                "primary_roof_instance_roof_age_years": [5.0, 3.0],
+                "feature_api_success": ["Y", "N"],
+                "roof_age_api_success": ["Y", "Y"],
+            },
+            index=pd.Index(["aoi_1", "aoi_2"], name=AOI_ID_COLUMN_NAME),
+        )
+
+    def test_failed_aoi_feature_api_columns_nulled(self, rollup_df, classes_df):
+        result = parcels.nullify_feature_api_columns(rollup_df, classes_df)
+        failed = result.loc["aoi_2"]
+
+        # Feature API columns should be null
+        assert pd.isna(failed["roof_present"])
+        assert pd.isna(failed["roof_count"])
+        assert pd.isna(failed["roof_total_area_sqft"])
+        assert pd.isna(failed["roof_total_clipped_area_sqft"])
+        assert pd.isna(failed["primary_roof_area_sqft"])
+        assert pd.isna(failed["primary_roof_confidence"])
+
+    def test_failed_aoi_roof_instance_columns_preserved(self, rollup_df, classes_df):
+        result = parcels.nullify_feature_api_columns(rollup_df, classes_df)
+        failed = result.loc["aoi_2"]
+
+        # Roof Age columns should be untouched
+        assert failed["roof_instance_present"] == "Y"
+        assert failed["roof_instance_count"] == 1
+        assert failed["roof_instance_total_area_sqft"] == 600.0
+        assert failed["primary_roof_instance_roof_age_years"] == 3.0
+
+    def test_success_aoi_columns_preserved(self, rollup_df, classes_df):
+        result = parcels.nullify_feature_api_columns(rollup_df, classes_df)
+        success = result.loc["aoi_1"]
+
+        assert success["roof_present"] == "Y"
+        assert success["roof_count"] == 3
+        assert success["roof_total_area_sqft"] == 1500.0
+        assert success["roof_instance_present"] == "Y"
+        assert success["roof_instance_count"] == 2
+
+    def test_prefix_overlap_roof_vs_roof_instance(self, classes_df):
+        """Ensure 'roof_' prefix matching doesn't clobber 'roof_instance_' or 'roof_age_api_success' columns."""
+        df = pd.DataFrame(
+            {
+                "roof_present": ["N"],
+                "roof_instance_present": ["Y"],
+                "primary_roof_confidence": [None],
+                "primary_roof_instance_roof_age_years": [5.0],
+                "feature_api_success": ["N"],
+                "roof_age_api_success": ["Y"],
+            },
+            index=pd.Index(["aoi_1"], name=AOI_ID_COLUMN_NAME),
+        )
+        result = parcels.nullify_feature_api_columns(df, classes_df)
+        row = result.loc["aoi_1"]
+
+        assert pd.isna(row["roof_present"])
+        assert pd.isna(row["primary_roof_confidence"])
+        assert row["roof_instance_present"] == "Y"
+        assert row["primary_roof_instance_roof_age_years"] == 5.0
+        assert row["roof_age_api_success"] == "Y"
+        assert row["feature_api_success"] == "N"
+
+    def test_no_feature_api_success_column_is_noop(self, classes_df):
+        """If feature_api_success column is missing, return unchanged."""
+        df = pd.DataFrame(
+            {"roof_present": ["N"], "roof_instance_present": ["Y"]},
+            index=pd.Index(["aoi_1"], name=AOI_ID_COLUMN_NAME),
+        )
+        result = parcels.nullify_feature_api_columns(df, classes_df)
+        assert result.loc["aoi_1", "roof_present"] == "N"
+
+    def test_all_success_is_noop(self, classes_df):
+        """If all AOIs succeeded, nothing changes."""
+        df = pd.DataFrame(
+            {
+                "roof_present": ["Y"],
+                "roof_count": [3],
+                "feature_api_success": ["Y"],
+            },
+            index=pd.Index(["aoi_1"], name=AOI_ID_COLUMN_NAME),
+        )
+        result = parcels.nullify_feature_api_columns(df, classes_df)
+        assert result.loc["aoi_1", "roof_present"] == "Y"
+        assert result.loc["aoi_1", "roof_count"] == 3
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))

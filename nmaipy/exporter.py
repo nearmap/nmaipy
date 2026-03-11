@@ -93,7 +93,7 @@ from nmaipy.feature_attributes import (
     flatten_building_attributes,
     flatten_roof_attributes,
 )
-from nmaipy.parcels import link_roofs_to_buildings
+from nmaipy.parcels import link_roofs_to_buildings, nullify_feature_api_columns
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -2694,8 +2694,8 @@ class NearmapAIExporter(BaseExporter):
                     else set(aoi_gdf.index)
                 )
 
-                # If all Feature API requests failed, save errors and return
-                if len(feature_api_errors_df) == len(aoi_gdf):
+                # If all Feature API requests failed and no roof age data, save errors and return
+                if len(feature_api_errors_df) == len(aoi_gdf) and len(roof_age_gdf) == 0:
                     storage.write_parquet(feature_api_errors_df, outfile_errors)
                     if len(roof_age_errors_df) > 0:
                         storage.write_parquet(
@@ -2885,6 +2885,9 @@ class NearmapAIExporter(BaseExporter):
                         lambda x: "Y" if x in roof_age_success_aois else "N"
                     )
 
+                # Null out Feature API columns for AOIs where Features API failed
+                rollup_df = nullify_feature_api_columns(rollup_df, classes_df)
+
                 # Save Roof Age API errors separately
                 if self.roof_age and len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
@@ -2920,6 +2923,11 @@ class NearmapAIExporter(BaseExporter):
             final_df = rollup_df.merge(
                 metadata_df, on=AOI_ID_COLUMN_NAME, how="left"
             ).merge(aoi_gdf, on=AOI_ID_COLUMN_NAME)
+            # Ensure metadata columns exist even when metadata_df was empty
+            # (e.g. all Feature API requests failed) for consistent schema
+            for col in meta_data_columns:
+                if col not in final_df.columns:
+                    final_df[col] = None
             parcel_columns = [c for c in aoi_gdf.columns if c != "geometry"]
             columns = (
                 parcel_columns

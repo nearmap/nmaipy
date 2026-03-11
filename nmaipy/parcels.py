@@ -1200,7 +1200,8 @@ def parcel_rollup(
             projected_crs=projected_crs,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
-        parcel["mesh_date"] = group.mesh_date.iloc[0]
+        if "mesh_date" in group.columns:
+            parcel["mesh_date"] = group.mesh_date.iloc[0]
         rollups.append(parcel)
     # Loop over parcels without features in them
     area_name = f"area_{area_units}"
@@ -1244,3 +1245,53 @@ def parcel_rollup(
                 raise
     # Defragment DataFrame to avoid PerformanceWarning when callers add columns
     return rollup_df.copy()
+
+
+def nullify_feature_api_columns(
+    rollup_df: pd.DataFrame,
+    classes_df: pd.DataFrame,
+    feature_api_success_col: str = "feature_api_success",
+) -> pd.DataFrame:
+    """
+    Set Feature API rollup columns to null for AOIs where the Features API did not return data.
+
+    When no Features API response was obtained, columns like building_present, roof_count, etc.
+    should be null rather than "N"/0 — the latter implies "we checked and found nothing", while
+    null means "we have no observational data for this AOI".
+
+    Roof Age API columns (roof_instance_*) are left untouched.
+    """
+    if feature_api_success_col not in rollup_df.columns:
+        return rollup_df
+
+    mask = rollup_df[feature_api_success_col] == "N"
+    if not mask.any():
+        return rollup_df
+
+    # Build set of roof age column prefixes to protect from nullification
+    roof_age_cols = set()
+    if ROOF_INSTANCE_CLASS_ID in classes_df.index:
+        ri_name = classes_df.loc[ROOF_INSTANCE_CLASS_ID, "description"].lower().replace(" ", "_")
+        roof_age_cols = {
+            col for col in rollup_df.columns
+            if col.startswith(f"{ri_name}_") or col.startswith(f"primary_{ri_name}_")
+        }
+
+    # Build set of Feature API columns (all class columns minus roof age columns)
+    feature_api_cols = set()
+    for class_id, row in classes_df.iterrows():
+        if class_id == ROOF_INSTANCE_CLASS_ID:
+            continue
+        name = row.description.lower().replace(" ", "_")
+        feature_api_cols.update(
+            col for col in rollup_df.columns
+            if col.startswith(f"{name}_") or col.startswith(f"primary_{name}_")
+        )
+    feature_api_cols -= roof_age_cols
+    # Never nullify the API success indicator columns themselves
+    feature_api_cols -= {feature_api_success_col, "roof_age_api_success"}
+
+    if feature_api_cols:
+        rollup_df.loc[mask, list(feature_api_cols)] = None
+
+    return rollup_df
