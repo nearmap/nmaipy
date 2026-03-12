@@ -423,6 +423,14 @@ class BaseExporter(ABC):
                                 with progress_counters["lock"]:
                                     initial_total = progress_counters["total"]
                                 pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
+                                warmup_str = f"Warmup (0/{self.processes})"
+                                pbar.set_description(
+                                    self._format_progress_description(
+                                        0,
+                                        len(chunks_to_process),
+                                        lat_str=warmup_str,
+                                    )
+                                )
 
                             chunks_submitted = 0
                             for i, batch in chunks_to_process:
@@ -546,6 +554,7 @@ class BaseExporter(ABC):
 
         Called while waiting to submit more chunks during API warmup.
         Shows current progress even though not all chunks are submitted yet.
+        Chunk count stays at 0 since no chunks have completed during warmup.
         """
         lock_acquired = progress_counters["lock"].acquire(timeout=0.01)
         if lock_acquired:
@@ -559,8 +568,11 @@ class BaseExporter(ABC):
                 pbar.total = requests_total
             pbar.n = requests_completed
 
+            warmup_str = f"Warmup ({chunks_submitted}/{self.processes})"
             pbar.set_description(
-                self._format_progress_description(chunks_submitted, total_chunks)
+                self._format_progress_description(
+                    0, total_chunks, lat_str=warmup_str
+                )
             )
             pbar.refresh()
 
