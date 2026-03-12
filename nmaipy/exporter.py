@@ -93,7 +93,7 @@ from nmaipy.feature_attributes import (
     flatten_building_attributes,
     flatten_roof_attributes,
 )
-from nmaipy.parcels import link_roofs_to_buildings, nullify_feature_api_columns
+from nmaipy.parcels import link_roofs_to_buildings
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -2649,6 +2649,7 @@ class NearmapAIExporter(BaseExporter):
                     columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS
                 )
                 roof_age_errors_df = pd.DataFrame()
+                roof_age_metadata_df = pd.DataFrame()
 
                 if self.roof_age:
                     logger.debug(
@@ -2867,6 +2868,14 @@ class NearmapAIExporter(BaseExporter):
                                         f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
                                     )
 
+                # Build API metadata pairs for parcel_rollup: each pair tells
+                # the rollup which classes an API covers and which AOIs it succeeded for.
+                feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+                api_metadata = [(metadata_df, feature_api_classes)]
+                if self.roof_age:
+                    roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+                    api_metadata.append((roof_age_metadata_df, roof_age_classes))
+
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
@@ -2874,6 +2883,7 @@ class NearmapAIExporter(BaseExporter):
                     classes_df,
                     country=self.country,
                     primary_decision=self.primary_decision,
+                    api_metadata=api_metadata,
                 )
 
                 # Add API success columns (Y/N)
@@ -2884,9 +2894,6 @@ class NearmapAIExporter(BaseExporter):
                     rollup_df["roof_age_api_success"] = rollup_df.index.map(
                         lambda x: "Y" if x in roof_age_success_aois else "N"
                     )
-
-                # Null out Feature API columns for AOIs where Features API failed
-                rollup_df = nullify_feature_api_columns(rollup_df, classes_df)
 
                 # Save Roof Age API errors separately
                 if self.roof_age and len(roof_age_errors_df) > 0:

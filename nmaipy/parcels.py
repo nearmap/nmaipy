@@ -1090,6 +1090,7 @@ def parcel_rollup(
     classes_df: pd.DataFrame,
     country: str,
     primary_decision: str,
+    api_metadata: list = None,
 ):
     """
     Summarize feature data to parcel attributes.
@@ -1100,12 +1101,49 @@ def parcel_rollup(
         classes_df: Class name and ID lookup
         country: Country code for units.
         primary_decision: The basis on which the primary features are chosen
+        api_metadata: Optional list of (metadata_df, classes_df_subset) tuples.
+            Each tuple pairs an API's metadata (indexed by AOI ID, with rows only
+            for successful AOIs) with the classes_df subset that API covers.
+            For AOIs missing from a metadata_df, columns for those classes are set
+            to null — indicating "no observational data" rather than "checked and
+            found nothing."
 
     Returns:
         Parcel rollup DataFrame
     """
     mu = MeasurementUnits(country)
     area_units = mu.area_units()
+
+    # Pre-compute which classes should be nulled per AOI based on API metadata.
+    # For each (metadata_df, classes_subset) pair, AOIs missing from metadata_df
+    # had that API fail — their columns for those classes should be null.
+    null_classes_by_aoi = {}
+    _class_baseline_columns = {}
+    if api_metadata:
+        all_aoi_ids = set(parcels_gdf.index)
+        for meta_df, meta_classes in api_metadata:
+            successful_aois = set(meta_df.index) if len(meta_df) > 0 else set()
+            failed_aois = all_aoi_ids - successful_aois
+            if failed_aois:
+                class_ids = set(meta_classes.index)
+                for aoi_id in failed_aois:
+                    null_classes_by_aoi.setdefault(aoi_id, set()).update(class_ids)
+        # Discover exact baseline column names per class by running
+        # feature_attributes() with empty data. This avoids prefix matching
+        # and uses feature_attributes() itself as the source of truth.
+        area_name = f"area_{area_units}"
+        empty_gdf = gpd.GeoDataFrame(
+            [],
+            columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"],
+        )
+        for class_id in classes_df.index:
+            single_class = classes_df.loc[[class_id]]
+            baseline = feature_attributes(
+                empty_gdf, single_class, country=country,
+                parcel_geom=None, primary_decision=primary_decision,
+            )
+            _class_baseline_columns[class_id] = set(baseline.keys())
+
     assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
 
     # Handle case where features_gdf index name is not set properly
@@ -1202,6 +1240,11 @@ def parcel_rollup(
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         if "mesh_date" in group.columns:
             parcel["mesh_date"] = group.mesh_date.iloc[0]
+        if aoi_id in null_classes_by_aoi:
+            for class_id in null_classes_by_aoi[aoi_id]:
+                for key in _class_baseline_columns.get(class_id, set()):
+                    if key in parcel:
+                        parcel[key] = None
         rollups.append(parcel)
     # Loop over parcels without features in them
     area_name = f"area_{area_units}"
@@ -1223,7 +1266,13 @@ def parcel_rollup(
             parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
         )
-        parcel[AOI_ID_COLUMN_NAME] = row._asdict()["Index"]
+        aoi_id = row._asdict()["Index"]
+        parcel[AOI_ID_COLUMN_NAME] = aoi_id
+        if aoi_id in null_classes_by_aoi:
+            for class_id in null_classes_by_aoi[aoi_id]:
+                for key in _class_baseline_columns.get(class_id, set()):
+                    if key in parcel:
+                        parcel[key] = None
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
@@ -1247,51 +1296,3 @@ def parcel_rollup(
     return rollup_df.copy()
 
 
-def nullify_feature_api_columns(
-    rollup_df: pd.DataFrame,
-    classes_df: pd.DataFrame,
-    feature_api_success_col: str = "feature_api_success",
-) -> pd.DataFrame:
-    """
-    Set Feature API rollup columns to null for AOIs where the Features API did not return data.
-
-    When no Features API response was obtained, columns like building_present, roof_count, etc.
-    should be null rather than "N"/0 — the latter implies "we checked and found nothing", while
-    null means "we have no observational data for this AOI".
-
-    Roof Age API columns (roof_instance_*) are left untouched.
-    """
-    if feature_api_success_col not in rollup_df.columns:
-        return rollup_df
-
-    mask = rollup_df[feature_api_success_col] == "N"
-    if not mask.any():
-        return rollup_df
-
-    # Build set of roof age column prefixes to protect from nullification
-    roof_age_cols = set()
-    if ROOF_INSTANCE_CLASS_ID in classes_df.index:
-        ri_name = classes_df.loc[ROOF_INSTANCE_CLASS_ID, "description"].lower().replace(" ", "_")
-        roof_age_cols = {
-            col for col in rollup_df.columns
-            if col.startswith(f"{ri_name}_") or col.startswith(f"primary_{ri_name}_")
-        }
-
-    # Build set of Feature API columns (all class columns minus roof age columns)
-    feature_api_cols = set()
-    for class_id, row in classes_df.iterrows():
-        if class_id == ROOF_INSTANCE_CLASS_ID:
-            continue
-        name = row.description.lower().replace(" ", "_")
-        feature_api_cols.update(
-            col for col in rollup_df.columns
-            if col.startswith(f"{name}_") or col.startswith(f"primary_{name}_")
-        )
-    feature_api_cols -= roof_age_cols
-    # Never nullify the API success indicator columns themselves
-    feature_api_cols -= {feature_api_success_col, "roof_age_api_success"}
-
-    if feature_api_cols:
-        rollup_df.loc[mask, list(feature_api_cols)] = None
-
-    return rollup_df
