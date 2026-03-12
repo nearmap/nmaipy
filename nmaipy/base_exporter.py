@@ -423,6 +423,14 @@ class BaseExporter(ABC):
                                 with progress_counters["lock"]:
                                     initial_total = progress_counters["total"]
                                 pbar = tqdm(total=initial_total, **self._TQDM_CONFIG)
+                                warmup_str = f"Warmup (0/{self.processes})"
+                                pbar.set_description(
+                                    self._format_progress_description(
+                                        0,
+                                        len(chunks_to_process),
+                                        lat_str=warmup_str,
+                                    )
+                                )
 
                             chunks_submitted = 0
                             for i, batch in chunks_to_process:
@@ -456,11 +464,13 @@ class BaseExporter(ABC):
                                                 pbar is not None
                                                 and progress_counters is not None
                                             ):
+                                                chunks_completed = chunks_submitted - active_jobs
                                                 self._update_pbar_during_warmup(
                                                     pbar,
                                                     progress_counters,
                                                     chunks_submitted,
                                                     len(chunks_to_process),
+                                                    chunks_completed,
                                                 )
                                             time.sleep(1.0)
 
@@ -540,6 +550,7 @@ class BaseExporter(ABC):
         progress_counters: Dict[str, Any],
         chunks_submitted: int,
         total_chunks: int,
+        chunks_completed: int,
     ) -> None:
         """
         Update the progress bar during warmup phase.
@@ -559,8 +570,11 @@ class BaseExporter(ABC):
                 pbar.total = requests_total
             pbar.n = requests_completed
 
+            warmup_str = f"Warmup ({chunks_submitted}/{self.processes})"
             pbar.set_description(
-                self._format_progress_description(chunks_submitted, total_chunks)
+                self._format_progress_description(
+                    chunks_completed, total_chunks, lat_str=warmup_str
+                )
             )
             pbar.refresh()
 
