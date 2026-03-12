@@ -350,12 +350,55 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     return flattened
 
 
+# Map API component descriptions to short clean names for dominant columns.
+_DOMINANT_NAME_OVERRIDES = {
+    "Flat Roof Material": "flat_material",
+    "Other Roof Shape": "other",
+    "PVC/TPO": "pvc_tpo",
+    "Mod-Bit": "mod_bit",
+}
+
+
+def _clean_dominant_name(description: str) -> str:
+    """Convert API component description to a short clean name."""
+    if description in _DOMINANT_NAME_OVERRIDES:
+        return _DOMINANT_NAME_OVERRIDES[description]
+    name = description
+    # Strip deprecated suffix
+    if name.endswith(" (Deprecated)"):
+        name = name[: -len(" (Deprecated)")]
+    # Strip trailing " Roof" suffix (e.g. "Tile Roof" -> "Tile")
+    if name.endswith(" Roof"):
+        name = name[: -len(" Roof")]
+    return name.lower().replace(" ", "_")
+
+
+def _select_dominant_material(components: list) -> Optional[dict]:
+    """Select dominant material: component flagged dominant=True, tie-break by ratio."""
+    candidates = [c for c in components if c.get("dominant")]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c.get("ratio") or 0)
+
+
+def _select_dominant_shape(components: list) -> Optional[dict]:
+    """Select dominant shape: highest ratio among components with confidence > 0.5 and area > 0."""
+    candidates = [
+        c for c in components
+        if (c.get("confidence") or 0) > 0.5 and (c.get("areaSqm") or 0) > 0
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c.get("ratio") or 0)
+
+
 def flatten_roof_attributes(
     roofs: List[dict],
     country: str,
     child_features: gpd.GeoDataFrame = None,
     parent_projected=None,
     children_projected: "gpd.GeoSeries" = None,
+    include_dominant_summary: bool = False,
 ) -> dict:
     """
     Flatten roof attributes from Feature API.
@@ -656,6 +699,36 @@ def flatten_roof_attributes(
                                 flattened[
                                     f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"
                                 ] = ratio_value
+                # Emit aggregate dominant material/shape columns
+                if include_dominant_summary:
+                    attr_desc = attribute.get("description", "")
+                    if attr_desc == "Roof material":
+                        winner = _select_dominant_material(components)
+                        prefix = "dominant_material"
+                    elif attr_desc == "Roof types":
+                        winner = _select_dominant_shape(components)
+                        prefix = "dominant_shape"
+                    else:
+                        winner = None
+                        prefix = None
+
+                    if winner is not None and prefix is not None:
+                        flattened[prefix] = _clean_dominant_name(winner["description"])
+                        # Use recalculated values for clipped roofs when available
+                        w_name = winner["description"].lower().replace(" ", "_")
+                        if recalc_attrs is not None and f"{w_name}_confidence" in recalc_attrs:
+                            flattened[f"{prefix}_confidence"] = recalc_attrs[f"{w_name}_confidence"]
+                            area_key = f"{w_name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{w_name}_area_sqm"
+                            flattened[f"{prefix}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{prefix}_area_sqm"] = recalc_attrs.get(area_key, 0.0)
+                            flattened[f"{prefix}_ratio"] = recalc_attrs.get(f"{w_name}_ratio", 0.0)
+                        else:
+                            flattened[f"{prefix}_confidence"] = winner.get("confidence")
+                            if country in IMPERIAL_COUNTRIES:
+                                flattened[f"{prefix}_area_sqft"] = winner.get("areaSqft", 0.0)
+                            else:
+                                flattened[f"{prefix}_area_sqm"] = winner.get("areaSqm", 0.0)
+                            flattened[f"{prefix}_ratio"] = winner.get("ratio")
+
             elif "has3dAttributes" in attribute:
                 flattened["has_3d_attributes"] = (
                     TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
