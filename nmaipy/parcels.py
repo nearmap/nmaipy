@@ -1128,21 +1128,23 @@ def parcel_rollup(
                 class_ids = set(meta_classes.index)
                 for aoi_id in failed_aois:
                     null_classes_by_aoi.setdefault(aoi_id, set()).update(class_ids)
-        # Discover exact baseline column names per class by running
-        # feature_attributes() with empty data. This avoids prefix matching
-        # and uses feature_attributes() itself as the source of truth.
-        area_name = f"area_{area_units}"
-        empty_gdf = gpd.GeoDataFrame(
-            [],
-            columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"],
-        )
-        for class_id in classes_df.index:
-            single_class = classes_df.loc[[class_id]]
-            baseline = feature_attributes(
-                empty_gdf, single_class, country=country,
-                parcel_geom=None, primary_decision=primary_decision,
+        # Only compute baseline columns if at least one AOI needs nullification
+        if null_classes_by_aoi:
+            # Discover exact baseline column names per class by running
+            # feature_attributes() with empty data. This avoids prefix matching
+            # and uses feature_attributes() itself as the source of truth.
+            area_name = f"area_{area_units}"
+            empty_gdf = gpd.GeoDataFrame(
+                [],
+                columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"],
             )
-            _class_baseline_columns[class_id] = set(baseline.keys())
+            for class_id in classes_df.index:
+                single_class = classes_df.loc[[class_id]]
+                baseline = feature_attributes(
+                    empty_gdf, single_class, country=country,
+                    parcel_geom=None, primary_decision=primary_decision,
+                )
+                _class_baseline_columns[class_id] = set(baseline.keys())
 
     assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
 
@@ -1294,5 +1296,3 @@ def parcel_rollup(
                 raise
     # Defragment DataFrame to avoid PerformanceWarning when callers add columns
     return rollup_df.copy()
-
-

@@ -464,11 +464,13 @@ class BaseExporter(ABC):
                                                 pbar is not None
                                                 and progress_counters is not None
                                             ):
+                                                chunks_completed = chunks_submitted - active_jobs
                                                 self._update_pbar_during_warmup(
                                                     pbar,
                                                     progress_counters,
                                                     chunks_submitted,
                                                     len(chunks_to_process),
+                                                    chunks_completed,
                                                 )
                                             time.sleep(1.0)
 
@@ -548,13 +550,13 @@ class BaseExporter(ABC):
         progress_counters: Dict[str, Any],
         chunks_submitted: int,
         total_chunks: int,
+        chunks_completed: int,
     ) -> None:
         """
         Update the progress bar during warmup phase.
 
         Called while waiting to submit more chunks during API warmup.
         Shows current progress even though not all chunks are submitted yet.
-        Chunk count stays at 0 since no chunks have completed during warmup.
         """
         lock_acquired = progress_counters["lock"].acquire(timeout=0.01)
         if lock_acquired:
@@ -571,7 +573,7 @@ class BaseExporter(ABC):
             warmup_str = f"Warmup ({chunks_submitted}/{self.processes})"
             pbar.set_description(
                 self._format_progress_description(
-                    0, total_chunks, lat_str=warmup_str
+                    chunks_completed, total_chunks, lat_str=warmup_str
                 )
             )
             pbar.refresh()
