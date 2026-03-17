@@ -2670,6 +2670,7 @@ class NearmapAIExporter(BaseExporter):
                     columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS
                 )
                 roof_age_errors_df = pd.DataFrame()
+                roof_age_metadata_df = pd.DataFrame()
 
                 if self.roof_age:
                     logger.debug(
@@ -2715,8 +2716,8 @@ class NearmapAIExporter(BaseExporter):
                     else set(aoi_gdf.index)
                 )
 
-                # If all Feature API requests failed, save errors and return
-                if len(feature_api_errors_df) == len(aoi_gdf):
+                # If all Feature API requests failed and no roof age data, save errors and return
+                if len(feature_api_errors_df) == len(aoi_gdf) and len(roof_age_gdf) == 0:
                     storage.write_parquet(feature_api_errors_df, outfile_errors)
                     if len(roof_age_errors_df) > 0:
                         storage.write_parquet(
@@ -2888,6 +2889,14 @@ class NearmapAIExporter(BaseExporter):
                                         f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
                                     )
 
+                # Build API metadata pairs for parcel_rollup: each pair tells
+                # the rollup which classes an API covers and which AOIs it succeeded for.
+                feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+                api_metadata = [(metadata_df, feature_api_classes)]
+                if self.roof_age:
+                    roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+                    api_metadata.append((roof_age_metadata_df, roof_age_classes))
+
                 # Create rollup
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
@@ -2896,6 +2905,7 @@ class NearmapAIExporter(BaseExporter):
                     country=self.country,
                     primary_decision=self.primary_decision,
                     include_dominant_summary=self.dominant_columns,
+                    api_metadata=api_metadata,
                 )
 
                 # Add API success columns (Y/N)
@@ -2942,6 +2952,11 @@ class NearmapAIExporter(BaseExporter):
             final_df = rollup_df.merge(
                 metadata_df, on=AOI_ID_COLUMN_NAME, how="left"
             ).merge(aoi_gdf, on=AOI_ID_COLUMN_NAME)
+            # Ensure metadata columns exist even when metadata_df was empty
+            # (e.g. all Feature API requests failed) for consistent schema
+            for col in meta_data_columns:
+                if col not in final_df.columns:
+                    final_df[col] = None
             parcel_columns = [c for c in aoi_gdf.columns if c != "geometry"]
             columns = (
                 parcel_columns

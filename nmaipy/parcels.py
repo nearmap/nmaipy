@@ -1094,6 +1094,7 @@ def parcel_rollup(
     country: str,
     primary_decision: str,
     include_dominant_summary: bool = False,
+    api_metadata: list = None,
 ):
     """
     Summarize feature data to parcel attributes.
@@ -1104,12 +1105,51 @@ def parcel_rollup(
         classes_df: Class name and ID lookup
         country: Country code for units.
         primary_decision: The basis on which the primary features are chosen
+        api_metadata: Optional list of (metadata_df, classes_df_subset) tuples.
+            Each tuple pairs an API's metadata (indexed by AOI ID, with rows only
+            for successful AOIs) with the classes_df subset that API covers.
+            For AOIs missing from a metadata_df, columns for those classes are set
+            to null — indicating "no observational data" rather than "checked and
+            found nothing."
 
     Returns:
         Parcel rollup DataFrame
     """
     mu = MeasurementUnits(country)
     area_units = mu.area_units()
+
+    # Pre-compute which classes should be nulled per AOI based on API metadata.
+    # For each (metadata_df, classes_subset) pair, AOIs missing from metadata_df
+    # had that API fail — their columns for those classes should be null.
+    null_classes_by_aoi = {}
+    _class_baseline_columns = {}
+    if api_metadata:
+        all_aoi_ids = set(parcels_gdf.index)
+        for meta_df, meta_classes in api_metadata:
+            successful_aois = set(meta_df.index) if len(meta_df) > 0 else set()
+            failed_aois = all_aoi_ids - successful_aois
+            if failed_aois:
+                class_ids = set(meta_classes.index)
+                for aoi_id in failed_aois:
+                    null_classes_by_aoi.setdefault(aoi_id, set()).update(class_ids)
+        # Only compute baseline columns if at least one AOI needs nullification
+        if null_classes_by_aoi:
+            # Discover exact baseline column names per class by running
+            # feature_attributes() with empty data. This avoids prefix matching
+            # and uses feature_attributes() itself as the source of truth.
+            area_name = f"area_{area_units}"
+            empty_gdf = gpd.GeoDataFrame(
+                [],
+                columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"],
+            )
+            for class_id in classes_df.index:
+                single_class = classes_df.loc[[class_id]]
+                baseline = feature_attributes(
+                    empty_gdf, single_class, country=country,
+                    parcel_geom=None, primary_decision=primary_decision,
+                )
+                _class_baseline_columns[class_id] = set(baseline.keys())
+
     assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
 
     # Handle case where features_gdf index name is not set properly
@@ -1205,7 +1245,13 @@ def parcel_rollup(
             include_dominant_summary=include_dominant_summary,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
-        parcel["mesh_date"] = group.mesh_date.iloc[0]
+        if "mesh_date" in group.columns:
+            parcel["mesh_date"] = group.mesh_date.iloc[0]
+        if aoi_id in null_classes_by_aoi:
+            for class_id in null_classes_by_aoi[aoi_id]:
+                for key in _class_baseline_columns.get(class_id, set()):
+                    if key in parcel:
+                        parcel[key] = None
         rollups.append(parcel)
     # Loop over parcels without features in them
     area_name = f"area_{area_units}"
@@ -1228,7 +1274,13 @@ def parcel_rollup(
             primary_decision=primary_decision,
             include_dominant_summary=include_dominant_summary,
         )
-        parcel[AOI_ID_COLUMN_NAME] = row._asdict()["Index"]
+        aoi_id = row._asdict()["Index"]
+        parcel[AOI_ID_COLUMN_NAME] = aoi_id
+        if aoi_id in null_classes_by_aoi:
+            for class_id in null_classes_by_aoi[aoi_id]:
+                for key in _class_baseline_columns.get(class_id, set()):
+                    if key in parcel:
+                        parcel[key] = None
         rollups.append(parcel)
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)

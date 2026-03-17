@@ -1454,6 +1454,185 @@ class TestFlattenRoofAttributesClippedFallback:
         assert result["roof_staining_area_sqm"] == 185.8
 
 
+class TestApiMetadataInRollup:
+    """Tests for parcel_rollup() with api_metadata parameter."""
+
+    @pytest.fixture
+    def classes_df(self):
+        """Classes with one Feature API class (Roof) and one Roof Age class (Roof Instance)."""
+        return pd.DataFrame(
+            {"description": ["Roof", "Roof Instance"]},
+            index=[ROOF_ID, ROOF_INSTANCE_CLASS_ID],
+        )
+
+    @pytest.fixture
+    def parcels_gdf(self):
+        """Two AOIs as simple boxes."""
+        return gpd.GeoDataFrame(
+            {AOI_ID_COLUMN_NAME: ["aoi_1", "aoi_2"]},
+            geometry=[box(0, 0, 0.001, 0.001), box(0.01, 0.01, 0.011, 0.011)],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    @pytest.fixture
+    def roof_instance_features(self):
+        """Roof instance features for both AOIs."""
+        return gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: ["aoi_1", "aoi_2"],
+                "class_id": [ROOF_INSTANCE_CLASS_ID, ROOF_INSTANCE_CLASS_ID],
+                "area_sqft": [600.0, 400.0],
+                "area_sqm": [55.7, 37.2],
+                "trust_score": [0.8, 0.7],
+                "feature_id": ["ri_1", "ri_2"],
+                "kind": ["roof", "roof"],
+            },
+            geometry=[box(0, 0, 0.0005, 0.0005), box(0.01, 0.01, 0.0105, 0.0105)],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    def test_feature_api_failed_columns_are_null(self, parcels_gdf, roof_instance_features, classes_df):
+        """When Feature API fails for an AOI, its rollup columns should be null, not 'N'/0."""
+        # Feature API metadata: only aoi_1 succeeded
+        feature_meta = pd.DataFrame(
+            {"system_version": ["gen6"]},
+            index=pd.Index(["aoi_1"], name=AOI_ID_COLUMN_NAME),
+        )
+        # Roof Age metadata: both succeeded
+        roof_age_meta = pd.DataFrame(
+            {"resource_id": ["r1", "r2"]},
+            index=pd.Index(["aoi_1", "aoi_2"], name=AOI_ID_COLUMN_NAME),
+        )
+
+        feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+        roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+        api_metadata = [
+            (feature_meta, feature_api_classes),
+            (roof_age_meta, roof_age_classes),
+        ]
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf, roof_instance_features, classes_df,
+            country="us", primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+        )
+        failed = rollup.loc["aoi_2"]
+
+        # Feature API columns should be null (API failed)
+        assert pd.isna(failed["roof_present"]), "roof_present should be null when Feature API failed"
+        assert pd.isna(failed["roof_count"]), "roof_count should be null when Feature API failed"
+        assert pd.isna(failed["roof_total_area_sqft"]), "roof_total_area_sqft should be null"
+        assert pd.isna(failed["roof_total_clipped_area_sqft"])
+        assert pd.isna(failed["primary_roof_area_sqft"])
+        assert pd.isna(failed["primary_roof_confidence"])
+
+        # Roof Age columns should be populated (API succeeded)
+        assert failed["roof_instance_present"] == "Y"
+        assert failed["roof_instance_count"] == 1
+        assert failed["roof_instance_total_area_sqft"] == 400.0
+
+    def test_successful_aoi_has_normal_defaults(self, parcels_gdf, roof_instance_features, classes_df):
+        """When both APIs succeed, a vacant-lot AOI gets 'N'/0 defaults (not null)."""
+        # Both APIs succeeded for both AOIs
+        feature_meta = pd.DataFrame(
+            {"system_version": ["gen6", "gen6"]},
+            index=pd.Index(["aoi_1", "aoi_2"], name=AOI_ID_COLUMN_NAME),
+        )
+        roof_age_meta = pd.DataFrame(
+            {"resource_id": ["r1", "r2"]},
+            index=pd.Index(["aoi_1", "aoi_2"], name=AOI_ID_COLUMN_NAME),
+        )
+
+        feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+        roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+        api_metadata = [
+            (feature_meta, feature_api_classes),
+            (roof_age_meta, roof_age_classes),
+        ]
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf, roof_instance_features, classes_df,
+            country="us", primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+        )
+
+        # aoi_1 has no Feature API features but API succeeded → "N"/0 (vacant lot)
+        assert rollup.loc["aoi_1", "roof_present"] == "N"
+        assert rollup.loc["aoi_1", "roof_count"] == 0
+        assert rollup.loc["aoi_1", "roof_total_area_sqft"] == 0.0
+        # aoi_1 has roof instance features → populated
+        assert rollup.loc["aoi_1", "roof_instance_present"] == "Y"
+
+    def test_no_api_metadata_is_backward_compatible(self, parcels_gdf, roof_instance_features, classes_df):
+        """When api_metadata is None, behaves identically to previous version (all 'N'/0 defaults)."""
+        rollup = parcels.parcel_rollup(
+            parcels_gdf, roof_instance_features, classes_df,
+            country="us", primary_decision="largest_intersection",
+            api_metadata=None,
+        )
+        # Without api_metadata, all defaults are "N"/0 (old behavior)
+        assert rollup.loc["aoi_1", "roof_present"] == "N"
+        assert rollup.loc["aoi_1", "roof_count"] == 0
+
+    def test_both_apis_failed_all_columns_null(self, parcels_gdf, classes_df):
+        """When both APIs fail, all class columns should be null."""
+        empty_features = gpd.GeoDataFrame(
+            {"class_id": pd.Series(dtype=str)},
+            geometry=[],
+            crs=API_CRS,
+        )
+        empty_features.index.name = AOI_ID_COLUMN_NAME
+        # Both metadata empty → both APIs failed
+        feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+        roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+        api_metadata = [
+            (pd.DataFrame(), feature_api_classes),
+            (pd.DataFrame(), roof_age_classes),
+        ]
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf, empty_features, classes_df,
+            country="us", primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+        )
+        row = rollup.loc["aoi_1"]
+        assert pd.isna(row["roof_present"])
+        assert pd.isna(row["roof_count"])
+        assert pd.isna(row["roof_instance_present"])
+        assert pd.isna(row["roof_instance_count"])
+
+    def test_roof_vs_roof_instance_column_separation(self, parcels_gdf, roof_instance_features, classes_df):
+        """Exact column matching ensures 'roof_' nullification doesn't affect 'roof_instance_' columns."""
+        # Feature API failed for aoi_1, Roof Age succeeded for aoi_1
+        feature_meta = pd.DataFrame()  # Feature API failed for all
+        roof_age_meta = pd.DataFrame(
+            {"resource_id": ["r1", "r2"]},
+            index=pd.Index(["aoi_1", "aoi_2"], name=AOI_ID_COLUMN_NAME),
+        )
+
+        feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+        roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+        api_metadata = [
+            (feature_meta, feature_api_classes),
+            (roof_age_meta, roof_age_classes),
+        ]
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf, roof_instance_features, classes_df,
+            country="us", primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+        )
+
+        for aoi in ["aoi_1", "aoi_2"]:
+            row = rollup.loc[aoi]
+            # Feature API (Roof) columns should be null
+            assert pd.isna(row["roof_present"]), f"{aoi}: roof_present should be null"
+            assert pd.isna(row["roof_count"]), f"{aoi}: roof_count should be null"
+            # Roof Age (Roof Instance) columns should be preserved
+            assert row["roof_instance_present"] == "Y", f"{aoi}: roof_instance_present should be Y"
+            assert row["roof_instance_count"] == 1, f"{aoi}: roof_instance_count should be 1"
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
