@@ -1039,7 +1039,17 @@ def _compute_feature_class_data(
                     )
 
                     roof_attr_batch = {}
-                    for col in sorted(mapped.columns):
+                    # Sort dominant summary columns before constituent columns,
+                    # preserving field order: feature_class, description, area, ratio, confidence
+                    _DOMINANT_FIELD_ORDER = ["feature_class", "description", "area", "ratio", "confidence"]
+                    def _dominant_sort_key(col):
+                        for group_idx, marker in enumerate(["dominant_material_", "dominant_shape_"]):
+                            if marker in col:
+                                suffix = col.split(marker)[-1]
+                                field_idx = next((i for i, f in enumerate(_DOMINANT_FIELD_ORDER) if suffix.startswith(f)), 99)
+                                return (group_idx, field_idx, col)
+                        return (2, 0, col)
+                    for col in sorted(mapped.columns, key=_dominant_sort_key):
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
                             added_cols.add(col)
@@ -1908,7 +1918,7 @@ class NearmapAIExporter(BaseExporter):
         # Per-class export setup: accumulate Arrow tables in memory per class,
         # then write once after streaming completes.  This handles data-dependent
         # schema drift (e.g. roof material components, damage classes) via
-        # pa.concat_tables(promote_options="default") which auto-pads missing columns.
+        # pa.concat_tables(promote=True) which auto-pads missing columns.
         per_class_tabular_tables = {}  # class_id -> list[pa.Table]
         per_class_geo_tables = {}  # class_id -> list[pa.Table]
         do_per_class = class_level_files and whitelisted_classes
@@ -2308,7 +2318,7 @@ class NearmapAIExporter(BaseExporter):
                 storage.upload_file(local_write_path, outpath_features)
 
         # Write buffered per-class tables to files.
-        # Tables are concatenated with promote_options="default" to handle
+        # Tables are concatenated with promote=True to handle
         # data-dependent schema drift (e.g. roof material components, damage classes).
         # Files are written to a staging directory then moved to final to prevent
         # corrupted files at the final destination if the process crashes.
