@@ -41,6 +41,26 @@ Run a specific test:
 pytest tests/test_parcels.py::test_function_name
 ```
 
+#### End-to-End Testing
+
+End-to-end tests against the live API are a critical way to validate new features and bug fixes — unit tests alone are not sufficient for catching issues in the full data pipeline. Sample datasets for this purpose live in `tests/data/`:
+
+- `tests/data/test_parcels_2.csv` — ~100 NJ residential parcels, good general-purpose US test set
+- `tests/data/test_parcels.csv` — ~19 Sydney parcels, good general-purpose AU test set
+
+To run an end-to-end test (requires `API_KEY`), choose parameters appropriate to the feature being tested — packs, flags, country, etc. will vary by context. Output directly to a subfolder under `data/` so the user can open and review files in the IDE immediately after the run:
+```bash
+python nmaipy/exporter.py \
+    --aoi-file tests/data/test_parcels_2.csv \
+    --output-dir data/my_test_output \
+    --country us \
+    --processes 4 \
+    --packs building roof_materials roof_shape \
+    --save-features
+```
+
+Check `data/my_test_output/final/rollup.csv`, `roof.csv`, and `building.csv` for correct column names, ordering, and values. The `data/` directory is gitignored for generated outputs, so these files won't be committed.
+
 #### Test Markers
 
 `pytest.ini` defines four markers:
