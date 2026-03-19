@@ -2321,78 +2321,12 @@ class NearmapAIExporter(BaseExporter):
                 if not storage.basename(p).startswith(f"{cname}_features_")
             ]
 
-            # If no per-class chunks exist, try fallback from feature chunks
             if not tabular_chunks and not geo_chunks:
-                feature_chunks = sorted(
-                    storage.glob_files(self.chunk_path, "features_*.parquet")
-                )
-                if not feature_chunks:
-                    continue
-
-                self.logger.info(
+                self.logger.warning(
                     f"No per-class chunk files found for {desc}. "
-                    f"Recomputing from {len(feature_chunks)} feature chunks..."
+                    f"To regenerate, delete rollup chunk files and re-run the export. "
+                    f"Skipping {desc}."
                 )
-                tabular_tables = []
-                geo_tables = []
-                for fpath in feature_chunks:
-                    try:
-                        chunk_df = pd.read_parquet(fpath)
-                        if "class_id" not in chunk_df.columns:
-                            continue
-                        if cid not in chunk_df["class_id"].values:
-                            continue
-
-                        # Reconstruct GeoDataFrame
-                        if "geometry" in chunk_df.columns:
-                            chunk_df["geometry"] = gpd.GeoSeries.from_wkb(
-                                chunk_df["geometry"]
-                            )
-                            chunk_gdf = gpd.GeoDataFrame(
-                                chunk_df, geometry="geometry", crs=API_CRS
-                            )
-                        else:
-                            chunk_gdf = gpd.GeoDataFrame(chunk_df)
-
-                        chunk_gdf = _add_is_primary_column(chunk_gdf, primary_ids_df)
-
-                        per_class_results = _compute_all_per_class_data(
-                            chunk_gdf=chunk_gdf,
-                            country=self.country,
-                            aoi_input_columns=aoi_input_columns,
-                            whitelisted_classes=[cid],
-                            logger_instance=self.logger,
-                        )
-                        if cid in per_class_results:
-                            tables = per_class_results[cid]
-                            tabular_tables.append(tables["tabular"])
-                            if "geo" in tables:
-                                geo_tables.append(tables["geo"])
-                        del chunk_df, chunk_gdf
-                    except Exception as e:
-                        self.logger.error(
-                            f"Fallback recompute failed for {desc} from {fpath}: {e}"
-                        )
-                        continue
-
-                if tabular_tables:
-                    combined = _unify_and_concat_tables(tabular_tables)
-                    staging_path = os.path.join(staging_dir, f"{cname}.parquet")
-                    pq.write_table(combined, staging_path)
-                    tabular_count += 1
-                    del combined, tabular_tables
-
-                if geo_tables:
-                    combined = _unify_and_concat_tables(geo_tables)
-                    existing_meta = combined.schema.metadata or {}
-                    existing_meta[b"geo"] = json.dumps(geo_metadata).encode("utf-8")
-                    combined = combined.replace_schema_metadata(existing_meta)
-                    staging_path = os.path.join(
-                        staging_dir, f"{cname}_features.parquet"
-                    )
-                    pq.write_table(combined, staging_path)
-                    geo_count += 1
-                    del combined, geo_tables
                 continue
 
             # Happy path: per-class chunk files exist — read and concat
