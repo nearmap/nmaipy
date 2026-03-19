@@ -66,8 +66,8 @@ class TestAddIsPrimaryColumn:
         rollup_df = pd.DataFrame(
             {
                 "primary_roof_feature_id": ["roof-1"],
-                "primary_building_feature_id": ["bldg-1"],
-                "primary_building_(new_semantic)_feature_id": ["bldg-new-1"],
+                "primary_building_(deprecated)_feature_id": ["bldg-1"],
+                "primary_building_feature_id": ["bldg-new-1"],
                 "primary_roof_instance_feature_id": ["instance-1"],
             },
             index=pd.Index(["aoi-1"], name=AOI_ID_COLUMN_NAME),
