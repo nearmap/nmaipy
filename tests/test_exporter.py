@@ -29,6 +29,7 @@ from nmaipy.exporter import (
     AOIExporter,
     _dataframe_to_records_with_index,
     _read_parquet_chunks_parallel,
+    _unify_and_concat_tables,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -1156,6 +1157,67 @@ class TestStreamAndConvertFeaturesSchemaUnion:
 
             result = exporter._stream_and_convert_features(feature_paths, output_path)
             assert result is None
+
+
+class TestUnifyAndConcatTables:
+    def test_int64_vs_float64_promotion(self):
+        """int64 and float64 columns are unified to float64 — reproduces the
+        primary_child_roof_roof_spotlight_index crash where chunks with all-present
+        integer values are int64 but chunks with nulls are inferred as float64."""
+        t1 = pa.table({"spotlight_index": pa.array([80], type=pa.int64()), "name": ["a"]})
+        t2 = pa.table({"spotlight_index": pa.array([75, None], type=pa.float64()), "name": ["b", "c"]})
+        result = _unify_and_concat_tables([t1, t2])
+        assert result.schema.field("spotlight_index").type == pa.float64()
+        assert result.column("spotlight_index").to_pylist() == [80.0, 75.0, None]
+        assert len(result) == 3
+
+    def test_null_column_promoted(self):
+        """A null-typed column in one table is promoted to the real type from another."""
+        t1 = pa.table({"val": pa.array([None], type=pa.null()), "id": [1]})
+        t2 = pa.table({"val": pa.array([3.14], type=pa.float64()), "id": [2]})
+        result = _unify_and_concat_tables([t1, t2])
+        assert result.schema.field("val").type == pa.float64()
+        assert result.column("val").to_pylist() == [None, 3.14]
+
+    def test_single_table_passthrough(self):
+        """Single-table input is returned with type promotions applied."""
+        t = pa.table({"text": pa.array(["hello"], type=pa.string())})
+        result = _unify_and_concat_tables([t])
+        assert result.schema.field("text").type == pa.large_string()
+        assert len(result) == 1
+
+    def test_missing_columns_padded_with_nulls(self):
+        """Tables with different column sets get null-padded."""
+        t1 = pa.table({"a": [1], "b": [2]})
+        t2 = pa.table({"a": [3], "c": [4]})
+        result = _unify_and_concat_tables([t1, t2])
+        assert set(result.column_names) == {"a", "b", "c"}
+        assert result.column("b").to_pylist() == [2, None]
+        assert result.column("c").to_pylist() == [None, 4]
+
+    def test_int32_vs_int64_widening(self):
+        """Integer width mismatches are widened to the larger type."""
+        t1 = pa.table({"count": pa.array([1], type=pa.int32())})
+        t2 = pa.table({"count": pa.array([2], type=pa.int64())})
+        result = _unify_and_concat_tables([t1, t2])
+        assert result.schema.field("count").type == pa.int64()
+        assert result.column("count").to_pylist() == [1, 2]
+
+    def test_string_vs_large_string(self):
+        """string and large_string are unified to large_string."""
+        t1 = pa.table({"name": pa.array(["a"], type=pa.string())})
+        t2 = pa.table({"name": pa.array(["b"], type=pa.large_string())})
+        result = _unify_and_concat_tables([t1, t2])
+        assert result.schema.field("name").type == pa.large_string()
+        assert result.column("name").to_pylist() == ["a", "b"]
+
+    def test_timestamp_unit_mismatch(self):
+        """Timestamp columns with different units are unified."""
+        t1 = pa.table({"ts": pa.array([1000000], type=pa.timestamp("us"))})
+        t2 = pa.table({"ts": pa.array([1000000000], type=pa.timestamp("ns"))})
+        result = _unify_and_concat_tables([t1, t2])
+        assert pa.types.is_timestamp(result.schema.field("ts").type)
+        assert len(result) == 2
 
 
 if __name__ == "__main__":
