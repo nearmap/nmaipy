@@ -3,7 +3,6 @@
 import pytest
 
 from nmaipy.feature_attributes import (
-    _clean_dominant_name,
     _select_dominant_component,
     flatten_roof_attributes,
 )
@@ -48,42 +47,6 @@ def _shape(desc, area, confidence, ratio, class_id="shape-class-id"):
         "confidence": confidence,
         "ratio": ratio,
     }
-
-
-class TestCleanDominantName:
-    def test_strips_roof_suffix(self):
-        assert _clean_dominant_name("Tile Roof") == "tile"
-        assert _clean_dominant_name("Shingle Roof") == "shingle"
-        assert _clean_dominant_name("Metal Roof") == "metal"
-
-    def test_override_flat_roof_material(self):
-        assert _clean_dominant_name("Flat Roof Material") == "flat_material"
-
-    def test_override_other_roof_shape(self):
-        assert _clean_dominant_name("Other Roof Shape") == "other"
-
-    def test_override_pvc_tpo(self):
-        assert _clean_dominant_name("PVC/TPO") == "pvc_tpo"
-
-    def test_override_mod_bit(self):
-        assert _clean_dominant_name("Mod-Bit") == "mod_bit"
-
-    def test_strips_deprecated_suffix(self):
-        assert _clean_dominant_name("Flat (Deprecated)") == "flat"
-
-    def test_simple_names_unchanged(self):
-        assert _clean_dominant_name("Hip") == "hip"
-        assert _clean_dominant_name("Gable") == "gable"
-        assert _clean_dominant_name("TPO") == "tpo"
-        assert _clean_dominant_name("EPDM") == "epdm"
-        assert _clean_dominant_name("Slate") == "slate"
-
-    def test_multi_word(self):
-        assert _clean_dominant_name("Wood Shake") == "wood_shake"
-        assert _clean_dominant_name("Clay Tile") == "clay_tile"
-        assert _clean_dominant_name("Dutch Gable") == "dutch_gable"
-        assert _clean_dominant_name("Built Up") == "built_up"
-        assert _clean_dominant_name("Bowstring Truss") == "bowstring_truss"
 
 
 class TestSelectDominantComponent:
@@ -138,16 +101,16 @@ class TestFlattenRoofDominantColumns:
             ],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_material_feature_class"] == "tile-uuid"
-        assert result["dominant_material_description"] == "tile"
-        assert result["dominant_material_confidence"] == 0.9
-        assert result["dominant_material_area_sqft"] == pytest.approx(100 * 10.764)
-        assert result["dominant_material_ratio"] == 0.8
-        assert result["dominant_shape_feature_class"] == "hip-uuid"
-        assert result["dominant_shape_description"] == "hip"
-        assert result["dominant_shape_confidence"] == 0.75
+        assert result["dominant_roof_material_feature_class"] == "tile-uuid"
+        assert result["dominant_roof_material_description"] == "tile_roof"
+        assert result["dominant_roof_material_confidence"] == 0.9
+        assert result["dominant_roof_material_area_sqft"] == pytest.approx(100 * 10.764)
+        assert result["dominant_roof_material_ratio"] == 0.8
+        assert result["dominant_roof_types_feature_class"] == "hip-uuid"
+        assert result["dominant_roof_types_description"] == "hip"
+        assert result["dominant_roof_types_confidence"] == 0.75
         # Shape should NOT have ratio
-        assert "dominant_shape_ratio" not in result
+        assert "dominant_roof_types_ratio" not in result
 
     def test_material_unknown_when_ratio_below_threshold(self):
         roof = _make_roof(
@@ -158,12 +121,11 @@ class TestFlattenRoofDominantColumns:
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_material_feature_class"] is None
-        assert result["dominant_material_description"] == "unknown"
-        # Confidence/ratio/area nulled out when UNKNOWN
-        assert result["dominant_material_confidence"] is None
-        assert result["dominant_material_ratio"] is None
-        assert result["dominant_material_area_sqft"] is None
+        assert result["dominant_roof_material_feature_class"] is None
+        assert result["dominant_roof_material_description"] == "unknown"
+        assert result["dominant_roof_material_confidence"] is None
+        assert result["dominant_roof_material_ratio"] is None
+        assert result["dominant_roof_material_area_sqft"] is None
 
     def test_dominant_columns_absent_when_disabled(self):
         roof = _make_roof(
@@ -171,8 +133,8 @@ class TestFlattenRoofDominantColumns:
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=False)
-        assert "dominant_material_feature_class" not in result
-        assert "dominant_shape_feature_class" not in result
+        assert "dominant_roof_material_feature_class" not in result
+        assert "dominant_roof_types_feature_class" not in result
 
     def test_metric_country_uses_sqm(self):
         roof = _make_roof(
@@ -180,10 +142,10 @@ class TestFlattenRoofDominantColumns:
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
         result = flatten_roof_attributes([roof], country="au", include_dominant_summary=True)
-        assert result["dominant_material_area_sqm"] == 100
-        assert "dominant_material_area_sqft" not in result
-        assert result["dominant_shape_area_sqm"] == 80
-        assert "dominant_shape_area_sqft" not in result
+        assert result["dominant_roof_material_area_sqm"] == 100
+        assert "dominant_roof_material_area_sqft" not in result
+        assert result["dominant_roof_types_area_sqm"] == 80
+        assert "dominant_roof_types_area_sqft" not in result
 
     def test_default_is_disabled(self):
         roof = _make_roof(
@@ -191,7 +153,7 @@ class TestFlattenRoofDominantColumns:
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us")
-        assert "dominant_material_feature_class" not in result
+        assert "dominant_roof_material_feature_class" not in result
 
     def test_material_at_exact_threshold(self):
         """Ratio of exactly 0.5 should NOT be UNKNOWN."""
@@ -200,8 +162,8 @@ class TestFlattenRoofDominantColumns:
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_material_feature_class"] == "tile-uuid"
-        assert result["dominant_material_description"] == "tile"
+        assert result["dominant_roof_material_feature_class"] == "tile-uuid"
+        assert result["dominant_roof_material_description"] == "tile_roof"
 
     def test_shape_area_emitted(self):
         roof = _make_roof(
@@ -209,7 +171,7 @@ class TestFlattenRoofDominantColumns:
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_shape_area_sqft"] == pytest.approx(80 * 10.764)
+        assert result["dominant_roof_types_area_sqft"] == pytest.approx(80 * 10.764)
 
     def test_shape_unknown_when_all_zero_area(self):
         """If all shape components have zero area, dominant shape is UNKNOWN with nulled stats."""
@@ -221,10 +183,10 @@ class TestFlattenRoofDominantColumns:
             ],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_shape_feature_class"] is None
-        assert result["dominant_shape_description"] == "unknown"
-        assert result["dominant_shape_area_sqft"] is None
-        assert result["dominant_shape_confidence"] is None
+        assert result["dominant_roof_types_feature_class"] is None
+        assert result["dominant_roof_types_description"] == "unknown"
+        assert result["dominant_roof_types_area_sqft"] is None
+        assert result["dominant_roof_types_confidence"] is None
 
     def test_dominant_columns_before_constituents(self):
         """Dominant summary columns must appear before per-component columns."""
@@ -239,7 +201,6 @@ class TestFlattenRoofDominantColumns:
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
         keys = list(result.keys())
-        # All dominant_* keys must come before any per-component key
         first_component = min(keys.index(k) for k in keys if k.startswith(("tile_", "metal_", "hip_")))
         dominant_keys = [k for k in keys if k.startswith("dominant_")]
         assert dominant_keys, "Expected dominant columns"
@@ -253,13 +214,13 @@ class TestFlattenRoofDominantColumns:
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        mat_keys = [k for k in result.keys() if k.startswith("dominant_material_")]
+        mat_keys = [k for k in result.keys() if k.startswith("dominant_roof_material_")]
         assert mat_keys == [
-            "dominant_material_feature_class",
-            "dominant_material_description",
-            "dominant_material_area_sqft",
-            "dominant_material_ratio",
-            "dominant_material_confidence",
+            "dominant_roof_material_feature_class",
+            "dominant_roof_material_description",
+            "dominant_roof_material_area_sqft",
+            "dominant_roof_material_ratio",
+            "dominant_roof_material_confidence",
         ]
 
     def test_dominant_field_order_shape(self):
@@ -269,10 +230,10 @@ class TestFlattenRoofDominantColumns:
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        shape_keys = [k for k in result.keys() if k.startswith("dominant_shape_")]
+        shape_keys = [k for k in result.keys() if k.startswith("dominant_roof_types_")]
         assert shape_keys == [
-            "dominant_shape_feature_class",
-            "dominant_shape_description",
-            "dominant_shape_area_sqft",
-            "dominant_shape_confidence",
+            "dominant_roof_types_feature_class",
+            "dominant_roof_types_description",
+            "dominant_roof_types_area_sqft",
+            "dominant_roof_types_confidence",
         ]

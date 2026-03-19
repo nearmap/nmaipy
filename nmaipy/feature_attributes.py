@@ -350,27 +350,8 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     return flattened
 
 
-# Map API component descriptions to short clean names for dominant columns.
-_DOMINANT_NAME_OVERRIDES = {
-    "Flat Roof Material": "flat_material",
-    "Other Roof Shape": "other",
-    "PVC/TPO": "pvc_tpo",
-    "Mod-Bit": "mod_bit",
-}
-
-
-def _clean_dominant_name(description: str) -> str:
-    """Convert API component description to a short clean name."""
-    if description in _DOMINANT_NAME_OVERRIDES:
-        return _DOMINANT_NAME_OVERRIDES[description]
-    name = description
-    # Strip deprecated suffix
-    if name.endswith(" (Deprecated)"):
-        name = name[: -len(" (Deprecated)")]
-    # Strip trailing " Roof" suffix (e.g. "Tile Roof" -> "Tile")
-    if name.endswith(" Roof"):
-        name = name[: -len(" Roof")]
-    return name.lower().replace(" ", "_")
+# Attribute descriptions (snake_cased) for which dominant summary columns are emitted.
+_DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
 
 
 def _select_dominant_component(components: list) -> Optional[dict]:
@@ -641,12 +622,14 @@ def flatten_roof_attributes(
 
                 # Collect dominant material/shape summary
                 if include_dominant_summary:
-                    attr_desc = attribute.get("description", "")
-                    _DOMINANT_PREFIX = {"Roof material": "dominant_material", "Roof types": "dominant_shape"}
-                    prefix = _DOMINANT_PREFIX.get(attr_desc)
-                    winner = _select_dominant_component(components) if prefix else None
-                    is_material = attr_desc == "Roof material"
-                    is_shape = attr_desc == "Roof types"
+                    attr_key = attribute.get("description", "").lower().replace(" ", "_")
+                    if attr_key in _DOMINANT_ATTRIBUTE_DESCRIPTIONS:
+                        prefix = "dominant_" + attr_key
+                        winner = _select_dominant_component(components)
+                        is_material = attr_key == "roof_material"
+                        is_shape = attr_key == "roof_types"
+                    else:
+                        winner = None
 
                     if winner is not None:
                         w_name = winner["description"].lower().replace(" ", "_")
@@ -656,7 +639,7 @@ def flatten_roof_attributes(
                             area_key = f"{w_name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{w_name}_area_sqm"
                             w_area = recalc_attrs.get(area_key, 0.0)
                         else:
-                            w_ratio = winner.get("ratio") or 0
+                            w_ratio = winner.get("ratio", 0)
                             w_confidence = winner.get("confidence")
                             w_area = winner.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else winner.get("areaSqm", 0.0)
 
@@ -672,8 +655,8 @@ def flatten_roof_attributes(
                                 dominant_columns[f"{prefix}_ratio"] = None
                             dominant_columns[f"{prefix}_confidence"] = None
                         else:
-                            dominant_columns[f"{prefix}_feature_class"] = winner.get("classId", "UNKNOWN")
-                            dominant_columns[f"{prefix}_description"] = _clean_dominant_name(winner["description"])
+                            dominant_columns[f"{prefix}_feature_class"] = winner.get("classId")
+                            dominant_columns[f"{prefix}_description"] = w_name
                             dominant_columns[f"{prefix}{area_suffix}"] = w_area
                             if is_material:
                                 dominant_columns[f"{prefix}_ratio"] = w_ratio

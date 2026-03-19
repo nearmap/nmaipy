@@ -142,6 +142,19 @@ python nmaipy/exporter.py \
 
 AWS credentials are resolved from environment variables or `~/.aws/credentials`.
 
+## Column Naming Conventions
+
+All output column names in nmaipy are **programmatically derived** from the API's `description` field using `.lower().replace(" ", "_")`. This applies everywhere: per-component columns, dominant summary columns, rollup prefixes, etc.
+
+**Do not introduce hardcoded friendly name mappings** (e.g. `"Roof material" → "material"`, `"Roof types" → "shape"`). If the API description is `"Roof material"`, the column prefix is `roof_material_`. If it's `"Roof types"`, the prefix is `roof_types_`. Friendly/display renames are a downstream application concern, not nmaipy's.
+
+This consistency matters because:
+- It keeps the mapping from API response to output columns predictable and auditable
+- New API descriptions automatically get correct column names without code changes
+- The `flatten_*_attributes()` functions, `readme_generator.py`, and `exporter.py` column partitioning all rely on this convention
+
+When adding new columns derived from API descriptions, always use the programmatic pattern rather than inventing abbreviated or "cleaned" names.
+
 ## Code Architecture
 
 ### Exporter Layer (user-facing entry points)
