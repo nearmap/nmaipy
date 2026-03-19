@@ -1,3 +1,7 @@
+import json
+import os
+from pathlib import Path
+
 # Default columns
 AOI_ID_COLUMN_NAME = "aoi_id"
 LAT_PRIMARY_COL_NAME = "lat"
@@ -298,22 +302,50 @@ PER_CLASS_FILE_CLASS_IDS = {
 
 # Map rollup column names to class IDs for is_primary merge
 # Used to mark which features are primary in per-class exports
+# Column names are derived from API class descriptions (lowercased, spaces→underscores)
 PRIMARY_FEATURE_COLUMN_TO_CLASS = {
     "primary_roof_feature_id": ROOF_ID,
-    "primary_building_(new_semantic)_feature_id": BUILDING_NEW_ID,
-    "primary_building_feature_id": BUILDING_ID,
+    "primary_building_feature_id": BUILDING_NEW_ID,
+    "primary_building_(deprecated)_feature_id": BUILDING_ID,
     "primary_roof_instance_feature_id": ROOF_INSTANCE_CLASS_ID,
 }
 
-# Human-readable descriptions for feature classes
-FEATURE_CLASS_DESCRIPTIONS = {
-    BUILDING_ID: "Building",
-    BUILDING_NEW_ID: "Building (new semantic)",
-    ROOF_ID: "Roof",
-    BUILDING_LIFECYCLE_ID: "Building Lifecycle",
-    BUILDING_UNDER_CONSTRUCTION_ID: "Building Under Construction",
-    ROOF_INSTANCE_CLASS_ID: "Roof Instance",
-}
+# Human-readable descriptions for feature classes, loaded from class_descriptions.json.
+# This file is auto-refreshed from the live Feature API during export runs.
+# To manually refresh: python -c "from nmaipy.constants import refresh_class_descriptions; refresh_class_descriptions()"
+_CLASS_DESCRIPTIONS_PATH = Path(__file__).parent / "class_descriptions.json"
+with open(_CLASS_DESCRIPTIONS_PATH) as _f:
+    FEATURE_CLASS_DESCRIPTIONS = json.load(_f)
+
+
+def refresh_class_descriptions(api_key: str = None):
+    """Fetch class descriptions from the live Feature API and update class_descriptions.json.
+
+    Preserves synthetic entries (e.g. Roof Instance from Roof Age API) that aren't
+    returned by the Feature API.
+    """
+    from nmaipy.feature_api import FeatureApi
+
+    api = FeatureApi(api_key=api_key or os.environ.get("API_KEY"))
+    classes_df = api.get_feature_classes()
+    api.cleanup()
+    descriptions = dict(zip(classes_df.index, classes_df["description"]))
+    # Preserve synthetic entries not from Feature API
+    for cid in PER_CLASS_FILE_CLASS_IDS:
+        if cid not in descriptions:
+            descriptions.setdefault(
+                cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
+            )
+    _write_class_descriptions(descriptions)
+    FEATURE_CLASS_DESCRIPTIONS.update(descriptions)
+    return descriptions
+
+
+def _write_class_descriptions(descriptions: dict):
+    """Write class descriptions dict to the JSON file."""
+    with open(_CLASS_DESCRIPTIONS_PATH, "w") as f:
+        json.dump(descriptions, f, indent=2, sort_keys=True)
+        f.write("\n")
 
 CONNECTED_CLASS_IDS = (
     SURFACES_IDS

@@ -66,6 +66,9 @@ Repository = "https://github.com/nearmap/nmaipy.git"
 [tool.setuptools]
 packages = ["nmaipy"]
 
+[tool.setuptools.package-data]
+nmaipy = ["class_descriptions.json"]
+
 [tool.setuptools.package-dir]
 "" = "."
 

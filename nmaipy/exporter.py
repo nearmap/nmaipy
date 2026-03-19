@@ -65,6 +65,7 @@ from nmaipy.constants import (
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
+    _write_class_descriptions,
     FEATURE_PREFETCH_WORKERS,
     GRID_SIZE_DEGREES,
     IMPERIAL_COUNTRIES,
@@ -198,7 +199,7 @@ def _add_is_primary_column(
 
     Matches on (aoi_id, feature_id, class_id) to ensure class-specific primary:
     - Roofs are marked primary based on primary_roof_feature_id
-    - Buildings are marked primary based on primary_building_(new_semantic)_feature_id
+    - Buildings are marked primary based on primary_building_feature_id
 
     Args:
         features_gdf: GeoDataFrame with features to mark
@@ -3183,11 +3184,13 @@ class NearmapAIExporter(BaseExporter):
                     primary_cols = [
                         c for c in PRIMARY_FEATURE_COLUMN_TO_CLASS if c in final_df.columns
                     ]
-                    primary_ids_df = (
-                        final_df.set_index(AOI_ID_COLUMN_NAME)[primary_cols].copy()
-                        if primary_cols
-                        else pd.DataFrame()
-                    )
+                    if primary_cols:
+                        rollup_indexed = final_df
+                        if AOI_ID_COLUMN_NAME in rollup_indexed.columns:
+                            rollup_indexed = rollup_indexed.set_index(AOI_ID_COLUMN_NAME)
+                        primary_ids_df = rollup_indexed[primary_cols].copy()
+                    else:
+                        primary_ids_df = pd.DataFrame()
                     chunk_gdf = _add_is_primary_column(final_features_df, primary_ids_df)
 
                     # Compute aoi_input_columns (user columns from AOI file)
@@ -3209,17 +3212,19 @@ class NearmapAIExporter(BaseExporter):
                         logger_instance=self.logger,
                     )
 
-                    # Write per-class chunk files
+                    # Write per-class chunk files. Uses pq.write_table() instead of
+                    # storage.write_parquet() because these are pa.Table objects, which
+                    # lack the .to_parquet() method that storage.write_parquet() expects.
                     for cid, tables in per_class_results.items():
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
                         cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
 
-                        storage.write_parquet(
+                        pq.write_table(
                             tables["tabular"],
                             storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
                         )
                         if "geo" in tables:
-                            storage.write_parquet(
+                            pq.write_table(
                                 tables["geo"],
                                 storage.join_path(self.chunk_path, f"{cname}_features_{chunk_id}.parquet"),
                             )
@@ -3368,6 +3373,22 @@ class NearmapAIExporter(BaseExporter):
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
             feature_api.cleanup()
+
+        # Auto-refresh class_descriptions.json if API descriptions have changed
+        api_descriptions = dict(zip(classes_df.index, classes_df["description"]))
+        stale = any(
+            FEATURE_CLASS_DESCRIPTIONS.get(cid) != desc
+            for cid, desc in api_descriptions.items()
+        )
+        if stale:
+            try:
+                merged = dict(FEATURE_CLASS_DESCRIPTIONS)
+                merged.update(api_descriptions)
+                _write_class_descriptions(merged)
+                FEATURE_CLASS_DESCRIPTIONS.update(api_descriptions)
+                self.logger.info("Updated class_descriptions.json from API")
+            except Exception as e:
+                self.logger.debug(f"Could not update class_descriptions.json: {e}")
 
         # Filter out deprecated classes from rollups
         classes_df = classes_df[~classes_df.index.isin(DEPRECATED_CLASS_IDS)]
