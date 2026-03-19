@@ -999,7 +999,6 @@ def _compute_feature_class_data(
                             child_features=aoi_children,
                             parent_projected=roof_geoms_projected.iloc[idx],
                             children_projected=child_proj_by_aoi.get(roof_aoi),
-                            include_dominant_summary=self.dominant_columns,
                         )
                         attr_records.append(attrs)
                     except Exception as e:
@@ -1160,7 +1159,6 @@ def _compute_feature_class_data(
                                 children_projected=bldg_child_proj_by_aoi.get(
                                     roof_aoi
                                 ),
-                                include_dominant_summary=self.dominant_columns,
                             )
                             roof_attrs[row["feature_id"]] = attrs
                         except Exception as e:
@@ -1629,11 +1627,6 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
-        "--dominant-columns",
-        help="If set, add aggregate dominant_material and dominant_shape columns to roof outputs.",
-        action="store_true",
-    )
-    parser.add_argument(
         "--no-class-level-files",
         help="If set, disable per-feature-class tabular exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
         action="store_true",
@@ -1846,7 +1839,6 @@ class NearmapAIExporter(BaseExporter):
         roof_age=False,  # Include Roof Age API data
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
-        dominant_columns=False,  # Add aggregate dominant material/shape columns
     ):
         # Initialize base exporter first
         super().__init__(
@@ -1894,7 +1886,6 @@ class NearmapAIExporter(BaseExporter):
         self.roof_age = roof_age
         self.class_level_files = class_level_files
         self.max_retries = max_retries
-        self.dominant_columns = dominant_columns
 
         # Validate roof_age usage
         if self.roof_age and self.country.lower() != "us":
@@ -1946,7 +1937,6 @@ class NearmapAIExporter(BaseExporter):
                 "roof_age": self.roof_age,  # Use validated value
                 "class_level_files": class_level_files,
                 "max_retries": max_retries,
-                "dominant_columns": dominant_columns,
             }
         )
 
@@ -2881,7 +2871,6 @@ class NearmapAIExporter(BaseExporter):
                     classes_df,
                     country=self.country,
                     primary_decision=self.primary_decision,
-                    include_dominant_summary=self.dominant_columns,
                     api_metadata=api_metadata,
                 )
 
@@ -3861,7 +3850,6 @@ class NearmapAIExporter(BaseExporter):
 
                 buildings_gdf = parcels.extract_building_features(
                     parcels_gdf=aoi_gdf, features_gdf=None, country=self.country,
-                    include_dominant_summary=self.dominant_columns,
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
@@ -4019,7 +4007,6 @@ def main():
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
         max_retries=args.max_retries,
-        dominant_columns=args.dominant_columns,
     )
     exporter.run()
 

@@ -100,7 +100,7 @@ class TestFlattenRoofDominantColumns:
                 _shape("Gable", 20, 0.6, 0.15, class_id="gable-uuid"),
             ],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         assert result["dominant_roof_material_feature_class"] == "tile-uuid"
         assert result["dominant_roof_material_description"] == "tile_roof"
         assert result["dominant_roof_material_confidence"] == 0.9
@@ -120,19 +120,17 @@ class TestFlattenRoofDominantColumns:
             ],
             shape_components=[],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         assert result["dominant_roof_material_feature_class"] is None
         assert result["dominant_roof_material_description"] == "unknown"
         assert result["dominant_roof_material_confidence"] is None
         assert result["dominant_roof_material_ratio"] is None
         assert result["dominant_roof_material_area_sqft"] is None
 
-    def test_dominant_columns_absent_when_disabled(self):
-        roof = _make_roof(
-            material_components=[_mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-uuid")],
-            shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
-        )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=False)
+    def test_dominant_columns_absent_when_no_material_or_shape_data(self):
+        """Dominant columns are not emitted when the roof has no material/shape attributes."""
+        roof = {"attributes": []}
+        result = flatten_roof_attributes([roof], country="us")
         assert "dominant_roof_material_feature_class" not in result
         assert "dominant_roof_types_feature_class" not in result
 
@@ -141,19 +139,20 @@ class TestFlattenRoofDominantColumns:
             material_components=[_mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-uuid")],
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
-        result = flatten_roof_attributes([roof], country="au", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="au")
         assert result["dominant_roof_material_area_sqm"] == 100
         assert "dominant_roof_material_area_sqft" not in result
         assert result["dominant_roof_types_area_sqm"] == 80
         assert "dominant_roof_types_area_sqft" not in result
 
-    def test_default_is_disabled(self):
+    def test_always_emitted_when_data_present(self):
+        """Dominant columns are always emitted when material/shape data is present."""
         roof = _make_roof(
             material_components=[_mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-uuid")],
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us")
-        assert "dominant_roof_material_feature_class" not in result
+        assert "dominant_roof_material_feature_class" in result
 
     def test_material_at_exact_threshold(self):
         """Ratio of exactly 0.5 should NOT be UNKNOWN."""
@@ -161,7 +160,7 @@ class TestFlattenRoofDominantColumns:
             material_components=[_mat("Tile Roof", 50, 0.9, 0.5, class_id="tile-uuid")],
             shape_components=[],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         assert result["dominant_roof_material_feature_class"] == "tile-uuid"
         assert result["dominant_roof_material_description"] == "tile_roof"
 
@@ -170,7 +169,7 @@ class TestFlattenRoofDominantColumns:
             material_components=[],
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         assert result["dominant_roof_types_area_sqft"] == pytest.approx(80 * 10.764)
 
     def test_shape_unknown_when_all_zero_area(self):
@@ -182,7 +181,7 @@ class TestFlattenRoofDominantColumns:
                 _shape("Gable", 0, 0.6, 0.0, class_id="gable-uuid"),
             ],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         assert result["dominant_roof_types_feature_class"] is None
         assert result["dominant_roof_types_description"] == "unknown"
         assert result["dominant_roof_types_area_sqft"] is None
@@ -199,7 +198,7 @@ class TestFlattenRoofDominantColumns:
                 _shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid"),
             ],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         keys = list(result.keys())
         first_component = min(keys.index(k) for k in keys if k.startswith(("tile_", "metal_", "hip_")))
         dominant_keys = [k for k in keys if k.startswith("dominant_")]
@@ -213,7 +212,7 @@ class TestFlattenRoofDominantColumns:
             material_components=[_mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-uuid")],
             shape_components=[],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         mat_keys = [k for k in result.keys() if k.startswith("dominant_roof_material_")]
         assert mat_keys == [
             "dominant_roof_material_feature_class",
@@ -229,7 +228,7 @@ class TestFlattenRoofDominantColumns:
             material_components=[],
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
-        result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
+        result = flatten_roof_attributes([roof], country="us")
         shape_keys = [k for k in result.keys() if k.startswith("dominant_roof_types_")]
         assert shape_keys == [
             "dominant_roof_types_feature_class",

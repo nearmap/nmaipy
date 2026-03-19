@@ -625,7 +625,6 @@ def feature_attributes(
     primary_lon: float = None,
     geometry_projected_col: str = None,
     projected_crs: str = None,
-    include_dominant_summary: bool = False,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -923,7 +922,6 @@ def feature_attributes(
                         )
                     primary_attributes = flatten_roof_attributes(
                         [primary_feature], country=country, child_features=child_feats,
-                        include_dominant_summary=include_dominant_summary,
                     )
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
@@ -960,7 +958,6 @@ def extract_building_features(
     parcels_gdf: gpd.GeoDataFrame,
     features_gdf: gpd.GeoDataFrame,
     country: str,
-    include_dominant_summary: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Extract building-related features and their attributes to create a building-level export. Note that this gets all building like features, not strictly buildings.
@@ -1044,9 +1041,9 @@ def extract_building_features(
                 # For roof attributes, don't wrap in a list if it's already a list
                 # This is the key fix - roof attributes should be processed as they are
                 if isinstance(building, list):
-                    flat_attrs = flatten_roof_attributes(building, country=country, include_dominant_summary=include_dominant_summary)
+                    flat_attrs = flatten_roof_attributes(building, country=country)
                 else:
-                    flat_attrs = flatten_roof_attributes([building], country=country, include_dominant_summary=include_dominant_summary)
+                    flat_attrs = flatten_roof_attributes([building], country=country)
 
                 for k, v in flat_attrs.items():
                     building_record[k] = v
@@ -1093,7 +1090,6 @@ def parcel_rollup(
     classes_df: pd.DataFrame,
     country: str,
     primary_decision: str,
-    include_dominant_summary: bool = False,
     api_metadata: list = None,
 ):
     """
@@ -1242,7 +1238,6 @@ def parcel_rollup(
             primary_lon=primary_lon,
             geometry_projected_col=geometry_projected_col,
             projected_crs=projected_crs,
-            include_dominant_summary=include_dominant_summary,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         if "mesh_date" in group.columns:
@@ -1272,7 +1267,6 @@ def parcel_rollup(
             country=country,
             parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
-            include_dominant_summary=include_dominant_summary,
         )
         aoi_id = row._asdict()["Index"]
         parcel[AOI_ID_COLUMN_NAME] = aoi_id

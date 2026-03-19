@@ -367,7 +367,6 @@ def flatten_roof_attributes(
     child_features: gpd.GeoDataFrame = None,
     parent_projected=None,
     children_projected: "gpd.GeoSeries" = None,
-    include_dominant_summary: bool = False,
 ) -> dict:
     """
     Flatten roof attributes from Feature API.
@@ -621,46 +620,45 @@ def flatten_roof_attributes(
                         )
 
                 # Collect dominant material/shape summary
-                if include_dominant_summary:
-                    attr_key = attribute.get("description", "").lower().replace(" ", "_")
-                    if attr_key in _DOMINANT_ATTRIBUTE_DESCRIPTIONS:
-                        prefix = "dominant_" + attr_key
-                        winner = _select_dominant_component(components)
-                        is_material = attr_key == "roof_material"
-                        is_shape = attr_key == "roof_types"
+                attr_key = attribute.get("description", "").lower().replace(" ", "_")
+                if attr_key in _DOMINANT_ATTRIBUTE_DESCRIPTIONS:
+                    prefix = "dominant_" + attr_key
+                    winner = _select_dominant_component(components)
+                    is_material = attr_key == "roof_material"
+                    is_shape = attr_key == "roof_types"
+                else:
+                    winner = None
+
+                if winner is not None:
+                    w_name = winner["description"].lower().replace(" ", "_")
+                    if recalc_attrs is not None and f"{w_name}_confidence" in recalc_attrs:
+                        w_ratio = recalc_attrs.get(f"{w_name}_ratio", 0.0)
+                        w_confidence = recalc_attrs[f"{w_name}_confidence"]
+                        area_key = f"{w_name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{w_name}_area_sqm"
+                        w_area = recalc_attrs.get(area_key, 0.0)
                     else:
-                        winner = None
+                        w_ratio = winner.get("ratio", 0)
+                        w_confidence = winner.get("confidence")
+                        w_area = winner.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else winner.get("areaSqm", 0.0)
 
-                    if winner is not None:
-                        w_name = winner["description"].lower().replace(" ", "_")
-                        if recalc_attrs is not None and f"{w_name}_confidence" in recalc_attrs:
-                            w_ratio = recalc_attrs.get(f"{w_name}_ratio", 0.0)
-                            w_confidence = recalc_attrs[f"{w_name}_confidence"]
-                            area_key = f"{w_name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{w_name}_area_sqm"
-                            w_area = recalc_attrs.get(area_key, 0.0)
-                        else:
-                            w_ratio = winner.get("ratio", 0)
-                            w_confidence = winner.get("confidence")
-                            w_area = winner.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else winner.get("areaSqm", 0.0)
-
-                        # UNKNOWN conditions: material ratio < 0.5, or shape with no detected area
-                        is_unknown = (is_material and w_ratio < 0.5) or (is_shape and (not w_area or w_area <= 0))
-                        area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
-                        # Shape omits ratio because shapes overlap/gap — ratio doesn't sum to 1.
-                        if is_unknown:
-                            dominant_columns[f"{prefix}_feature_class"] = None
-                            dominant_columns[f"{prefix}_description"] = "unknown"
-                            dominant_columns[f"{prefix}{area_suffix}"] = None
-                            if is_material:
-                                dominant_columns[f"{prefix}_ratio"] = None
-                            dominant_columns[f"{prefix}_confidence"] = None
-                        else:
-                            dominant_columns[f"{prefix}_feature_class"] = winner.get("classId")
-                            dominant_columns[f"{prefix}_description"] = w_name
-                            dominant_columns[f"{prefix}{area_suffix}"] = w_area
-                            if is_material:
-                                dominant_columns[f"{prefix}_ratio"] = w_ratio
-                            dominant_columns[f"{prefix}_confidence"] = w_confidence
+                    # UNKNOWN conditions: material ratio < 0.5, or shape with no detected area
+                    is_unknown = (is_material and w_ratio < 0.5) or (is_shape and (not w_area or w_area <= 0))
+                    area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
+                    # Shape omits ratio because shapes overlap/gap — ratio doesn't sum to 1.
+                    if is_unknown:
+                        dominant_columns[f"{prefix}_feature_class"] = None
+                        dominant_columns[f"{prefix}_description"] = "unknown"
+                        dominant_columns[f"{prefix}{area_suffix}"] = None
+                        if is_material:
+                            dominant_columns[f"{prefix}_ratio"] = None
+                        dominant_columns[f"{prefix}_confidence"] = None
+                    else:
+                        dominant_columns[f"{prefix}_feature_class"] = winner.get("classId")
+                        dominant_columns[f"{prefix}_description"] = w_name
+                        dominant_columns[f"{prefix}{area_suffix}"] = w_area
+                        if is_material:
+                            dominant_columns[f"{prefix}_ratio"] = w_ratio
+                        dominant_columns[f"{prefix}_confidence"] = w_confidence
 
                 for component in components:
                     name = component["description"].lower().replace(" ", "_")
