@@ -1194,6 +1194,30 @@ class TestUnifyAndConcatTables:
         assert result.column("b").to_pylist() == [2, None]
         assert result.column("c").to_pylist() == [None, 4]
 
+    def test_int32_vs_int64_widening(self):
+        """Integer width mismatches are widened to the larger type."""
+        t1 = pa.table({"count": pa.array([1], type=pa.int32())})
+        t2 = pa.table({"count": pa.array([2], type=pa.int64())})
+        result = _unify_and_concat_tables([t1, t2])
+        assert result.schema.field("count").type == pa.int64()
+        assert result.column("count").to_pylist() == [1, 2]
+
+    def test_string_vs_large_string(self):
+        """string and large_string are unified to large_string."""
+        t1 = pa.table({"name": pa.array(["a"], type=pa.string())})
+        t2 = pa.table({"name": pa.array(["b"], type=pa.large_string())})
+        result = _unify_and_concat_tables([t1, t2])
+        assert result.schema.field("name").type == pa.large_string()
+        assert result.column("name").to_pylist() == ["a", "b"]
+
+    def test_timestamp_unit_mismatch(self):
+        """Timestamp columns with different units are unified."""
+        t1 = pa.table({"ts": pa.array([1000000], type=pa.timestamp("us"))})
+        t2 = pa.table({"ts": pa.array([1000000000], type=pa.timestamp("ns"))})
+        result = _unify_and_concat_tables([t1, t2])
+        assert pa.types.is_timestamp(result.schema.field("ts").type)
+        assert len(result) == 2
+
 
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)

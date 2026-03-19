@@ -537,75 +537,19 @@ def _cast_table_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table
     return pa.Table.from_arrays(arrays, schema=target_schema)
 
 
-# Mapping of numeric types to their "widest" promotion target when two
-# chunks disagree (e.g. int64 in one chunk vs float64 in another).
-_NUMERIC_PROMOTION = {
-    (pa.int8(), pa.float16()): pa.float16(),
-    (pa.int8(), pa.float32()): pa.float32(),
-    (pa.int8(), pa.float64()): pa.float64(),
-    (pa.int16(), pa.float16()): pa.float32(),
-    (pa.int16(), pa.float32()): pa.float32(),
-    (pa.int16(), pa.float64()): pa.float64(),
-    (pa.int32(), pa.float32()): pa.float64(),
-    (pa.int32(), pa.float64()): pa.float64(),
-    (pa.int64(), pa.float32()): pa.float64(),
-    (pa.int64(), pa.float64()): pa.float64(),
-}
-# Make lookup symmetric
-_NUMERIC_PROMOTION.update({(b, a): t for (a, b), t in list(_NUMERIC_PROMOTION.items())})
-
-
-def _unified_schema(tables: list[pa.Table]) -> pa.Schema:
-    """Compute a unified schema across multiple tables.
-
-    For each field, chooses the widest compatible type (e.g. int64 + float64 →
-    float64).  Null-type fields are resolved to the first non-null type seen.
-    Also applies the standard string/binary → large_string/large_binary
-    promotions via ``_promote_schema_types``.
-    """
-    field_types: dict[str, pa.DataType] = {}
-    field_order: list[str] = []
-
-    for table in tables:
-        for field in table.schema:
-            if field.name not in field_types:
-                field_types[field.name] = field.type
-                field_order.append(field.name)
-            else:
-                existing = field_types[field.name]
-                incoming = field.type
-                if existing == incoming:
-                    continue
-                # null yields to any real type
-                if existing == pa.null():
-                    field_types[field.name] = incoming
-                elif incoming == pa.null():
-                    pass
-                else:
-                    promoted = _NUMERIC_PROMOTION.get((existing, incoming))
-                    if promoted is not None:
-                        field_types[field.name] = promoted
-                    # else: keep existing type; _cast_table_to_schema will
-                    # handle via safe cast or null replacement
-
-    schema = pa.schema(
-        [pa.field(name, field_types[name], nullable=True) for name in field_order]
-    )
-    return _promote_schema_types(schema)
-
-
 def _unify_and_concat_tables(tables: list[pa.Table]) -> pa.Table:
     """Concatenate tables after unifying their schemas.
 
-    Unlike ``pa.concat_tables(promote_options="default")``, this handles
-    numeric type mismatches (e.g. int64 vs float64) that arise when a column
-    has all-integer values in some chunks but NaN-containing floats in others.
+    Uses ``pa.unify_schemas(promote_options="permissive")`` to resolve type
+    mismatches across chunks (e.g. int64 vs float64 when nullable integers
+    are inferred as float, int32 vs int64, timestamp unit differences, etc.),
+    then applies ``_promote_schema_types`` for string/binary → large_string/
+    large_binary offset overflow protection.
     """
-    if len(tables) == 1:
-        schema = _promote_schema_types(tables[0].schema)
-        return _cast_table_to_schema(tables[0], schema)
-
-    target = _unified_schema(tables)
+    unified = pa.unify_schemas(
+        [t.schema for t in tables], promote_options="permissive"
+    )
+    target = _promote_schema_types(unified)
     cast_tables = [_reconcile_table_schema(t, target) for t in tables]
     return pa.concat_tables(cast_tables)
 
@@ -2370,8 +2314,9 @@ class NearmapAIExporter(BaseExporter):
                 storage.upload_file(local_write_path, outpath_features)
 
         # Write buffered per-class tables to files.
-        # Tables are concatenated with promote_options="default" to handle
-        # data-dependent schema drift (e.g. roof material components, damage classes).
+        # Tables are concatenated via _unify_and_concat_tables() to handle
+        # data-dependent schema drift (e.g. roof material components, damage classes,
+        # int64/float64 mismatches in spotlight index).
         # Files are written to a staging directory then moved to final to prevent
         # corrupted files at the final destination if the process crashes.
         if do_per_class and (per_class_tabular_tables or per_class_geo_tables):
