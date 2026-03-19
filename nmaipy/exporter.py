@@ -537,6 +537,23 @@ def _cast_table_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table
     return pa.Table.from_arrays(arrays, schema=target_schema)
 
 
+def _unify_and_concat_tables(tables: list[pa.Table]) -> pa.Table:
+    """Concatenate tables after unifying their schemas.
+
+    Uses ``pa.unify_schemas(promote_options="permissive")`` to resolve type
+    mismatches across chunks (e.g. int64 vs float64 when nullable integers
+    are inferred as float, int32 vs int64, timestamp unit differences, etc.),
+    then applies ``_promote_schema_types`` for string/binary → large_string/
+    large_binary offset overflow protection.
+    """
+    unified = pa.unify_schemas(
+        [t.schema for t in tables], promote_options="permissive"
+    )
+    target = _promote_schema_types(unified)
+    cast_tables = [_reconcile_table_schema(t, target) for t in tables]
+    return pa.concat_tables(cast_tables)
+
+
 def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
     """Reconcile an Arrow table's schema to match a reference schema.
 
@@ -1918,7 +1935,7 @@ class NearmapAIExporter(BaseExporter):
         # Per-class export setup: accumulate Arrow tables in memory per class,
         # then write once after streaming completes.  This handles data-dependent
         # schema drift (e.g. roof material components, damage classes) via
-        # pa.concat_tables(promote=True) which auto-pads missing columns.
+        # _unify_and_concat_tables() which unifies schemas before concatenation.
         per_class_tabular_tables = {}  # class_id -> list[pa.Table]
         per_class_geo_tables = {}  # class_id -> list[pa.Table]
         do_per_class = class_level_files and whitelisted_classes
@@ -2318,8 +2335,9 @@ class NearmapAIExporter(BaseExporter):
                 storage.upload_file(local_write_path, outpath_features)
 
         # Write buffered per-class tables to files.
-        # Tables are concatenated with promote=True to handle
-        # data-dependent schema drift (e.g. roof material components, damage classes).
+        # Tables are concatenated via _unify_and_concat_tables() to handle
+        # data-dependent schema drift (e.g. roof material components, damage classes,
+        # nullable integer columns inferred as float).
         # Files are written to a staging directory then moved to final to prevent
         # corrupted files at the final destination if the process crashes.
         if do_per_class and (per_class_tabular_tables or per_class_geo_tables):
@@ -2358,12 +2376,9 @@ class NearmapAIExporter(BaseExporter):
 
                 # Write tabular parquet
                 if cid in per_class_tabular_tables:
-                    combined = pa.concat_tables(
-                        per_class_tabular_tables[cid],
-                        promote_options="default",
+                    combined = _unify_and_concat_tables(
+                        per_class_tabular_tables[cid]
                     )
-                    combined_schema = _promote_schema_types(combined.schema)
-                    combined = _cast_table_to_schema(combined, combined_schema)
                     staging_path = os.path.join(staging_dir, f"{cname}.parquet")
                     pq.write_table(combined, staging_path)
                     per_class_final_paths[cid]["tabular"] = staging_path
@@ -2372,12 +2387,9 @@ class NearmapAIExporter(BaseExporter):
 
                 # Write geo parquet
                 if cid in per_class_geo_tables:
-                    combined = pa.concat_tables(
-                        per_class_geo_tables[cid],
-                        promote_options="default",
+                    combined = _unify_and_concat_tables(
+                        per_class_geo_tables[cid]
                     )
-                    combined_schema = _promote_schema_types(combined.schema)
-                    combined = _cast_table_to_schema(combined, combined_schema)
                     existing_meta = combined.schema.metadata or {}
                     existing_meta[b"geo"] = json.dumps(geo_metadata).encode(
                         "utf-8"
