@@ -352,13 +352,82 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
 
 # Attribute descriptions (snake_cased) for which dominant summary columns are emitted.
 _DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
+# Minimum ratio for a material to be considered dominant (below this → UNKNOWN).
+DOMINANT_MATERIAL_MIN_RATIO = 0.5
 
 
-def _select_dominant_component(components: list) -> Optional[dict]:
-    """Select the dominant component by largest area."""
+def _get_component_stats(
+    component: dict, recalc_attrs: Optional[dict], country: str
+) -> dict:
+    """Get ratio, area, confidence, class_id for a component from the best available source.
+
+    Uses recalc_attrs (clipped geometry intersection) when available,
+    otherwise falls back to raw API component values.
+    """
+    name = component["description"].lower().replace(" ", "_")
+    if recalc_attrs is not None and f"{name}_ratio" in recalc_attrs:
+        area_key = f"{name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{name}_area_sqm"
+        return {
+            "name": name,
+            "class_id": recalc_attrs.get(f"{name}_class_id", component["classId"]),
+            "ratio": recalc_attrs.get(f"{name}_ratio", 0.0) or 0.0,
+            "area": recalc_attrs.get(area_key, 0.0) or 0.0,
+            "confidence": recalc_attrs.get(f"{name}_confidence"),
+        }
+    area = (
+        component.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES
+        else component.get("areaSqm", 0.0)
+    )
+    return {
+        "name": name,
+        "class_id": component["classId"],
+        "ratio": component.get("ratio", 0.0) or 0.0,
+        "area": area or 0.0,
+        "confidence": component.get("confidence"),
+    }
+
+
+def _build_dominant_columns(
+    components: list, recalc_attrs: Optional[dict], country: str, attr_key: str
+) -> dict:
+    """Build dominant summary columns for a roof attribute type.
+
+    Selects the dominant component by highest ratio, applies UNKNOWN rules,
+    and returns an ordered dict of dominant_* columns.
+    """
     if not components:
-        return None
-    return max(components, key=lambda c: c.get("areaSqm", 0))
+        return {}
+
+    stats = [_get_component_stats(c, recalc_attrs, country) for c in components]
+    winner = max(stats, key=lambda s: s["ratio"])
+
+    prefix = f"dominant_{attr_key}"
+    area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
+    is_material = attr_key == "roof_material"
+
+    # UNKNOWN: material below majority threshold, or shape with no detected area
+    is_unknown = (
+        (is_material and winner["ratio"] < DOMINANT_MATERIAL_MIN_RATIO)
+        or (not is_material and winner["area"] <= 0)
+    )
+
+    columns = {}
+    if is_unknown:
+        columns[f"{prefix}_feature_class"] = None
+        columns[f"{prefix}_description"] = "unknown"
+        columns[f"{prefix}{area_suffix}"] = None
+        if is_material:
+            columns[f"{prefix}_ratio"] = None
+        columns[f"{prefix}_confidence"] = None
+    else:
+        columns[f"{prefix}_feature_class"] = winner["class_id"]
+        columns[f"{prefix}_description"] = winner["name"]
+        columns[f"{prefix}{area_suffix}"] = winner["area"]
+        if is_material:
+            columns[f"{prefix}_ratio"] = winner["ratio"]
+        columns[f"{prefix}_confidence"] = winner["confidence"]
+
+    return columns
 
 
 def flatten_roof_attributes(
@@ -622,43 +691,9 @@ def flatten_roof_attributes(
                 # Collect dominant material/shape summary
                 attr_key = attribute.get("description", "").lower().replace(" ", "_")
                 if attr_key in _DOMINANT_ATTRIBUTE_DESCRIPTIONS:
-                    prefix = "dominant_" + attr_key
-                    winner = _select_dominant_component(components)
-                    is_material = attr_key == "roof_material"
-                    is_shape = attr_key == "roof_types"
-                else:
-                    winner = None
-
-                if winner is not None:
-                    w_name = winner["description"].lower().replace(" ", "_")
-                    if recalc_attrs is not None and f"{w_name}_confidence" in recalc_attrs:
-                        w_ratio = recalc_attrs.get(f"{w_name}_ratio", 0.0)
-                        w_confidence = recalc_attrs[f"{w_name}_confidence"]
-                        area_key = f"{w_name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{w_name}_area_sqm"
-                        w_area = recalc_attrs.get(area_key, 0.0)
-                    else:
-                        w_ratio = winner.get("ratio", 0)
-                        w_confidence = winner.get("confidence")
-                        w_area = winner.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else winner.get("areaSqm", 0.0)
-
-                    # UNKNOWN conditions: material ratio < 0.5, or shape with no detected area
-                    is_unknown = (is_material and w_ratio < 0.5) or (is_shape and (not w_area or w_area <= 0))
-                    area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
-                    # Shape omits ratio because shapes overlap/gap — ratio doesn't sum to 1.
-                    if is_unknown:
-                        dominant_columns[f"{prefix}_feature_class"] = None
-                        dominant_columns[f"{prefix}_description"] = "unknown"
-                        dominant_columns[f"{prefix}{area_suffix}"] = None
-                        if is_material:
-                            dominant_columns[f"{prefix}_ratio"] = None
-                        dominant_columns[f"{prefix}_confidence"] = None
-                    else:
-                        dominant_columns[f"{prefix}_feature_class"] = winner.get("classId")
-                        dominant_columns[f"{prefix}_description"] = w_name
-                        dominant_columns[f"{prefix}{area_suffix}"] = w_area
-                        if is_material:
-                            dominant_columns[f"{prefix}_ratio"] = w_ratio
-                        dominant_columns[f"{prefix}_confidence"] = w_confidence
+                    dominant_columns.update(
+                        _build_dominant_columns(components, recalc_attrs, country, attr_key)
+                    )
 
                 for component in components:
                     name = component["description"].lower().replace(" ", "_")

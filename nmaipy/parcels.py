@@ -166,6 +166,7 @@ def calculate_child_feature_attributes(
             continue
 
         name = name_prefix + description.lower().replace(" ", "_")
+        flattened[f"{name}_class_id"] = class_id
         if child_features_empty:
             flattened[f"{name}_present"] = FALSE_STRING
             if country in IMPERIAL_COUNTRIES:

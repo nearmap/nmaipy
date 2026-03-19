@@ -300,7 +300,7 @@ class ReadmeGenerator:
 
     def _has_dominant_columns(self, columns: set[str]) -> bool:
         """Check if dominant material/shape summary columns are present."""
-        return any("dominant_roof_material_" in c or "dominant_roof_types_" in c for c in columns)
+        return any(c.startswith("dominant_roof_material_") or c.startswith("dominant_roof_types_") for c in columns)
 
     def _has_rsi_columns(self, columns: set[str]) -> bool:
         """Check if Roof Spotlight Index columns are present."""

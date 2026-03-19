@@ -3,7 +3,8 @@
 import pytest
 
 from nmaipy.feature_attributes import (
-    _select_dominant_component,
+    _build_dominant_columns,
+    _get_component_stats,
     flatten_roof_attributes,
 )
 
@@ -49,43 +50,141 @@ def _shape(desc, area, confidence, ratio, class_id="shape-class-id"):
     }
 
 
-class TestSelectDominantComponent:
-    def test_picks_largest_area(self):
+class TestGetComponentStats:
+    def test_uses_raw_api_when_no_recalc(self):
+        comp = _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id")
+        stats = _get_component_stats(comp, recalc_attrs=None, country="us")
+        assert stats["name"] == "tile_roof"
+        assert stats["class_id"] == "tile-id"
+        assert stats["ratio"] == 0.8
+        assert stats["area"] == pytest.approx(100 * 10.764)
+        assert stats["confidence"] == 0.9
+
+    def test_uses_recalc_when_available(self):
+        comp = _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id")
+        recalc = {
+            "tile_roof_class_id": "tile-id",
+            "tile_roof_ratio": 0.6,
+            "tile_roof_area_sqft": 500.0,
+            "tile_roof_confidence": 0.85,
+        }
+        stats = _get_component_stats(comp, recalc_attrs=recalc, country="us")
+        assert stats["ratio"] == 0.6
+        assert stats["area"] == 500.0
+        assert stats["confidence"] == 0.85
+        assert stats["class_id"] == "tile-id"
+
+    def test_metric_country_uses_sqm(self):
+        comp = _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id")
+        stats = _get_component_stats(comp, recalc_attrs=None, country="au")
+        assert stats["area"] == 100
+
+    def test_recalc_metric_country(self):
+        comp = _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id")
+        recalc = {
+            "tile_roof_class_id": "tile-id",
+            "tile_roof_ratio": 0.6,
+            "tile_roof_area_sqm": 50.0,
+            "tile_roof_confidence": 0.85,
+        }
+        stats = _get_component_stats(comp, recalc_attrs=recalc, country="au")
+        assert stats["area"] == 50.0
+
+
+class TestBuildDominantColumns:
+    def test_selects_by_ratio(self):
         comps = [
-            _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id", dominant=True),
-            _mat("Metal Roof", 20, 0.7, 0.2, class_id="metal-id", dominant=False),
+            _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id"),
+            _mat("Metal Roof", 20, 0.7, 0.2, class_id="metal-id"),
         ]
-        winner = _select_dominant_component(comps)
-        assert winner["description"] == "Tile Roof"
+        cols = _build_dominant_columns(comps, None, "us", "roof_material")
+        assert cols["dominant_roof_material_feature_class"] == "tile-id"
+        assert cols["dominant_roof_material_description"] == "tile_roof"
 
-    def test_selects_by_area_not_ratio(self):
-        """Largest area wins even if another component has higher ratio."""
+    def test_highest_ratio_wins_not_area(self):
+        """Highest ratio wins even if another component has larger area."""
         comps = [
-            _mat("Tile Roof", 60, 0.9, 0.4, class_id="tile-id", dominant=True),
-            _mat("Shingle Roof", 80, 0.8, 0.6, class_id="shingle-id", dominant=False),
+            _mat("Tile Roof", 200, 0.9, 0.4, class_id="tile-id"),
+            _mat("Shingle Roof", 80, 0.8, 0.6, class_id="shingle-id"),
         ]
-        winner = _select_dominant_component(comps)
-        assert winner["description"] == "Shingle Roof"
+        cols = _build_dominant_columns(comps, None, "us", "roof_material")
+        assert cols["dominant_roof_material_description"] == "shingle_roof"
 
-    def test_empty_returns_none(self):
-        assert _select_dominant_component([]) is None
+    def test_empty_returns_empty(self):
+        assert _build_dominant_columns([], None, "us", "roof_material") == {}
 
-    def test_works_for_shapes(self):
+    def test_shapes_select_by_ratio(self):
         comps = [
             _shape("Hip", 48, 0.75, 0.15, class_id="hip-id"),
             _shape("Gable", 75, 0.78, 0.24, class_id="gable-id"),
             _shape("Flat", 0, 1.0, 0.0, class_id="flat-id"),
         ]
-        winner = _select_dominant_component(comps)
-        assert winner["description"] == "Gable"
+        cols = _build_dominant_columns(comps, None, "us", "roof_types")
+        assert cols["dominant_roof_types_description"] == "gable"
 
-    def test_zero_area_loses_to_nonzero(self):
+    def test_material_unknown_when_ratio_below_threshold(self):
         comps = [
-            _shape("Flat", 0, 1.0, 0.5, class_id="flat-id"),
-            _shape("Hip", 48, 0.75, 0.15, class_id="hip-id"),
+            _mat("Tile Roof", 40, 0.9, 0.4, class_id="tile-id"),
+            _mat("Metal Roof", 30, 0.7, 0.3, class_id="metal-id"),
         ]
-        winner = _select_dominant_component(comps)
-        assert winner["description"] == "Hip"
+        cols = _build_dominant_columns(comps, None, "us", "roof_material")
+        assert cols["dominant_roof_material_feature_class"] is None
+        assert cols["dominant_roof_material_description"] == "unknown"
+
+    def test_shape_unknown_when_all_zero_area(self):
+        comps = [
+            _shape("Hip", 0, 0.75, 0.0, class_id="hip-id"),
+            _shape("Gable", 0, 0.6, 0.0, class_id="gable-id"),
+        ]
+        cols = _build_dominant_columns(comps, None, "us", "roof_types")
+        assert cols["dominant_roof_types_feature_class"] is None
+        assert cols["dominant_roof_types_description"] == "unknown"
+
+    def test_recalc_overrides_raw_winner(self):
+        """When recalc_attrs reverses the ranking, the recalc winner is used."""
+        comps = [
+            _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id"),
+            _mat("Metal Roof", 20, 0.7, 0.2, class_id="metal-id"),
+        ]
+        recalc = {
+            "tile_roof_class_id": "tile-id",
+            "tile_roof_ratio": 0.3,
+            "tile_roof_area_sqft": 300.0,
+            "tile_roof_confidence": 0.9,
+            "metal_roof_class_id": "metal-id",
+            "metal_roof_ratio": 0.7,
+            "metal_roof_area_sqft": 700.0,
+            "metal_roof_confidence": 0.85,
+        }
+        cols = _build_dominant_columns(comps, recalc, "us", "roof_material")
+        assert cols["dominant_roof_material_feature_class"] == "metal-id"
+        assert cols["dominant_roof_material_description"] == "metal_roof"
+        assert cols["dominant_roof_material_ratio"] == 0.7
+        assert cols["dominant_roof_material_area_sqft"] == 700.0
+        assert cols["dominant_roof_material_confidence"] == 0.85
+
+    def test_material_field_order(self):
+        """Material fields: feature_class, description, area, ratio, confidence."""
+        comps = [_mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id")]
+        cols = _build_dominant_columns(comps, None, "us", "roof_material")
+        assert list(cols.keys()) == [
+            "dominant_roof_material_feature_class",
+            "dominant_roof_material_description",
+            "dominant_roof_material_area_sqft",
+            "dominant_roof_material_ratio",
+            "dominant_roof_material_confidence",
+        ]
+
+    def test_shape_field_order(self):
+        """Shape fields: feature_class, description, area, confidence (no ratio)."""
+        comps = [_shape("Hip", 80, 0.75, 0.6, class_id="hip-id")]
+        cols = _build_dominant_columns(comps, None, "us", "roof_types")
+        assert list(cols.keys()) == [
+            "dominant_roof_types_feature_class",
+            "dominant_roof_types_description",
+            "dominant_roof_types_area_sqft",
+            "dominant_roof_types_confidence",
+        ]
 
 
 class TestFlattenRoofDominantColumns:

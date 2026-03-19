@@ -1187,7 +1187,7 @@ def _compute_feature_class_data(
 
                     roof_attr_batch = {}
                     _DOM = ("primary_child_roof_dominant_roof_material_", "primary_child_roof_dominant_roof_types_")
-                    dominant_cols = [c for c in mapped.columns if c.startswith(_DOM)]
+                    dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
                     other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM))
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
