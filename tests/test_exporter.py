@@ -1162,13 +1162,14 @@ class TestStreamAndConvertFeaturesSchemaUnion:
 class TestUnifyAndConcatTables:
     def test_int64_vs_float64_promotion(self):
         """int64 and float64 columns are unified to float64 — reproduces the
-        primary_child_roof_roof_spotlight_index crash from issue #134."""
+        primary_child_roof_roof_spotlight_index crash where chunks with all-present
+        integer values are int64 but chunks with nulls are inferred as float64."""
         t1 = pa.table({"spotlight_index": pa.array([80], type=pa.int64()), "name": ["a"]})
-        t2 = pa.table({"spotlight_index": pa.array([72.5], type=pa.float64()), "name": ["b"]})
+        t2 = pa.table({"spotlight_index": pa.array([75, None], type=pa.float64()), "name": ["b", "c"]})
         result = _unify_and_concat_tables([t1, t2])
         assert result.schema.field("spotlight_index").type == pa.float64()
-        assert result.column("spotlight_index").to_pylist() == [80.0, 72.5]
-        assert len(result) == 2
+        assert result.column("spotlight_index").to_pylist() == [80.0, 75.0, None]
+        assert len(result) == 3
 
     def test_null_column_promoted(self):
         """A null-typed column in one table is promoted to the real type from another."""
