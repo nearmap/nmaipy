@@ -1056,17 +1056,10 @@ def _compute_feature_class_data(
                     )
 
                     roof_attr_batch = {}
-                    # Sort dominant summary columns before constituent columns,
-                    # preserving field order: feature_class, description, area, ratio, confidence
-                    _DOMINANT_FIELD_ORDER = ["feature_class", "description", "area", "ratio", "confidence"]
-                    def _dominant_sort_key(col):
-                        for group_idx, marker in enumerate(["dominant_material_", "dominant_shape_"]):
-                            if marker in col:
-                                suffix = col.split(marker)[-1]
-                                field_idx = next((i for i, f in enumerate(_DOMINANT_FIELD_ORDER) if suffix.startswith(f)), 99)
-                                return (group_idx, field_idx, col)
-                        return (2, 0, col)
-                    for col in sorted(mapped.columns, key=_dominant_sort_key):
+                    _DOM = ("primary_child_roof_dominant_material_", "primary_child_roof_dominant_shape_")
+                    dominant_cols = [c for c in mapped.columns if c.startswith(_DOM)]
+                    other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM))
+                    for col in dominant_cols + other_cols:
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
                             added_cols.add(col)

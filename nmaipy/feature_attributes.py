@@ -373,18 +373,11 @@ def _clean_dominant_name(description: str) -> str:
     return name.lower().replace(" ", "_")
 
 
-def _select_dominant_material(components: list) -> Optional[dict]:
-    """Select dominant material: component with highest ratio."""
+def _select_dominant_component(components: list) -> Optional[dict]:
+    """Select the dominant component by largest area."""
     if not components:
         return None
-    return max(components, key=lambda c: c.get("ratio") or 0)
-
-
-def _select_dominant_shape(components: list) -> Optional[dict]:
-    """Select dominant shape: component with highest ratio."""
-    if not components:
-        return None
-    return max(components, key=lambda c: c.get("ratio") or 0)
+    return max(components, key=lambda c: c.get("areaSqm", 0))
 
 
 def flatten_roof_attributes(
@@ -649,16 +642,11 @@ def flatten_roof_attributes(
                 # Collect dominant material/shape summary
                 if include_dominant_summary:
                     attr_desc = attribute.get("description", "")
+                    _DOMINANT_PREFIX = {"Roof material": "dominant_material", "Roof types": "dominant_shape"}
+                    prefix = _DOMINANT_PREFIX.get(attr_desc)
+                    winner = _select_dominant_component(components) if prefix else None
                     is_material = attr_desc == "Roof material"
                     is_shape = attr_desc == "Roof types"
-                    if is_material:
-                        winner = _select_dominant_material(components)
-                        prefix = "dominant_material"
-                    elif is_shape:
-                        winner = _select_dominant_shape(components)
-                        prefix = "dominant_shape"
-                    else:
-                        winner = None
 
                     if winner is not None:
                         w_name = winner["description"].lower().replace(" ", "_")
@@ -673,11 +661,11 @@ def flatten_roof_attributes(
                             w_area = winner.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else winner.get("areaSqm", 0.0)
 
                         # UNKNOWN conditions: material ratio < 0.5, or shape with no detected area
-                        is_unknown = (is_material and w_ratio < 0.5) or (is_shape and w_area == 0)
+                        is_unknown = (is_material and w_ratio < 0.5) or (is_shape and (not w_area or w_area <= 0))
                         area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
-                        # Field order: feature_class, description, area, ratio, confidence
+                        # Shape omits ratio because shapes overlap/gap — ratio doesn't sum to 1.
                         if is_unknown:
-                            dominant_columns[f"{prefix}_feature_class"] = "UNKNOWN"
+                            dominant_columns[f"{prefix}_feature_class"] = None
                             dominant_columns[f"{prefix}_description"] = "unknown"
                             dominant_columns[f"{prefix}{area_suffix}"] = None
                             if is_material:

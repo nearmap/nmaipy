@@ -4,8 +4,7 @@ import pytest
 
 from nmaipy.feature_attributes import (
     _clean_dominant_name,
-    _select_dominant_material,
-    _select_dominant_shape,
+    _select_dominant_component,
     flatten_roof_attributes,
 )
 
@@ -87,58 +86,43 @@ class TestCleanDominantName:
         assert _clean_dominant_name("Bowstring Truss") == "bowstring_truss"
 
 
-class TestSelectDominantMaterial:
-    def test_picks_highest_ratio(self):
+class TestSelectDominantComponent:
+    def test_picks_largest_area(self):
         comps = [
             _mat("Tile Roof", 100, 0.9, 0.8, class_id="tile-id", dominant=True),
             _mat("Metal Roof", 20, 0.7, 0.2, class_id="metal-id", dominant=False),
         ]
-        winner = _select_dominant_material(comps)
+        winner = _select_dominant_component(comps)
         assert winner["description"] == "Tile Roof"
 
-    def test_ignores_dominant_flag(self):
-        """dominant flag is no longer used for selection — highest ratio wins."""
+    def test_selects_by_area_not_ratio(self):
+        """Largest area wins even if another component has higher ratio."""
         comps = [
             _mat("Tile Roof", 60, 0.9, 0.4, class_id="tile-id", dominant=True),
             _mat("Shingle Roof", 80, 0.8, 0.6, class_id="shingle-id", dominant=False),
         ]
-        winner = _select_dominant_material(comps)
+        winner = _select_dominant_component(comps)
         assert winner["description"] == "Shingle Roof"
 
     def test_empty_returns_none(self):
-        assert _select_dominant_material([]) is None
+        assert _select_dominant_component([]) is None
 
-
-class TestSelectDominantShape:
-    def test_picks_highest_ratio(self):
+    def test_works_for_shapes(self):
         comps = [
             _shape("Hip", 48, 0.75, 0.15, class_id="hip-id"),
             _shape("Gable", 75, 0.78, 0.24, class_id="gable-id"),
             _shape("Flat", 0, 1.0, 0.0, class_id="flat-id"),
         ]
-        winner = _select_dominant_shape(comps)
+        winner = _select_dominant_component(comps)
         assert winner["description"] == "Gable"
 
-    def test_no_confidence_filter(self):
-        """Low confidence components are still eligible."""
-        comps = [
-            _shape("Hip", 48, 0.3, 0.15, class_id="hip-id"),
-            _shape("Gable", 75, 0.4, 0.24, class_id="gable-id"),
-        ]
-        winner = _select_dominant_shape(comps)
-        assert winner["description"] == "Gable"
-
-    def test_zero_area_still_eligible(self):
-        """Zero-area components are still eligible."""
+    def test_zero_area_loses_to_nonzero(self):
         comps = [
             _shape("Flat", 0, 1.0, 0.5, class_id="flat-id"),
             _shape("Hip", 48, 0.75, 0.15, class_id="hip-id"),
         ]
-        winner = _select_dominant_shape(comps)
-        assert winner["description"] == "Flat"
-
-    def test_empty_returns_none(self):
-        assert _select_dominant_shape([]) is None
+        winner = _select_dominant_component(comps)
+        assert winner["description"] == "Hip"
 
 
 class TestFlattenRoofDominantColumns:
@@ -174,7 +158,7 @@ class TestFlattenRoofDominantColumns:
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_material_feature_class"] == "UNKNOWN"
+        assert result["dominant_material_feature_class"] is None
         assert result["dominant_material_description"] == "unknown"
         # Confidence/ratio/area nulled out when UNKNOWN
         assert result["dominant_material_confidence"] is None
@@ -237,7 +221,7 @@ class TestFlattenRoofDominantColumns:
             ],
         )
         result = flatten_roof_attributes([roof], country="us", include_dominant_summary=True)
-        assert result["dominant_shape_feature_class"] == "UNKNOWN"
+        assert result["dominant_shape_feature_class"] is None
         assert result["dominant_shape_description"] == "unknown"
         assert result["dominant_shape_area_sqft"] is None
         assert result["dominant_shape_confidence"] is None
