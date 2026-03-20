@@ -276,3 +276,35 @@ class TestRobustFileReading:
             )
         finally:
             Path(parquet_path).unlink()
+
+    def test_parquet_with_user_index_column_preserved(self):
+        """If the input has an unnamed RangeIndex AND a pre-existing column called
+        'index' (e.g. from a lazy pd.to_parquet()), the user's column must survive
+        and not collide with reset_index()."""
+        gdf = gpd.GeoDataFrame({
+            AOI_ID_COLUMN_NAME: [1, 2, 3],
+            "index": [42, 99, 7],  # User's own column named "index"
+            "geometry": [
+                Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+            ],
+        }, crs="EPSG:4326")
+
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+            parquet_path = f.name
+
+        try:
+            gdf.to_parquet(parquet_path, index=False)
+
+            result = parcels.read_from_file(Path(parquet_path))
+
+            assert result.index.name == AOI_ID_COLUMN_NAME
+            assert "index" in result.columns, (
+                "User's own 'index' column should be preserved"
+            )
+            assert list(result["index"]) == [42, 99, 7], (
+                "User's 'index' column values should be unchanged"
+            )
+        finally:
+            Path(parquet_path).unlink()
