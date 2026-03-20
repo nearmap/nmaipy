@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import fsspec
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 _s3_filesystem_cache = {}
@@ -251,25 +252,30 @@ def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[
             json.dump(data, f, indent=indent, default=default)
 
 
-def write_parquet(df, path: str, **kwargs) -> None:
+def write_parquet(data, path: str, **kwargs) -> None:
     """
-    Write a DataFrame or GeoDataFrame to parquet. Fork-safe for S3.
+    Write a DataFrame, GeoDataFrame, or pyarrow Table to parquet. Fork-safe for S3.
 
     Routes S3 writes through our fork-safe filesystem to avoid hangs from
-    pyarrow's non-fork-safe native S3FileSystem (which pandas/geopandas
-    use internally when given an S3 URI string). For local paths, delegates
-    directly to df.to_parquet().
+    pyarrow's non-fork-safe native S3FileSystem. For local paths, delegates
+    directly to the appropriate writer.
 
     Args:
-        df: pandas DataFrame or geopandas GeoDataFrame
+        data: pandas DataFrame, geopandas GeoDataFrame, or pyarrow Table
         path: Output file path (local or S3 URI)
-        **kwargs: Additional arguments passed to df.to_parquet()
+        **kwargs: Additional arguments passed to the underlying writer
     """
     if is_s3_path(path):
         with open_file(path, "wb") as f:
-            df.to_parquet(f, **kwargs)
+            if isinstance(data, pa.Table):
+                pq.write_table(data, f, **kwargs)
+            else:
+                data.to_parquet(f, **kwargs)
     else:
-        df.to_parquet(path, **kwargs)
+        if isinstance(data, pa.Table):
+            pq.write_table(data, path, **kwargs)
+        else:
+            data.to_parquet(path, **kwargs)
 
 
 def basename(path: str) -> str:

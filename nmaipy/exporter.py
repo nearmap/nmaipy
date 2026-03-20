@@ -3215,19 +3215,16 @@ class NearmapAIExporter(BaseExporter):
                         logger_instance=self.logger,
                     )
 
-                    # Write per-class chunk files. Uses pq.write_table() instead of
-                    # storage.write_parquet() because these are pa.Table objects, which
-                    # lack the .to_parquet() method that storage.write_parquet() expects.
                     for cid, tables in per_class_results.items():
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
                         cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
 
-                        pq.write_table(
+                        storage.write_parquet(
                             tables["tabular"],
                             storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
                         )
                         if "geo" in tables:
-                            pq.write_table(
+                            storage.write_parquet(
                                 tables["geo"],
                                 storage.join_path(self.chunk_path, f"{cname}_features_{chunk_id}.parquet"),
                             )
