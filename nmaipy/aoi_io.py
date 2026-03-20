@@ -174,13 +174,14 @@ def read_from_file(
 
     # Check that identifier is unique
     if parcels_gdf.index.name != id_column:
-        # Bump the index to a column in case it's important
+        # Bump the index to a column in case it's important (e.g. named index with data)
+        was_unnamed_index = parcels_gdf.index.name is None
         parcels_gdf = parcels_gdf.reset_index()
+        # Drop the "index" column if reset_index() created it from an unnamed integer index
+        if was_unnamed_index and "index" in parcels_gdf.columns:
+            parcels_gdf = parcels_gdf.drop(columns=["index"])
         if id_column not in parcels_gdf:
             logger.info(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
-            # Drop the "index" column if reset_index() created it from an unnamed integer index
-            if "index" in parcels_gdf.columns:
-                parcels_gdf = parcels_gdf.drop(columns=["index"])
             parcels_gdf.index.name = id_column  # Set a new unique ordered index for reference
         else:  # The index must already be there as a column
             logger.warning(f"Moving {AOI_ID_COLUMN_NAME} to be the index - generating unique IDs")
