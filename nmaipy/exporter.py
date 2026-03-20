@@ -2217,7 +2217,7 @@ class NearmapAIExporter(BaseExporter):
             pqwriter.close()
 
             if schema_promotion_count > 0:
-                self.logger.info(
+                self.logger.debug(
                     f"Schema promotion: {schema_promotion_count}/{len(feature_paths)} "
                     f"chunks had null-type columns promoted to match reference schema"
                 )
@@ -2227,7 +2227,7 @@ class NearmapAIExporter(BaseExporter):
                     f"{col}: {variable_col_counts[col]} chunks"
                     for col in sorted(variable_col_counts)
                 ]
-                self.logger.info(
+                self.logger.debug(
                     f"Schema alignment: {mismatch_count}/{len(feature_paths)} chunks "
                     f"had variable columns (padded with nulls where absent): "
                     + " | ".join(parts)
@@ -2265,6 +2265,7 @@ class NearmapAIExporter(BaseExporter):
         primary_ids_df: pd.DataFrame,
         aoi_input_columns: list,
         tabular_file_format: str = "parquet",
+        requested_class_ids: set = None,
     ):
         """Merge per-class chunk files into final per-class output files.
 
@@ -2277,6 +2278,10 @@ class NearmapAIExporter(BaseExporter):
         corresponding feature chunk file.
         """
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
+        if requested_class_ids is not None:
+            whitelisted_classes = [
+                cid for cid in whitelisted_classes if cid in requested_class_ids
+            ]
         read_workers = (
             S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
         )
@@ -3923,6 +3928,7 @@ class NearmapAIExporter(BaseExporter):
                 primary_ids_df=primary_ids_df,
                 aoi_input_columns=aoi_input_columns,
                 tabular_file_format=self.tabular_file_format,
+                requested_class_ids=set(classes_df.index),
             )
 
         # Generate README data dictionary
