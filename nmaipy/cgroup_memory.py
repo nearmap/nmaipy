@@ -11,6 +11,7 @@ Currently covers memory and CPU resources.
 
 import logging
 import os
+import time
 from typing import Optional, Tuple
 
 import psutil
@@ -27,6 +28,14 @@ CGROUP_V1_MEMORY_LIMIT = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
 CGROUP_V1_MEMORY_USAGE = "/sys/fs/cgroup/memory/memory.usage_in_bytes"
 CGROUP_V1_CPU_QUOTA = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us"
 CGROUP_V1_CPU_PERIOD = "/sys/fs/cgroup/cpu/cpu.cfs_period_us"
+
+# Cgroup CPU usage accounting paths
+CGROUP_V2_CPU_STAT = "/sys/fs/cgroup/cpu.stat"
+CGROUP_V1_CPUACCT_USAGE = "/sys/fs/cgroup/cpuacct/cpuacct.usage"
+
+# Module-level state for computing CPU usage deltas
+_prev_cgroup_cpu_usage_ns: Optional[float] = None
+_prev_cgroup_cpu_time: Optional[float] = None
 
 
 def is_running_in_container() -> bool:
@@ -198,29 +207,95 @@ def get_cgroup_cpu_limit() -> Optional[float]:
     return None
 
 
+def _get_cgroup_cpu_usage_ns() -> Optional[int]:
+    """
+    Get the cgroup's total CPU usage in nanoseconds.
+
+    Reads from cgroup v2 cpu.stat (usage_usec) or v1 cpuacct.usage.
+
+    Returns:
+        Total CPU time consumed by the cgroup in nanoseconds, or None.
+    """
+    # Try cgroup v2: cpu.stat has "usage_usec <value>" line
+    if os.path.exists(CGROUP_V2_CPU_STAT):
+        try:
+            with open(CGROUP_V2_CPU_STAT, "r") as f:
+                for line in f:
+                    if line.startswith("usage_usec"):
+                        return int(line.split()[1]) * 1000  # usec -> ns
+        except (IOError, ValueError, IndexError) as e:
+            logger.debug(f"Could not read cgroup v2 CPU usage: {e}")
+
+    # Try cgroup v1: cpuacct.usage is total nanoseconds
+    if os.path.exists(CGROUP_V1_CPUACCT_USAGE):
+        try:
+            with open(CGROUP_V1_CPUACCT_USAGE, "r") as f:
+                return int(f.read().strip())
+        except (IOError, ValueError) as e:
+            logger.debug(f"Could not read cgroup v1 CPU usage: {e}")
+
+    return None
+
+
+def _get_cgroup_cpu_percent(cpu_count: float) -> Optional[float]:
+    """
+    Compute cgroup CPU utilization as a percentage of allocated CPUs.
+
+    Uses delta between consecutive calls. Returns None on the first call
+    (no baseline yet) or if cgroup CPU accounting is unavailable.
+
+    100% means all allocated CPUs are fully utilized.
+    """
+    global _prev_cgroup_cpu_usage_ns, _prev_cgroup_cpu_time
+
+    usage_ns = _get_cgroup_cpu_usage_ns()
+    if usage_ns is None:
+        return None
+
+    now = time.monotonic()
+
+    if _prev_cgroup_cpu_usage_ns is None or _prev_cgroup_cpu_time is None:
+        _prev_cgroup_cpu_usage_ns = usage_ns
+        _prev_cgroup_cpu_time = now
+        return None
+
+    elapsed = now - _prev_cgroup_cpu_time
+    if elapsed <= 0:
+        return None
+
+    delta_cpu_ns = usage_ns - _prev_cgroup_cpu_usage_ns
+    _prev_cgroup_cpu_usage_ns = usage_ns
+    _prev_cgroup_cpu_time = now
+
+    # delta_cpu_ns / 1e9 = CPU-seconds used in the interval
+    # Divide by elapsed wall-seconds and allocated CPUs to get 0-100%
+    cpu_pct = (delta_cpu_ns / 1e9) / (elapsed * cpu_count) * 100.0
+    return min(cpu_pct, 100.0)
+
+
 def get_cpu_info_cgroup_aware() -> Tuple[float, float]:
     """
     Get CPU usage percentage and effective CPU count, respecting cgroup limits.
 
-    cpu_percent is system-wide utilization (0-100%), normalized across all cores.
-    100% means all cores fully utilized. On a 16-core machine at 50%, roughly
-    8 cores worth of work is being done. This is the metric to watch when
-    deciding if more parallelism can be pushed.
+    In containers, reads cgroup CPU accounting to compute utilization relative
+    to the allocated CPU limit (not the host). 100% means all allocated CPUs
+    are fully utilized — this is the metric to watch when deciding if more
+    parallelism can be pushed.
 
-    Note: psutil.cpu_percent(interval=None) returns 0.0 on its first call
-    (needs a baseline). Call psutil.cpu_percent(interval=None) once at startup
-    to prime it before using this function.
+    On bare metal, falls back to psutil.cpu_percent().
 
     Returns:
         Tuple of (cpu_percent, cpu_count) where:
-        - cpu_percent: System-wide CPU usage 0-100% (non-blocking)
+        - cpu_percent: CPU usage 0-100% relative to allocated CPUs
         - cpu_count: Effective number of CPUs (cgroup-aware in containers)
     """
-    cpu_pct = psutil.cpu_percent(interval=None)
-
     if is_running_in_container():
         cgroup_cpus = get_cgroup_cpu_limit()
         if cgroup_cpus is not None:
-            return (cpu_pct, cgroup_cpus)
+            cgroup_pct = _get_cgroup_cpu_percent(cgroup_cpus)
+            if cgroup_pct is not None:
+                return (cgroup_pct, cgroup_cpus)
+            # First call (no baseline) — fall back to psutil
+            return (psutil.cpu_percent(interval=None), cgroup_cpus)
 
-    return (cpu_pct, float(psutil.cpu_count() or 1))
+    return (psutil.cpu_percent(interval=None), float(psutil.cpu_count() or 1))

@@ -314,8 +314,11 @@ PRIMARY_FEATURE_COLUMN_TO_CLASS = {
 # This file is auto-refreshed from the live Feature API during export runs.
 # To manually refresh: python -c "from nmaipy.constants import refresh_class_descriptions; refresh_class_descriptions()"
 _CLASS_DESCRIPTIONS_PATH = Path(__file__).parent / "class_descriptions.json"
-with open(_CLASS_DESCRIPTIONS_PATH) as _f:
-    FEATURE_CLASS_DESCRIPTIONS = json.load(_f)
+try:
+    with open(_CLASS_DESCRIPTIONS_PATH) as _f:
+        FEATURE_CLASS_DESCRIPTIONS = json.load(_f)
+except (FileNotFoundError, json.JSONDecodeError):
+    FEATURE_CLASS_DESCRIPTIONS = {}
 
 
 def refresh_class_descriptions(api_key: str = None):
@@ -343,9 +346,12 @@ def refresh_class_descriptions(api_key: str = None):
 
 def _write_class_descriptions(descriptions: dict):
     """Write class descriptions dict to the JSON file."""
-    with open(_CLASS_DESCRIPTIONS_PATH, "w") as f:
-        json.dump(descriptions, f, indent=2, sort_keys=True)
-        f.write("\n")
+    try:
+        with open(_CLASS_DESCRIPTIONS_PATH, "w") as f:
+            json.dump(descriptions, f, indent=2, sort_keys=True)
+            f.write("\n")
+    except OSError:
+        pass  # Read-only install (e.g. site-packages); in-memory update still applies
 
 CONNECTED_CLASS_IDS = (
     SURFACES_IDS

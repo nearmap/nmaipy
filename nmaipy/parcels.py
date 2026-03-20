@@ -166,6 +166,7 @@ def calculate_child_feature_attributes(
             continue
 
         name = name_prefix + description.lower().replace(" ", "_")
+        flattened[f"{name}_class_id"] = class_id
         if child_features_empty:
             flattened[f"{name}_present"] = FALSE_STRING
             if country in IMPERIAL_COUNTRIES:
@@ -921,7 +922,7 @@ def feature_attributes(
                             geometry="geometry",
                         )
                     primary_attributes = flatten_roof_attributes(
-                        [primary_feature], country=country, child_features=child_feats
+                        [primary_feature], country=country, child_features=child_feats,
                     )
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:

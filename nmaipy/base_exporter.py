@@ -272,17 +272,9 @@ class BaseExporter(ABC):
             f"divided into {num_chunks} chunks (chunk_size={self.chunk_size})"
         )
 
-        # Split into chunks
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="'GeoDataFrame.swapaxes' is deprecated",
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message="'DataFrame.swapaxes' is deprecated",
-            )
-            chunks = np.array_split(aoi_gdf, num_chunks)
+        # Split into chunks (use iloc to preserve GeoDataFrame type; np.array_split
+        # returns ndarray since numpy 2.4)
+        chunks = [aoi_gdf.iloc[idx] for idx in np.array_split(range(len(aoi_gdf)), num_chunks)]
 
         # Filter out cached chunks if requested
         chunks_to_process = []

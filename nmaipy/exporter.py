@@ -1186,7 +1186,10 @@ def _compute_feature_class_data(
                     )
 
                     roof_attr_batch = {}
-                    for col in sorted(mapped.columns):
+                    _DOM = ("primary_child_roof_dominant_roof_material_", "primary_child_roof_dominant_roof_types_")
+                    dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
+                    other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM))
+                    for col in dominant_cols + other_cols:
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
                             added_cols.add(col)
@@ -2214,7 +2217,7 @@ class NearmapAIExporter(BaseExporter):
             pqwriter.close()
 
             if schema_promotion_count > 0:
-                self.logger.info(
+                self.logger.debug(
                     f"Schema promotion: {schema_promotion_count}/{len(feature_paths)} "
                     f"chunks had null-type columns promoted to match reference schema"
                 )
@@ -2224,7 +2227,7 @@ class NearmapAIExporter(BaseExporter):
                     f"{col}: {variable_col_counts[col]} chunks"
                     for col in sorted(variable_col_counts)
                 ]
-                self.logger.info(
+                self.logger.debug(
                     f"Schema alignment: {mismatch_count}/{len(feature_paths)} chunks "
                     f"had variable columns (padded with nulls where absent): "
                     + " | ".join(parts)
@@ -2262,6 +2265,7 @@ class NearmapAIExporter(BaseExporter):
         primary_ids_df: pd.DataFrame,
         aoi_input_columns: list,
         tabular_file_format: str = "parquet",
+        requested_class_ids: set = None,
     ):
         """Merge per-class chunk files into final per-class output files.
 
@@ -2274,6 +2278,10 @@ class NearmapAIExporter(BaseExporter):
         corresponding feature chunk file.
         """
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
+        if requested_class_ids is not None:
+            whitelisted_classes = [
+                cid for cid in whitelisted_classes if cid in requested_class_ids
+            ]
         read_workers = (
             S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
         )
@@ -3212,19 +3220,16 @@ class NearmapAIExporter(BaseExporter):
                         logger_instance=self.logger,
                     )
 
-                    # Write per-class chunk files. Uses pq.write_table() instead of
-                    # storage.write_parquet() because these are pa.Table objects, which
-                    # lack the .to_parquet() method that storage.write_parquet() expects.
                     for cid, tables in per_class_results.items():
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
                         cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
 
-                        pq.write_table(
+                        storage.write_parquet(
                             tables["tabular"],
                             storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
                         )
                         if "geo" in tables:
-                            pq.write_table(
+                            storage.write_parquet(
                                 tables["geo"],
                                 storage.join_path(self.chunk_path, f"{cname}_features_{chunk_id}.parquet"),
                             )
@@ -3846,7 +3851,7 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country
+                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country,
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
@@ -3923,6 +3928,7 @@ class NearmapAIExporter(BaseExporter):
                 primary_ids_df=primary_ids_df,
                 aoi_input_columns=aoi_input_columns,
                 tabular_file_format=self.tabular_file_format,
+                requested_class_ids=set(classes_df.index),
             )
 
         # Generate README data dictionary

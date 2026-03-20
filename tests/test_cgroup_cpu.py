@@ -1,9 +1,13 @@
 from unittest.mock import patch
 
+import nmaipy.cgroup_memory as cgroup_mod
 import psutil
+import pytest
 
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.cgroup_memory import (
+    _get_cgroup_cpu_percent,
+    _get_cgroup_cpu_usage_ns,
     get_cgroup_cpu_limit,
     get_cpu_info_cgroup_aware,
 )
@@ -68,7 +72,63 @@ class TestGetCgroupCpuLimitV1:
         assert get_cgroup_cpu_limit() == 2.0
 
 
+class TestGetCgroupCpuUsage:
+    @pytest.fixture(autouse=True)
+    def reset_cpu_state(self):
+        """Reset module-level CPU delta state between tests."""
+        cgroup_mod._prev_cgroup_cpu_usage_ns = None
+        cgroup_mod._prev_cgroup_cpu_time = None
+
+    def test_reads_v2_cpu_stat(self, tmp_path, monkeypatch):
+        cpu_stat = tmp_path / "cpu.stat"
+        cpu_stat.write_text("usage_usec 5000000\nuser_usec 3000000\nsystem_usec 2000000\n")
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_CPU_STAT", str(cpu_stat))
+        assert _get_cgroup_cpu_usage_ns() == 5_000_000_000  # 5M usec -> 5B ns
+
+    def test_reads_v1_cpuacct(self, tmp_path, monkeypatch):
+        cpuacct = tmp_path / "cpuacct.usage"
+        cpuacct.write_text("12000000000\n")
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_CPU_STAT", str(tmp_path / "nonexistent"))
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V1_CPUACCT_USAGE", str(cpuacct))
+        assert _get_cgroup_cpu_usage_ns() == 12_000_000_000
+
+    def test_returns_none_when_unavailable(self, monkeypatch):
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_CPU_STAT", "/nonexistent")
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V1_CPUACCT_USAGE", "/nonexistent")
+        assert _get_cgroup_cpu_usage_ns() is None
+
+    def test_first_call_returns_none(self, tmp_path, monkeypatch):
+        """First call establishes baseline, returns None."""
+        cpu_stat = tmp_path / "cpu.stat"
+        cpu_stat.write_text("usage_usec 1000000\n")
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_CPU_STAT", str(cpu_stat))
+        assert _get_cgroup_cpu_percent(4.0) is None
+
+    def test_second_call_computes_percent(self, tmp_path, monkeypatch):
+        """Second call computes delta-based percentage."""
+        cpu_stat = tmp_path / "cpu.stat"
+        cpu_stat.write_text("usage_usec 1000000\n")
+        monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_CPU_STAT", str(cpu_stat))
+
+        # First call — baseline
+        _get_cgroup_cpu_percent(4.0)
+
+        # Simulate 2 seconds of wall time, 4 CPU-seconds of usage (= 100% of 4 CPUs for 1s... but 2s elapsed)
+        # 4 CPU-seconds in 2 wall-seconds on 4 CPUs = 50%
+        cgroup_mod._prev_cgroup_cpu_time -= 2.0  # pretend 2s ago
+        cpu_stat.write_text("usage_usec 5000000\n")  # +4M usec = +4 CPU-seconds
+
+        pct = _get_cgroup_cpu_percent(4.0)
+        assert pct == pytest.approx(50.0, abs=1.0)
+
+
 class TestGetCpuInfoCgroupAware:
+    @pytest.fixture(autouse=True)
+    def reset_cpu_state(self):
+        """Reset module-level CPU delta state between tests."""
+        cgroup_mod._prev_cgroup_cpu_usage_ns = None
+        cgroup_mod._prev_cgroup_cpu_time = None
+
     def test_returns_tuple_of_floats(self, monkeypatch):
         # Force bare-metal path
         monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_MEMORY_MAX", "/nonexistent")

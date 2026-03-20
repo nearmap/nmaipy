@@ -1,6 +1,6 @@
 """Version information for nmaipy."""
 
-__version__ = "4.5.0a2"
+__version__ = "4.5.0a4"
 __version_info__ = tuple(
     int(i)
     for i in __version__.replace("a", ".")
