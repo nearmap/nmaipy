@@ -88,12 +88,17 @@ from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
+    _parse_include_param,
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
     flatten_building_attributes,
     flatten_roof_attributes,
 )
-from nmaipy.parcels import link_roofs_to_buildings
+from nmaipy.parcels import (
+    build_parent_lookup,
+    link_roofs_to_buildings,
+    resolve_footprint_rsi,
+)
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -823,13 +828,9 @@ def _compute_feature_class_data(
                 )
             else:
                 # Fallback: compute per-row (for standalone calls without cache)
-                child_by_aoi = _group_children_by_aoi(
-                    non_roof_features, features_gdf
-                )
-                roof_geoms_projected, child_proj_by_aoi = (
-                    _batch_project_geometries(
-                        class_features, child_by_aoi, country
-                    )
+                child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
+                roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
+                    class_features, child_by_aoi, country
                 )
 
                 t_roof_flatten = time.monotonic()
@@ -840,9 +841,7 @@ def _compute_feature_class_data(
                     try:
                         roof_aoi = row.get(AOI_ID_COLUMN_NAME)
                         aoi_children = (
-                            child_by_aoi.get(roof_aoi)
-                            if roof_aoi is not None
-                            else None
+                            child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                         )
                         attrs = flatten_roof_attributes(
                             [row],
@@ -873,6 +872,43 @@ def _compute_feature_class_data(
                     added_cols.update(attr_df.columns)
         except Exception as e:
             logger.debug(f"Could not flatten roof attributes: {e}")
+
+        # INDS-2030: Resolve footprint RSI per roof.
+        # For each roof: check roof's own RSI first, then traverse parent chain to BL.
+        # Alias columns — naming under review.
+        try:
+            bl_in_features = (
+                BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values
+                if features_gdf is not None
+                else False
+            )
+            if bl_in_features and "roof_spotlight_index" in class_features.columns:
+                fp_rsi_vals = np.full(n_rows, None, dtype=object)
+                fp_rsi_conf = np.full(n_rows, None, dtype=object)
+                p_lookup = build_parent_lookup(features_gdf)
+                roof_records_for_fp = _dataframe_to_records_with_index(class_features)
+                for i, row in enumerate(roof_records_for_fp):
+                    fp = resolve_footprint_rsi(row, parent_lookup=p_lookup)
+                    if fp:
+                        fp_rsi_vals[i] = fp.get("footprint_roof_spotlight_index")
+                        fp_rsi_conf[i] = fp.get(
+                            "footprint_roof_spotlight_index_confidence"
+                        )
+
+                if any(v is not None for v in fp_rsi_vals):
+                    fp_batch = {}
+                    if "footprint_roof_spotlight_index" not in added_cols:
+                        fp_batch["footprint_roof_spotlight_index"] = fp_rsi_vals
+                        added_cols.add("footprint_roof_spotlight_index")
+                    if "footprint_roof_spotlight_index_confidence" not in added_cols:
+                        fp_batch["footprint_roof_spotlight_index_confidence"] = (
+                            fp_rsi_conf
+                        )
+                        added_cols.add("footprint_roof_spotlight_index_confidence")
+                    if fp_batch:
+                        df_parts.append(pd.DataFrame(fp_batch, index=range(n_rows)))
+        except Exception as e:
+            logger.debug(f"Could not resolve footprint RSI for roofs: {e}")
 
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
@@ -1004,12 +1040,8 @@ def _compute_feature_class_data(
                                 [row],
                                 country=country,
                                 child_features=aoi_children,
-                                parent_projected=bldg_roof_geoms_projected.iloc[
-                                    idx
-                                ],
-                                children_projected=bldg_child_proj_by_aoi.get(
-                                    roof_aoi
-                                ),
+                                parent_projected=bldg_roof_geoms_projected.iloc[idx],
+                                children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
                             )
                             roof_attrs[row["feature_id"]] = attrs
                         except Exception as e:
@@ -1023,18 +1055,12 @@ def _compute_feature_class_data(
                 if roof_attrs:
                     # Map primary child roof attributes to buildings via DataFrame reindex
                     # (replaces per-attribute .apply(lambda) with a single vectorized lookup)
-                    roof_attrs_df = pd.DataFrame.from_dict(
-                        roof_attrs, orient="index"
-                    )
+                    roof_attrs_df = pd.DataFrame.from_dict(roof_attrs, orient="index")
                     roof_attrs_df.columns = [
                         f"primary_child_roof_{c}" for c in roof_attrs_df.columns
                     ]
-                    primary_ids = buildings_linked[
-                        "primary_child_roof_id"
-                    ].values
-                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(
-                        drop=True
-                    )
+                    primary_ids = buildings_linked["primary_child_roof_id"].values
+                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
 
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
@@ -1076,21 +1102,76 @@ def _compute_feature_class_data(
                                 continue
 
                         if "child_roof_roof_spotlight_index_min" not in added_cols:
-                            roof_attr_batch[
-                                "child_roof_roof_spotlight_index_min"
-                            ] = np.where(np.isnan(min_vals), None, min_vals)
+                            roof_attr_batch["child_roof_roof_spotlight_index_min"] = (
+                                np.where(np.isnan(min_vals), None, min_vals)
+                            )
                             added_cols.add("child_roof_roof_spotlight_index_min")
 
                         if "child_roof_roof_spotlight_index_max" not in added_cols:
-                            roof_attr_batch[
-                                "child_roof_roof_spotlight_index_max"
-                            ] = np.where(np.isnan(max_vals), None, max_vals)
+                            roof_attr_batch["child_roof_roof_spotlight_index_max"] = (
+                                np.where(np.isnan(max_vals), None, max_vals)
+                            )
                             added_cols.add("child_roof_roof_spotlight_index_max")
 
                     if roof_attr_batch:
                         df_parts.append(
                             pd.DataFrame(roof_attr_batch, index=range(n_rows))
                         )
+
+                # INDS-2030: Resolve footprint RSI per building.
+                # For each building: check primary child roof RSI first, then
+                # fall back to the building's parent (building lifecycle) RSI.
+                # Alias columns — naming under review.
+                if roof_attrs:
+                    fp_rsi_vals = np.full(n_rows, None, dtype=object)
+                    fp_rsi_conf = np.full(n_rows, None, dtype=object)
+                    bl_features_for_rsi = (
+                        features_gdf[features_gdf["class_id"] == BUILDING_LIFECYCLE_ID]
+                        if BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values
+                        else None
+                    )
+
+                    for i, (_, bldg_row) in enumerate(buildings_linked.iterrows()):
+                        # Try primary child roof RSI first
+                        pcr_id = bldg_row.get("primary_child_roof_id")
+                        if pd.notna(pcr_id) and pcr_id in roof_attrs:
+                            rsi_val = roof_attrs[pcr_id].get("roof_spotlight_index")
+                            if rsi_val is not None:
+                                fp_rsi_vals[i] = rsi_val
+                                fp_rsi_conf[i] = roof_attrs[pcr_id].get(
+                                    "roof_spotlight_index_confidence"
+                                )
+                                continue
+                        # Fall back to building's parent BL
+                        if bl_features_for_rsi is not None:
+                            bldg_parent_id = bldg_row.get("parent_id")
+                            if pd.notna(bldg_parent_id):
+                                bl_match = bl_features_for_rsi[
+                                    bl_features_for_rsi["feature_id"] == bldg_parent_id
+                                ]
+                                if len(bl_match) > 0:
+                                    bl_row = bl_match.iloc[0]
+                                    rsi_raw = bl_row.get("roof_spotlight_index")
+                                    rsi_data = _parse_include_param(rsi_raw)
+                                    if rsi_data and "value" in rsi_data:
+                                        fp_rsi_vals[i] = rsi_data["value"]
+                                        fp_rsi_conf[i] = rsi_data.get("confidence")
+
+                    if any(v is not None for v in fp_rsi_vals):
+                        fp_batch = {}
+                        if "footprint_roof_spotlight_index" not in added_cols:
+                            fp_batch["footprint_roof_spotlight_index"] = fp_rsi_vals
+                            added_cols.add("footprint_roof_spotlight_index")
+                        if (
+                            "footprint_roof_spotlight_index_confidence"
+                            not in added_cols
+                        ):
+                            fp_batch["footprint_roof_spotlight_index_confidence"] = (
+                                fp_rsi_conf
+                            )
+                            added_cols.add("footprint_roof_spotlight_index_confidence")
+                        if fp_batch:
+                            df_parts.append(pd.DataFrame(fp_batch, index=range(n_rows)))
 
                 # Link roof age data from primary child roof's roof instance
                 # Chain: building → primary_child_roof → primary_child_roof_age (roof instance) → roof_age_*
@@ -1311,7 +1392,11 @@ def export_feature_class(
 
     # Normalize class description for filename
     class_name = re.sub(r"[^a-z0-9]+", "_", class_description.lower()).strip("_")
-    tabular_path = storage.join_path(output_dir, f"{class_name}.{tabular_file_format}") if tabular_file_format else None
+    tabular_path = (
+        storage.join_path(output_dir, f"{class_name}.{tabular_file_format}")
+        if tabular_file_format
+        else None
+    )
     geo_parquet_path = storage.join_path(output_dir, f"{class_name}_features.parquet")
 
     # Save tabular file (attributes only, no geometry)
@@ -1835,7 +1920,9 @@ class NearmapAIExporter(BaseExporter):
         reference_schema = None  # Store PyArrow schema from first chunk
         schema_promotion_count = 0  # Count chunks needing null-type promotions
         mismatch_count = 0
-        variable_col_counts = collections.Counter()  # col_name -> num chunks where it differed
+        variable_col_counts = (
+            collections.Counter()
+        )  # col_name -> num chunks where it differed
 
         total = len(feature_paths)
         if total == 0:
@@ -1848,7 +1935,9 @@ class NearmapAIExporter(BaseExporter):
         # Corrupt/unreadable chunks are skipped (logged as errors) to match the
         # resilience of the streaming loop, which also skips bad chunks.
         self.logger.info(f"Scanning schemas from {total} chunk files...")
-        scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        scan_workers = (
+            S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        )
         chunk_schemas = [None] * total
         with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
             futures = {
@@ -1916,7 +2005,9 @@ class NearmapAIExporter(BaseExporter):
         # Set up prefetch buffer: read chunks ahead in background threads
         # while the main thread processes and writes the current chunk.
         # Use higher concurrency for S3 to overlap network round-trips.
-        prefetch_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else FEATURE_PREFETCH_WORKERS
+        prefetch_workers = (
+            S3_PARALLEL_READ_WORKERS if self.is_s3_output else FEATURE_PREFETCH_WORKERS
+        )
         executor = ThreadPoolExecutor(max_workers=prefetch_workers)
         prefetch_futures = {}
         initial_submit = min(prefetch_workers, total)
@@ -2081,9 +2172,7 @@ class NearmapAIExporter(BaseExporter):
                                         table.slice(run_start, j - run_start)
                                     )
                                     run_start = j
-                            pqwriter.write_table(
-                                table.slice(run_start, n - run_start)
-                            )
+                            pqwriter.write_table(table.slice(run_start, n - run_start))
                     else:
                         pqwriter.write_table(table)
 
@@ -2102,12 +2191,17 @@ class NearmapAIExporter(BaseExporter):
                         chunk_gdf = _add_is_primary_column(chunk_gdf, primary_ids_df)
 
                         # Split chunk by class_id for filtering
-                        chunk_class_ids = set(
-                            chunk_gdf["class_id"].dropna().unique()
-                        ) if "class_id" in chunk_gdf.columns else set()
+                        chunk_class_ids = (
+                            set(chunk_gdf["class_id"].dropna().unique())
+                            if "class_id" in chunk_gdf.columns
+                            else set()
+                        )
 
                         # Build class_descriptions dynamically from chunk data
-                        if "class_id" in chunk_gdf.columns and "description" in chunk_gdf.columns:
+                        if (
+                            "class_id" in chunk_gdf.columns
+                            and "description" in chunk_gdf.columns
+                        ):
                             for cid, desc in zip(
                                 chunk_gdf["class_id"].values,
                                 chunk_gdf["description"].values,
@@ -2138,9 +2232,7 @@ class NearmapAIExporter(BaseExporter):
                             else:
                                 roof_instance_chunk = gpd.GeoDataFrame()
                             # Child features = everything except Roof itself
-                            non_roof_chunk = chunk_gdf[
-                                chunk_gdf["class_id"] != ROOF_ID
-                            ]
+                            non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
 
                             # Compute roof attrs cache for this chunk
                             if (
@@ -2173,16 +2265,14 @@ class NearmapAIExporter(BaseExporter):
                                             [row],
                                             country=self.country,
                                             child_features=aoi_children,
-                                            parent_projected=roof_geoms_proj.iloc[
-                                                ridx
-                                            ],
+                                            parent_projected=roof_geoms_proj.iloc[ridx],
                                             children_projected=child_proj_by_aoi.get(
                                                 roof_aoi
                                             ),
                                         )
-                                        roof_attrs_cache_chunk[
-                                            row["feature_id"]
-                                        ] = attrs
+                                        roof_attrs_cache_chunk[row["feature_id"]] = (
+                                            attrs
+                                        )
                                     except Exception as e:
                                         logger.debug(
                                             f"Could not flatten roof attrs: {e}"
@@ -2233,7 +2323,8 @@ class NearmapAIExporter(BaseExporter):
                                 geo_wkb_df = pd.DataFrame(geo_gdf)
                                 geo_wkb_df["geometry"] = geo_gdf.geometry.to_wkb()
                                 geo_table = pa.Table.from_pandas(
-                                    geo_wkb_df, preserve_index=False,
+                                    geo_wkb_df,
+                                    preserve_index=False,
                                 )
                                 per_class_geo_tables.setdefault(cid, []).append(
                                     geo_table
@@ -2358,9 +2449,7 @@ class NearmapAIExporter(BaseExporter):
                     combined_schema = _promote_schema_types(combined.schema)
                     combined = _cast_table_to_schema(combined, combined_schema)
                     existing_meta = combined.schema.metadata or {}
-                    existing_meta[b"geo"] = json.dumps(geo_metadata).encode(
-                        "utf-8"
-                    )
+                    existing_meta[b"geo"] = json.dumps(geo_metadata).encode("utf-8")
                     combined = combined.replace_schema_metadata(existing_meta)
                     staging_path = os.path.join(
                         staging_dir, f"{cname}_features.parquet"
@@ -2395,21 +2484,15 @@ class NearmapAIExporter(BaseExporter):
                     cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
                     if "tabular" in paths:
                         ext = "csv" if tabular_file_format == "csv" else "parquet"
-                        s3_path = storage.join_path(
-                            self.final_path, f"{cname}.{ext}"
-                        )
+                        s3_path = storage.join_path(self.final_path, f"{cname}.{ext}")
                         storage.upload_file(paths["tabular"], s3_path)
-                        self.logger.info(
-                            f"  Uploaded {storage.basename(s3_path)}"
-                        )
+                        self.logger.info(f"  Uploaded {storage.basename(s3_path)}")
                     if "geo" in paths:
                         s3_path = storage.join_path(
                             self.final_path, f"{cname}_features.parquet"
                         )
                         storage.upload_file(paths["geo"], s3_path)
-                        self.logger.info(
-                            f"  Uploaded {storage.basename(s3_path)}"
-                        )
+                        self.logger.info(f"  Uploaded {storage.basename(s3_path)}")
             else:
                 # Move from staging to final directory
                 for cid, paths in per_class_final_paths.items():
@@ -2696,7 +2779,10 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 # If all Feature API requests failed and no roof age data, save errors and return
-                if len(feature_api_errors_df) == len(aoi_gdf) and len(roof_age_gdf) == 0:
+                if (
+                    len(feature_api_errors_df) == len(aoi_gdf)
+                    and len(roof_age_gdf) == 0
+                ):
                     storage.write_parquet(feature_api_errors_df, outfile_errors)
                     if len(roof_age_errors_df) > 0:
                         storage.write_parquet(
@@ -2870,10 +2956,14 @@ class NearmapAIExporter(BaseExporter):
 
                 # Build API metadata pairs for parcel_rollup: each pair tells
                 # the rollup which classes an API covers and which AOIs it succeeded for.
-                feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
+                feature_api_classes = classes_df[
+                    classes_df.index != ROOF_INSTANCE_CLASS_ID
+                ]
                 api_metadata = [(metadata_df, feature_api_classes)]
                 if self.roof_age:
-                    roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
+                    roof_age_classes = classes_df[
+                        classes_df.index == ROOF_INSTANCE_CLASS_ID
+                    ]
                     api_metadata.append((roof_age_metadata_df, roof_age_classes))
 
                 # Create rollup
@@ -3335,9 +3425,7 @@ class NearmapAIExporter(BaseExporter):
         outpath = storage.join_path(
             self.final_path, f"rollup.{self.tabular_file_format}"
         )
-        outpath_features = storage.join_path(
-            self.final_path, "features.parquet"
-        )
+        outpath_features = storage.join_path(self.final_path, "features.parquet")
         outpath_buildings = storage.join_path(
             self.final_path, f"buildings.{self.tabular_file_format}"
         )
@@ -3425,9 +3513,7 @@ class NearmapAIExporter(BaseExporter):
         if self.roof_age:
             initial_aoi_count *= 2
 
-        latency_csv_path = storage.join_path(
-            self.final_path, "latency_stats.csv"
-        )
+        latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
 
         self.run_parallel(
             chunks_to_process,
@@ -3534,9 +3620,7 @@ class NearmapAIExporter(BaseExporter):
         if len(data) > 0:
             # Filter out DataFrames that are entirely NA (all values NA across all columns)
             data = [d for d in data if not d.isna().all().all()]
-            self.logger.info(
-                f"Concatenating {len(data)} rollup chunks..."
-            )
+            self.logger.info(f"Concatenating {len(data)} rollup chunks...")
             # Suppress FutureWarning about all-NA columns in concat dtype inference.
             # Individual chunks may have all-NA columns for feature types not present
             # in that chunk; this doesn't affect correctness.
@@ -3752,9 +3836,7 @@ class NearmapAIExporter(BaseExporter):
 
         local_features_path = None
         if self.save_features:
-            feature_paths = storage.glob_files(
-                self.chunk_path, "features_*.parquet"
-            )
+            feature_paths = storage.glob_files(self.chunk_path, "features_*.parquet")
             self.logger.info(
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
             )

@@ -41,6 +41,7 @@ from nmaipy.constants import (
 from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
+    _parse_include_param,
     flatten_building_attributes,
     flatten_building_lifecycle_damage_attributes,
     flatten_roof_attributes,
@@ -63,6 +64,8 @@ __all__ = [
     "feature_attributes",
     "link_roof_instances_to_roofs",
     "link_roofs_to_buildings",
+    "build_parent_lookup",
+    "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
@@ -615,6 +618,101 @@ def link_roofs_to_buildings(
     return rf_gdf, bldg_gdf
 
 
+def _extract_rsi_from_feature(feature) -> dict:
+    """Extract RSI fields from a feature row, returning a dict or empty dict."""
+    rsi_raw = (
+        feature.get("roof_spotlight_index")
+        if hasattr(feature, "get")
+        else getattr(feature, "roof_spotlight_index", None)
+    )
+    rsi_data = _parse_include_param(rsi_raw)
+    if not rsi_data:
+        return {}
+    result = {}
+    if "value" in rsi_data:
+        result["footprint_roof_spotlight_index"] = rsi_data["value"]
+    if "confidence" in rsi_data:
+        result["footprint_roof_spotlight_index_confidence"] = rsi_data["confidence"]
+    return result
+
+
+def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
+    """Build a feature_id → row dict for fast parent_id chain traversal."""
+    if (
+        features_gdf is None
+        or len(features_gdf) == 0
+        or "feature_id" not in features_gdf.columns
+    ):
+        return {}
+    lookup = {}
+    for _, row in features_gdf.iterrows():
+        fid = row.get("feature_id")
+        if fid is not None:
+            lookup[fid] = row
+    return lookup
+
+
+def resolve_footprint_rsi(
+    feature,
+    features_gdf: gpd.GeoDataFrame = None,
+    parent_lookup: dict = None,
+) -> dict:
+    """
+    Resolve the 'best' RSI for a feature by checking both the feature itself
+    and its corresponding building_lifecycle via parent_id chain.
+
+    The API calculates RSI on the roof polygon normally, but switches to the
+    building_lifecycle polygon when structural damage is present. This function
+    returns RSI from whichever feature has it.
+
+    Chain: Roof -> Building (Deprecated) -> Building Lifecycle (2 hops)
+           Building (New) -> Building Lifecycle (1 hop)
+
+    Args:
+        feature: A feature row (pd.Series or dict) with parent_id and roof_spotlight_index
+        features_gdf: The full features GeoDataFrame for parent_id lookups.
+            Used to build parent_lookup if not provided.
+        parent_lookup: Pre-built feature_id → row dict for fast traversal.
+            Pass this when calling in a loop to avoid rebuilding per call.
+
+    Returns:
+        dict with footprint_roof_spotlight_index and footprint_roof_spotlight_index_confidence,
+        or empty dict if no RSI found anywhere in the chain.
+    """
+    # Check if the feature itself has RSI
+    rsi = _extract_rsi_from_feature(feature)
+    if rsi:
+        return rsi
+
+    # Build lookup if not provided
+    if parent_lookup is None:
+        parent_lookup = build_parent_lookup(features_gdf)
+    if not parent_lookup:
+        return {}
+
+    # Traverse parent_id chain to find the building_lifecycle
+    visited = set()
+    pid = (
+        feature.get("parent_id")
+        if hasattr(feature, "get")
+        else getattr(feature, "parent_id", None)
+    )
+    while pd.notna(pid) and pid not in visited:
+        visited.add(pid)
+        parent = parent_lookup.get(pid)
+        if parent is None:
+            break
+        if parent.get("class_id") == BUILDING_LIFECYCLE_ID:
+            return _extract_rsi_from_feature(parent)
+        pid = (
+            parent.get("parent_id")
+            if hasattr(parent, "get")
+            else getattr(parent, "parent_id", None)
+        )
+
+    return {}
+
+
 def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
@@ -677,6 +775,24 @@ def feature_attributes(
             and pd.notna(_primary_roof.primary_child_roof_age_feature_id)
         ):
             _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
+
+    # Pre-select primary building lifecycle for footprint RSI resolution (INDS-2030)
+    _primary_bl = None
+    bl_features = features_gdf[features_gdf.class_id == BUILDING_LIFECYCLE_ID]
+    if len(bl_features) > 0:
+        _primary_bl = select_primary(
+            bl_features,
+            method=primary_decision,
+            area_col="clipped_area_sqm",
+            secondary_area_col="unclipped_area_sqm",
+            target_lat=primary_lat,
+            target_lon=primary_lon,
+            confidence_col="confidence",
+            high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
+            geometry_col="geometry_feature",
+            geometry_projected_col=geometry_projected_col,
+            projected_crs=projected_crs,
+        )
 
     for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
@@ -823,8 +939,7 @@ def feature_attributes(
                             target_lon=primary_lon,
                             confidence_col=(
                                 "trust_score"
-                                if "trust_score"
-                                in features_for_selection.columns
+                                if "trust_score" in features_for_selection.columns
                                 else None
                             ),
                             high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
@@ -858,9 +973,11 @@ def feature_attributes(
                         else 0.0
                     )
             else:
-                # For roofs, reuse the pre-selected primary roof (avoid redundant select_primary call)
+                # Reuse pre-selected primaries (avoid redundant select_primary calls)
                 if class_id == ROOF_ID and _primary_roof is not None:
                     primary_feature = _primary_roof
+                elif class_id == BUILDING_LIFECYCLE_ID and _primary_bl is not None:
+                    primary_feature = _primary_bl
                 else:
                     primary_feature = select_primary(
                         class_features_gdf,
@@ -897,7 +1014,9 @@ def feature_attributes(
             if class_id in BUILDING_STYLE_CLASS_IDS:
                 col = "multiparcel_feature"
                 if col in primary_feature:
-                    parcel[f"primary_{name}_{col}"] = TRUE_STRING if primary_feature[col] else FALSE_STRING
+                    parcel[f"primary_{name}_{col}"] = (
+                        TRUE_STRING if primary_feature[col] else FALSE_STRING
+                    )
                 if class_id == ROOF_ID:
                     # Get non-roof features as children for clipped roof recalculation
                     geom_col = (
@@ -951,6 +1070,30 @@ def feature_attributes(
                 # Add aggregated damage across whole parcel, weighted by building lifecycle area
                 # TODO: Finish this.
                 pass
+
+    # INDS-2030: Resolve footprint RSI from primary roof or primary building lifecycle.
+    # When structural damage is present, the API puts RSI on the BL instead of the roof.
+    # Alias columns — naming under review.
+    _fp_rsi = {}
+    _primary_roof_rsi_key = "primary_roof_roof_spotlight_index"
+    if _primary_roof_rsi_key in parcel and parcel[_primary_roof_rsi_key] is not None:
+        _fp_rsi["primary_footprint_roof_spotlight_index"] = parcel[
+            _primary_roof_rsi_key
+        ]
+        _fp_rsi["primary_footprint_roof_spotlight_index_confidence"] = parcel.get(
+            "primary_roof_roof_spotlight_index_confidence"
+        )
+    elif _primary_bl is not None:
+        bl_rsi = _extract_rsi_from_feature(_primary_bl)
+        if bl_rsi:
+            _fp_rsi["primary_footprint_roof_spotlight_index"] = bl_rsi.get(
+                "footprint_roof_spotlight_index"
+            )
+            _fp_rsi["primary_footprint_roof_spotlight_index_confidence"] = bl_rsi.get(
+                "footprint_roof_spotlight_index_confidence"
+            )
+    parcel.update(_fp_rsi)
+
     return parcel
 
 
@@ -1136,13 +1279,21 @@ def parcel_rollup(
             area_name = f"area_{area_units}"
             empty_gdf = gpd.GeoDataFrame(
                 [],
-                columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"],
+                columns=[
+                    "class_id",
+                    area_name,
+                    f"clipped_{area_name}",
+                    f"unclipped_{area_name}",
+                ],
             )
             for class_id in classes_df.index:
                 single_class = classes_df.loc[[class_id]]
                 baseline = feature_attributes(
-                    empty_gdf, single_class, country=country,
-                    parcel_geom=None, primary_decision=primary_decision,
+                    empty_gdf,
+                    single_class,
+                    country=country,
+                    parcel_geom=None,
+                    primary_decision=primary_decision,
                 )
                 _class_baseline_columns[class_id] = set(baseline.keys())
 
