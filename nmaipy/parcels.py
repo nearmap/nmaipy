@@ -1041,7 +1041,9 @@ def feature_attributes(
                             geometry="geometry",
                         )
                     primary_attributes = flatten_roof_attributes(
-                        [primary_feature], country=country, child_features=child_feats,
+                        [primary_feature],
+                        country=country,
+                        child_features=child_feats,
                     )
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:

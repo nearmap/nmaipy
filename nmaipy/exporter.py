@@ -65,7 +65,6 @@ from nmaipy.constants import (
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
-    _write_class_descriptions,
     FEATURE_PREFETCH_WORKERS,
     GRID_SIZE_DEGREES,
     IMPERIAL_COUNTRIES,
@@ -84,6 +83,7 @@ from nmaipy.constants import (
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
+    _write_class_descriptions,
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
@@ -552,9 +552,7 @@ def _unify_and_concat_tables(tables: list[pa.Table]) -> pa.Table:
     then applies ``_promote_schema_types`` for string/binary → large_string/
     large_binary offset overflow protection.
     """
-    unified = pa.unify_schemas(
-        [t.schema for t in tables], promote_options="permissive"
-    )
+    unified = pa.unify_schemas([t.schema for t in tables], promote_options="permissive")
     target = _promote_schema_types(unified)
     cast_tables = [_reconcile_table_schema(t, target) for t in tables]
     return pa.concat_tables(cast_tables)
@@ -606,6 +604,7 @@ def _compute_all_per_class_data(
     aoi_input_columns: list,
     whitelisted_classes: list = None,
     logger_instance=None,
+    all_features_gdf: gpd.GeoDataFrame = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -615,10 +614,16 @@ def _compute_all_per_class_data(
 
     This is the shared core used by both process_chunk() (in-memory path) and
     _merge_per_class_chunks() (fallback recomputation path).
+
+    Args:
+        all_features_gdf: Optional GeoDataFrame including deprecated features for
+            parent_id chain traversal (INDS-2030). If None, chunk_gdf is used.
     """
     if whitelisted_classes is None:
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
     _log = logger_instance or logger
+    # Use all_features_gdf (includes deprecated) for cross-class lookups if provided
+    cross_class_gdf = all_features_gdf if all_features_gdf is not None else chunk_gdf
 
     chunk_class_ids = (
         set(chunk_gdf["class_id"].dropna().unique())
@@ -667,7 +672,9 @@ def _compute_all_per_class_data(
         ):
             child_by_aoi = _group_children_by_aoi(non_roof_chunk, None)
             roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(
-                roof_features_chunk, child_by_aoi, country,
+                roof_features_chunk,
+                child_by_aoi,
+                country,
             )
             roof_attrs_cache_chunk = {}
             roof_records = _dataframe_to_records_with_index(roof_features_chunk)
@@ -708,7 +715,7 @@ def _compute_all_per_class_data(
                 country=country,
                 aoi_columns=aoi_input_columns,
                 class_features=class_feats,
-                features_gdf=chunk_gdf,
+                features_gdf=cross_class_gdf,
                 roof_features=roof_features_chunk,
                 non_roof_features=non_roof_chunk,
                 roof_instance_features=roof_instance_chunk,
@@ -1213,9 +1220,16 @@ def _compute_feature_class_data(
                     mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
 
                     roof_attr_batch = {}
-                    _DOM = ("primary_child_roof_dominant_roof_material_", "primary_child_roof_dominant_roof_types_")
-                    dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
-                    other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM))
+                    _DOM = (
+                        "primary_child_roof_dominant_roof_material_",
+                        "primary_child_roof_dominant_roof_types_",
+                    )
+                    dominant_cols = sorted(
+                        c for c in mapped.columns if c.startswith(_DOM)
+                    )
+                    other_cols = sorted(
+                        c for c in mapped.columns if not c.startswith(_DOM)
+                    )
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
@@ -2415,7 +2429,8 @@ class NearmapAIExporter(BaseExporter):
 
             # Filter out geo chunks from tabular list (they share the cname prefix)
             tabular_chunks = [
-                p for p in tabular_chunks
+                p
+                for p in tabular_chunks
                 if not storage.basename(p).startswith(f"{cname}_features_")
             ]
 
@@ -2441,9 +2456,7 @@ class NearmapAIExporter(BaseExporter):
                         try:
                             tabular_tables.append(future.result())
                         except Exception as e:
-                            self.logger.error(
-                                f"Failed reading {futures[future]}: {e}"
-                            )
+                            self.logger.error(f"Failed reading {futures[future]}: {e}")
                 if tabular_tables:
                     combined = _unify_and_concat_tables(tabular_tables)
                     staging_path = os.path.join(staging_dir, f"{cname}.parquet")
@@ -2452,21 +2465,15 @@ class NearmapAIExporter(BaseExporter):
                     del combined, tabular_tables
 
             if geo_chunks:
-                self.logger.info(
-                    f"Merging {len(geo_chunks)} geo chunks for {desc}"
-                )
+                self.logger.info(f"Merging {len(geo_chunks)} geo chunks for {desc}")
                 geo_tables = []
                 with ThreadPoolExecutor(max_workers=read_workers) as executor:
-                    futures = {
-                        executor.submit(pq.read_table, p): p for p in geo_chunks
-                    }
+                    futures = {executor.submit(pq.read_table, p): p for p in geo_chunks}
                     for future in as_completed(futures):
                         try:
                             geo_tables.append(future.result())
                         except Exception as e:
-                            self.logger.error(
-                                f"Failed reading {futures[future]}: {e}"
-                            )
+                            self.logger.error(f"Failed reading {futures[future]}: {e}")
                 if geo_tables:
                     combined = _unify_and_concat_tables(geo_tables)
                     existing_meta = combined.schema.metadata or {}
@@ -2492,10 +2499,11 @@ class NearmapAIExporter(BaseExporter):
                     os.remove(parquet_path)
 
         # Move files from staging to final destination (or upload to S3)
-        staged_files = [
-            f for f in os.listdir(staging_dir)
-            if f.endswith((".parquet", ".csv"))
-        ] if os.path.isdir(staging_dir) else []
+        staged_files = (
+            [f for f in os.listdir(staging_dir) if f.endswith((".parquet", ".csv"))]
+            if os.path.isdir(staging_dir)
+            else []
+        )
 
         if self.is_s3_output:
             for fname in staged_files:
@@ -2687,7 +2695,10 @@ class NearmapAIExporter(BaseExporter):
                     )
                 )
 
-                # Filter out deprecated feature classes early
+                # Filter out deprecated feature classes early.
+                # Keep unfiltered reference for parent_id chain traversal (INDS-2030:
+                # Roof -> Building Deprecated -> Building Lifecycle).
+                features_gdf_with_deprecated = features_gdf
                 if len(features_gdf) > 0 and "class_id" in features_gdf.columns:
                     pre_filter_count = len(features_gdf)
                     features_gdf = features_gdf[
@@ -3286,26 +3297,36 @@ class NearmapAIExporter(BaseExporter):
                 try:
                     # Extract primary feature IDs from this chunk's rollup (AOI_ID as index)
                     primary_cols = [
-                        c for c in PRIMARY_FEATURE_COLUMN_TO_CLASS if c in final_df.columns
+                        c
+                        for c in PRIMARY_FEATURE_COLUMN_TO_CLASS
+                        if c in final_df.columns
                     ]
                     if primary_cols:
                         rollup_indexed = final_df
                         if AOI_ID_COLUMN_NAME in rollup_indexed.columns:
-                            rollup_indexed = rollup_indexed.set_index(AOI_ID_COLUMN_NAME)
+                            rollup_indexed = rollup_indexed.set_index(
+                                AOI_ID_COLUMN_NAME
+                            )
                         primary_ids_df = rollup_indexed[primary_cols].copy()
                     else:
                         primary_ids_df = pd.DataFrame()
-                    chunk_gdf = _add_is_primary_column(final_features_df, primary_ids_df)
+                    chunk_gdf = _add_is_primary_column(
+                        final_features_df, primary_ids_df
+                    )
 
                     # Compute aoi_input_columns (user columns from AOI file)
                     system_columns = {
-                        AOI_ID_COLUMN_NAME, "geometry",
-                        SINCE_COL_NAME, UNTIL_COL_NAME,
+                        AOI_ID_COLUMN_NAME,
+                        "geometry",
+                        SINCE_COL_NAME,
+                        UNTIL_COL_NAME,
                         SURVEY_RESOURCE_ID_COL_NAME,
-                        "query_aoi_lat", "query_aoi_lon",
+                        "query_aoi_lat",
+                        "query_aoi_lon",
                     }
                     aoi_input_columns = [
-                        c for c in aoi_gdf.columns
+                        c
+                        for c in aoi_gdf.columns
                         if c not in system_columns and c not in ADDRESS_FIELDS
                     ]
 
@@ -3314,6 +3335,7 @@ class NearmapAIExporter(BaseExporter):
                         country=self.country,
                         aoi_input_columns=aoi_input_columns,
                         logger_instance=self.logger,
+                        all_features_gdf=features_gdf_with_deprecated,
                     )
 
                     for cid, tables in per_class_results.items():
@@ -3322,12 +3344,17 @@ class NearmapAIExporter(BaseExporter):
 
                         storage.write_parquet(
                             tables["tabular"],
-                            storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
+                            storage.join_path(
+                                self.chunk_path, f"{cname}_{chunk_id}.parquet"
+                            ),
                         )
                         if "geo" in tables:
                             storage.write_parquet(
                                 tables["geo"],
-                                storage.join_path(self.chunk_path, f"{cname}_features_{chunk_id}.parquet"),
+                                storage.join_path(
+                                    self.chunk_path,
+                                    f"{cname}_features_{chunk_id}.parquet",
+                                ),
                             )
                     del chunk_gdf, per_class_results
                 except Exception as e:
@@ -3939,7 +3966,9 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country,
+                    parcels_gdf=aoi_gdf,
+                    features_gdf=None,
+                    country=self.country,
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
