@@ -58,6 +58,22 @@ RSI_COLUMNS = {
 }
 
 # Roof Age columns
+# Dominant material/shape summary columns
+DOMINANT_ROOF_MATERIAL_COLUMNS = {
+    "dominant_roof_material_feature_class": "Feature class UUID of the dominant roof material",
+    "dominant_roof_material_description": "Snake_case name of the dominant material (or 'unknown' if ratio < 0.5)",
+    "dominant_roof_material_area_{unit}": "Area of the dominant material component",
+    "dominant_roof_material_ratio": "Ratio of the dominant material relative to total roof area (0.0-1.0)",
+    "dominant_roof_material_confidence": "Confidence in the dominant material classification (0.0-1.0)",
+}
+
+DOMINANT_ROOF_TYPES_COLUMNS = {
+    "dominant_roof_types_feature_class": "Feature class UUID of the dominant roof shape",
+    "dominant_roof_types_description": "Snake_case name of the dominant shape (or 'unknown' if no detected area)",
+    "dominant_roof_types_area_{unit}": "Area of the dominant shape component",
+    "dominant_roof_types_confidence": "Confidence in the dominant shape classification (0.0-1.0)",
+}
+
 ROOF_AGE_COLUMNS = {
     "roof_age_installation_date": "Estimated roof installation date (YYYY-MM-DD)",
     "roof_age_as_of_date": "Reference date for age calculation",
@@ -141,6 +157,7 @@ class ReadmeGenerator:
         rollup_columns = self._get_rollup_columns(files)
 
         has_address_query = self._has_address_query_columns(rollup_columns)
+        has_dominant = self._has_dominant_columns(rollup_columns)
         has_rsi = self._has_rsi_columns(rollup_columns)
         has_roof_age = self._has_roof_age_columns(rollup_columns)
         area_unit = self._detect_area_unit()
@@ -154,6 +171,8 @@ class ReadmeGenerator:
 
         if has_address_query:
             sections.append(self._generate_address_query_section(rollup_columns))
+        if has_dominant:
+            sections.append(self._generate_dominant_section(area_unit))
         if has_rsi:
             sections.append(self._generate_rsi_section())
         if has_roof_age:
@@ -278,6 +297,10 @@ class ReadmeGenerator:
     def _has_address_query_columns(self, columns: set[str]) -> bool:
         """Check if address or query coordinate columns are present."""
         return "streetAddress" in columns or "query_aoi_lat" in columns
+
+    def _has_dominant_columns(self, columns: set[str]) -> bool:
+        """Check if dominant material/shape summary columns are present."""
+        return any(c.startswith("dominant_roof_material_") or c.startswith("dominant_roof_types_") for c in columns)
 
     def _has_rsi_columns(self, columns: set[str]) -> bool:
         """Check if Roof Spotlight Index columns are present."""
@@ -435,6 +458,46 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
                 lines.append(f"| `{col}` | {desc} |")
 
         lines.append("")
+        return "\n".join(lines)
+
+    def _generate_dominant_section(self, area_unit: str) -> str:
+        """Generate the dominant material/shape summary section."""
+        lines = [
+            "## Dominant Roof Material & Shape Columns",
+            "",
+            "These columns summarise the dominant (largest area) roof material and shape for the primary roof:",
+            "",
+            "### Dominant Material",
+            "",
+            "| Column | Description |",
+            "|--------|-------------|",
+        ]
+
+        for col, desc in DOMINANT_ROOF_MATERIAL_COLUMNS.items():
+            col_name = col.replace("{unit}", area_unit)
+            lines.append(f"| `{col_name}` | {desc.replace('{unit}', area_unit)} |")
+
+        lines.extend([
+            "",
+            "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
+            "",
+            "### Dominant Shape",
+            "",
+            "| Column | Description |",
+            "|--------|-------------|",
+        ])
+
+        for col, desc in DOMINANT_ROOF_TYPES_COLUMNS.items():
+            col_name = col.replace("{unit}", area_unit)
+            lines.append(f"| `{col_name}` | {desc.replace('{unit}', area_unit)} |")
+
+        lines.extend([
+            "",
+            "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
+            "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
+            "",
+        ])
+
         return "\n".join(lines)
 
     def _generate_rsi_section(self) -> str:

@@ -41,6 +41,26 @@ Run a specific test:
 pytest tests/test_parcels.py::test_function_name
 ```
 
+#### End-to-End Testing
+
+End-to-end tests against the live API are a critical way to validate new features and bug fixes — unit tests alone are not sufficient for catching issues in the full data pipeline. Sample datasets for this purpose live in `tests/data/`:
+
+- `tests/data/test_parcels_2.csv` — ~100 NJ residential parcels, good general-purpose US test set
+- `tests/data/test_parcels.csv` — ~19 Sydney parcels, good general-purpose AU test set
+
+To run an end-to-end test (requires `API_KEY`), choose parameters appropriate to the feature being tested — packs, flags, country, etc. will vary by context. Example:
+```bash
+python nmaipy/exporter.py \
+    --aoi-file tests/data/test_parcels_2.csv \
+    --output-dir data/my_test_output \
+    --country us \
+    --processes 4 \
+    --packs building \
+    --save-features
+```
+
+Output directly to a subfolder under `data/` so files can be reviewed in the IDE. The `data/` directory is gitignored, so generated outputs won't be committed. Check `data/my_test_output/final/` for rollup and per-class files.
+
 #### Test Markers
 
 `pytest.ini` defines four markers:
@@ -121,6 +141,19 @@ python nmaipy/exporter.py \
 ```
 
 AWS credentials are resolved from environment variables or `~/.aws/credentials`.
+
+## Column Naming Conventions
+
+All output column names in nmaipy are **programmatically derived** from the API's `description` field using `.lower().replace(" ", "_")`. This applies everywhere: per-component columns, dominant summary columns, rollup prefixes, etc.
+
+**Do not introduce hardcoded friendly name mappings** (e.g. `"Roof material" → "material"`, `"Roof types" → "shape"`). If the API description is `"Roof material"`, the column prefix is `roof_material_`. If it's `"Roof types"`, the prefix is `roof_types_`. Friendly/display renames are a downstream application concern, not nmaipy's.
+
+This consistency matters because:
+- It keeps the mapping from API response to output columns predictable and auditable
+- New API descriptions automatically get correct column names without code changes
+- The `flatten_*_attributes()` functions, `readme_generator.py`, and `exporter.py` column partitioning all rely on this convention
+
+When adding new columns derived from API descriptions, always use the programmatic pattern rather than inventing abbreviated or "cleaned" names.
 
 ## Code Architecture
 

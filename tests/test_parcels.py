@@ -438,6 +438,15 @@ class TestParcels:
             "tree_overhang_area_sqm": 0,
             "tree_overhang_ratio": 0,
             "tree_overhang_confidence": 1,
+            "dominant_roof_material_feature_class": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+            "dominant_roof_material_description": "tile_roof",
+            "dominant_roof_material_area_sqm": 284.2,
+            "dominant_roof_material_ratio": 0.9113204992491568,
+            "dominant_roof_material_confidence": 0.9904731109239588,
+            "dominant_roof_types_feature_class": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+            "dominant_roof_types_description": "gable",
+            "dominant_roof_types_area_sqm": 74.8,
+            "dominant_roof_types_confidence": 0.7787800614990344,
         }
         actual = parcels.flatten_roof_attributes([roof], "au")
         for k in expected:

@@ -350,6 +350,86 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
     return flattened
 
 
+# Attribute descriptions (snake_cased) for which dominant summary columns are emitted.
+_DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
+# Minimum ratio for a material to be considered dominant (below this → UNKNOWN).
+DOMINANT_MATERIAL_MIN_RATIO = 0.5
+
+
+def _get_component_stats(
+    component: dict, recalc_attrs: Optional[dict], country: str
+) -> dict:
+    """Get ratio, area, confidence, class_id for a component from the best available source.
+
+    Uses recalc_attrs (clipped geometry intersection) when available,
+    otherwise falls back to raw API component values.
+    """
+    name = component["description"].lower().replace(" ", "_")
+    if recalc_attrs is not None and f"{name}_ratio" in recalc_attrs:
+        area_key = f"{name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{name}_area_sqm"
+        return {
+            "name": name,
+            "class_id": recalc_attrs.get(f"{name}_class_id", component["classId"]),
+            "ratio": recalc_attrs.get(f"{name}_ratio", 0.0) or 0.0,
+            "area": recalc_attrs.get(area_key, 0.0) or 0.0,
+            "confidence": recalc_attrs.get(f"{name}_confidence"),
+        }
+    area = (
+        component.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES
+        else component.get("areaSqm", 0.0)
+    )
+    return {
+        "name": name,
+        "class_id": component["classId"],
+        "ratio": component.get("ratio", 0.0) or 0.0,
+        "area": area or 0.0,
+        "confidence": component.get("confidence"),
+    }
+
+
+def _build_dominant_columns(
+    components: list, recalc_attrs: Optional[dict], country: str, attr_key: str
+) -> dict:
+    """Build dominant summary columns for a roof attribute type.
+
+    Selects the dominant component by highest ratio, applies UNKNOWN rules,
+    and returns an ordered dict of dominant_* columns.
+    """
+    if not components:
+        return {}
+
+    stats = [_get_component_stats(c, recalc_attrs, country) for c in components]
+    winner = max(stats, key=lambda s: s["ratio"])
+
+    prefix = f"dominant_{attr_key}"
+    area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
+    is_material = attr_key == "roof_material"
+
+    # UNKNOWN: material below majority threshold, or shape with no detected area
+    is_unknown = (
+        (is_material and winner["ratio"] < DOMINANT_MATERIAL_MIN_RATIO)
+        or (not is_material and winner["area"] <= 0)
+    )
+
+    columns = {}
+    if is_unknown:
+        columns[f"{prefix}_feature_class"] = None
+        columns[f"{prefix}_description"] = "unknown"
+        columns[f"{prefix}{area_suffix}"] = None
+        if is_material:
+            columns[f"{prefix}_ratio"] = None
+        columns[f"{prefix}_confidence"] = None
+    else:
+        columns[f"{prefix}_feature_class"] = winner["class_id"]
+        columns[f"{prefix}_description"] = winner["name"]
+        columns[f"{prefix}{area_suffix}"] = winner["area"]
+        if is_material:
+            columns[f"{prefix}_ratio"] = winner["ratio"]
+        columns[f"{prefix}_confidence"] = winner["confidence"]
+
+    return columns
+
+
 def flatten_roof_attributes(
     roofs: List[dict],
     country: str,
@@ -575,6 +655,11 @@ def flatten_roof_attributes(
             and clipped_area < unclipped_area * CLIPPED_AREA_TOLERANCE
         )
 
+        # Two-pass approach: collect dominant summary + per-component data,
+        # then emit dominant columns first so they precede constituent columns.
+        dominant_columns = {}
+        component_columns = {}
+
         for attribute in attributes or []:
             if "components" in attribute:
                 components = attribute["components"]
@@ -603,6 +688,13 @@ def flatten_roof_attributes(
                             children_projected=children_projected,
                         )
 
+                # Collect dominant material/shape summary
+                attr_key = attribute.get("description", "").lower().replace(" ", "_")
+                if attr_key in _DOMINANT_ATTRIBUTE_DESCRIPTIONS:
+                    dominant_columns.update(
+                        _build_dominant_columns(components, recalc_attrs, country, attr_key)
+                    )
+
                 for component in components:
                     name = component["description"].lower().replace(" ", "_")
                     if "Low confidence" in attribute.get("description", ""):
@@ -610,40 +702,40 @@ def flatten_roof_attributes(
 
                     if recalc_attrs is not None and f"{name}_present" in recalc_attrs:
                         # Use recalculated values from spatial intersection with clipped geometry
-                        flattened[f"{name}_present"] = recalc_attrs[f"{name}_present"]
+                        component_columns[f"{name}_present"] = recalc_attrs[f"{name}_present"]
                         if country in IMPERIAL_COUNTRIES:
-                            flattened[f"{name}_area_sqft"] = recalc_attrs.get(
+                            component_columns[f"{name}_area_sqft"] = recalc_attrs.get(
                                 f"{name}_area_sqft", 0.0
                             )
                         else:
-                            flattened[f"{name}_area_sqm"] = recalc_attrs.get(
+                            component_columns[f"{name}_area_sqm"] = recalc_attrs.get(
                                 f"{name}_area_sqm", 0.0
                             )
                         # Only emit confidence when present (recalc omits it for present=N)
                         if f"{name}_confidence" in recalc_attrs:
-                            flattened[f"{name}_confidence"] = recalc_attrs[
+                            component_columns[f"{name}_confidence"] = recalc_attrs[
                                 f"{name}_confidence"
                             ]
                         if "ratio" in component or f"{name}_ratio" in recalc_attrs:
-                            flattened[f"{name}_ratio"] = recalc_attrs.get(
+                            component_columns[f"{name}_ratio"] = recalc_attrs.get(
                                 f"{name}_ratio", 0.0
                             )
                     else:
                         # Use original component data (unclipped, or no child features for this component)
-                        flattened[f"{name}_present"] = (
+                        component_columns[f"{name}_present"] = (
                             TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                         )
                         if country in IMPERIAL_COUNTRIES:
-                            flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                            component_columns[f"{name}_area_sqft"] = component["areaSqft"]
                         else:
-                            flattened[f"{name}_area_sqm"] = component["areaSqm"]
-                        flattened[f"{name}_confidence"] = component["confidence"]
+                            component_columns[f"{name}_area_sqm"] = component["areaSqm"]
+                        component_columns[f"{name}_confidence"] = component["confidence"]
                         if "ratio" in component:
-                            flattened[f"{name}_ratio"] = component["ratio"]
+                            component_columns[f"{name}_ratio"] = component["ratio"]
 
                     # Dominant and confidenceStats always come from the original component
                     if "dominant" in component:
-                        flattened[f"{name}_dominant"] = (
+                        component_columns[f"{name}_dominant"] = (
                             TRUE_STRING if component["dominant"] else FALSE_STRING
                         )
                     if "confidenceStats" in component:
@@ -653,15 +745,20 @@ def flatten_roof_attributes(
                             bin_type = histogram.get("binType", "unknown")
                             ratios = histogram.get("ratios", [])
                             for bin_idx, ratio_value in enumerate(ratios):
-                                flattened[
+                                component_columns[
                                     f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"
                                 ] = ratio_value
+
             elif "has3dAttributes" in attribute:
-                flattened["has_3d_attributes"] = (
+                component_columns["has_3d_attributes"] = (
                     TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
                 )
                 if attribute["has3dAttributes"]:
-                    flattened["pitch_degrees"] = attribute["pitch"]
+                    component_columns["pitch_degrees"] = attribute["pitch"]
+
+        # Emit dominant summary columns before per-component constituent columns
+        flattened.update(dominant_columns)
+        flattened.update(component_columns)
     return flattened
 
 

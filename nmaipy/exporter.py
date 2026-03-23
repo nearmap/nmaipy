@@ -65,6 +65,7 @@ from nmaipy.constants import (
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
+    _write_class_descriptions,
     FEATURE_PREFETCH_WORKERS,
     GRID_SIZE_DEGREES,
     IMPERIAL_COUNTRIES,
@@ -203,7 +204,7 @@ def _add_is_primary_column(
 
     Matches on (aoi_id, feature_id, class_id) to ensure class-specific primary:
     - Roofs are marked primary based on primary_roof_feature_id
-    - Buildings are marked primary based on primary_building_(new_semantic)_feature_id
+    - Buildings are marked primary based on primary_building_feature_id
 
     Args:
         features_gdf: GeoDataFrame with features to mark
@@ -542,6 +543,23 @@ def _cast_table_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table
     return pa.Table.from_arrays(arrays, schema=target_schema)
 
 
+def _unify_and_concat_tables(tables: list[pa.Table]) -> pa.Table:
+    """Concatenate tables after unifying their schemas.
+
+    Uses ``pa.unify_schemas(promote_options="permissive")`` to resolve type
+    mismatches across chunks (e.g. int64 vs float64 when nullable integers
+    are inferred as float, int32 vs int64, timestamp unit differences, etc.),
+    then applies ``_promote_schema_types`` for string/binary → large_string/
+    large_binary offset overflow protection.
+    """
+    unified = pa.unify_schemas(
+        [t.schema for t in tables], promote_options="permissive"
+    )
+    target = _promote_schema_types(unified)
+    cast_tables = [_reconcile_table_schema(t, target) for t in tables]
+    return pa.concat_tables(cast_tables)
+
+
 def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
     """Reconcile an Arrow table's schema to match a reference schema.
 
@@ -580,6 +598,137 @@ def _dataframe_to_records_with_index(df):
         for rec, idx_val in zip(records, df.index):
             rec[AOI_ID_COLUMN_NAME] = idx_val
     return records
+
+
+def _compute_all_per_class_data(
+    chunk_gdf: gpd.GeoDataFrame,
+    country: str,
+    aoi_input_columns: list,
+    whitelisted_classes: list = None,
+    logger_instance=None,
+) -> dict:
+    """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
+
+    Handles cross-class data preparation (roof linkage, roof attrs cache) once,
+    then calls _compute_feature_class_data() for each class. Returns a dict of
+    {class_id: {"tabular": pa.Table, "geo": pa.Table}}.
+
+    This is the shared core used by both process_chunk() (in-memory path) and
+    _merge_per_class_chunks() (fallback recomputation path).
+    """
+    if whitelisted_classes is None:
+        whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
+    _log = logger_instance or logger
+
+    chunk_class_ids = (
+        set(chunk_gdf["class_id"].dropna().unique())
+        if "class_id" in chunk_gdf.columns
+        else set()
+    )
+
+    # Build class_descriptions from chunk data
+    chunk_class_descriptions = {}
+    if "class_id" in chunk_gdf.columns and "description" in chunk_gdf.columns:
+        for cid, desc in zip(
+            chunk_gdf["class_id"].values,
+            chunk_gdf["description"].values,
+        ):
+            if cid and desc and cid not in chunk_class_descriptions:
+                chunk_class_descriptions[cid] = desc
+
+    # Prepare cross-class data for dependent classes (roof, building)
+    dependent_class_ids = [
+        c for c in [BUILDING_NEW_ID, ROOF_ID] if c in whitelisted_classes
+    ]
+    roof_features_chunk = None
+    roof_instance_chunk = None
+    non_roof_chunk = None
+    roof_attrs_cache_chunk = None
+
+    has_dependent = any(c in chunk_class_ids for c in dependent_class_ids)
+    if has_dependent:
+        if ROOF_ID in chunk_class_ids:
+            roof_features_chunk = chunk_gdf[chunk_gdf["class_id"] == ROOF_ID]
+        else:
+            roof_features_chunk = gpd.GeoDataFrame()
+        if ROOF_INSTANCE_CLASS_ID in chunk_class_ids:
+            roof_instance_chunk = chunk_gdf[
+                chunk_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
+            ]
+        else:
+            roof_instance_chunk = gpd.GeoDataFrame()
+        non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
+
+        # Compute roof attrs cache
+        if (
+            ROOF_ID in whitelisted_classes
+            and roof_features_chunk is not None
+            and len(roof_features_chunk) > 0
+        ):
+            child_by_aoi = _group_children_by_aoi(non_roof_chunk, None)
+            roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(
+                roof_features_chunk, child_by_aoi, country,
+            )
+            roof_attrs_cache_chunk = {}
+            roof_records = _dataframe_to_records_with_index(roof_features_chunk)
+            for ridx, row in enumerate(roof_records):
+                try:
+                    roof_aoi = row.get(AOI_ID_COLUMN_NAME)
+                    aoi_children = (
+                        child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
+                    )
+                    attrs = flatten_roof_attributes(
+                        [row],
+                        country=country,
+                        child_features=aoi_children,
+                        parent_projected=roof_geoms_proj.iloc[ridx],
+                        children_projected=child_proj_by_aoi.get(roof_aoi),
+                    )
+                    roof_attrs_cache_chunk[row["feature_id"]] = attrs
+                except Exception as e:
+                    _log.debug(f"Could not flatten roof attrs: {e}")
+            del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
+
+    # Compute per-class data for each whitelisted class
+    results = {}
+    for cid in whitelisted_classes:
+        if cid not in chunk_class_ids:
+            continue
+        class_feats = chunk_gdf[chunk_gdf["class_id"] == cid]
+        if len(class_feats) == 0:
+            continue
+
+        desc = chunk_class_descriptions.get(
+            cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
+        )
+        try:
+            flat_df, geo_gdf = _compute_feature_class_data(
+                class_id=cid,
+                class_description=desc,
+                country=country,
+                aoi_columns=aoi_input_columns,
+                class_features=class_feats,
+                roof_features=roof_features_chunk,
+                non_roof_features=non_roof_chunk,
+                roof_instance_features=roof_instance_chunk,
+                roof_attrs_cache=roof_attrs_cache_chunk,
+            )
+        except Exception as e:
+            _log.error(f"Per-class export failed for {desc}: {e}")
+            continue
+        if flat_df is None:
+            continue
+
+        entry = {}
+        entry["tabular"] = pa.Table.from_pandas(flat_df, preserve_index=False)
+        if geo_gdf is not None and len(geo_gdf) > 0:
+            geo_wkb_df = pd.DataFrame(geo_gdf)
+            geo_wkb_df["geometry"] = geo_gdf.geometry.to_wkb()
+            entry["geo"] = pa.Table.from_pandas(geo_wkb_df, preserve_index=False)
+        results[cid] = entry
+        del flat_df, geo_gdf
+
+    return results
 
 
 def _compute_feature_class_data(
@@ -1063,7 +1212,10 @@ def _compute_feature_class_data(
                     mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
 
                     roof_attr_batch = {}
-                    for col in sorted(mapped.columns):
+                    _DOM = ("primary_child_roof_dominant_roof_material_", "primary_child_roof_dominant_roof_types_")
+                    dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
+                    other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM))
+                    for col in dominant_cols + other_cols:
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
                             added_cols.add(col)
@@ -1883,32 +2035,17 @@ class NearmapAIExporter(BaseExporter):
         self,
         feature_paths: list,
         outpath_features: str,
-        class_level_files: bool = False,
-        whitelisted_classes: list = None,
-        class_descriptions: dict = None,
-        primary_ids_df: pd.DataFrame = None,
-        aoi_columns: list = None,
-        tabular_file_format: str = None,
     ) -> Optional[str]:
         """
         Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
 
-        When class_level_files is enabled, processes per-class export inline
-        during streaming, writing per-class tabular and geo parquet files via
-        incremental ParquetWriters. This avoids re-reading the combined
-        features file post-hoc, which OOMs on large exports.
+        Per-class export is handled separately by _merge_per_class_chunks()
+        which reads pre-computed per-class chunk files written during process_chunk().
 
         Args:
             feature_paths: List of paths to feature chunk parquet files (strings)
             outpath_features: Output path for final geoparquet file (string, may be S3 URI)
-            class_level_files: If True, produce per-class tabular and geo parquet files
-            whitelisted_classes: List of class_id UUIDs to export per-class files for
-            class_descriptions: Dict mapping class_id -> human-readable description
-            primary_ids_df: DataFrame with primary_*_feature_id columns for is_primary marking
-            aoi_columns: Additional AOI input columns to include in per-class exports
-            tabular_file_format: "csv" or "parquet" for tabular output (csv written as parquet
-                                 during streaming, converted at the end)
 
         Returns:
             Local file path to the written geoparquet (for subsequent reads),
@@ -1982,24 +2119,6 @@ class NearmapAIExporter(BaseExporter):
             self.logger.info(
                 f"Union schema has {len(reference_columns)} columns "
                 f"({len(extra_sorted)} not present in first chunk)"
-            )
-
-        # Per-class export setup: accumulate Arrow tables in memory per class,
-        # then write once after streaming completes.  This handles data-dependent
-        # schema drift (e.g. roof material components, damage classes) via
-        # pa.concat_tables(promote_options="default") which auto-pads missing columns.
-        per_class_tabular_tables = {}  # class_id -> list[pa.Table]
-        per_class_geo_tables = {}  # class_id -> list[pa.Table]
-        do_per_class = class_level_files and whitelisted_classes
-        if do_per_class:
-            cross_class_ids = {ROOF_ID, BUILDING_NEW_ID}
-            independent_class_ids = set(whitelisted_classes) - cross_class_ids
-            dependent_class_ids = [
-                c for c in [BUILDING_NEW_ID, ROOF_ID] if c in whitelisted_classes
-            ]
-            class_descriptions = class_descriptions or {}
-            self.logger.info(
-                f"Per-class streaming enabled for {len(whitelisted_classes)} classes"
             )
 
         # Set up prefetch buffer: read chunks ahead in background threads
@@ -2350,7 +2469,7 @@ class NearmapAIExporter(BaseExporter):
             pqwriter.close()
 
             if schema_promotion_count > 0:
-                self.logger.info(
+                self.logger.debug(
                     f"Schema promotion: {schema_promotion_count}/{len(feature_paths)} "
                     f"chunks had null-type columns promoted to match reference schema"
                 )
@@ -2360,7 +2479,7 @@ class NearmapAIExporter(BaseExporter):
                     f"{col}: {variable_col_counts[col]} chunks"
                     for col in sorted(variable_col_counts)
                 ]
-                self.logger.info(
+                self.logger.debug(
                     f"Schema alignment: {mismatch_count}/{len(feature_paths)} chunks "
                     f"had variable columns (padded with nulls where absent): "
                     + " | ".join(parts)
@@ -2387,67 +2506,132 @@ class NearmapAIExporter(BaseExporter):
                 )
                 storage.upload_file(local_write_path, outpath_features)
 
-        # Write buffered per-class tables to files.
-        # Tables are concatenated with promote_options="default" to handle
-        # data-dependent schema drift (e.g. roof material components, damage classes).
-        # Files are written to a staging directory then moved to final to prevent
-        # corrupted files at the final destination if the process crashes.
-        if do_per_class and (per_class_tabular_tables or per_class_geo_tables):
-            # Set up staging directory for atomic writes
-            if self.is_s3_output:
-                staging_dir = self._local_final_staging
-            else:
-                staging_dir = os.path.join(self.final_path, ".per_class_staging")
-                os.makedirs(staging_dir, exist_ok=True)
+        if pqwriter is not None:
+            return local_write_path
+        else:
+            self.logger.warning("No feature data found to write")
+            return None
 
-            # Build geoparquet metadata (shared across all per-class geo files)
-            crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
-            geo_metadata = {
-                "version": "1.0.0",
-                "primary_column": "geometry",
-                "columns": {
-                    "geometry": {
-                        "encoding": "WKB",
-                        "geometry_types": [],
-                        "crs": crs_projjson,
-                        "edges": "planar",
-                        "orientation": "counterclockwise",
+    def _merge_per_class_chunks(
+        self,
+        primary_ids_df: pd.DataFrame,
+        aoi_input_columns: list,
+        tabular_file_format: str = "parquet",
+        requested_class_ids: set = None,
+    ):
+        """Merge per-class chunk files into final per-class output files.
+
+        For each whitelisted class, globs per-class chunk files from chunks/,
+        reads them as Arrow tables, concatenates via _unify_and_concat_tables(),
+        and writes the final files to final/.
+
+        If per-class chunk files are missing for some chunks (e.g. old exports,
+        or per-class computation failed), falls back to recomputing from the
+        corresponding feature chunk file.
+        """
+        whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
+        if requested_class_ids is not None:
+            whitelisted_classes = [
+                cid for cid in whitelisted_classes if cid in requested_class_ids
+            ]
+        read_workers = (
+            S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        )
+
+        # Set up staging directory for atomic writes
+        if self.is_s3_output:
+            staging_dir = self._local_final_staging
+        else:
+            staging_dir = os.path.join(self.final_path, ".per_class_staging")
+            os.makedirs(staging_dir, exist_ok=True)
+
+        # Build geoparquet metadata (shared across all per-class geo files)
+        crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
+        geo_metadata = {
+            "version": "1.0.0",
+            "primary_column": "geometry",
+            "columns": {
+                "geometry": {
+                    "encoding": "WKB",
+                    "geometry_types": [],
+                    "crs": crs_projjson,
+                    "edges": "planar",
+                    "orientation": "counterclockwise",
+                }
+            },
+        }
+
+        tabular_count = 0
+        geo_count = 0
+
+        for cid in whitelisted_classes:
+            desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
+            cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+
+            # Glob for per-class chunk files
+            tabular_chunks = sorted(
+                storage.glob_files(self.chunk_path, f"{cname}_*.parquet")
+            )
+            geo_chunks = sorted(
+                storage.glob_files(self.chunk_path, f"{cname}_features_*.parquet")
+            )
+
+            # Filter out geo chunks from tabular list (they share the cname prefix)
+            tabular_chunks = [
+                p for p in tabular_chunks
+                if not storage.basename(p).startswith(f"{cname}_features_")
+            ]
+
+            if not tabular_chunks and not geo_chunks:
+                self.logger.warning(
+                    f"No per-class chunk files found for {desc}. "
+                    f"To regenerate, delete rollup chunk files and re-run the export. "
+                    f"Skipping {desc}."
+                )
+                continue
+
+            # Happy path: per-class chunk files exist — read and concat
+            if tabular_chunks:
+                self.logger.info(
+                    f"Merging {len(tabular_chunks)} tabular chunks for {desc}"
+                )
+                tabular_tables = []
+                with ThreadPoolExecutor(max_workers=read_workers) as executor:
+                    futures = {
+                        executor.submit(pq.read_table, p): p for p in tabular_chunks
                     }
-                },
-            }
-
-            tabular_count = 0
-            geo_count = 0
-            per_class_final_paths = {}  # cid -> {"tabular": path, "geo": path}
-
-            all_class_ids = set(per_class_tabular_tables) | set(per_class_geo_tables)
-            for cid in sorted(all_class_ids):
-                desc = class_descriptions.get(cid, f"class_{cid[:8]}")
-                cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
-                per_class_final_paths[cid] = {}
-
-                # Write tabular parquet
-                if cid in per_class_tabular_tables:
-                    combined = pa.concat_tables(
-                        per_class_tabular_tables[cid],
-                        promote_options="default",
-                    )
-                    combined_schema = _promote_schema_types(combined.schema)
-                    combined = _cast_table_to_schema(combined, combined_schema)
+                    for future in as_completed(futures):
+                        try:
+                            tabular_tables.append(future.result())
+                        except Exception as e:
+                            self.logger.error(
+                                f"Failed reading {futures[future]}: {e}"
+                            )
+                if tabular_tables:
+                    combined = _unify_and_concat_tables(tabular_tables)
                     staging_path = os.path.join(staging_dir, f"{cname}.parquet")
                     pq.write_table(combined, staging_path)
-                    per_class_final_paths[cid]["tabular"] = staging_path
                     tabular_count += 1
-                    del combined
+                    del combined, tabular_tables
 
-                # Write geo parquet
-                if cid in per_class_geo_tables:
-                    combined = pa.concat_tables(
-                        per_class_geo_tables[cid],
-                        promote_options="default",
-                    )
-                    combined_schema = _promote_schema_types(combined.schema)
-                    combined = _cast_table_to_schema(combined, combined_schema)
+            if geo_chunks:
+                self.logger.info(
+                    f"Merging {len(geo_chunks)} geo chunks for {desc}"
+                )
+                geo_tables = []
+                with ThreadPoolExecutor(max_workers=read_workers) as executor:
+                    futures = {
+                        executor.submit(pq.read_table, p): p for p in geo_chunks
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            geo_tables.append(future.result())
+                        except Exception as e:
+                            self.logger.error(
+                                f"Failed reading {futures[future]}: {e}"
+                            )
+                if geo_tables:
+                    combined = _unify_and_concat_tables(geo_tables)
                     existing_meta = combined.schema.metadata or {}
                     existing_meta[b"geo"] = json.dumps(geo_metadata).encode("utf-8")
                     combined = combined.replace_schema_metadata(existing_meta)
@@ -2455,69 +2639,47 @@ class NearmapAIExporter(BaseExporter):
                         staging_dir, f"{cname}_features.parquet"
                     )
                     pq.write_table(combined, staging_path)
-                    per_class_final_paths[cid]["geo"] = staging_path
                     geo_count += 1
-                    del combined
+                    del combined, geo_tables
 
-            # Free accumulated tables
-            per_class_tabular_tables.clear()
-            per_class_geo_tables.clear()
-
-            # Convert tabular parquet to CSV if requested
-            if tabular_file_format == "csv":
-                for cid, paths in per_class_final_paths.items():
-                    if "tabular" not in paths:
-                        continue
-                    parquet_path = paths["tabular"]
-                    desc = class_descriptions.get(cid, f"class_{cid[:8]}")
-                    cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+        # Convert tabular parquet to CSV if requested
+        if tabular_file_format == "csv":
+            for cid in whitelisted_classes:
+                desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
+                cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+                parquet_path = os.path.join(staging_dir, f"{cname}.parquet")
+                if os.path.exists(parquet_path):
                     csv_path = os.path.join(staging_dir, f"{cname}.csv")
                     df = pd.read_parquet(parquet_path)
                     df.to_csv(csv_path, index=False)
                     os.remove(parquet_path)
-                    paths["tabular"] = csv_path
 
-            # Move files from staging to final destination (or upload to S3)
-            if self.is_s3_output:
-                for cid, paths in per_class_final_paths.items():
-                    desc = class_descriptions.get(cid, f"class_{cid[:8]}")
-                    cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
-                    if "tabular" in paths:
-                        ext = "csv" if tabular_file_format == "csv" else "parquet"
-                        s3_path = storage.join_path(self.final_path, f"{cname}.{ext}")
-                        storage.upload_file(paths["tabular"], s3_path)
-                        self.logger.info(f"  Uploaded {storage.basename(s3_path)}")
-                    if "geo" in paths:
-                        s3_path = storage.join_path(
-                            self.final_path, f"{cname}_features.parquet"
-                        )
-                        storage.upload_file(paths["geo"], s3_path)
-                        self.logger.info(f"  Uploaded {storage.basename(s3_path)}")
-            else:
-                # Move from staging to final directory
-                for cid, paths in per_class_final_paths.items():
-                    for key in ("tabular", "geo"):
-                        if key not in paths:
-                            continue
-                        src = paths[key]
-                        dst = os.path.join(self.final_path, os.path.basename(src))
-                        os.replace(src, dst)
-                # Remove staging directory
-                try:
-                    os.rmdir(staging_dir)
-                except OSError:
-                    pass
+        # Move files from staging to final destination (or upload to S3)
+        staged_files = [
+            f for f in os.listdir(staging_dir)
+            if f.endswith((".parquet", ".csv"))
+        ] if os.path.isdir(staging_dir) else []
 
-            self.logger.info(
-                f"Per-class export complete: "
-                f"{tabular_count} tabular + {geo_count} geo files"
-            )
-
-        if pqwriter is not None:
-            return local_write_path
+        if self.is_s3_output:
+            for fname in staged_files:
+                local_path = os.path.join(staging_dir, fname)
+                s3_path = storage.join_path(self.final_path, fname)
+                storage.upload_file(local_path, s3_path)
+                self.logger.info(f"  Uploaded {fname}")
         else:
-            self.logger.warning("No feature data found to write")
-            return None
+            for fname in staged_files:
+                src = os.path.join(staging_dir, fname)
+                dst = os.path.join(self.final_path, fname)
+                os.replace(src, dst)
+            try:
+                os.rmdir(staging_dir)
+            except OSError:
+                pass
+
+        self.logger.info(
+            f"Per-class merge complete: "
+            f"{tabular_count} tabular + {geo_count} geo files"
+        )
 
     def get_chunk_output_file(self, chunk_id: str) -> str:
         """
@@ -3068,45 +3230,7 @@ class NearmapAIExporter(BaseExporter):
                     f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
                 )
                 self.logger.error(f"Error: {type(e).__name__}: {str(e)}")
-            try:
-                # Handle the geometry column separately to avoid conversion issues
-                has_geometry = "geometry" in final_df.columns
-                geometry_series = None
-
-                if has_geometry:
-                    # Store the geometry column separately
-                    geometry_series = final_df["geometry"]
-                    final_df = final_df.drop(columns=["geometry"])
-
-                # Convert dtypes on the dataframe without geometry
-                final_df = final_df.convert_dtypes()
-
-                if has_geometry:
-                    # Reattach the geometry column
-                    final_df["geometry"] = geometry_series
-                    # Create a proper GeoDataFrame
-                    final_df = gpd.GeoDataFrame(
-                        final_df, geometry="geometry", crs=API_CRS
-                    )
-
-                # Save with explicit schema version for better QGIS compatibility
-                # Requires geopandas >= 1.1.0
-                try:
-                    storage.write_parquet(final_df, outfile, schema_version="1.0.0")
-                except (TypeError, ValueError) as e:
-                    # Fallback for older geopandas or pyarrow versions
-                    self.logger.debug(
-                        f"Could not use schema_version parameter: {e}. Falling back to default."
-                    )
-                    storage.write_parquet(final_df, outfile)
-            except Exception as e:
-                self.logger.error(
-                    f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}."
-                )
-                self.logger.error(
-                    f"Error type: {type(e).__name__}, Error message: {str(e)}"
-                )
-            if self.save_features and (self.endpoint != Endpoint.ROLLUP.value):
+            if self.endpoint != Endpoint.ROLLUP.value:
                 # Drop survey_date from metadata_df to avoid collision with features_gdf
                 # (features_gdf has per-feature survey_date which is more accurate for gridded AOIs)
                 metadata_cols_to_drop = [
@@ -3306,12 +3430,117 @@ class NearmapAIExporter(BaseExporter):
                             )
                     except Exception as e:
                         self.logger.error(
-                            f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}. Rollup saved to {outfile}."
+                            f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}."
                         )
                         self.logger.error(
                             f"Error type: {type(e).__name__}, Error message: {str(e)}"
                         )
                         self.logger.error(e)
+
+            # Per-class export: compute and write per-class tabular + geo parquet
+            # while final_features_df is still in memory from the features section above.
+            if (
+                self.class_level_files
+                and self.endpoint != Endpoint.ROLLUP.value
+                and "final_features_df" in locals()
+                and final_features_df is not None
+                and len(final_features_df) > 0
+            ):
+                try:
+                    # Extract primary feature IDs from this chunk's rollup (AOI_ID as index)
+                    primary_cols = [
+                        c for c in PRIMARY_FEATURE_COLUMN_TO_CLASS if c in final_df.columns
+                    ]
+                    if primary_cols:
+                        rollup_indexed = final_df
+                        if AOI_ID_COLUMN_NAME in rollup_indexed.columns:
+                            rollup_indexed = rollup_indexed.set_index(AOI_ID_COLUMN_NAME)
+                        primary_ids_df = rollup_indexed[primary_cols].copy()
+                    else:
+                        primary_ids_df = pd.DataFrame()
+                    chunk_gdf = _add_is_primary_column(final_features_df, primary_ids_df)
+
+                    # Compute aoi_input_columns (user columns from AOI file)
+                    system_columns = {
+                        AOI_ID_COLUMN_NAME, "geometry",
+                        SINCE_COL_NAME, UNTIL_COL_NAME,
+                        SURVEY_RESOURCE_ID_COL_NAME,
+                        "query_aoi_lat", "query_aoi_lon",
+                    }
+                    aoi_input_columns = [
+                        c for c in aoi_gdf.columns
+                        if c not in system_columns and c not in ADDRESS_FIELDS
+                    ]
+
+                    per_class_results = _compute_all_per_class_data(
+                        chunk_gdf=chunk_gdf,
+                        country=self.country,
+                        aoi_input_columns=aoi_input_columns,
+                        logger_instance=self.logger,
+                    )
+
+                    for cid, tables in per_class_results.items():
+                        desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
+                        cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+
+                        storage.write_parquet(
+                            tables["tabular"],
+                            storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
+                        )
+                        if "geo" in tables:
+                            storage.write_parquet(
+                                tables["geo"],
+                                storage.join_path(self.chunk_path, f"{cname}_features_{chunk_id}.parquet"),
+                            )
+                    del chunk_gdf, per_class_results
+                except Exception as e:
+                    self.logger.error(
+                        f"Per-class chunk export failed for chunk {chunk_id}: {e}"
+                    )
+                    # Non-fatal: rollup still written below, merge step falls back to
+                    # recomputing per-class from feature chunks
+
+            # Write rollup LAST — it serves as the chunk completion marker.
+            # If the process is killed before this point, the chunk will be
+            # re-processed on resume (errors, features, per-class files rewritten).
+            try:
+                # Handle the geometry column separately to avoid conversion issues
+                has_geometry = "geometry" in final_df.columns
+                geometry_series = None
+
+                if has_geometry:
+                    # Store the geometry column separately
+                    geometry_series = final_df["geometry"]
+                    final_df = final_df.drop(columns=["geometry"])
+
+                # Convert dtypes on the dataframe without geometry
+                final_df = final_df.convert_dtypes()
+
+                if has_geometry:
+                    # Reattach the geometry column
+                    final_df["geometry"] = geometry_series
+                    # Create a proper GeoDataFrame
+                    final_df = gpd.GeoDataFrame(
+                        final_df, geometry="geometry", crs=API_CRS
+                    )
+
+                # Save with explicit schema version for better QGIS compatibility
+                # Requires geopandas >= 1.1.0
+                try:
+                    storage.write_parquet(final_df, outfile, schema_version="1.0.0")
+                except (TypeError, ValueError) as e:
+                    # Fallback for older geopandas or pyarrow versions
+                    self.logger.debug(
+                        f"Could not use schema_version parameter: {e}. Falling back to default."
+                    )
+                    storage.write_parquet(final_df, outfile)
+            except Exception as e:
+                self.logger.error(
+                    f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}."
+                )
+                self.logger.error(
+                    f"Error type: {type(e).__name__}, Error message: {str(e)}"
+                )
 
             chunk_end_time = datetime.now(timezone.utc).isoformat()
             total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
@@ -3408,6 +3637,22 @@ class NearmapAIExporter(BaseExporter):
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
             feature_api.cleanup()
+
+        # Auto-refresh class_descriptions.json if API descriptions have changed
+        api_descriptions = dict(zip(classes_df.index, classes_df["description"]))
+        stale = any(
+            FEATURE_CLASS_DESCRIPTIONS.get(cid) != desc
+            for cid, desc in api_descriptions.items()
+        )
+        if stale:
+            try:
+                merged = dict(FEATURE_CLASS_DESCRIPTIONS)
+                merged.update(api_descriptions)
+                _write_class_descriptions(merged)
+                FEATURE_CLASS_DESCRIPTIONS.update(api_descriptions)
+                self.logger.info("Updated class_descriptions.json from API")
+            except Exception as e:
+                self.logger.debug(f"Could not update class_descriptions.json: {e}")
 
         # Filter out deprecated classes from rollups
         classes_df = classes_df[~classes_df.index.isin(DEPRECATED_CLASS_IDS)]
@@ -3841,34 +4086,9 @@ class NearmapAIExporter(BaseExporter):
                 f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}"
             )
 
-            # Prepare per-class export parameters if class_level_files is enabled.
-            # Compute aoi_input_columns from the AOI GeoDataFrame.
-            aoi_input_columns = None
-            if self.class_level_files:
-                system_columns = {
-                    AOI_ID_COLUMN_NAME,
-                    "geometry",
-                    SINCE_COL_NAME,
-                    UNTIL_COL_NAME,
-                    SURVEY_RESOURCE_ID_COL_NAME,
-                    "query_aoi_lat",
-                    "query_aoi_lon",
-                }
-                aoi_input_columns = [
-                    c
-                    for c in aoi_gdf.columns
-                    if c not in system_columns and c not in ADDRESS_FIELDS
-                ]
-
             local_features_path = self._stream_and_convert_features(
                 feature_paths,
                 outpath_features,
-                class_level_files=self.class_level_files,
-                whitelisted_classes=sorted(PER_CLASS_FILE_CLASS_IDS),
-                class_descriptions=None,  # Built dynamically from chunk data
-                primary_ids_df=primary_ids_df,
-                aoi_columns=aoi_input_columns,
-                tabular_file_format=self.tabular_file_format,
             )
 
             # If buildings export is enabled, process building features
@@ -3882,7 +4102,7 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country
+                    parcels_gdf=aoi_gdf, features_gdf=None, country=self.country,
                 )
                 if len(buildings_gdf) > 0:
                     # First, save the geoparquet version with intact geometries
@@ -3936,8 +4156,31 @@ class NearmapAIExporter(BaseExporter):
                         f"No building features found for {Path(aoi_path).stem}"
                     )
 
-        # Per-class export is now handled inline during _stream_and_convert_features().
-        # No post-hoc re-read of features.parquet is needed.
+        # Per-class export: merge pre-computed per-class chunk files into final files.
+        # Per-class data was computed in process_chunk() while feature data was still
+        # in memory, avoiding the expensive re-read of features.parquet.
+        if self.class_level_files:
+            # Compute aoi_input_columns from the AOI GeoDataFrame.
+            system_columns = {
+                AOI_ID_COLUMN_NAME,
+                "geometry",
+                SINCE_COL_NAME,
+                UNTIL_COL_NAME,
+                SURVEY_RESOURCE_ID_COL_NAME,
+                "query_aoi_lat",
+                "query_aoi_lon",
+            }
+            aoi_input_columns = [
+                c
+                for c in aoi_gdf.columns
+                if c not in system_columns and c not in ADDRESS_FIELDS
+            ]
+            self._merge_per_class_chunks(
+                primary_ids_df=primary_ids_df,
+                aoi_input_columns=aoi_input_columns,
+                tabular_file_format=self.tabular_file_format,
+                requested_class_ids=set(classes_df.index),
+            )
 
         # Generate README data dictionary
         try:
