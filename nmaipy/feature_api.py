@@ -1134,6 +1134,7 @@ class FeatureApi(GriddedApiClient):
                 "text": e.text[:200] if e.text else "",
                 "request": "Grid error",
                 "failure_type": "grid",
+                "geometry": geometry,
             }
             return features_gdf, metadata, error, None
         except Exception as grid_error:
@@ -1145,6 +1146,7 @@ class FeatureApi(GriddedApiClient):
                 "text": str(grid_error)[:200],
                 "request": "Gridding failed",
                 "failure_type": "grid",
+                "geometry": geometry,
             }
             return None, None, error, None
 
@@ -1254,6 +1256,7 @@ class FeatureApi(GriddedApiClient):
                     "text": e.text[:200] if e.text else "",  # Truncate long text
                     "request": "Size error - request too large",
                     "failure_type": "standard",
+                    "geometry": geometry,
                 }
             else:
                 # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
@@ -1282,6 +1285,7 @@ class FeatureApi(GriddedApiClient):
                 "text": e.text,
                 "request": e.request_string,
                 "failure_type": "standard",
+                "geometry": geometry,
             }
 
         except requests.exceptions.RetryError as e:
@@ -1314,6 +1318,7 @@ class FeatureApi(GriddedApiClient):
                 "text": "Retry Error",
                 "request": f"Geometry with {len(str(geometry))} chars",
                 "failure_type": "standard",
+                "geometry": geometry,
             }
         except requests.exceptions.Timeout as e:
             logger.warning(f"Timeout Exception on aoi_id: {aoi_id} near {geometry.representative_point()}")
@@ -1342,6 +1347,7 @@ class FeatureApi(GriddedApiClient):
                 "text": str(e),
                 "request": f"Geometry with {len(str(geometry))} chars",
                 "failure_type": "standard",
+                "geometry": geometry,
             }
 
         # Round the confidence column to two decimal places (nearest percent)
