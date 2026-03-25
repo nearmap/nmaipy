@@ -23,7 +23,7 @@ jobs:
         pip install -e ".[dev]"
 
     - name: Run tests
-      run: pytest
+      run: pytest -m "not live_api"
 
     - name: Get version
       id: get_version
