@@ -517,11 +517,13 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines.append(
             """
 **RSI Score Interpretation:**
-- **81-100**: Excellent condition (minimal/no visible defects)
-- **61-80**: Good condition
-- **41-60**: Fair condition
-- **21-40**: Poor condition
-- **0-20**: Very poor condition (severe defects)
+- **91-100**: Very good
+- **81-90**: Good
+- **71-80**: Moderate
+- **61-70**: Fair
+- **51-60**: Low
+- **26-50**: Poor
+- **0-25**: Needs replacement
 
 For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-spotlight-index-rsi
 """

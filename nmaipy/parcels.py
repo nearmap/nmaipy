@@ -631,9 +631,9 @@ def _extract_rsi_from_feature(feature) -> dict:
         return {}
     result = {}
     if "value" in rsi_data:
-        result["footprint_roof_spotlight_index"] = rsi_data["value"]
+        result["roof_spotlight_index"] = rsi_data["value"]
     if "confidence" in rsi_data:
-        result["footprint_roof_spotlight_index_confidence"] = rsi_data["confidence"]
+        result["roof_spotlight_index_confidence"] = rsi_data["confidence"]
     return result
 
 
@@ -677,7 +677,7 @@ def resolve_footprint_rsi(
             Pass this when calling in a loop to avoid rebuilding per call.
 
     Returns:
-        dict with footprint_roof_spotlight_index and footprint_roof_spotlight_index_confidence,
+        dict with roof_spotlight_index and roof_spotlight_index_confidence,
         or empty dict if no RSI found anywhere in the chain.
     """
     # Check if the feature itself has RSI
@@ -1074,28 +1074,58 @@ def feature_attributes(
                 # TODO: Finish this.
                 pass
 
-    # INDS-2030: Resolve footprint RSI from primary roof or primary building lifecycle.
-    # When structural damage is present, the API puts RSI on the BL instead of the roof.
-    # Alias columns — naming under review.
+    # INDS-2030: Resolve best RSI from primary roof or primary building lifecycle.
+    # When structural damage is present and if BL was requested, the API puts RSI on the BL 
+    # instead of the roof.
     _fp_rsi = {}
     _primary_roof_rsi_key = "primary_roof_roof_spotlight_index"
     if _primary_roof_rsi_key in parcel and parcel[_primary_roof_rsi_key] is not None:
-        _fp_rsi["primary_footprint_roof_spotlight_index"] = parcel[
-            _primary_roof_rsi_key
-        ]
-        _fp_rsi["primary_footprint_roof_spotlight_index_confidence"] = parcel.get(
+        _fp_rsi["primary_roof_spotlight_index"] = parcel[_primary_roof_rsi_key]
+        _fp_rsi["primary_roof_spotlight_index_confidence"] = parcel.get(
             "primary_roof_roof_spotlight_index_confidence"
         )
     elif _primary_bl is not None:
         bl_rsi = _extract_rsi_from_feature(_primary_bl)
         if bl_rsi:
-            _fp_rsi["primary_footprint_roof_spotlight_index"] = bl_rsi.get(
-                "footprint_roof_spotlight_index"
+            _fp_rsi["primary_roof_spotlight_index"] = bl_rsi.get(
+                "roof_spotlight_index"
             )
-            _fp_rsi["primary_footprint_roof_spotlight_index_confidence"] = bl_rsi.get(
-                "footprint_roof_spotlight_index_confidence"
+            _fp_rsi["primary_roof_spotlight_index_confidence"] = bl_rsi.get(
+                "roof_spotlight_index_confidence"
             )
     parcel.update(_fp_rsi)
+    # Remove the raw flattened RSI columns — primary_roof_spotlight_index supersedes them
+    parcel.pop("primary_roof_roof_spotlight_index", None)
+    parcel.pop("primary_roof_roof_spotlight_index_confidence", None)
+
+    # INDS-2030: Min/max/area-weighted-mean RSI across all roofs in the parcel.
+    # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
+    if len(roof_features) > 0:
+        p_lookup = build_parent_lookup(features_gdf)
+        rsi_vals = []
+        rsi_areas = []
+        area_col = (
+            "clipped_area_sqft"
+            if "clipped_area_sqft" in roof_features.columns
+            else "clipped_area_sqm"
+            if "clipped_area_sqm" in roof_features.columns
+            else None
+        )
+        for _, rf in roof_features.iterrows():
+            fp = resolve_footprint_rsi(rf, parent_lookup=p_lookup)
+            rsi = fp.get("roof_spotlight_index") if fp else None
+            if rsi is not None:
+                rsi_vals.append(rsi)
+                area = rf[area_col] if area_col and pd.notna(rf.get(area_col)) else 0
+                rsi_areas.append((rsi, area))
+        if rsi_vals:
+            parcel["roof_spotlight_index_min"] = min(rsi_vals)
+            parcel["roof_spotlight_index_max"] = max(rsi_vals)
+            total_area = sum(a for _, a in rsi_areas)
+            if total_area > 0:
+                parcel["roof_spotlight_index_area_weighted_mean"] = round(
+                    sum(r * a for r, a in rsi_areas) / total_area, 1
+                )
 
     return parcel
 

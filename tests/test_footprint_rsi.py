@@ -124,8 +124,8 @@ class TestExtractRsiFromFeature:
         """RSI as a dict (fresh from API)."""
         feature = {"roof_spotlight_index": {"value": 85, "confidence": 0.7}}
         result = _extract_rsi_from_feature(feature)
-        assert result["footprint_roof_spotlight_index"] == 85
-        assert result["footprint_roof_spotlight_index_confidence"] == 0.7
+        assert result["roof_spotlight_index"] == 85
+        assert result["roof_spotlight_index_confidence"] == 0.7
 
     def test_none(self):
         """No RSI on feature."""
@@ -143,13 +143,13 @@ class TestExtractRsiFromFeature:
 
         feature = {"roof_spotlight_index": json.dumps({"value": 90, "confidence": 0.6})}
         result = _extract_rsi_from_feature(feature)
-        assert result["footprint_roof_spotlight_index"] == 90
+        assert result["roof_spotlight_index"] == 90
 
     def test_series(self):
         """RSI from a pandas Series (as in GeoDataFrame row)."""
         s = pd.Series({"roof_spotlight_index": {"value": 75, "confidence": 0.5}})
         result = _extract_rsi_from_feature(s)
-        assert result["footprint_roof_spotlight_index"] == 75
+        assert result["roof_spotlight_index"] == 75
 
 
 # --- Unit tests for resolve_footprint_rsi ---
@@ -162,8 +162,8 @@ class TestResolveFootprintRsi:
         roof = _make_roof(rsi=rsi)
         features = _make_features_gdf([roof])
         result = resolve_footprint_rsi(pd.Series(roof), features)
-        assert result["footprint_roof_spotlight_index"] == 88
-        assert result["footprint_roof_spotlight_index_confidence"] == 0.6
+        assert result["roof_spotlight_index"] == 88
+        assert result["roof_spotlight_index_confidence"] == 0.6
 
     def test_rsi_on_building_lifecycle(self):
         """Roof has no RSI, BL grandparent does — returns BL's RSI."""
@@ -173,8 +173,8 @@ class TestResolveFootprintRsi:
         bl = _make_building_lifecycle(rsi=rsi)
         features = _make_features_gdf([roof, bldg_dep, bl])
         result = resolve_footprint_rsi(pd.Series(roof), features)
-        assert result["footprint_roof_spotlight_index"] == 42
-        assert result["footprint_roof_spotlight_index_confidence"] == 0.8
+        assert result["roof_spotlight_index"] == 42
+        assert result["roof_spotlight_index_confidence"] == 0.8
 
     def test_neither_has_rsi(self):
         """Neither roof nor BL has RSI."""
@@ -207,7 +207,7 @@ class TestResolveFootprintRsi:
         bl = _make_building_lifecycle(rsi=rsi)
         features = _make_features_gdf([bldg, bl])
         result = resolve_footprint_rsi(pd.Series(bldg), features)
-        assert result["footprint_roof_spotlight_index"] == 60
+        assert result["roof_spotlight_index"] == 60
 
     def test_with_parent_lookup(self):
         """Using pre-built parent_lookup for performance."""
@@ -218,7 +218,7 @@ class TestResolveFootprintRsi:
         features = _make_features_gdf([roof, bldg_dep, bl])
         lookup = build_parent_lookup(features)
         result = resolve_footprint_rsi(pd.Series(roof), parent_lookup=lookup)
-        assert result["footprint_roof_spotlight_index"] == 77
+        assert result["roof_spotlight_index"] == 77
 
     def test_empty_features_gdf(self):
         """Empty features GDF — returns empty."""

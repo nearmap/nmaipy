@@ -408,13 +408,15 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
     # Rate factor should be present
     assert 'primary_roof_hurricane_vulnerability_rate_factor' in rollup_df.columns
 
-    # RSI should also be present (from real API response)
-    assert 'primary_roof_roof_spotlight_index' in rollup_df.columns
-    # Real RSI value from the API
-    primary_rsi = rollup_df['primary_roof_roof_spotlight_index'].iloc[0]
+    # Resolved RSI should be present (roof-first, BL-fallback)
+    assert 'primary_roof_spotlight_index' in rollup_df.columns
+    primary_rsi = rollup_df['primary_roof_spotlight_index'].iloc[0]
     assert primary_rsi > 0, f"Expected positive RSI value, got {primary_rsi}"
 
-    assert 'primary_roof_roof_spotlight_index_confidence' in rollup_df.columns
-    # Confidence should be present and reasonable
-    rsi_conf = rollup_df['primary_roof_roof_spotlight_index_confidence'].iloc[0]
+    assert 'primary_roof_spotlight_index_confidence' in rollup_df.columns
+    rsi_conf = rollup_df['primary_roof_spotlight_index_confidence'].iloc[0]
     assert 0 < rsi_conf <= 1, f"Expected confidence between 0 and 1, got {rsi_conf}"
+
+    # Raw flattened RSI columns should be removed (superseded by resolved columns)
+    assert 'primary_roof_roof_spotlight_index' not in rollup_df.columns
+    assert 'primary_roof_roof_spotlight_index_confidence' not in rollup_df.columns
