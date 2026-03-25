@@ -2,6 +2,7 @@
 
 import pytest
 
+from nmaipy.constants import FLAT_DEPRECATED_ROOF_ID
 from nmaipy.feature_attributes import (
     _build_dominant_columns,
     _get_component_stats,
@@ -335,3 +336,41 @@ class TestFlattenRoofDominantColumns:
             "dominant_roof_types_area_sqft",
             "dominant_roof_types_confidence",
         ]
+
+
+class TestIgnoredDominantShapes:
+    def test_flat_deprecated_skipped_by_class_id(self):
+        """Flat (Deprecated) should be skipped; next-best shape wins."""
+        comps = [
+            _shape("Flat (Deprecated)", 100, 0.9, 0.7, class_id=FLAT_DEPRECATED_ROOF_ID),
+            _shape("Hip", 50, 0.8, 0.3, class_id="hip-id"),
+        ]
+        cols = _build_dominant_columns(comps, None, "us", "roof_types")
+        assert cols["dominant_roof_types_description"] == "hip"
+        assert cols["dominant_roof_types_feature_class"] == "hip-id"
+
+    def test_shed_skipped_by_description(self):
+        """Shed should be skipped by description match; next-best shape wins."""
+        comps = [
+            _shape("Shed", 100, 0.9, 0.7, class_id="shed-id"),
+            _shape("Gable", 50, 0.8, 0.3, class_id="gable-id"),
+        ]
+        cols = _build_dominant_columns(comps, None, "us", "roof_types")
+        assert cols["dominant_roof_types_description"] == "gable"
+        assert cols["dominant_roof_types_feature_class"] == "gable-id"
+
+    def test_all_shapes_ignored_returns_empty(self):
+        """If every shape component is ignored, return no dominant columns."""
+        comps = [
+            _shape("Flat (Deprecated)", 100, 0.9, 0.7, class_id=FLAT_DEPRECATED_ROOF_ID),
+            _shape("Shed", 50, 0.8, 0.3, class_id="shed-id"),
+        ]
+        cols = _build_dominant_columns(comps, None, "us", "roof_types")
+        assert cols == {}
+
+    def test_ignored_shapes_do_not_affect_material(self):
+        """The shape ignore list must not filter material components."""
+        comps = [_mat("Flat", 100, 0.9, 0.8, class_id="flat-mat-id")]
+        cols = _build_dominant_columns(comps, None, "us", "roof_material")
+        assert cols["dominant_roof_material_description"] == "flat"
+        assert cols["dominant_roof_material_feature_class"] == "flat-mat-id"

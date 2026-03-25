@@ -38,6 +38,7 @@ from nmaipy.feature_api import FeatureApi
 
 
 class TestExporter:
+    @pytest.mark.live_api
     @pytest.mark.filterwarnings("ignore:.*initial implementation of Parquet.*")
     def test_process_chunk_rollup_single_multi_polygon_combo(
         self,
