@@ -2586,20 +2586,26 @@ class NearmapAIExporter(BaseExporter):
             desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
             cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
 
-            # Glob for per-class chunk files
+            # Glob for per-class chunk files.
+            # Use regex filter to avoid prefix collisions (e.g. "building_*.parquet"
+            # matching "building_lifecycle_0.parquet", or "roof_*.parquet" matching
+            # "roof_instance_0.parquet").
+            _tab_pattern = re.compile(
+                re.escape(cname) + r"_\d+\.parquet$"
+            )
+            _geo_pattern = re.compile(
+                re.escape(cname) + r"_features_\d+\.parquet$"
+            )
             tabular_chunks = sorted(
-                storage.glob_files(self.chunk_path, f"{cname}_*.parquet")
+                p
+                for p in storage.glob_files(self.chunk_path, f"{cname}_*.parquet")
+                if _tab_pattern.search(storage.basename(p))
             )
             geo_chunks = sorted(
-                storage.glob_files(self.chunk_path, f"{cname}_features_*.parquet")
-            )
-
-            # Filter out geo chunks from tabular list (they share the cname prefix)
-            tabular_chunks = [
                 p
-                for p in tabular_chunks
-                if not storage.basename(p).startswith(f"{cname}_features_")
-            ]
+                for p in storage.glob_files(self.chunk_path, f"{cname}_features_*.parquet")
+                if _geo_pattern.search(storage.basename(p))
+            )
 
             if not tabular_chunks and not geo_chunks:
                 self.logger.warning(
