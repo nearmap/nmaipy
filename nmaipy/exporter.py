@@ -595,6 +595,23 @@ def _dataframe_to_records_with_index(df):
     return records
 
 
+def _description_to_cname(description: str) -> str:
+    """Convert a class description like 'Roof Instance' to a filename-safe slug like 'roof_instance'."""
+    return re.sub(r"[^a-z0-9]+", "_", description.lower()).strip("_")
+
+
+def _per_class_chunk_regexes(cname: str) -> tuple:
+    """Return compiled regexes for matching tabular and geo per-class chunk filenames.
+
+    Chunk files are named {cname}_{chunk_id}.parquet (tabular) and
+    {cname}_features_{chunk_id}.parquet (geo). The regex anchors on a digit after the
+    prefix so that e.g. "roof_*" does not match "roof_instance_*".
+    """
+    tabular_re = re.compile(rf"^{re.escape(cname)}_\d+\.parquet$")
+    geo_re = re.compile(rf"^{re.escape(cname)}_features_\d+\.parquet$")
+    return tabular_re, geo_re
+
+
 def _compute_all_per_class_data(
     chunk_gdf: gpd.GeoDataFrame,
     country: str,
@@ -1462,7 +1479,7 @@ def export_feature_class(
         return (None, None)
 
     # Normalize class description for filename
-    class_name = re.sub(r"[^a-z0-9]+", "_", class_description.lower()).strip("_")
+    class_name = _description_to_cname(class_description)
     tabular_path = storage.join_path(output_dir, f"{class_name}.{tabular_file_format}") if tabular_file_format else None
     geo_parquet_path = storage.join_path(output_dir, f"{class_name}_features.parquet")
 
@@ -2314,21 +2331,19 @@ class NearmapAIExporter(BaseExporter):
 
         for cid in whitelisted_classes:
             desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
-            cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+            cname = _description_to_cname(desc)
 
-            # Glob for per-class chunk files
+            # Match per-class chunk files by exact class name + numeric chunk ID.
+            # A plain glob like "roof_*.parquet" would also match "roof_instance_*.parquet";
+            # requiring a digit after the prefix prevents this collision.
+            tabular_re, geo_re = _per_class_chunk_regexes(cname)
+            all_parquets = storage.glob_files(self.chunk_path, f"{cname}_*.parquet")
             tabular_chunks = sorted(
-                storage.glob_files(self.chunk_path, f"{cname}_*.parquet")
+                p for p in all_parquets if tabular_re.match(storage.basename(p))
             )
             geo_chunks = sorted(
-                storage.glob_files(self.chunk_path, f"{cname}_features_*.parquet")
+                p for p in all_parquets if geo_re.match(storage.basename(p))
             )
-
-            # Filter out geo chunks from tabular list (they share the cname prefix)
-            tabular_chunks = [
-                p for p in tabular_chunks
-                if not storage.basename(p).startswith(f"{cname}_features_")
-            ]
 
             if not tabular_chunks and not geo_chunks:
                 self.logger.warning(
@@ -2394,7 +2409,7 @@ class NearmapAIExporter(BaseExporter):
         if tabular_file_format == "csv":
             for cid in whitelisted_classes:
                 desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
-                cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+                cname = _description_to_cname(desc)
                 parquet_path = os.path.join(staging_dir, f"{cname}.parquet")
                 if os.path.exists(parquet_path):
                     csv_path = os.path.join(staging_dir, f"{cname}.csv")
@@ -3222,7 +3237,7 @@ class NearmapAIExporter(BaseExporter):
 
                     for cid, tables in per_class_results.items():
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
-                        cname = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")
+                        cname = _description_to_cname(desc)
 
                         storage.write_parquet(
                             tables["tabular"],

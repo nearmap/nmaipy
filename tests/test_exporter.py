@@ -14,6 +14,7 @@ import pytest
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     BUILDING_NEW_ID,
+    FEATURE_CLASS_DESCRIPTIONS,
     PER_CLASS_FILE_CLASS_IDS,
     ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID,
     ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
@@ -28,6 +29,8 @@ from nmaipy.constants import (
 from nmaipy.exporter import (
     AOIExporter,
     _dataframe_to_records_with_index,
+    _description_to_cname,
+    _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
     _unify_and_concat_tables,
 )
@@ -1218,6 +1221,61 @@ class TestUnifyAndConcatTables:
         result = _unify_and_concat_tables([t1, t2])
         assert pa.types.is_timestamp(result.schema.field("ts").type)
         assert len(result) == 2
+
+
+class TestPerClassChunkGlobFiltering:
+    """Tests that per-class chunk file matching prevents glob collisions.
+
+    Derives all filenames from PER_CLASS_FILE_CLASS_IDS and FEATURE_CLASS_DESCRIPTIONS
+    so the test breaks if the naming convention changes.
+    """
+
+    @pytest.fixture()
+    def per_class_cnames(self):
+        """Build {class_id: cname} for all whitelisted per-class file classes."""
+        return {
+            cid: _description_to_cname(FEATURE_CLASS_DESCRIPTIONS[cid])
+            for cid in PER_CLASS_FILE_CLASS_IDS
+        }
+
+    def test_each_class_matches_own_chunks(self, per_class_cnames):
+        """Every class's regex matches its own tabular and geo chunk filenames."""
+        for cid, cname in per_class_cnames.items():
+            tabular_re, geo_re = _per_class_chunk_regexes(cname)
+            tabular_file = f"{cname}_0.parquet"
+            geo_file = f"{cname}_features_0.parquet"
+            assert tabular_re.match(tabular_file), (
+                f"{cname} tabular regex should match {tabular_file}"
+            )
+            assert geo_re.match(geo_file), (
+                f"{cname} geo regex should match {geo_file}"
+            )
+
+    def test_no_class_matches_another_class_chunks(self, per_class_cnames):
+        """No class's regex matches chunk files belonging to a different class."""
+        cnames = list(per_class_cnames.values())
+        for cname in cnames:
+            tabular_re, geo_re = _per_class_chunk_regexes(cname)
+            for other_cname in cnames:
+                if other_cname == cname:
+                    continue
+                other_tabular = f"{other_cname}_0.parquet"
+                other_geo = f"{other_cname}_features_0.parquet"
+                assert not tabular_re.match(other_tabular), (
+                    f"{cname!r} tabular regex must not match {other_tabular!r}"
+                )
+                assert not geo_re.match(other_geo), (
+                    f"{cname!r} geo regex must not match {other_geo!r}"
+                )
+
+    def test_tabular_regex_excludes_geo_files(self, per_class_cnames):
+        """Tabular regex must not match geo chunk files for the same class."""
+        for cid, cname in per_class_cnames.items():
+            tabular_re, _ = _per_class_chunk_regexes(cname)
+            geo_file = f"{cname}_features_0.parquet"
+            assert not tabular_re.match(geo_file), (
+                f"{cname!r} tabular regex must not match geo file {geo_file!r}"
+            )
 
 
 if __name__ == "__main__":
