@@ -1493,6 +1493,10 @@ class FeatureApi(GriddedApiClient):
 
             # Process errors_df to add grid cell geometry and mark as partial failures
             if len(errors_df) > 0:
+                # Drop geometry added by get_features_gdf error dicts to avoid
+                # geometry_x/geometry_y from merge with df_gridded
+                if 'geometry' in errors_df.columns:
+                    errors_df = errors_df.drop(columns=['geometry'])
                 # errors_df has the temp grid cell IDs in a column, df_gridded has them as index
                 # Merge on the aoi_id column (errors_df) with the index (df_gridded)
                 errors_with_geom = errors_df.merge(
