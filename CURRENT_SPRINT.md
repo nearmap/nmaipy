@@ -1,5 +1,0 @@
-Let's start working on an nmaipy 4.4.5 release, purely focussed on data quality and bug fixes. Once we get that out (won't skip review - proper PR), let's then work on a 4.5.0 that has additional columns.
-
-I'm flat out with planning for the next two days, so if you want to get it started? Particularly if you can have a triage of the bugs you consider base data quality, with a clear small export example demonstrating each. Best approach is then to make a branch for bug fixes, and give Claude both the description of the problem, and point it to a downloaded and unzipped export folder that illustrates it. Claude can then both inspect code and explore the data that demonstrates it.
-
-Let's follow a process of one “bug fix” branch, and solve one bug at a time on it - committing the solution, and doing a bit of testing. We then do a bigger PR of the hopefully only two or three issues, and close it for the 4.4.5 release. We can do 4.4.5a1 etc “prerelease” if we need to test on the cluster (don't need to do a release for things that can be tested locally).
