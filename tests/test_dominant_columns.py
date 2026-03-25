@@ -359,14 +359,17 @@ class TestIgnoredDominantShapes:
         assert cols["dominant_roof_types_description"] == "gable"
         assert cols["dominant_roof_types_feature_class"] == "gable-id"
 
-    def test_all_shapes_ignored_returns_empty(self):
-        """If every shape component is ignored, return no dominant columns."""
+    def test_all_shapes_ignored_returns_unknown(self):
+        """If every shape component is ignored, return unknown dominant columns."""
         comps = [
             _shape("Flat (Deprecated)", 100, 0.9, 0.7, class_id=FLAT_DEPRECATED_ROOF_ID),
             _shape("Shed", 50, 0.8, 0.3, class_id="shed-id"),
         ]
         cols = _build_dominant_columns(comps, None, "us", "roof_types")
-        assert cols == {}
+        assert cols["dominant_roof_types_feature_class"] is None
+        assert cols["dominant_roof_types_description"] == "unknown"
+        assert cols["dominant_roof_types_area_sqft"] is None
+        assert cols["dominant_roof_types_confidence"] is None
 
     def test_ignored_shapes_do_not_affect_material(self):
         """The shape ignore list must not filter material components."""

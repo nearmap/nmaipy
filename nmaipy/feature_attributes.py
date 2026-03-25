@@ -414,13 +414,23 @@ def _build_dominant_columns(
             if s["class_id"] not in _IGNORED_DOMINANT_SHAPE_CLASS_IDS
             and s["name"] not in _IGNORED_DOMINANT_SHAPE_DESCRIPTIONS
         ]
-    if not stats:
-        return {}
-    winner = max(stats, key=lambda s: s["ratio"])
-
     prefix = f"dominant_{attr_key}"
     area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
     is_material = attr_key == "roof_material"
+
+    if not stats:
+        # All components were filtered (e.g. all deprecated shapes) → unknown
+        columns = {
+            f"{prefix}_feature_class": None,
+            f"{prefix}_description": "unknown",
+            f"{prefix}{area_suffix}": None,
+        }
+        if is_material:
+            columns[f"{prefix}_ratio"] = None
+        columns[f"{prefix}_confidence"] = None
+        return columns
+
+    winner = max(stats, key=lambda s: s["ratio"])
 
     # UNKNOWN: material below majority threshold, or shape with no detected area
     is_unknown = (
