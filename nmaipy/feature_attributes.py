@@ -26,6 +26,7 @@ from shapely import wkb
 
 from nmaipy import log
 from nmaipy.constants import (
+    FLAT_DEPRECATED_ROOF_ID,
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
     ROOF_AGE_PREFIX_COLUMNS,
@@ -355,6 +356,14 @@ _DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
 # Minimum ratio for a material to be considered dominant (below this → UNKNOWN).
 DOMINANT_MATERIAL_MIN_RATIO = 0.5
 
+# Class IDs to exclude from dominant shape selection.
+_IGNORED_DOMINANT_SHAPE_CLASS_IDS = {FLAT_DEPRECATED_ROOF_ID}
+
+# Description strings (snake_cased) to exclude from dominant shape selection.
+# Used for components that may appear in pre-computed API data but no longer
+# have a registered class ID (e.g. "Shed" was removed from the Feature API).
+_IGNORED_DOMINANT_SHAPE_DESCRIPTIONS = {"shed"}
+
 
 def _get_component_stats(
     component: dict, recalc_attrs: Optional[dict], country: str
@@ -399,11 +408,29 @@ def _build_dominant_columns(
         return {}
 
     stats = [_get_component_stats(c, recalc_attrs, country) for c in components]
-    winner = max(stats, key=lambda s: s["ratio"])
-
+    if attr_key == "roof_types":
+        stats = [
+            s for s in stats
+            if s["class_id"] not in _IGNORED_DOMINANT_SHAPE_CLASS_IDS
+            and s["name"] not in _IGNORED_DOMINANT_SHAPE_DESCRIPTIONS
+        ]
     prefix = f"dominant_{attr_key}"
     area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
     is_material = attr_key == "roof_material"
+
+    if not stats:
+        # All components were filtered (e.g. all deprecated shapes) → unknown
+        columns = {
+            f"{prefix}_feature_class": None,
+            f"{prefix}_description": "unknown",
+            f"{prefix}{area_suffix}": None,
+        }
+        if is_material:
+            columns[f"{prefix}_ratio"] = None
+        columns[f"{prefix}_confidence"] = None
+        return columns
+
+    winner = max(stats, key=lambda s: s["ratio"])
 
     # UNKNOWN: material below majority threshold, or shape with no detected area
     is_unknown = (
