@@ -3304,7 +3304,7 @@ class NearmapAIExporter(BaseExporter):
 
                 # Create GeoDataFrame with the appropriate geometry column
                 if "geometry" in merged2.columns:
-                    final_features_df = gpd.GeoDataFrame(merged2, crs=API_CRS)
+                    final_features_df = gpd.GeoDataFrame(merged2, geometry="geometry", crs=API_CRS)
                 elif "geometry_y" in merged2.columns:
                     # Features geometry (from poles)
                     final_features_df = gpd.GeoDataFrame(
