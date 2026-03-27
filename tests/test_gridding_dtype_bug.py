@@ -62,9 +62,7 @@ class TestGriddingDtypeBug:
         geom = loads(LARGE_AUSTRALIA_AOI_WKT)
         aoi_id = 662
 
-        aoi_gdf = gpd.GeoDataFrame(
-            [{"geometry": geom, AOI_ID_COLUMN_NAME: aoi_id}], crs=API_CRS
-        )
+        aoi_gdf = gpd.GeoDataFrame([{"geometry": geom, AOI_ID_COLUMN_NAME: aoi_id}], crs=API_CRS)
         aoi_gdf = aoi_gdf.set_index(AOI_ID_COLUMN_NAME)
 
         feature_api = FeatureApi(
@@ -94,12 +92,12 @@ class TestGriddingDtypeBug:
                 elif errors_df.index.name == AOI_ID_COLUMN_NAME:
                     assert (errors_df.index == aoi_id).all()
                 else:
-                    pytest.fail(f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}")
+                    pytest.fail(
+                        f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}"
+                    )
             else:
                 # Test still passes (no dtype error), but we couldn't verify error handling
-                pytest.skip(
-                    "No errors occurred - unable to fully verify error dtype handling"
-                )
+                pytest.skip("No errors occurred - unable to fully verify error dtype handling")
 
             # features_gdf and metadata_df should also have consistent aoi_id
             if len(features_gdf) > 0:
@@ -122,14 +120,10 @@ class TestGriddingDtypeBug:
         geom = loads(LARGE_AUSTRALIA_AOI_WKT)
         aoi_id = "string_id_662"
 
-        aoi_gdf = gpd.GeoDataFrame(
-            [{"geometry": geom, AOI_ID_COLUMN_NAME: aoi_id}], crs=API_CRS
-        )
+        aoi_gdf = gpd.GeoDataFrame([{"geometry": geom, AOI_ID_COLUMN_NAME: aoi_id}], crs=API_CRS)
         aoi_gdf = aoi_gdf.set_index(AOI_ID_COLUMN_NAME)
 
-        feature_api = FeatureApi(
-            cache_dir=cache_directory, only3d=True, aoi_grid_min_pct=75, threads=50
-        )
+        feature_api = FeatureApi(cache_dir=cache_directory, only3d=True, aoi_grid_min_pct=75, threads=50)
 
         try:
             features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
@@ -151,11 +145,11 @@ class TestGriddingDtypeBug:
                     assert errors_df.index.dtype == aoi_gdf.index.dtype
                     assert (errors_df.index == aoi_id).all()
                 else:
-                    pytest.fail(f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}")
+                    pytest.fail(
+                        f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}"
+                    )
             else:
-                pytest.skip(
-                    "No errors occurred - unable to fully verify error dtype handling"
-                )
+                pytest.skip("No errors occurred - unable to fully verify error dtype handling")
 
         except ValueError as e:
             if "merge on object and int64" in str(e):

@@ -2,9 +2,5 @@
 
 __version__ = "4.5.1"
 __version_info__ = tuple(
-    int(i)
-    for i in __version__.replace("a", ".")
-    .replace("b", ".")
-    .replace("rc", ".")
-    .split(".")[:3]
+    int(i) for i in __version__.replace("a", ".").replace("b", ".").replace("rc", ".").split(".")[:3]
 )

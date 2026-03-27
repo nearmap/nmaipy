@@ -59,7 +59,11 @@ def convert_bool_columns_to_yn(batch):
             # Check if non-null values are booleans.
             non_null = arr[pd.notna(arr)]
             if len(non_null) > 0 and all(isinstance(v, (bool, np.bool_)) for v in non_null):
-                batch[key] = np.where(pd.isna(arr), arr, np.where(arr.astype(object), TRUE_STRING, FALSE_STRING))
+                batch[key] = np.where(
+                    pd.isna(arr),
+                    arr,
+                    np.where(arr.astype(object), TRUE_STRING, FALSE_STRING),
+                )
 
 
 def _parse_include_param(val):
@@ -207,14 +211,10 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
         return attributes
 
     # Find all .components columns dynamically
-    component_cols = [
-        c for c in columns if isinstance(c, str) and c.endswith(".components")
-    ]
+    component_cols = [c for c in columns if isinstance(c, str) and c.endswith(".components")]
 
     for col in component_cols:
-        description = col.rsplit(".", 1)[
-            0
-        ]  # "Roof material.components" -> "Roof material"
+        description = col.rsplit(".", 1)[0]  # "Roof material.components" -> "Roof material"
         value = _get_feature_value(feature, col)
         if value:
             # Parse JSON string if needed
@@ -226,9 +226,7 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
             else:
                 components = value
             if components:
-                attributes.append(
-                    {"description": description, "components": components}
-                )
+                attributes.append({"description": description, "components": components})
 
     # Also handle 3D attributes (has3dAttributes, pitch)
     for col in columns:
@@ -240,9 +238,7 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
             value = _get_feature_value(feature, col)
             if value is not None:
                 # Find existing attribute with same description or create new
-                existing = next(
-                    (a for a in attributes if a.get("description") == description), None
-                )
+                existing = next((a for a in attributes if a.get("description") == description), None)
                 if existing:
                     existing[key] = value
                 else:
@@ -325,14 +321,10 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
             continue
 
         if "has3dAttributes" in attribute:
-            flattened["has_3d_attributes"] = (
-                TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-            )
+            flattened["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
             if attribute["has3dAttributes"]:
                 if country in IMPERIAL_COUNTRIES:
-                    flattened["height_ft"] = round(
-                        attribute["height"] * METERS_TO_FEET, 1
-                    )
+                    flattened["height_ft"] = round(attribute["height"] * METERS_TO_FEET, 1)
                 else:
                     flattened["height_m"] = round(attribute["height"], 1)
                 for k, v in attribute["numStories"].items():
@@ -341,9 +333,7 @@ def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
             flattened["pitch_degrees"] = round(attribute["pitch"], 2)
         if "ground_height" in attribute:
             if country in IMPERIAL_COUNTRIES:
-                flattened["ground_height_ft"] = round(
-                    attribute["ground_height"] * METERS_TO_FEET, 1
-                )
+                flattened["ground_height_ft"] = round(attribute["ground_height"] * METERS_TO_FEET, 1)
             else:
                 flattened["ground_height_m"] = round(attribute["ground_height"], 1)
         if "fidelity" in attribute:
@@ -365,9 +355,7 @@ _IGNORED_DOMINANT_SHAPE_CLASS_IDS = {FLAT_DEPRECATED_ROOF_ID}
 _IGNORED_DOMINANT_SHAPE_DESCRIPTIONS = {"shed"}
 
 
-def _get_component_stats(
-    component: dict, recalc_attrs: Optional[dict], country: str
-) -> dict:
+def _get_component_stats(component: dict, recalc_attrs: Optional[dict], country: str) -> dict:
     """Get ratio, area, confidence, class_id for a component from the best available source.
 
     Uses recalc_attrs (clipped geometry intersection) when available,
@@ -383,10 +371,7 @@ def _get_component_stats(
             "area": recalc_attrs.get(area_key, 0.0) or 0.0,
             "confidence": recalc_attrs.get(f"{name}_confidence"),
         }
-    area = (
-        component.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES
-        else component.get("areaSqm", 0.0)
-    )
+    area = component.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else component.get("areaSqm", 0.0)
     return {
         "name": name,
         "class_id": component["classId"],
@@ -396,9 +381,7 @@ def _get_component_stats(
     }
 
 
-def _build_dominant_columns(
-    components: list, recalc_attrs: Optional[dict], country: str, attr_key: str
-) -> dict:
+def _build_dominant_columns(components: list, recalc_attrs: Optional[dict], country: str, attr_key: str) -> dict:
     """Build dominant summary columns for a roof attribute type.
 
     Selects the dominant component by highest ratio, applies UNKNOWN rules,
@@ -410,7 +393,8 @@ def _build_dominant_columns(
     stats = [_get_component_stats(c, recalc_attrs, country) for c in components]
     if attr_key == "roof_types":
         stats = [
-            s for s in stats
+            s
+            for s in stats
             if s["class_id"] not in _IGNORED_DOMINANT_SHAPE_CLASS_IDS
             and s["name"] not in _IGNORED_DOMINANT_SHAPE_DESCRIPTIONS
         ]
@@ -433,9 +417,8 @@ def _build_dominant_columns(
     winner = max(stats, key=lambda s: s["ratio"])
 
     # UNKNOWN: material below majority threshold, or shape with no detected area
-    is_unknown = (
-        (is_material and winner["ratio"] < DOMINANT_MATERIAL_MIN_RATIO)
-        or (not is_material and winner["area"] <= 0)
+    is_unknown = (is_material and winner["ratio"] < DOMINANT_MATERIAL_MIN_RATIO) or (
+        not is_material and winner["area"] <= 0
     )
 
     columns = {}
@@ -509,9 +492,7 @@ def flatten_roof_attributes(
             if "confidence" in rsi_data:
                 flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
             if "modelVersion" in rsi_data:
-                flattened["roof_spotlight_index_model_version"] = rsi_data[
-                    "modelVersion"
-                ]
+                flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
 
         # Handle hurricaneScore - check both camelCase and snake_case versions
         # Use _parse_include_param to handle both dict and JSON string formats
@@ -519,17 +500,11 @@ def flatten_roof_attributes(
         hurricane_score_data = _parse_include_param(hurricane_raw)
         if hurricane_score_data:
             if "vulnerabilityScore" in hurricane_score_data:
-                flattened["hurricane_vulnerability_score"] = hurricane_score_data[
-                    "vulnerabilityScore"
-                ]
+                flattened["hurricane_vulnerability_score"] = hurricane_score_data["vulnerabilityScore"]
             if "vulnerabilityProbability" in hurricane_score_data:
-                flattened["hurricane_vulnerability_probability"] = hurricane_score_data[
-                    "vulnerabilityProbability"
-                ]
+                flattened["hurricane_vulnerability_probability"] = hurricane_score_data["vulnerabilityProbability"]
             if "vulnerabilityRateFactor" in hurricane_score_data:
-                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data[
-                    "vulnerabilityRateFactor"
-                ]
+                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
             # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
 
         # Handle windScore - check both camelCase and snake_case versions
@@ -537,84 +512,56 @@ def flatten_roof_attributes(
         wind_score_data = _parse_include_param(wind_raw)
         if wind_score_data:
             if "vulnerabilityScore" in wind_score_data:
-                flattened["wind_vulnerability_score"] = wind_score_data[
-                    "vulnerabilityScore"
-                ]
+                flattened["wind_vulnerability_score"] = wind_score_data["vulnerabilityScore"]
             if "vulnerabilityProbability" in wind_score_data:
-                flattened["wind_vulnerability_probability"] = wind_score_data[
-                    "vulnerabilityProbability"
-                ]
+                flattened["wind_vulnerability_probability"] = wind_score_data["vulnerabilityProbability"]
             if "vulnerabilityRateFactor" in wind_score_data:
-                flattened["wind_vulnerability_rate_factor"] = wind_score_data[
-                    "vulnerabilityRateFactor"
-                ]
+                flattened["wind_vulnerability_rate_factor"] = wind_score_data["vulnerabilityRateFactor"]
             if "riskScore" in wind_score_data:
                 flattened["wind_risk_score"] = wind_score_data["riskScore"]
             if "riskRateFactor" in wind_score_data:
                 flattened["wind_risk_rate_factor"] = wind_score_data["riskRateFactor"]
             if "femaAnnualWindFrequency" in wind_score_data:
-                flattened["wind_fema_annual_frequency"] = wind_score_data[
-                    "femaAnnualWindFrequency"
-                ]
+                flattened["wind_fema_annual_frequency"] = wind_score_data["femaAnnualWindFrequency"]
 
         # Handle hailScore - check both camelCase and snake_case versions
         hail_raw = roof.get("hailScore") or roof.get("hail_score")
         hail_score_data = _parse_include_param(hail_raw)
         if hail_score_data:
             if "vulnerabilityScore" in hail_score_data:
-                flattened["hail_vulnerability_score"] = hail_score_data[
-                    "vulnerabilityScore"
-                ]
+                flattened["hail_vulnerability_score"] = hail_score_data["vulnerabilityScore"]
             if "vulnerabilityProbability" in hail_score_data:
-                flattened["hail_vulnerability_probability"] = hail_score_data[
-                    "vulnerabilityProbability"
-                ]
+                flattened["hail_vulnerability_probability"] = hail_score_data["vulnerabilityProbability"]
             if "vulnerabilityRateFactor" in hail_score_data:
-                flattened["hail_vulnerability_rate_factor"] = hail_score_data[
-                    "vulnerabilityRateFactor"
-                ]
+                flattened["hail_vulnerability_rate_factor"] = hail_score_data["vulnerabilityRateFactor"]
             if "riskScore" in hail_score_data:
                 flattened["hail_risk_score"] = hail_score_data["riskScore"]
             if "riskRateFactor" in hail_score_data:
                 flattened["hail_risk_rate_factor"] = hail_score_data["riskRateFactor"]
             if "femaAnnualHailFrequency" in hail_score_data:
-                flattened["hail_fema_annual_frequency"] = hail_score_data[
-                    "femaAnnualHailFrequency"
-                ]
+                flattened["hail_fema_annual_frequency"] = hail_score_data["femaAnnualHailFrequency"]
 
         # Handle wildfireScore - check both camelCase and snake_case versions
         wildfire_raw = roof.get("wildfireScore") or roof.get("wildfire_score")
         wildfire_score_data = _parse_include_param(wildfire_raw)
         if wildfire_score_data:
             if "vulnerabilityScore" in wildfire_score_data:
-                flattened["wildfire_vulnerability_score"] = wildfire_score_data[
-                    "vulnerabilityScore"
-                ]
+                flattened["wildfire_vulnerability_score"] = wildfire_score_data["vulnerabilityScore"]
             if "vulnerabilityProbability" in wildfire_score_data:
-                flattened["wildfire_vulnerability_probability"] = wildfire_score_data[
-                    "vulnerabilityProbability"
-                ]
+                flattened["wildfire_vulnerability_probability"] = wildfire_score_data["vulnerabilityProbability"]
             if "vulnerabilityRateFactor" in wildfire_score_data:
-                flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data[
-                    "vulnerabilityRateFactor"
-                ]
+                flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data["vulnerabilityRateFactor"]
             if "femaAnnualWildfireFrequency" in wildfire_score_data:
-                flattened["wildfire_fema_annual_frequency"] = wildfire_score_data[
-                    "femaAnnualWildfireFrequency"
-                ]
+                flattened["wildfire_fema_annual_frequency"] = wildfire_score_data["femaAnnualWildfireFrequency"]
 
         # Handle windHailRiskScore - combined wind+hail risk score
-        wind_hail_raw = roof.get("windHailRiskScore") or roof.get(
-            "wind_hail_risk_score"
-        )
+        wind_hail_raw = roof.get("windHailRiskScore") or roof.get("wind_hail_risk_score")
         wind_hail_score_data = _parse_include_param(wind_hail_raw)
         if wind_hail_score_data:
             if "riskScore" in wind_hail_score_data:
                 flattened["wind_hail_risk_score"] = wind_hail_score_data["riskScore"]
             if "riskRateFactor" in wind_hail_score_data:
-                flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data[
-                    "riskRateFactor"
-                ]
+                flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data["riskRateFactor"]
 
         # Handle defensibleSpace - check both camelCase and snake_case versions
         # Use _parse_include_param to handle both dict and JSON string formats
@@ -634,29 +581,19 @@ def flatten_roof_attributes(
                         if "zoneAreaSqft" in zone:
                             flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
                         if "defensibleSpaceAreaSqft" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone[
-                                "defensibleSpaceAreaSqft"
-                            ]
+                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
                         if "totalRiskObjectAreaSqft" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqft"] = zone[
-                                "totalRiskObjectAreaSqft"
-                            ]
+                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
                     else:
                         if "zoneAreaSqm" in zone:
                             flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
                         if "defensibleSpaceAreaSqm" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone[
-                                "defensibleSpaceAreaSqm"
-                            ]
+                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
                         if "totalRiskObjectAreaSqm" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqm"] = zone[
-                                "totalRiskObjectAreaSqm"
-                            ]
+                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
 
                     if "defensibleSpaceCoverageRatio" in zone:
-                        flattened[f"{prefix}_coverage_ratio"] = zone[
-                            "defensibleSpaceCoverageRatio"
-                        ]
+                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
                     # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
 
         # Safely access attributes - may not exist if dropped during process_chunk()
@@ -694,17 +631,11 @@ def flatten_roof_attributes(
                 # For clipped roofs, recalculate component attributes using child features
                 recalc_attrs = None
                 if is_clipped and child_features is not None:
-                    geometry = _get_feature_value(
-                        roof, "geometry"
-                    ) or _get_feature_value(roof, "geometry_feature")
+                    geometry = _get_feature_value(roof, "geometry") or _get_feature_value(roof, "geometry_feature")
                     if isinstance(geometry, bytes):
                         geometry = wkb.loads(geometry)
                     if geometry is not None:
-                        name_prefix = (
-                            "low_conf_"
-                            if "Low confidence" in attribute.get("description", "")
-                            else ""
-                        )
+                        name_prefix = "low_conf_" if "Low confidence" in attribute.get("description", "") else ""
                         recalc_attrs = calculate_child_feature_attributes(
                             geometry,
                             components,
@@ -718,9 +649,7 @@ def flatten_roof_attributes(
                 # Collect dominant material/shape summary
                 attr_key = attribute.get("description", "").lower().replace(" ", "_")
                 if attr_key in _DOMINANT_ATTRIBUTE_DESCRIPTIONS:
-                    dominant_columns.update(
-                        _build_dominant_columns(components, recalc_attrs, country, attr_key)
-                    )
+                    dominant_columns.update(_build_dominant_columns(components, recalc_attrs, country, attr_key))
 
                 for component in components:
                     name = component["description"].lower().replace(" ", "_")
@@ -731,27 +660,17 @@ def flatten_roof_attributes(
                         # Use recalculated values from spatial intersection with clipped geometry
                         component_columns[f"{name}_present"] = recalc_attrs[f"{name}_present"]
                         if country in IMPERIAL_COUNTRIES:
-                            component_columns[f"{name}_area_sqft"] = recalc_attrs.get(
-                                f"{name}_area_sqft", 0.0
-                            )
+                            component_columns[f"{name}_area_sqft"] = recalc_attrs.get(f"{name}_area_sqft", 0.0)
                         else:
-                            component_columns[f"{name}_area_sqm"] = recalc_attrs.get(
-                                f"{name}_area_sqm", 0.0
-                            )
+                            component_columns[f"{name}_area_sqm"] = recalc_attrs.get(f"{name}_area_sqm", 0.0)
                         # Only emit confidence when present (recalc omits it for present=N)
                         if f"{name}_confidence" in recalc_attrs:
-                            component_columns[f"{name}_confidence"] = recalc_attrs[
-                                f"{name}_confidence"
-                            ]
+                            component_columns[f"{name}_confidence"] = recalc_attrs[f"{name}_confidence"]
                         if "ratio" in component or f"{name}_ratio" in recalc_attrs:
-                            component_columns[f"{name}_ratio"] = recalc_attrs.get(
-                                f"{name}_ratio", 0.0
-                            )
+                            component_columns[f"{name}_ratio"] = recalc_attrs.get(f"{name}_ratio", 0.0)
                     else:
                         # Use original component data (unclipped, or no child features for this component)
-                        component_columns[f"{name}_present"] = (
-                            TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                        )
+                        component_columns[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
                         if country in IMPERIAL_COUNTRIES:
                             component_columns[f"{name}_area_sqft"] = component["areaSqft"]
                         else:
@@ -762,9 +681,7 @@ def flatten_roof_attributes(
 
                     # Dominant and confidenceStats always come from the original component
                     if "dominant" in component:
-                        component_columns[f"{name}_dominant"] = (
-                            TRUE_STRING if component["dominant"] else FALSE_STRING
-                        )
+                        component_columns[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
                     if "confidenceStats" in component:
                         confidence_stats = component["confidenceStats"]
                         histograms = confidence_stats.get("histograms", [])
@@ -772,14 +689,10 @@ def flatten_roof_attributes(
                             bin_type = histogram.get("binType", "unknown")
                             ratios = histogram.get("ratios", [])
                             for bin_idx, ratio_value in enumerate(ratios):
-                                component_columns[
-                                    f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"
-                                ] = ratio_value
+                                component_columns[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
 
             elif "has3dAttributes" in attribute:
-                component_columns["has_3d_attributes"] = (
-                    TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
-                )
+                component_columns["has_3d_attributes"] = TRUE_STRING if attribute["has3dAttributes"] else FALSE_STRING
                 if attribute["has3dAttributes"]:
                     component_columns["pitch_degrees"] = attribute["pitch"]
 

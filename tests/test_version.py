@@ -1,7 +1,9 @@
 """Tests for version management."""
 
 import re
+
 import pytest
+
 from nmaipy import __version__, __version_info__
 
 
@@ -12,7 +14,7 @@ class TestVersion:
         """Test that version follows PEP 440 versioning (X.Y.Z with optional pre-release suffix)."""
         # Check version string format - allows X.Y.Z with optional pre-release suffix
         # e.g., 4.0.0, 4.0.0a1, 4.0.0b2, 4.0.0rc1
-        pattern = r'^\d+\.\d+\.\d+(a|b|rc)?\d*$'
+        pattern = r"^\d+\.\d+\.\d+(a|b|rc)?\d*$"
         assert re.match(pattern, __version__), f"Version {__version__} doesn't match PEP 440 versioning"
 
     def test_version_info_tuple(self):
@@ -27,7 +29,6 @@ class TestVersion:
     def test_version_consistency(self):
         """Test that version string base and version_info tuple match."""
         # Extract just the X.Y.Z part (without pre-release suffix) for comparison
-        base_version = re.match(r'^(\d+\.\d+\.\d+)', __version__).group(1)
-        version_from_tuple = '.'.join(str(x) for x in __version_info__)
-        assert version_from_tuple == base_version, \
-            f"Version mismatch: base={base_version}, tuple={version_from_tuple}"
+        base_version = re.match(r"^(\d+\.\d+\.\d+)", __version__).group(1)
+        version_from_tuple = ".".join(str(x) for x in __version_info__)
+        assert version_from_tuple == base_version, f"Version mismatch: base={base_version}, tuple={version_from_tuple}"

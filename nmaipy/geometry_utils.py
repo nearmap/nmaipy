@@ -7,6 +7,7 @@ This module provides common geometric operations used by multiple API clients:
 - Grid creation and splitting for large AOIs
 - Coordinate extraction for caching
 """
+
 from typing import Tuple, Union
 
 import geopandas as gpd
@@ -14,7 +15,12 @@ import numpy as np
 from shapely.geometry import MultiPolygon, Polygon
 
 from nmaipy import log
-from nmaipy.constants import API_CRS, AREA_CRS, AOI_ID_COLUMN_NAME, SQUARED_METERS_TO_SQUARED_FEET
+from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
+    API_CRS,
+    AREA_CRS,
+    SQUARED_METERS_TO_SQUARED_FEET,
+)
 
 logger = log.get_logger()
 
@@ -45,7 +51,7 @@ def polygon_to_coordstring(poly: Polygon) -> str:
 def clip_features_to_polygon(
     feature_poly_series: gpd.GeoSeries,
     geometry: Union[Polygon, MultiPolygon],
-    region: str
+    region: str,
 ) -> gpd.GeoDataFrame:
     """
     Clip feature geometries to a background polygon and recalculate areas.
@@ -67,10 +73,7 @@ def clip_features_to_polygon(
     assert isinstance(feature_poly_series, gpd.GeoSeries)
 
     # Clip geometries to the boundary
-    gdf_clip = gpd.GeoDataFrame(
-        geometry=feature_poly_series.intersection(geometry),
-        crs=feature_poly_series.crs
-    )
+    gdf_clip = gpd.GeoDataFrame(geometry=feature_poly_series.intersection(geometry), crs=feature_poly_series.crs)
 
     # Calculate clipped areas
     clipped_area_sqm = gdf_clip.to_crs(AREA_CRS[region]).area
@@ -132,22 +135,21 @@ def create_grid(df: gpd.GeoDataFrame, cell_size: float) -> gpd.GeoDataFrame:
     for i in range(cols):
         for j in range(rows):
             polygons.append(
-                Polygon([
-                    (minx + i * w, miny + (j + 1) * h),
-                    (minx + (i + 1) * w, miny + (j + 1) * h),
-                    (minx + (i + 1) * w, miny + j * h),
-                    (minx + i * w, miny + j * h),
-                ])
+                Polygon(
+                    [
+                        (minx + i * w, miny + (j + 1) * h),
+                        (minx + (i + 1) * w, miny + (j + 1) * h),
+                        (minx + (i + 1) * w, miny + j * h),
+                        (minx + i * w, miny + j * h),
+                    ]
+                )
             )
 
     grid = gpd.GeoDataFrame({"geometry": polygons}, crs=df.crs)
     return grid
 
 
-def split_geometry_into_grid(
-    geometry: Union[Polygon, MultiPolygon],
-    cell_size: float
-) -> gpd.GeoDataFrame:
+def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: float) -> gpd.GeoDataFrame:
     """
     Split a large geometry into a grid of smaller cells.
 
@@ -187,10 +189,7 @@ def split_geometry_into_grid(
     return df_gridded
 
 
-def combine_features_from_grid(
-    features_gdf: gpd.GeoDataFrame,
-    connected_class_ids: list = None
-) -> gpd.GeoDataFrame:
+def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_ids: list = None) -> gpd.GeoDataFrame:
     """
     Combine features from multiple grid cells, removing duplicates and merging connected features.
 
@@ -218,7 +217,7 @@ def combine_features_from_grid(
     """
     # Handle empty or None input
     if features_gdf is None or len(features_gdf) == 0:
-        empty_gdf = gpd.GeoDataFrame(columns=['geometry'], crs=API_CRS)
+        empty_gdf = gpd.GeoDataFrame(columns=["geometry"], crs=API_CRS)
         empty_gdf.index.name = AOI_ID_COLUMN_NAME
         return empty_gdf
 
@@ -275,8 +274,7 @@ def combine_features_from_grid(
     # Now we preserve ALL columns instead of filtering to a hardcoded list
     # The "first" value comes from the pre-sorted data (largest area portion)
     features_gdf_dissolved = (
-        features_gdf
-        .drop_duplicates(["feature_id", "geometry"])
+        features_gdf.drop_duplicates(["feature_id", "geometry"])
         # Don't filter - keep all columns for the dissolve operation
         .dissolve(by="feature_id", aggfunc="first")
         .reset_index()
@@ -286,8 +284,7 @@ def combine_features_from_grid(
     # Sum clipped areas for merged features (if any exist)
     if existing_agg_cols_sum:
         features_gdf_summed = (
-            features_gdf
-            .filter(existing_agg_cols_sum + ["feature_id"], axis=1)
+            features_gdf.filter(existing_agg_cols_sum + ["feature_id"], axis=1)
             .groupby("feature_id")
             .aggregate({col: "sum" for col in existing_agg_cols_sum})
         )
@@ -307,10 +304,6 @@ def combine_features_from_grid(
         features_gdf_out = features_gdf_dissolved
 
     # Reset index to make feature_id a column, then set AOI_ID as index
-    features_gdf_out = (
-        features_gdf_out
-        .reset_index()
-        .set_index(AOI_ID_COLUMN_NAME)
-    )
+    features_gdf_out = features_gdf_out.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     return features_gdf_out

@@ -8,6 +8,7 @@ This module provides common functionality used across different API clients:
 - Session management with connection pooling
 - Request caching infrastructure
 """
+
 import contextlib
 import gzip
 import hashlib
@@ -56,7 +57,22 @@ logger = log.get_logger()
 # - SLA boundary at 2s
 # - Slow request range 10-60s
 # - 60s+ for timeouts
-LATENCY_BUCKETS = [0, 50, 100, 150, 200, 300, 500, 1000, 2000, 5000, 10000, 30000, 60000, float("inf")]
+LATENCY_BUCKETS = [
+    0,
+    50,
+    100,
+    150,
+    200,
+    300,
+    500,
+    1000,
+    2000,
+    5000,
+    10000,
+    30000,
+    60000,
+    float("inf"),
+]
 
 
 class APIKeyFilter(logging.Filter):
@@ -64,27 +80,32 @@ class APIKeyFilter(logging.Filter):
 
     def filter(self, record):
         # Clean API key from the message if present
-        if hasattr(record, 'getMessage'):
+        if hasattr(record, "getMessage"):
             msg = record.getMessage()
             # Pattern to match API key in URLs
-            msg = re.sub(r'apikey=[^&\s]+', 'apikey=REMOVED', msg)
+            msg = re.sub(r"apikey=[^&\s]+", "apikey=REMOVED", msg)
             # Pattern to match API key in various formats (be aggressive about cleaning)
-            msg = re.sub(r'(["\']?api[_-]?key["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+', r'\1REMOVED', msg, flags=re.IGNORECASE)
+            msg = re.sub(
+                r'(["\']?api[_-]?key["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+',
+                r"\1REMOVED",
+                msg,
+                flags=re.IGNORECASE,
+            )
             record.msg = msg
             record.args = ()  # Clear args to prevent formatting issues
         return True
 
 
 # Apply the filter to urllib3 logger to prevent API key leakage
-urllib3_logger = logging.getLogger('urllib3.connectionpool')
+urllib3_logger = logging.getLogger("urllib3.connectionpool")
 urllib3_logger.addFilter(APIKeyFilter())
 
 # Also apply to requests logger for completeness
-requests_logger = logging.getLogger('requests')
+requests_logger = logging.getLogger("requests")
 requests_logger.addFilter(APIKeyFilter())
 
 # Also apply to nmaipy logger for defense in depth
-nmaipy_logger = logging.getLogger('nmaipy')
+nmaipy_logger = logging.getLogger("nmaipy")
 nmaipy_logger.addFilter(APIKeyFilter())
 
 
@@ -109,7 +130,7 @@ def sanitize_error_message(message: str) -> str:
     if not message or not isinstance(message, str):
         return message
     # Match URLs and truncate after the "?"
-    return re.sub(r'(https?://[^\s?]+)\?[^\s]*', r'\1?...', message)
+    return re.sub(r"(https?://[^\s?]+)\?[^\s]*", r"\1?...", message)
 
 
 def format_error_summary_table(status_counts, message_counts, max_message_len=160):
@@ -157,35 +178,47 @@ class RetryRequest(Retry):
     """
 
     BACKOFF_MIN = 2.0  # Minimum backoff time in seconds
-    BACKOFF_MAX = 10    # Maximum backoff time in seconds
+    BACKOFF_MAX = 10  # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Add all connection-related errors to retry on
-        self.RETRY_AFTER_STATUS_CODES = frozenset({
-            HTTPStatus.TOO_MANY_REQUESTS,      # 429
-            HTTPStatus.INTERNAL_SERVER_ERROR,   # 500
-            HTTPStatus.BAD_GATEWAY,            # 502
-            HTTPStatus.SERVICE_UNAVAILABLE,     # 503
-        })
+        self.RETRY_AFTER_STATUS_CODES = frozenset(
+            {
+                HTTPStatus.TOO_MANY_REQUESTS,  # 429
+                HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
+                HTTPStatus.BAD_GATEWAY,  # 502
+                HTTPStatus.SERVICE_UNAVAILABLE,  # 503
+            }
+        )
 
         # Add connection errors that should trigger retries
-        self.RETRY_ON_EXCEPTIONS = frozenset({
-            requests.exceptions.ChunkedEncodingError,
-            requests.exceptions.ConnectionError,
-            requests.exceptions.ReadTimeout,
-            RemoteDisconnected,  # From http.client
-            requests.exceptions.ProxyError,
-            requests.exceptions.SSLError,
-            urllib3.exceptions.SSLError,  # Added to catch SSL errors from urllib3
-            requests.exceptions.Timeout,
-            urllib3.exceptions.ProtocolError,
-            EOFError,  # Sometimes occurs with RemoteDisconnected
-            ConnectionResetError,  # Python built-in exception
-            ssl.SSLEOFError,  # Explicit SSL EOF error
-        })
+        self.RETRY_ON_EXCEPTIONS = frozenset(
+            {
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.ReadTimeout,
+                RemoteDisconnected,  # From http.client
+                requests.exceptions.ProxyError,
+                requests.exceptions.SSLError,
+                urllib3.exceptions.SSLError,  # Added to catch SSL errors from urllib3
+                requests.exceptions.Timeout,
+                urllib3.exceptions.ProtocolError,
+                EOFError,  # Sometimes occurs with RemoteDisconnected
+                ConnectionResetError,  # Python built-in exception
+                ssl.SSLEOFError,  # Explicit SSL EOF error
+            }
+        )
 
-    def increment(self, method=None, url=None, response=None, error=None, _pool=None, _stacktrace=None):
+    def increment(
+        self,
+        method=None,
+        url=None,
+        response=None,
+        error=None,
+        _pool=None,
+        _stacktrace=None,
+    ):
         """Override to log on first retry attempt"""
         result = super().increment(method, url, response, error, _pool, _stacktrace)
 
@@ -200,8 +233,8 @@ class RetryRequest(Retry):
 
             # Clean URL of API key for logging
             clean_url = url
-            if url and 'apikey=' in url:
-                clean_url = url.split('apikey=')[0] + 'apikey=***'
+            if url and "apikey=" in url:
+                clean_url = url.split("apikey=")[0] + "apikey=***"
 
             logger.info(f"{reason} causing retry of request {clean_url}")
 
@@ -215,9 +248,9 @@ class RetryRequest(Retry):
     @classmethod
     def from_int(cls, retries, **kwargs):
         """Helper to create retry config with better defaults"""
-        kwargs.setdefault('backoff_factor', BACKOFF_FACTOR)
-        kwargs.setdefault('status_forcelist', [429, 500, 502, 503, 504])
-        kwargs.setdefault('respect_retry_after_header', True)
+        kwargs.setdefault("backoff_factor", BACKOFF_FACTOR)
+        kwargs.setdefault("status_forcelist", [429, 500, 502, 503, 504])
+        kwargs.setdefault("respect_retry_after_header", True)
         return super().from_int(retries, **kwargs)
 
 
@@ -227,7 +260,13 @@ class APIError(Exception):
     Captures response status, body, and error messages.
     """
 
-    def __init__(self, response, request_string, text="Query Not Attempted", message="Error with Query"):
+    def __init__(
+        self,
+        response,
+        request_string,
+        text="Query Not Attempted",
+        message="Error with Query",
+    ):
         if response is None:
             self.status_code = DUMMY_STATUS_CODE
             self.text = text
@@ -262,11 +301,13 @@ class AIFeatureAPIError(APIError):
     Error responses for logging from AI Feature API.
     Maintains backward compatibility with existing code.
     """
+
     pass
 
 
 class RoofAgeAPIError(APIError):
     """Error responses specific to the Roof Age API."""
+
     pass
 
 
@@ -325,9 +366,14 @@ def clean_api_key_from_string(text: str) -> str:
     if not text:
         return text
     # Pattern to match API key in URLs
-    text = re.sub(r'apikey=[^&\s]+', 'apikey=REMOVED', text)
+    text = re.sub(r"apikey=[^&\s]+", "apikey=REMOVED", text)
     # Pattern to match API key in various formats
-    text = re.sub(r'(["\']?api[_-]?key["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+', r'\1REMOVED', text, flags=re.IGNORECASE)
+    text = re.sub(
+        r'(["\']?api[_-]?key["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+',
+        r"\1REMOVED",
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
 
 
@@ -436,11 +482,11 @@ class BaseApiClient:
         """
         if status_forcelist is None:
             status_forcelist = [
-                HTTPStatus.TOO_MANY_REQUESTS,      # 429
-                HTTPStatus.INTERNAL_SERVER_ERROR,   # 500
-                HTTPStatus.BAD_GATEWAY,            # 502
-                HTTPStatus.SERVICE_UNAVAILABLE,     # 503
-                HTTPStatus.GATEWAY_TIMEOUT,        # 504
+                HTTPStatus.TOO_MANY_REQUESTS,  # 429
+                HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
+                HTTPStatus.BAD_GATEWAY,  # 502
+                HTTPStatus.SERVICE_UNAVAILABLE,  # 503
+                HTTPStatus.GATEWAY_TIMEOUT,  # 504
             ]
 
         # Always create a fresh session to prevent resource accumulation
@@ -464,7 +510,7 @@ class BaseApiClient:
             max_retries=retries,
             pool_maxsize=pool_size,
             pool_connections=pool_size,
-            pool_block=True
+            pool_block=True,
         )
         session.mount("https://", adapter)
 
@@ -553,22 +599,15 @@ class BaseApiClient:
         if not text:
             return "_empty_"
         # Replace problematic characters with underscore
-        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(text))
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(text))
         # Replace multiple underscores with single
-        sanitized = re.sub(r'_+', '_', sanitized)
+        sanitized = re.sub(r"_+", "_", sanitized)
         # Remove leading/trailing underscores and whitespace
-        sanitized = sanitized.strip('_ \t')
+        sanitized = sanitized.strip("_ \t")
         # Truncate to reasonable length
         return sanitized[:50] if sanitized else "_empty_"
 
-    def _get_address_cache_path(
-        self,
-        country: str,
-        state: str,
-        city: str,
-        zipcode: str,
-        cache_key: str
-    ) -> str:
+    def _get_address_cache_path(self, country: str, state: str, city: str, zipcode: str, cache_key: str) -> str:
         """
         Get cache path for address-based queries.
 
@@ -975,10 +1014,22 @@ def compute_global_latency_stats(
         "p90": global_p90,
         "p95": global_p95,
         "p99": global_p99,
-        "p50_ci": (float(np.percentile(p50_samples, 2.5)), float(np.percentile(p50_samples, 97.5))),
-        "p90_ci": (float(np.percentile(p90_samples, 2.5)), float(np.percentile(p90_samples, 97.5))),
-        "p95_ci": (float(np.percentile(p95_samples, 2.5)), float(np.percentile(p95_samples, 97.5))),
-        "p99_ci": (float(np.percentile(p99_samples, 2.5)), float(np.percentile(p99_samples, 97.5))),
+        "p50_ci": (
+            float(np.percentile(p50_samples, 2.5)),
+            float(np.percentile(p50_samples, 97.5)),
+        ),
+        "p90_ci": (
+            float(np.percentile(p90_samples, 2.5)),
+            float(np.percentile(p90_samples, 97.5)),
+        ),
+        "p95_ci": (
+            float(np.percentile(p95_samples, 2.5)),
+            float(np.percentile(p95_samples, 97.5)),
+        ),
+        "p99_ci": (
+            float(np.percentile(p99_samples, 2.5)),
+            float(np.percentile(p99_samples, 97.5)),
+        ),
         "count": total_count,
     }
 

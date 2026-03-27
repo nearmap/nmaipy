@@ -1,9 +1,9 @@
 from unittest.mock import patch
 
-import nmaipy.cgroup_memory as cgroup_mod
 import psutil
 import pytest
 
+import nmaipy.cgroup_memory as cgroup_mod
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.cgroup_memory import (
     _get_cgroup_cpu_percent,
@@ -160,8 +160,16 @@ class TestGetCpuInfoCgroupAware:
 
 class TestFormatProgressDescription:
     def test_contains_memory_and_cpu(self):
-        with patch("nmaipy.base_exporter.get_memory_info_cgroup_aware", return_value=(8.5, 32.0)), \
-             patch("nmaipy.base_exporter.get_cpu_info_cgroup_aware", return_value=(65.0, 16.0)):
+        with (
+            patch(
+                "nmaipy.base_exporter.get_memory_info_cgroup_aware",
+                return_value=(8.5, 32.0),
+            ),
+            patch(
+                "nmaipy.base_exporter.get_cpu_info_cgroup_aware",
+                return_value=(65.0, 16.0),
+            ),
+        ):
             desc = BaseExporter._format_progress_description(3, 10, lat_str="P50=42ms")
         assert "8.5/32.0GB" in desc
         assert "CPU 65% (16)" in desc
@@ -169,14 +177,30 @@ class TestFormatProgressDescription:
         assert "Chunks: 3/10" in desc
 
     def test_warmup_default(self):
-        with patch("nmaipy.base_exporter.get_memory_info_cgroup_aware", return_value=(1.0, 8.0)), \
-             patch("nmaipy.base_exporter.get_cpu_info_cgroup_aware", return_value=(10.0, 4.0)):
+        with (
+            patch(
+                "nmaipy.base_exporter.get_memory_info_cgroup_aware",
+                return_value=(1.0, 8.0),
+            ),
+            patch(
+                "nmaipy.base_exporter.get_cpu_info_cgroup_aware",
+                return_value=(10.0, 4.0),
+            ),
+        ):
             desc = BaseExporter._format_progress_description(0, 5)
         assert "Warmup" in desc
         assert "CPU 10% (4)" in desc
 
     def test_fractional_cpu_count(self):
-        with patch("nmaipy.base_exporter.get_memory_info_cgroup_aware", return_value=(1.0, 8.0)), \
-             patch("nmaipy.base_exporter.get_cpu_info_cgroup_aware", return_value=(50.0, 2.5)):
+        with (
+            patch(
+                "nmaipy.base_exporter.get_memory_info_cgroup_aware",
+                return_value=(1.0, 8.0),
+            ),
+            patch(
+                "nmaipy.base_exporter.get_cpu_info_cgroup_aware",
+                return_value=(50.0, 2.5),
+            ),
+        ):
             desc = BaseExporter._format_progress_description(1, 5)
         assert "CPU 50% (2.5)" in desc

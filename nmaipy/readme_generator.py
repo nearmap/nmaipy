@@ -200,7 +200,13 @@ class ReadmeGenerator:
         Returns list of dicts with 'name' (display) and 'column' (snake_case).
         Prefers CSV files; falls back to _features.parquet files if no CSVs found.
         """
-        skip_names = {"rollup", "feature_api_errors", "roof_age_errors", "latency_stats", "buildings"}
+        skip_names = {
+            "rollup",
+            "feature_api_errors",
+            "roof_age_errors",
+            "latency_stats",
+            "buildings",
+        }
         classes = []
         seen = set()
 
@@ -324,7 +330,12 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 
     def _generate_files_table(self, files: list[str]) -> str:
         """Generate the files table section."""
-        lines = ["## Files in This Export", "", "| File Name | Description |", "|-----------|-------------|"]
+        lines = [
+            "## Files in This Export",
+            "",
+            "| File Name | Description |",
+            "|-----------|-------------|",
+        ]
 
         for f in files:
             name = storage.basename(f)
@@ -477,26 +488,30 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             col_name = col.replace("{unit}", area_unit)
             lines.append(f"| `{col_name}` | {desc.replace('{unit}', area_unit)} |")
 
-        lines.extend([
-            "",
-            "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
-            "",
-            "### Dominant Shape",
-            "",
-            "| Column | Description |",
-            "|--------|-------------|",
-        ])
+        lines.extend(
+            [
+                "",
+                "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
+                "",
+                "### Dominant Shape",
+                "",
+                "| Column | Description |",
+                "|--------|-------------|",
+            ]
+        )
 
         for col, desc in DOMINANT_ROOF_TYPES_COLUMNS.items():
             col_name = col.replace("{unit}", area_unit)
             lines.append(f"| `{col_name}` | {desc.replace('{unit}', area_unit)} |")
 
-        lines.extend([
-            "",
-            "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
-            "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
+                "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
+                "",
+            ]
+        )
 
         return "\n".join(lines)
 

@@ -47,9 +47,7 @@ from nmaipy.feature_attributes import (
     flatten_roof_attributes,
     flatten_roof_instance_attributes,
 )
-from nmaipy.primary_feature_selection import (
-    DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH,
-)
+from nmaipy.primary_feature_selection import DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH
 from nmaipy.primary_feature_selection import (
     select_primary,
 )
@@ -152,9 +150,7 @@ def calculate_child_feature_attributes(
     # Use pre-projected parent geometry if provided, otherwise project per call
     projected_crs = AREA_CRS[country.lower()]
     if parent_projected is None:
-        parent_projected = (
-            gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
-        )
+        parent_projected = gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
     parent_area = parent_projected.area
     if parent_area <= 0:
         return None
@@ -192,16 +188,12 @@ def calculate_child_feature_attributes(
         if children_projected is not None:
             matching_projected = children_projected.loc[matching_features.index]
         else:
-            matching_projected = gpd.GeoSeries(
-                matching_features.geometry.values, crs=API_CRS
-            ).to_crs(projected_crs)
+            matching_projected = gpd.GeoSeries(matching_features.geometry.values, crs=API_CRS).to_crs(projected_crs)
 
         total_intersection_area = 0.0
         max_confidence = None
         for idx, projected_geom in enumerate(matching_projected):
-            if projected_geom is not None and projected_geom.intersects(
-                parent_projected
-            ):
+            if projected_geom is not None and projected_geom.intersects(parent_projected):
                 intersection = projected_geom.intersection(parent_projected)
                 total_intersection_area += intersection.area
                 feat = matching_features.iloc[idx]
@@ -212,9 +204,7 @@ def calculate_child_feature_attributes(
         if total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
             if country in IMPERIAL_COUNTRIES:
-                flattened[f"{name}_area_sqft"] = (
-                    total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
-                )
+                flattened[f"{name}_area_sqft"] = total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
             else:
                 flattened[f"{name}_area_sqm"] = total_intersection_area
             flattened[f"{name}_ratio"] = total_intersection_area / parent_area
@@ -308,9 +298,7 @@ def link_roof_instances_to_roofs(
 
     rf_gdf["primary_child_roof_age_feature_id"] = None
     rf_gdf["primary_child_roof_age_iou"] = 0.0
-    rf_gdf["child_roof_instances"] = (
-        "[]"  # JSON-serialized empty list for parquet compatibility
-    )
+    rf_gdf["child_roof_instances"] = "[]"  # JSON-serialized empty list for parquet compatibility
     rf_gdf["child_roof_instance_count"] = 0
 
     # Get unique AOIs that have both roof instances and roofs
@@ -372,11 +360,7 @@ def link_roof_instances_to_roofs(
                 if iou > 0:
                     # Record this match for the roof's child list
                     # Include "kind" for sorting (prioritize "roof" over "parcel")
-                    instance_kind = (
-                        instance_row.get("kind")
-                        if "kind" in instance_row.index
-                        else None
-                    )
+                    instance_kind = instance_row.get("kind") if "kind" in instance_row.index else None
                     roof_to_instances[roof_df_idx].append(
                         {
                             "feature_id": instance_feature_id,
@@ -391,10 +375,7 @@ def link_roof_instances_to_roofs(
                     best_roof_feature_id = roof_fid
 
             # Assign parent to roof instance (only if IoU meets threshold)
-            if (
-                best_roof_idx is not None
-                and best_iou >= MIN_ROOF_INSTANCE_IOU_THRESHOLD
-            ):
+            if best_roof_idx is not None and best_iou >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
                 ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id
                 ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)
 
@@ -413,18 +394,12 @@ def link_roof_instances_to_roofs(
             sorted_instances = sorted(instances, key=instance_sort_key)
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
-            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(
-                sorted_instances
-            )
+            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
             rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
             # Only assign primary if IoU meets threshold - below that we don't trust the match
             if sorted_instances[0]["iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = (
-                    sorted_instances[0]["feature_id"]
-                )
-                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[
-                    0
-                ]["iou"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -510,9 +485,7 @@ def link_roofs_to_buildings(
 
     bldg_gdf["primary_child_roof_id"] = None
     bldg_gdf["primary_child_roof_iou"] = 0.0
-    bldg_gdf["child_roofs"] = (
-        "[]"  # JSON-serialized empty list for parquet compatibility
-    )
+    bldg_gdf["child_roofs"] = "[]"  # JSON-serialized empty list for parquet compatibility
     bldg_gdf["child_roof_count"] = 0
 
     # Get unique AOIs that have both roofs and buildings
@@ -600,12 +573,8 @@ def link_roofs_to_buildings(
             bldg_gdf.at[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)
             # Only assign primary if IoU meets threshold
             if sorted_roofs[0]["iou"] >= min_iou_threshold:
-                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0][
-                    "feature_id"
-                ]
-                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0][
-                    "iou"
-                ]
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]
 
     # Restore aoi_id as index
     rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -639,11 +608,7 @@ def _extract_rsi_from_feature(feature) -> dict:
 
 def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     """Build a feature_id → row dict for fast parent_id chain traversal."""
-    if (
-        features_gdf is None
-        or len(features_gdf) == 0
-        or "feature_id" not in features_gdf.columns
-    ):
+    if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
     lookup = {}
     for _, row in features_gdf.iterrows():
@@ -693,11 +658,7 @@ def resolve_footprint_rsi(
 
     # Traverse parent_id chain to find the building_lifecycle
     visited = set()
-    pid = (
-        feature.get("parent_id")
-        if hasattr(feature, "get")
-        else getattr(feature, "parent_id", None)
-    )
+    pid = feature.get("parent_id") if hasattr(feature, "get") else getattr(feature, "parent_id", None)
     while pd.notna(pid) and pid not in visited:
         visited.add(pid)
         parent = parent_lookup.get(pid)
@@ -705,11 +666,7 @@ def resolve_footprint_rsi(
             break
         if parent.get("class_id") == BUILDING_LIFECYCLE_ID:
             return _extract_rsi_from_feature(parent)
-        pid = (
-            parent.get("parent_id")
-            if hasattr(parent, "get")
-            else getattr(parent, "parent_id", None)
-        )
+        pid = parent.get("parent_id") if hasattr(parent, "get") else getattr(parent, "parent_id", None)
 
     return {}
 
@@ -802,23 +759,15 @@ def feature_attributes(
         # For roof instances, filter to only "roof" kind for count/area aggregations
         # "parcel" kind features are property boundaries, not actual roof instances
         if class_id == ROOF_INSTANCE_CLASS_ID and "kind" in class_features_gdf.columns:
-            roof_kind_features = class_features_gdf[
-                class_features_gdf["kind"] == "roof"
-            ]
+            roof_kind_features = class_features_gdf[class_features_gdf["kind"] == "roof"]
         else:
             roof_kind_features = class_features_gdf
 
         # Add attributes that apply to all feature classes
         # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
         # For roof instances, use filtered features (roof kind only) for count
-        features_for_count = (
-            roof_kind_features
-            if class_id == ROOF_INSTANCE_CLASS_ID
-            else class_features_gdf
-        )
-        parcel[f"{name}_present"] = (
-            TRUE_STRING if len(features_for_count) > 0 else FALSE_STRING
-        )
+        features_for_count = roof_kind_features if class_id == ROOF_INSTANCE_CLASS_ID else class_features_gdf
+        parcel[f"{name}_present"] = TRUE_STRING if len(features_for_count) > 0 else FALSE_STRING
         parcel[f"{name}_count"] = len(features_for_count)
 
         # Roof instances only have area (not clipped/unclipped) and trust_score (not confidence)
@@ -826,23 +775,17 @@ def feature_attributes(
             # Use filtered features (roof kind only) for area aggregation
             if country in IMPERIAL_COUNTRIES:
                 parcel[f"{name}_total_area_sqft"] = (
-                    roof_kind_features.area_sqft.sum()
-                    if "area_sqft" in roof_kind_features.columns
-                    else 0.0
+                    roof_kind_features.area_sqft.sum() if "area_sqft" in roof_kind_features.columns else 0.0
                 )
             else:
                 parcel[f"{name}_total_area_sqm"] = (
-                    roof_kind_features.area_sqm.sum()
-                    if "area_sqm" in roof_kind_features.columns
-                    else 0.0
+                    roof_kind_features.area_sqm.sum() if "area_sqm" in roof_kind_features.columns else 0.0
                 )
         else:
             # Standard Feature API classes have clipped/unclipped areas and confidence
             if country in IMPERIAL_COUNTRIES:
                 parcel[f"{name}_total_area_sqft"] = (
-                    class_features_gdf.area_sqft.sum()
-                    if "area_sqft" in class_features_gdf.columns
-                    else 0.0
+                    class_features_gdf.area_sqft.sum() if "area_sqft" in class_features_gdf.columns else 0.0
                 )
                 parcel[f"{name}_total_clipped_area_sqft"] = (
                     round(class_features_gdf.clipped_area_sqft.sum(), 1)
@@ -856,9 +799,7 @@ def feature_attributes(
                 )
             else:
                 parcel[f"{name}_total_area_sqm"] = (
-                    class_features_gdf.area_sqm.sum()
-                    if "area_sqm" in class_features_gdf.columns
-                    else 0.0
+                    class_features_gdf.area_sqm.sum() if "area_sqm" in class_features_gdf.columns else 0.0
                 )
                 parcel[f"{name}_total_clipped_area_sqm"] = (
                     round(class_features_gdf.clipped_area_sqm.sum(), 1)
@@ -870,22 +811,15 @@ def feature_attributes(
                     if "unclipped_area_sqm" in class_features_gdf.columns
                     else 0.0
                 )
-            if (
-                len(class_features_gdf) > 0
-                and "confidence" in class_features_gdf.columns
-            ):
-                parcel[f"{name}_confidence"] = (
-                    1 - (1 - class_features_gdf.confidence).prod()
-                )
+            if len(class_features_gdf) > 0 and "confidence" in class_features_gdf.columns:
+                parcel[f"{name}_confidence"] = 1 - (1 - class_features_gdf.confidence).prod()
             else:
                 parcel[f"{name}_confidence"] = None
 
         if class_id in BUILDING_STYLE_CLASS_IDS:
             col = "multiparcel_feature"
             if col in class_features_gdf.columns:
-                parcel[f"{name}_{col}_count"] = len(
-                    class_features_gdf.query(f"{col} == True")
-                )
+                parcel[f"{name}_{col}_count"] = len(class_features_gdf.query(f"{col} == True"))
 
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:
@@ -913,9 +847,7 @@ def feature_attributes(
 
                 # Derive primary roof instance from primary roof's IoU-linked child
                 if _primary_roof_child_ri_id is not None:
-                    linked_ri_rows = class_features_gdf[
-                        class_features_gdf.feature_id == _primary_roof_child_ri_id
-                    ]
+                    linked_ri_rows = class_features_gdf[class_features_gdf.feature_id == _primary_roof_child_ri_id]
                     if len(linked_ri_rows) > 0:
                         primary_feature = linked_ri_rows.iloc[0]
 
@@ -924,11 +856,7 @@ def feature_attributes(
                     # Prioritize "roof" kind over "parcel" kind for primary selection
                     # Use roof_kind_features if available, otherwise fall back to all features
                     # (roof_kind_features was computed earlier in this loop iteration)
-                    features_for_selection = (
-                        roof_kind_features
-                        if len(roof_kind_features) > 0
-                        else class_features_gdf
-                    )
+                    features_for_selection = roof_kind_features if len(roof_kind_features) > 0 else class_features_gdf
 
                     if len(features_for_selection) > 0:
                         primary_feature = select_primary(
@@ -938,11 +866,7 @@ def feature_attributes(
                             secondary_area_col=None,
                             target_lat=primary_lat,
                             target_lon=primary_lon,
-                            confidence_col=(
-                                "trust_score"
-                                if "trust_score" in features_for_selection.columns
-                                else None
-                            ),
+                            confidence_col=("trust_score" if "trust_score" in features_for_selection.columns else None),
                             high_confidence_threshold=PRIMARY_FEATURE_HIGH_CONF_THRESH,
                             geometry_col=(
                                 "geometry_feature"
@@ -962,15 +886,13 @@ def feature_attributes(
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_area_sqft"] = (
                         round(primary_feature.area_sqft, 1)
-                        if hasattr(primary_feature, "area_sqft")
-                        and primary_feature.area_sqft is not None
+                        if hasattr(primary_feature, "area_sqft") and primary_feature.area_sqft is not None
                         else 0.0
                     )
                 else:
                     parcel[f"primary_{name}_area_sqm"] = (
                         round(primary_feature.area_sqm, 1)
-                        if hasattr(primary_feature, "area_sqm")
-                        and primary_feature.area_sqm is not None
+                        if hasattr(primary_feature, "area_sqm") and primary_feature.area_sqm is not None
                         else 0.0
                     )
             else:
@@ -994,19 +916,11 @@ def feature_attributes(
                         projected_crs=projected_crs,
                     )
                 if country in IMPERIAL_COUNTRIES:
-                    parcel[f"primary_{name}_clipped_area_sqft"] = round(
-                        primary_feature.clipped_area_sqft, 1
-                    )
-                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(
-                        primary_feature.unclipped_area_sqft, 1
-                    )
+                    parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
                 else:
-                    parcel[f"primary_{name}_clipped_area_sqm"] = round(
-                        primary_feature.clipped_area_sqm, 1
-                    )
-                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(
-                        primary_feature.unclipped_area_sqm, 1
-                    )
+                    parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
+                    parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
                 if class_id in BUILDING_STYLE_CLASS_IDS:
                     parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
@@ -1015,21 +929,13 @@ def feature_attributes(
             if class_id in BUILDING_STYLE_CLASS_IDS:
                 col = "multiparcel_feature"
                 if col in primary_feature:
-                    parcel[f"primary_{name}_{col}"] = (
-                        TRUE_STRING if primary_feature[col] else FALSE_STRING
-                    )
+                    parcel[f"primary_{name}_{col}"] = TRUE_STRING if primary_feature[col] else FALSE_STRING
                 if class_id == ROOF_ID:
                     # Get non-roof features as children for clipped roof recalculation
-                    geom_col = (
-                        "geometry_feature"
-                        if "geometry_feature" in features_gdf.columns
-                        else "geometry"
-                    )
+                    geom_col = "geometry_feature" if "geometry_feature" in features_gdf.columns else "geometry"
                     non_roof = features_gdf[features_gdf.class_id != ROOF_ID]
                     if len(non_roof) > 0 and geom_col in non_roof.columns:
-                        child_feats = gpd.GeoDataFrame(
-                            non_roof, geometry=geom_col, crs=API_CRS
-                        )
+                        child_feats = gpd.GeoDataFrame(non_roof, geometry=geom_col, crs=API_CRS)
                         if child_feats.geometry.name != "geometry":
                             child_feats = child_feats.rename_geometry("geometry")
                     else:
@@ -1047,14 +953,10 @@ def feature_attributes(
                     )
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id in [BUILDING_ID, BUILDING_NEW_ID]:
-                    primary_attributes = flatten_building_attributes(
-                        [primary_feature], country=country
-                    )
+                    primary_attributes = flatten_building_attributes([primary_feature], country=country)
                 elif class_id == ROOF_INSTANCE_CLASS_ID:
                     # Roof instances have different attributes than Feature API classes
-                    primary_attributes = flatten_roof_instance_attributes(
-                        primary_feature, country=country, prefix=""
-                    )
+                    primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
                     primary_attributes["feature_id"] = primary_feature.feature_id
                 else:
                     primary_attributes = {}
@@ -1063,9 +965,7 @@ def feature_attributes(
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Provide the confidence values for each damage rating class for the primary building lifecycle feature
-                primary_attributes = flatten_building_lifecycle_damage_attributes(
-                    [primary_feature]
-                )
+                primary_attributes = flatten_building_lifecycle_damage_attributes([primary_feature])
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
 
@@ -1075,24 +975,18 @@ def feature_attributes(
                 pass
 
     # INDS-2030: Resolve best RSI from primary roof or primary building lifecycle.
-    # When structural damage is present and if BL was requested, the API puts RSI on the BL 
+    # When structural damage is present and if BL was requested, the API puts RSI on the BL
     # instead of the roof.
     _fp_rsi = {}
     _primary_roof_rsi_key = "primary_roof_roof_spotlight_index"
     if _primary_roof_rsi_key in parcel and parcel[_primary_roof_rsi_key] is not None:
         _fp_rsi["primary_roof_spotlight_index"] = parcel[_primary_roof_rsi_key]
-        _fp_rsi["primary_roof_spotlight_index_confidence"] = parcel.get(
-            "primary_roof_roof_spotlight_index_confidence"
-        )
+        _fp_rsi["primary_roof_spotlight_index_confidence"] = parcel.get("primary_roof_roof_spotlight_index_confidence")
     elif _primary_bl is not None:
         bl_rsi = _extract_rsi_from_feature(_primary_bl)
         if bl_rsi:
-            _fp_rsi["primary_roof_spotlight_index"] = bl_rsi.get(
-                "roof_spotlight_index"
-            )
-            _fp_rsi["primary_roof_spotlight_index_confidence"] = bl_rsi.get(
-                "roof_spotlight_index_confidence"
-            )
+            _fp_rsi["primary_roof_spotlight_index"] = bl_rsi.get("roof_spotlight_index")
+            _fp_rsi["primary_roof_spotlight_index_confidence"] = bl_rsi.get("roof_spotlight_index_confidence")
     parcel.update(_fp_rsi)
     # Remove the raw flattened RSI columns — primary_roof_spotlight_index supersedes them
     parcel.pop("primary_roof_roof_spotlight_index", None)
@@ -1107,9 +1001,7 @@ def feature_attributes(
         area_col = (
             "clipped_area_sqft"
             if "clipped_area_sqft" in roof_features.columns
-            else "clipped_area_sqm"
-            if "clipped_area_sqm" in roof_features.columns
-            else None
+            else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
         )
         for _, rf in roof_features.iterrows():
             fp = resolve_footprint_rsi(rf, parent_lookup=p_lookup)
@@ -1150,9 +1042,7 @@ def extract_building_features(
         return gpd.GeoDataFrame()
 
     # Filter for building-style features only
-    building_gdf = features_gdf[
-        features_gdf.class_id.isin(BUILDING_STYLE_CLASS_IDS)
-    ].copy()
+    building_gdf = features_gdf[features_gdf.class_id.isin(BUILDING_STYLE_CLASS_IDS)].copy()
 
     if len(building_gdf) == 0:
         return gpd.GeoDataFrame()
@@ -1174,35 +1064,15 @@ def extract_building_features(
             "confidence": building.confidence,
             "fidelity": building.fidelity if hasattr(building, "fidelity") else None,
             "area_sqm": building.area_sqm if hasattr(building, "area_sqm") else None,
-            "clipped_area_sqm": (
-                building.clipped_area_sqm
-                if hasattr(building, "clipped_area_sqm")
-                else None
-            ),
-            "unclipped_area_sqm": (
-                building.unclipped_area_sqm
-                if hasattr(building, "unclipped_area_sqm")
-                else None
-            ),
+            "clipped_area_sqm": (building.clipped_area_sqm if hasattr(building, "clipped_area_sqm") else None),
+            "unclipped_area_sqm": (building.unclipped_area_sqm if hasattr(building, "unclipped_area_sqm") else None),
             "area_sqft": building.area_sqft if hasattr(building, "area_sqft") else None,
-            "clipped_area_sqft": (
-                building.clipped_area_sqft
-                if hasattr(building, "clipped_area_sqft")
-                else None
-            ),
-            "unclipped_area_sqft": (
-                building.unclipped_area_sqft
-                if hasattr(building, "unclipped_area_sqft")
-                else None
-            ),
-            "survey_date": (
-                building.survey_date if hasattr(building, "survey_date") else None
-            ),
+            "clipped_area_sqft": (building.clipped_area_sqft if hasattr(building, "clipped_area_sqft") else None),
+            "unclipped_area_sqft": (building.unclipped_area_sqft if hasattr(building, "unclipped_area_sqft") else None),
+            "survey_date": (building.survey_date if hasattr(building, "survey_date") else None),
             "mesh_date": building.mesh_date if hasattr(building, "mesh_date") else None,
             "geometry": building.geometry,
-            "is_primary": (
-                building.is_primary if hasattr(building, "is_primary") else False
-            ),
+            "is_primary": (building.is_primary if hasattr(building, "is_primary") else False),
         }
         if hasattr(building, "parent_id"):
             building_record["parent_id"] = building.parent_id
@@ -1233,9 +1103,7 @@ def extract_building_features(
                     building_record[k] = v
         except Exception as e:
             # If any issues processing attributes, log and continue
-            logger.warning(
-                f"Error processing attributes for feature {building.feature_id}: {str(e)}"
-            )
+            logger.warning(f"Error processing attributes for feature {building.feature_id}: {str(e)}")
 
         building_records.append(building_record)
 
@@ -1253,9 +1121,7 @@ def extract_building_features(
             # Create copy with reset index to allow merging
             parcel_info = parcels_gdf.reset_index()[parcel_cols + [AOI_ID_COLUMN_NAME]]
             # Merge with buildings dataframe
-            buildings_df = buildings_df.merge(
-                parcel_info, on=AOI_ID_COLUMN_NAME, how="left"
-            )
+            buildings_df = buildings_df.merge(parcel_info, on=AOI_ID_COLUMN_NAME, how="left")
 
     return buildings_df
 
@@ -1374,9 +1240,7 @@ def parcel_rollup(
     projected_crs = AREA_CRS[country.lower()]
     if uses_lat_lon:
         # Determine geometry column (after merge with suffixes, it may be geometry_feature)
-        geom_col = (
-            "geometry_feature" if "geometry_feature" in df.columns else "geometry"
-        )
+        geom_col = "geometry_feature" if "geometry_feature" in df.columns else "geometry"
         if geom_col in df.columns:
             # Create a temporary GeoDataFrame for projection
             temp_gdf = gpd.GeoDataFrame(
@@ -1464,9 +1328,7 @@ def parcel_rollup(
     rollup_df = pd.DataFrame(rollups)
     rollup_df = rollup_df.set_index(AOI_ID_COLUMN_NAME)
     if len(rollup_df) != len(parcels_gdf):
-        raise RuntimeError(
-            f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}"
-        )
+        raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 
     # Round any columns ending in _confidence to two decimal places (nearest percent)
     for col in rollup_df.columns:

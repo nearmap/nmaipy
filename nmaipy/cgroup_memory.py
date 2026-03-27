@@ -45,9 +45,7 @@ def is_running_in_container() -> bool:
     Returns:
         True if cgroup memory files are accessible, False otherwise.
     """
-    return os.path.exists(CGROUP_V2_MEMORY_MAX) or os.path.exists(
-        CGROUP_V1_MEMORY_LIMIT
-    )
+    return os.path.exists(CGROUP_V2_MEMORY_MAX) or os.path.exists(CGROUP_V1_MEMORY_LIMIT)
 
 
 def get_cgroup_memory_limit_bytes() -> Optional[int]:
