@@ -808,7 +808,9 @@ class FeatureApi(GriddedApiClient):
                         logger.debug(
                             f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}"
                         )
-                        time.sleep(CHUNKED_ENCODING_RETRY_DELAY + random.uniform(0, BACKOFF_JITTER))  # Jittered pause before retry
+                        time.sleep(
+                            CHUNKED_ENCODING_RETRY_DELAY + random.uniform(0, BACKOFF_JITTER)
+                        )  # Jittered pause before retry
                         continue
                     else:
                         # Exhausted all retries, log error and fall back to size error
