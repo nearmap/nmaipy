@@ -37,6 +37,7 @@ from nmaipy import log, storage
 from nmaipy.constants import (
     AREA_CRS,
     BACKOFF_FACTOR,
+    BACKOFF_JITTER,
     DUMMY_STATUS_CODE,
     MAX_RETRIES,
     READ_TIMEOUT_SECONDS,
@@ -495,6 +496,8 @@ class BaseApiClient:
         retries = RetryRequest(
             total=self.maxretry,
             backoff_factor=BACKOFF_FACTOR,
+            backoff_jitter=BACKOFF_JITTER,
+            backoff_max=30,
             status_forcelist=status_forcelist,
             allowed_methods=["GET", "POST"],
             raise_on_status=False,
