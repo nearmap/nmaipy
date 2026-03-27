@@ -68,13 +68,20 @@ ROOF_AGE_PREFIX_COLUMNS = {
 # gracefully while preventing indefinite blocking on persistent errors.
 
 # Maximum number of retry attempts for failed requests
-# With exponential backoff (0.5s factor, min 2s, capped at 10s), retry delays are approximately:
-# 2s, 2s, 2s, 4s, 8s, 10s (capped), 10s, ...
+# With exponential backoff (0.5s factor, backoff_max=30s, jitter up to 5s), retry delays are approximately:
+# 0-5s, 0.5-5.5s, 1-6s, 2-7s, 4-9s, 8-13s, 16-21s, 30s (capped), ...
 MAX_RETRIES = 10
 
 # Exponential backoff multiplier for retries
-# With factor 0.5, combined with BACKOFF_MIN=2s and BACKOFF_MAX=10s in RetryRequest class
+# Formula: backoff_factor * 2^(retry_number - 1), capped at BACKOFF_MAX, plus uniform jitter [0, BACKOFF_JITTER]
 BACKOFF_FACTOR = 0.5
+
+# Maximum backoff time in seconds (caps the exponential curve before jitter is added)
+BACKOFF_MAX = 30
+
+# Jitter added to exponential backoff to desynchronize parallel workers (thundering herd prevention).
+# Adds uniform(0, BACKOFF_JITTER) seconds to each retry delay via urllib3's backoff_jitter parameter.
+BACKOFF_JITTER = 5.0
 
 # Maximum time to wait for initial server response (connection + waiting for first byte)
 TIMEOUT_SECONDS = 120
