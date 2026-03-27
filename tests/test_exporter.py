@@ -66,9 +66,7 @@ class TestExporter:
         output_dir_rollup_api = Path(processed_output_directory) / tag_rollup_api
         packs = ["surface_permeability"]
         country = "au"
-        final_path_rollup_api = (
-            output_dir_rollup_api / "final"
-        )  # Permanent path for later visual inspection
+        final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
         final_path_rollup_api.mkdir(parents=True, exist_ok=True)
 
         chunk_path_rollup_api = output_dir_rollup_api / "chunks"
@@ -111,6 +109,7 @@ class TestExporter:
         for cp in chunk_path_rollup_api.glob(f"rollup_*.parquet"):
             data_rollup_api.append(pd.read_parquet(cp))
         data_rollup_api = pd.concat(data_rollup_api)
+
     @pytest.mark.live_api
     @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
     def test_process_chunk_au(
@@ -190,9 +189,7 @@ class TestExporter:
         assert outpath_errors.exists()
         assert outpath_features.exists()
 
-        assert len(data) == len(
-            parcel_gdf_au_tests
-        )  # Assert got a result for every parcel.
+        assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.
 
     @pytest.mark.skip(reason="Rollup API not yet updated to be compatible with output.")
     def test_process_chunk_rollup_vs_feature_calc(
@@ -222,9 +219,7 @@ class TestExporter:
         packs = ["building", "roof_char", "vegetation"]
         country = "us"
         final_path = output_dir / "final"  # Permanent path for later visual inspection
-        final_path_rollup_api = (
-            output_dir_rollup_api / "final"
-        )  # Permanent path for later visual inspection
+        final_path_rollup_api = output_dir_rollup_api / "final"  # Permanent path for later visual inspection
         final_path.mkdir(parents=True, exist_ok=True)
         final_path_rollup_api.mkdir(parents=True, exist_ok=True)
 
@@ -297,9 +292,7 @@ class TestExporter:
                 idx_equal_counts,
                 "medium_and_high_vegetation_(>2m)_total_clipped_area_sqft",
             ],
-            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID)
-            .loc[idx_equal_counts]
-            .iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID).loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
@@ -309,9 +302,7 @@ class TestExporter:
                 idx_equal_counts,
                 "medium_and_high_vegetation_(>2m)_total_unclipped_area_sqft",
             ],
-            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID)
-            .loc[idx_equal_counts]
-            .iloc[:, 0],
+            data_rollup_api.filter(like=ROLLUP_TREE_CANOPY_AREA_UNCLIPPED_SQFT_ID).loc[idx_equal_counts].iloc[:, 0],
             check_exact=False,
             check_names=False,
             atol=1,
@@ -336,8 +327,7 @@ class TestExporter:
 
         ## Implicitly test sqm to sqft conversion...
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "primary_roof_clipped_area_sqft"]
-            / SQUARED_METERS_TO_SQUARED_FEET,
+            data_feature_api.loc[idx_equal_counts, "primary_roof_clipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET,
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID)
             .loc[idx_equal_counts]
             .fillna(0)
@@ -347,8 +337,7 @@ class TestExporter:
             atol=1,
         )
         pd.testing.assert_series_equal(
-            data_feature_api.loc[idx_equal_counts, "primary_roof_unclipped_area_sqft"]
-            / SQUARED_METERS_TO_SQUARED_FEET,
+            data_feature_api.loc[idx_equal_counts, "primary_roof_unclipped_area_sqft"] / SQUARED_METERS_TO_SQUARED_FEET,
             data_rollup_api.filter(like=ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID)
             .loc[idx_equal_counts]
             .fillna(0)
@@ -453,9 +442,7 @@ class TestExporter:
 
         # Verify chunk files were created
         feature_chunk_files = list(chunk_path.glob("features_*.parquet"))
-        assert (
-            len(feature_chunk_files) >= 1
-        ), f"Expected at least one feature chunk, got {len(feature_chunk_files)}"
+        assert len(feature_chunk_files) >= 1, f"Expected at least one feature chunk, got {len(feature_chunk_files)}"
 
         # Load and validate the consolidated features file
         consolidated_features = gpd.read_parquet(expected_features_file)
@@ -477,14 +464,10 @@ class TestExporter:
 
             # Verify CRS preservation
             if hasattr(manual_concat, "crs") and manual_concat.crs:
-                assert (
-                    consolidated_features.crs == manual_concat.crs
-                ), "CRS not preserved"
+                assert consolidated_features.crs == manual_concat.crs, "CRS not preserved"
 
             # Verify essential columns exist
-            assert (
-                "geometry" in consolidated_features.columns
-            ), "Missing geometry column"
+            assert "geometry" in consolidated_features.columns, "Missing geometry column"
             # Features data uses 'index' column (from the original parcel index) instead of 'aoi_id'
             assert "index" in consolidated_features.columns, "Missing index column"
 
@@ -503,9 +486,7 @@ class TestExporter:
             assert callable(exporter.run), "run() should be callable"
 
             # Check export() method does NOT exist
-            assert not hasattr(
-                exporter, "export"
-            ), "AOIExporter should NOT have export() method"
+            assert not hasattr(exporter, "export"), "AOIExporter should NOT have export() method"
 
     def test_aoi_exporter_initialization(self):
         """Test AOIExporter can be initialized with minimal parameters."""
@@ -746,9 +727,7 @@ class TestExporter:
                 exporter._stream_and_convert_features(feature_paths, output_path)
 
             # Should NOT produce per-chunk warning messages about schema casting
-            warning_msgs = [
-                r.message for r in caplog.records if r.levelno >= logging.WARNING
-            ]
+            warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
             assert not any(
                 "Schema casting failed" in m for m in warning_msgs
             ), f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
@@ -853,9 +832,7 @@ class TestReadParquetChunksParallel:
         nonempty_path = tmp_path / "nonempty.parquet"
         pd.DataFrame({"col": [1]}).to_parquet(nonempty_path)
 
-        results = _read_parquet_chunks_parallel(
-            [str(empty_path), str(nonempty_path)], max_workers=2
-        )
+        results = _read_parquet_chunks_parallel([str(empty_path), str(nonempty_path)], max_workers=2)
         assert len(results) == 1
 
     def test_empty_paths_returns_empty_list(self):
@@ -952,34 +929,23 @@ class TestPerClassFileWhitelist:
             (BUILDING_LIFECYCLE_ID, "building lifecycle"),
             (ROOF_INSTANCE_CLASS_ID, "roof instance"),
         ]:
-            assert class_id in unique_classes, (
-                f"{name} ({class_id}) should be present in all-packs NJ data"
-            )
+            assert class_id in unique_classes, f"{name} ({class_id}) should be present in all-packs NJ data"
 
         assert whitelisted == PER_CLASS_FILE_CLASS_IDS, (
-            f"All 6 whitelisted classes should be present. "
-            f"Missing: {PER_CLASS_FILE_CLASS_IDS - whitelisted}"
+            f"All 6 whitelisted classes should be present. " f"Missing: {PER_CLASS_FILE_CLASS_IDS - whitelisted}"
         )
 
         # Non-whitelisted classes should be numerous (vegetation, surfaces, etc.)
-        assert len(skipped) >= 20, (
-            f"Expected 20+ non-whitelisted classes, got {len(skipped)}"
-        )
+        assert len(skipped) >= 20, f"Expected 20+ non-whitelisted classes, got {len(skipped)}"
 
         # Every class in data must be in exactly one partition
         assert whitelisted | skipped == unique_classes
 
         # Verify every row is accounted for — no data lost by the partition
         total_rows = len(features_2_all_packs_df)
-        whitelisted_rows = features_2_all_packs_df[
-            features_2_all_packs_df["class_id"].isin(PER_CLASS_FILE_CLASS_IDS)
-        ]
-        skipped_rows = features_2_all_packs_df[
-            ~features_2_all_packs_df["class_id"].isin(PER_CLASS_FILE_CLASS_IDS)
-        ]
-        assert len(whitelisted_rows) + len(skipped_rows) == total_rows, (
-            "Whitelist partition must account for all rows"
-        )
+        whitelisted_rows = features_2_all_packs_df[features_2_all_packs_df["class_id"].isin(PER_CLASS_FILE_CLASS_IDS)]
+        skipped_rows = features_2_all_packs_df[~features_2_all_packs_df["class_id"].isin(PER_CLASS_FILE_CLASS_IDS)]
+        assert len(whitelisted_rows) + len(skipped_rows) == total_rows, "Whitelist partition must account for all rows"
         assert len(whitelisted_rows) > 0, "Should have some whitelisted feature rows"
         assert len(skipped_rows) > 0, "Should have some skipped feature rows"
 
@@ -1056,9 +1022,7 @@ class TestStreamAndConvertFeaturesSchemaUnion:
             )
             chunk2.to_parquet(chunk_dir / "features_2.parquet")
 
-            exporter = AOIExporter(
-                output_dir=tmpdir, country="au", packs=["building"], save_features=True
-            )
+            exporter = AOIExporter(output_dir=tmpdir, country="au", packs=["building"], save_features=True)
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
 
@@ -1089,9 +1053,7 @@ class TestStreamAndConvertFeaturesSchemaUnion:
             corrupt_path = chunk_dir / "features_2.parquet"
             corrupt_path.write_text("not a parquet file")
 
-            exporter = AOIExporter(
-                output_dir=tmpdir, country="au", packs=["building"], save_features=True
-            )
+            exporter = AOIExporter(output_dir=tmpdir, country="au", packs=["building"], save_features=True)
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
 
@@ -1123,15 +1085,18 @@ class TestStreamAndConvertFeaturesSchemaUnion:
             )
             # Write with geopandas so we get valid geoparquet metadata
             gdf = gpd.GeoDataFrame(
-                {"text_col": ["hello"], "bin_col": [b"\x00\x01"], "int_col": [1], "class_id": ["c1"]},
+                {
+                    "text_col": ["hello"],
+                    "bin_col": [b"\x00\x01"],
+                    "int_col": [1],
+                    "class_id": ["c1"],
+                },
                 geometry=[Point(0, 0)],
                 crs="EPSG:4326",
             )
             gdf.to_parquet(chunk_dir / "features_1.parquet")
 
-            exporter = AOIExporter(
-                output_dir=tmpdir, country="au", packs=["building"], save_features=True
-            )
+            exporter = AOIExporter(output_dir=tmpdir, country="au", packs=["building"], save_features=True)
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
 
@@ -1153,9 +1118,7 @@ class TestStreamAndConvertFeaturesSchemaUnion:
             corrupt2 = chunk_dir / "features_2.parquet"
             corrupt2.write_text("bad2")
 
-            exporter = AOIExporter(
-                output_dir=tmpdir, country="au", packs=["building"], save_features=True
-            )
+            exporter = AOIExporter(output_dir=tmpdir, country="au", packs=["building"], save_features=True)
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
 
@@ -1169,7 +1132,12 @@ class TestUnifyAndConcatTables:
         primary_child_roof_roof_spotlight_index crash where chunks with all-present
         integer values are int64 but chunks with nulls are inferred as float64."""
         t1 = pa.table({"spotlight_index": pa.array([80], type=pa.int64()), "name": ["a"]})
-        t2 = pa.table({"spotlight_index": pa.array([75, None], type=pa.float64()), "name": ["b", "c"]})
+        t2 = pa.table(
+            {
+                "spotlight_index": pa.array([75, None], type=pa.float64()),
+                "name": ["b", "c"],
+            }
+        )
         result = _unify_and_concat_tables([t1, t2])
         assert result.schema.field("spotlight_index").type == pa.float64()
         assert result.column("spotlight_index").to_pylist() == [80.0, 75.0, None]
@@ -1234,10 +1202,7 @@ class TestPerClassChunkGlobFiltering:
     @pytest.fixture()
     def per_class_cnames(self):
         """Build {class_id: cname} for all whitelisted per-class file classes."""
-        return {
-            cid: _description_to_cname(FEATURE_CLASS_DESCRIPTIONS[cid])
-            for cid in PER_CLASS_FILE_CLASS_IDS
-        }
+        return {cid: _description_to_cname(FEATURE_CLASS_DESCRIPTIONS[cid]) for cid in PER_CLASS_FILE_CLASS_IDS}
 
     def test_each_class_matches_own_chunks(self, per_class_cnames):
         """Every class's regex matches its own tabular and geo chunk filenames."""
@@ -1245,12 +1210,8 @@ class TestPerClassChunkGlobFiltering:
             tabular_re, geo_re = _per_class_chunk_regexes(cname)
             tabular_file = f"{cname}_0.parquet"
             geo_file = f"{cname}_features_0.parquet"
-            assert tabular_re.match(tabular_file), (
-                f"{cname} tabular regex should match {tabular_file}"
-            )
-            assert geo_re.match(geo_file), (
-                f"{cname} geo regex should match {geo_file}"
-            )
+            assert tabular_re.match(tabular_file), f"{cname} tabular regex should match {tabular_file}"
+            assert geo_re.match(geo_file), f"{cname} geo regex should match {geo_file}"
 
     def test_no_class_matches_another_class_chunks(self, per_class_cnames):
         """No class's regex matches chunk files belonging to a different class."""
@@ -1262,21 +1223,15 @@ class TestPerClassChunkGlobFiltering:
                     continue
                 other_tabular = f"{other_cname}_0.parquet"
                 other_geo = f"{other_cname}_features_0.parquet"
-                assert not tabular_re.match(other_tabular), (
-                    f"{cname!r} tabular regex must not match {other_tabular!r}"
-                )
-                assert not geo_re.match(other_geo), (
-                    f"{cname!r} geo regex must not match {other_geo!r}"
-                )
+                assert not tabular_re.match(other_tabular), f"{cname!r} tabular regex must not match {other_tabular!r}"
+                assert not geo_re.match(other_geo), f"{cname!r} geo regex must not match {other_geo!r}"
 
     def test_tabular_regex_excludes_geo_files(self, per_class_cnames):
         """Tabular regex must not match geo chunk files for the same class."""
         for cid, cname in per_class_cnames.items():
             tabular_re, _ = _per_class_chunk_regexes(cname)
             geo_file = f"{cname}_features_0.parquet"
-            assert not tabular_re.match(geo_file), (
-                f"{cname!r} tabular regex must not match geo file {geo_file!r}"
-            )
+            assert not tabular_re.match(geo_file), f"{cname!r} tabular regex must not match geo file {geo_file!r}"
 
 
 if __name__ == "__main__":

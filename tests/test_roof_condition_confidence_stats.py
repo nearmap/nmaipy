@@ -6,12 +6,12 @@ import json
 import os
 from pathlib import Path
 
+import geopandas as gpd
 import pandas as pd
 import pytest
-import geopandas as gpd
 from shapely.geometry import Polygon, box, shape
 
-from nmaipy.constants import ROOF_ID, AOI_ID_COLUMN_NAME
+from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
 from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
 
@@ -23,9 +23,11 @@ def roof_condition_confidence_stats_payload():
     """Load the raw roofConditionConfidenceStats API payload."""
     raw_payload_file = data_directory / "test_roof_condition_confidence_stats_raw_payload.json"
     if not raw_payload_file.exists():
-        pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_roof_condition_confidence_stats_data first.")
+        pytest.skip(
+            f"Raw payload file {raw_payload_file} does not exist. Run test_gen_roof_condition_confidence_stats_data first."
+        )
 
-    with open(raw_payload_file, 'r') as f:
+    with open(raw_payload_file, "r") as f:
         return json.load(f)
 
 
@@ -36,13 +38,13 @@ def roof_with_rccs(roof_condition_confidence_stats_payload):
 
     Note: confidenceStats are nested in attributes.components, not at root level.
     """
-    for feature in roof_condition_confidence_stats_payload['features']:
-        if feature.get('classId') == ROOF_ID:
+    for feature in roof_condition_confidence_stats_payload["features"]:
+        if feature.get("classId") == ROOF_ID:
             # Check if this roof has confidenceStats in its attributes
-            for attr in feature.get('attributes', []):
-                if 'components' in attr:
-                    for component in attr['components']:
-                        if 'confidenceStats' in component:
+            for attr in feature.get("attributes", []):
+                if "components" in attr:
+                    for component in attr["components"]:
+                        if "confidenceStats" in component:
                             return feature
     pytest.skip("No roof with confidenceStats in components found in payload")
 
@@ -54,18 +56,19 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
     This should be run once to create the test data file.
     """
     # US location that has RSI data (Phoenix, AZ)
-    test_polygon = Polygon([
-        [-111.9260, 33.4152],
-        [-111.9250, 33.4152],
-        [-111.9250, 33.4142],
-        [-111.9260, 33.4142],
-        [-111.9260, 33.4152]
-    ])
+    test_polygon = Polygon(
+        [
+            [-111.9260, 33.4152],
+            [-111.9250, 33.4152],
+            [-111.9250, 33.4142],
+            [-111.9260, 33.4142],
+            [-111.9260, 33.4152],
+        ]
+    )
 
-    test_gdf = gpd.GeoDataFrame(
-        [{"aoi_id": "rccs_test_area", "geometry": test_polygon}],
-        crs="EPSG:4326"
-    ).set_index(AOI_ID_COLUMN_NAME)
+    test_gdf = gpd.GeoDataFrame([{"aoi_id": "rccs_test_area", "geometry": test_polygon}], crs="EPSG:4326").set_index(
+        AOI_ID_COLUMN_NAME
+    )
 
     api_key = os.getenv("API_KEY")
     if not api_key:
@@ -80,12 +83,12 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
         geometry=test_polygon,
         region="us",
         packs=["roof_cond"],  # Use roof_cond pack for roof condition stats
-        include=["roofConditionConfidenceStats"]
+        include=["roofConditionConfidenceStats"],
     )
 
     # Save raw payload
     raw_payload_file = data_directory / "test_roof_condition_confidence_stats_raw_payload.json"
-    with open(raw_payload_file, 'w') as f:
+    with open(raw_payload_file, "w") as f:
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame
@@ -93,7 +96,7 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
         test_gdf,
         region="us",
         packs=["roof_cond"],  # Use roof_cond pack for roof condition stats
-        include=["roofConditionConfidenceStats"]
+        include=["roofConditionConfidenceStats"],
     )
 
     # Save the features
@@ -101,21 +104,25 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
     features_gdf.to_csv(outfile)
 
     # Check if we got roofConditionConfidenceStats data
-    roof_features = features_gdf[features_gdf['class_id'] == ROOF_ID]
+    roof_features = features_gdf[features_gdf["class_id"] == ROOF_ID]
     rccs_count = 0
 
     # Check raw payload for roofConditionConfidenceStats
-    for feature in raw_payload.get('features', []):
-        if feature.get('classId') == ROOF_ID:
-            if 'roofConditionConfidenceStats' in feature:
+    for feature in raw_payload.get("features", []):
+        if feature.get("classId") == ROOF_ID:
+            if "roofConditionConfidenceStats" in feature:
                 rccs_count += 1
                 # Save a sample with RCCS
                 rccs_sample_file = data_directory / "test_roof_condition_confidence_stats_sample.json"
-                with open(rccs_sample_file, 'w') as f:
-                    json.dump({
-                        'feature_id': feature.get('id'),
-                        'roofConditionConfidenceStats': feature['roofConditionConfidenceStats']
-                    }, f, indent=2)
+                with open(rccs_sample_file, "w") as f:
+                    json.dump(
+                        {
+                            "feature_id": feature.get("id"),
+                            "roofConditionConfidenceStats": feature["roofConditionConfidenceStats"],
+                        },
+                        f,
+                        indent=2,
+                    )
                 break
 
 
@@ -128,9 +135,9 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
     """
     # Use real API data from fixture - confidenceStats are in attributes.components
     roof = {
-        'feature_id': roof_with_rccs['id'],
-        'class_id': roof_with_rccs['classId'],
-        'attributes': roof_with_rccs.get('attributes', [])
+        "feature_id": roof_with_rccs["id"],
+        "class_id": roof_with_rccs["classId"],
+        "attributes": roof_with_rccs.get("attributes", []),
     }
 
     # Test the flatten_roof_attributes function with the processed data
@@ -147,11 +154,15 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
 
     # Check that we have the expected number of bins for at least one component
     # Default histogram has 18 bins (0-17), extreme has 3 bins (0-2)
-    component_default_bins = [key for key in default_bins if key.startswith("structural_damage_confidence_stats_default_bin_")]
+    component_default_bins = [
+        key for key in default_bins if key.startswith("structural_damage_confidence_stats_default_bin_")
+    ]
     if len(component_default_bins) > 0:
         assert len(component_default_bins) == 18, f"Expected 18 default bins, got {len(component_default_bins)}"
 
-    component_extreme_bins = [key for key in extreme_bins if key.startswith("structural_damage_confidence_stats_extreme_bin_")]
+    component_extreme_bins = [
+        key for key in extreme_bins if key.startswith("structural_damage_confidence_stats_extreme_bin_")
+    ]
     if len(component_extreme_bins) > 0:
         assert len(component_extreme_bins) == 3, f"Expected 3 extreme bins, got {len(component_extreme_bins)}"
 
@@ -160,58 +171,63 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
         assert 0 <= result[key] <= 1, f"Bin ratio {key} should be between 0 and 1, got {result[key]}"
 
 
-def test_rollup_with_roof_condition_confidence_stats(roof_condition_confidence_stats_payload):
+def test_rollup_with_roof_condition_confidence_stats(
+    roof_condition_confidence_stats_payload,
+):
     """Test parcel rollup with roofConditionConfidenceStats to generate CSV output."""
     # Use payload from fixture
     payload = roof_condition_confidence_stats_payload
 
     # Convert features to GeoDataFrame
     features_list = []
-    for feature in payload['features']:
+    for feature in payload["features"]:
         feature_dict = {
-            'feature_id': feature['id'],
-            'class_id': feature['classId'],
-            'description': feature.get('description'),
-            'confidence': feature.get('confidence'),
-            'area_sqm': feature.get('areaSqm', 0),
-            'area_sqft': feature.get('areaSqft', 0),
-            'clipped_area_sqm': feature.get('clippedAreaSqm', 0),
-            'clipped_area_sqft': feature.get('clippedAreaSqft', 0),
-            'unclipped_area_sqm': feature.get('unclippedAreaSqm', 0),
-            'unclipped_area_sqft': feature.get('unclippedAreaSqft', 0),
-            'fidelity': feature.get('fidelity', None),
-            'attributes': feature.get('attributes', []),
-            'survey_date': payload.get('surveyDate'),
-            'mesh_date': payload.get('3dDate'),
-            'geometry': shape(feature['geometry'])
+            "feature_id": feature["id"],
+            "class_id": feature["classId"],
+            "description": feature.get("description"),
+            "confidence": feature.get("confidence"),
+            "area_sqm": feature.get("areaSqm", 0),
+            "area_sqft": feature.get("areaSqft", 0),
+            "clipped_area_sqm": feature.get("clippedAreaSqm", 0),
+            "clipped_area_sqft": feature.get("clippedAreaSqft", 0),
+            "unclipped_area_sqm": feature.get("unclippedAreaSqm", 0),
+            "unclipped_area_sqft": feature.get("unclippedAreaSqft", 0),
+            "fidelity": feature.get("fidelity", None),
+            "attributes": feature.get("attributes", []),
+            "survey_date": payload.get("surveyDate"),
+            "mesh_date": payload.get("3dDate"),
+            "geometry": shape(feature["geometry"]),
         }
         features_list.append(feature_dict)
 
     features_gdf = gpd.GeoDataFrame(features_list, crs="EPSG:4326")
-    features_gdf['aoi_id'] = 'test_parcel_rccs'
+    features_gdf["aoi_id"] = "test_parcel_rccs"
     features_gdf = features_gdf.set_index(AOI_ID_COLUMN_NAME)
 
     # Create parcels GeoDataFrame using extent from payload
-    parcel_geom = box(payload['extentMinX'], payload['extentMinY'],
-                       payload['extentMaxX'], payload['extentMaxY'])
+    parcel_geom = box(
+        payload["extentMinX"],
+        payload["extentMinY"],
+        payload["extentMaxX"],
+        payload["extentMaxY"],
+    )
     parcels_gdf = gpd.GeoDataFrame(
-        {'aoi_id': ['test_parcel_rccs'], 'geometry': [parcel_geom]},
-        crs='EPSG:4326'
+        {"aoi_id": ["test_parcel_rccs"], "geometry": [parcel_geom]}, crs="EPSG:4326"
     ).set_index(AOI_ID_COLUMN_NAME)
 
     # Create classes dataframe
     classes = {}
-    for feature in payload['features']:
-        classes[feature['classId']] = feature['description']
-    classes_df = pd.DataFrame({'description': classes}).rename_axis('class_id')
+    for feature in payload["features"]:
+        classes[feature["classId"]] = feature["description"]
+    classes_df = pd.DataFrame({"description": classes}).rename_axis("class_id")
 
     # Calculate rollup
     rollup_df = parcel_rollup(
         parcels_gdf=parcels_gdf,
         features_gdf=features_gdf,
         classes_df=classes_df,
-        country='us',
-        primary_decision='largest_intersection'
+        country="us",
+        primary_decision="largest_intersection",
     )
 
     # Save to CSV
@@ -239,7 +255,7 @@ def test_handles_missing_rccs_gracefully():
     df = pd.read_csv(test_data_file)
 
     # Get a roof feature (which won't have RCCS)
-    roof_features = df[df['class_id'] == ROOF_ID]
+    roof_features = df[df["class_id"] == ROOF_ID]
 
     if len(roof_features) == 0:
         pytest.skip("No roof features in test data")
@@ -248,8 +264,8 @@ def test_handles_missing_rccs_gracefully():
     roof = roof_features.iloc[0].to_dict()
 
     # Parse attributes if it's a string
-    if pd.notna(roof.get('attributes')):
-        attrs = roof['attributes']
+    if pd.notna(roof.get("attributes")):
+        attrs = roof["attributes"]
         if isinstance(attrs, str):
             try:
                 attrs = json.loads(attrs.replace("'", '"'))
@@ -258,13 +274,14 @@ def test_handles_missing_rccs_gracefully():
                     attrs = ast.literal_eval(attrs)
                 except:
                     attrs = []
-        roof['attributes'] = attrs if isinstance(attrs, list) else []
+        roof["attributes"] = attrs if isinstance(attrs, list) else []
     else:
-        roof['attributes'] = []
+        roof["attributes"] = []
 
     # Run flatten_roof_attributes - should not crash even without RCCS
     result = flatten_roof_attributes([roof], country="au")
 
     # Verify no RCCS fields in result
-    assert "roof_condition_confidence_stats" not in result, \
-        "roof_condition_confidence_stats should not be present when not in source data"
+    assert (
+        "roof_condition_confidence_stats" not in result
+    ), "roof_condition_confidence_stats should not be present when not in source data"

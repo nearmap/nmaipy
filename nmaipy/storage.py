@@ -232,7 +232,13 @@ def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
             return json.load(f)
 
 
-def write_json(path: str, data: Any, compressed: bool = False, indent: Optional[int] = None, default=None) -> None:
+def write_json(
+    path: str,
+    data: Any,
+    compressed: bool = False,
+    indent: Optional[int] = None,
+    default=None,
+) -> None:
     """
     Write data as JSON, optionally gzip-compressed. Works for both local and S3.
 

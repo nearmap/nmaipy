@@ -10,6 +10,7 @@ Supported formats include:
 
 These functions handle CRS transformations, geometry validation, and unique identifier management.
 """
+
 import warnings
 from pathlib import Path
 from typing import Optional, Union
@@ -165,9 +166,7 @@ def read_from_file(
                 parcels_gdf = parcels_gdf[parcels_gdf.area > 0]
             num_dropped -= len(parcels_gdf)
             if num_dropped > 0:
-                logger.warning(
-                    f"Dropping {num_dropped} rows with empty or invalid geometries, or ones with zero area"
-                )
+                logger.warning(f"Dropping {num_dropped} rows with empty or invalid geometries, or ones with zero area")
 
     if len(parcels_gdf) == 0:
         raise RuntimeError(f"No valid parcels in {path=}")

@@ -6,6 +6,7 @@ from shapely.geometry import Polygon
 # Constants
 BUILDING_SMALL_MAX_AREA_SQM = 30
 
+
 def is_building_small(building_poly: Polygon) -> bool:
     """
     Check if a building polygon is small based on its area

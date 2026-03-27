@@ -4,6 +4,7 @@ Test address-based exports (address mode without geometry).
 This test verifies that address-only parcel files work correctly with nmaipy's
 address-based Feature API endpoint.
 """
+
 import os
 
 import pandas as pd
@@ -27,20 +28,20 @@ def single_address_csv(tmp_path):
     """
     # Real address from GNAF: 95 WOODLANDS ROAD, GATTON QLD 4343
     data = {
-        'ADDRESS_DETAIL_PID': ['GAQLD157935435'],
-        'ADDRESS_LABEL': ['95 WOODLANDS RD, GATTON QLD 4343'],
-        'STREET_NAME': ['WOODLANDS'],
-        'STREET_TYPE': ['ROAD'],
-        'LOCALITY_NAME': ['GATTON'],
-        'STATE': ['QLD'],
-        'POSTCODE': ['4343'],
-        'LONGITUDE': [152.2829366],
-        'LATITUDE': [-27.56838582],
+        "ADDRESS_DETAIL_PID": ["GAQLD157935435"],
+        "ADDRESS_LABEL": ["95 WOODLANDS RD, GATTON QLD 4343"],
+        "STREET_NAME": ["WOODLANDS"],
+        "STREET_TYPE": ["ROAD"],
+        "LOCALITY_NAME": ["GATTON"],
+        "STATE": ["QLD"],
+        "POSTCODE": ["4343"],
+        "LONGITUDE": [152.2829366],
+        "LATITUDE": [-27.56838582],
         # nmaipy-required address fields
-        'streetAddress': ['95 WOODLANDS ROAD'],
-        'city': ['GATTON'],
-        'state': ['QLD'],
-        'zip': ['4343']
+        "streetAddress": ["95 WOODLANDS ROAD"],
+        "city": ["GATTON"],
+        "state": ["QLD"],
+        "zip": ["4343"],
     }
 
     df = pd.DataFrame(data)
@@ -56,10 +57,10 @@ def test_address_mode_detection(single_address_csv):
     df = pd.read_csv(single_address_csv)
 
     # Verify CSV has no geometry column
-    assert 'geometry' not in df.columns, "Test CSV should not have geometry column"
+    assert "geometry" not in df.columns, "Test CSV should not have geometry column"
 
     # Verify required address fields exist
-    required_fields = ['streetAddress', 'city', 'state', 'zip']
+    required_fields = ["streetAddress", "city", "state", "zip"]
     for field in required_fields:
         assert field in df.columns, f"Missing required address field: {field}"
         assert df[field].notna().all(), f"Address field {field} has null values"
@@ -96,8 +97,8 @@ def test_single_address_export(single_address_csv, tmp_path):
         threads=2,
         chunk_size=10,
         parcel_mode=True,  # Use parcel mode for AOI-filtered queries
-        country='au',  # Australian address
-        api_key=os.getenv('API_KEY')
+        country="au",  # Australian address
+        api_key=os.getenv("API_KEY"),
     )
 
     # Run export
@@ -132,8 +133,7 @@ def test_single_address_export(single_address_csv, tmp_path):
     assert len(df_features) > 0, "No features found for address"
 
     # Verify building features exist
-    assert 'class_id' in df_features.columns or 'description' in df_features.columns, \
-        "No class information in features"
+    assert "class_id" in df_features.columns or "description" in df_features.columns, "No class information in features"
 
     # Verify we got building features
     assert len(df_features) > 0, f"No features found (expected building features)"
@@ -148,14 +148,14 @@ def test_url_encoding_in_address_fields():
     are correctly encoded in the query string.
     """
     # Create API instance
-    api = FeatureApi(api_key=os.getenv('API_KEY'))
+    api = FeatureApi(api_key=os.getenv("API_KEY"))
 
     # Test address with special characters
     address_fields = {
-        'streetAddress': "123 O'Reilly Street",  # apostrophe
-        'city': "San José",  # accented character
-        'state': "CA",
-        'zip': "94102"
+        "streetAddress": "123 O'Reilly Street",  # apostrophe
+        "city": "San José",  # accented character
+        "state": "CA",
+        "zip": "94102",
     }
 
     # Create a simple geometry (not actually used for address mode)
@@ -166,7 +166,7 @@ def test_url_encoding_in_address_fields():
         base_url=api.FEATURES_URL,
         geometry=geometry,
         address_fields=address_fields,
-        region='us'
+        region="us",
     )
 
     # Verify URL encoding
@@ -188,14 +188,14 @@ def test_invalid_region_validation():
     Test that invalid region codes are rejected with helpful error messages.
     """
     # Create API instance
-    api = FeatureApi(api_key=os.getenv('API_KEY'))
+    api = FeatureApi(api_key=os.getenv("API_KEY"))
 
     # Test address fields
     address_fields = {
-        'streetAddress': "123 Main St",
-        'city': "Test City",
-        'state': "XX",
-        'zip': "12345"
+        "streetAddress": "123 Main St",
+        "city": "Test City",
+        "state": "XX",
+        "zip": "12345",
     }
 
     # Create a simple geometry
@@ -207,7 +207,7 @@ def test_invalid_region_validation():
             base_url=api.FEATURES_URL,
             geometry=geometry,
             address_fields=address_fields,
-            region='invalid'
+            region="invalid",
         )
 
     # Verify error message is helpful

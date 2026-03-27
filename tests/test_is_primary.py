@@ -57,7 +57,12 @@ class TestAddIsPrimaryColumn:
             {
                 AOI_ID_COLUMN_NAME: ["aoi-1", "aoi-1", "aoi-1", "aoi-1"],
                 "feature_id": ["roof-1", "bldg-1", "bldg-new-1", "instance-1"],
-                "class_id": [ROOF_ID, BUILDING_ID, BUILDING_NEW_ID, ROOF_INSTANCE_CLASS_ID],
+                "class_id": [
+                    ROOF_ID,
+                    BUILDING_ID,
+                    BUILDING_NEW_ID,
+                    ROOF_INSTANCE_CLASS_ID,
+                ],
                 "geometry": [Point(0, 0), Point(1, 1), Point(2, 2), Point(3, 3)],
             },
             crs=API_CRS,
@@ -226,7 +231,10 @@ class TestAddIsPrimaryColumn:
         result = _add_is_primary_column(features_gdf, rollup_df)
 
         assert result.index.name == AOI_ID_COLUMN_NAME, "Index name should be preserved"
-        assert list(result.index) == ["aoi-1", "aoi-2"], "Index values should be preserved"
+        assert list(result.index) == [
+            "aoi-1",
+            "aoi-2",
+        ], "Index values should be preserved"
 
     def test_preserves_geodataframe_and_crs(self):
         """Result is still a GeoDataFrame with same CRS."""

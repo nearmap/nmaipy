@@ -20,6 +20,7 @@ Example usage:
 
 Note: The Roof Age API is currently available for US properties only.
 """
+
 import argparse
 import sys
 import time
@@ -40,7 +41,10 @@ from nmaipy.api_common import (
 )
 from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, ROOF_AGE_PREFIX_COLUMNS
-from nmaipy.feature_attributes import calculate_roof_age_years, convert_bool_columns_to_yn
+from nmaipy.feature_attributes import (
+    calculate_roof_age_years,
+    convert_bool_columns_to_yn,
+)
 from nmaipy.roof_age_api import RoofAgeApi
 
 logger = log.get_logger()
@@ -52,9 +56,7 @@ def parse_arguments():
         prog="nmaipy.roof_age_exporter",
         description="Export roof age data from Nearmap Roof Age API",
     )
-    parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "--aoi-file",
         help="Input AOI file path (GeoJSON, Shapefile, GeoPackage, or CSV with WKT geometry)",
@@ -207,8 +209,7 @@ class RoofAgeExporter(BaseExporter):
         # Validate country
         if self.country.lower() != "us":
             raise ValueError(
-                f"Roof Age API is currently only available for US properties. "
-                f"Got country='{self.country}'"
+                f"Roof Age API is currently only available for US properties. " f"Got country='{self.country}'"
             )
 
         # Create cache directory if needed and warn about S3 cache performance
@@ -250,12 +251,7 @@ class RoofAgeExporter(BaseExporter):
         """
         return storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
 
-    def process_chunk(
-        self,
-        chunk_id: str,
-        aoi_gdf: gpd.GeoDataFrame,
-        **kwargs
-    ):
+    def process_chunk(self, chunk_id: str, aoi_gdf: gpd.GeoDataFrame, **kwargs):
         """
         Process a chunk of AOIs to extract roof age data.
 
@@ -284,9 +280,7 @@ class RoofAgeExporter(BaseExporter):
             outfile_errors = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
 
             # Check if chunk already processed
-            if storage.file_exists(outfile_metadata) and storage.validate_parquet(
-                outfile_metadata
-            ):
+            if storage.file_exists(outfile_metadata) and storage.validate_parquet(outfile_metadata):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
                 return
 
@@ -338,6 +332,7 @@ class RoofAgeExporter(BaseExporter):
         except Exception as e:
             logger.error(f"Chunk {chunk_id} failed: {e}")
             import traceback
+
             traceback.print_exc()
             raise
 
@@ -365,9 +360,7 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois, _ = self.split_into_chunks(
-            aoi_gdf, check_cache=True
-        )
+        chunks_to_process, skipped_chunks, skipped_aois, _ = self.split_into_chunks(aoi_gdf, check_cache=True)
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
         latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
@@ -378,9 +371,7 @@ class RoofAgeExporter(BaseExporter):
             use_progress_tracking=True,
         )
 
-        all_latency_stats = combine_chunk_latency_stats(
-            self.chunk_path, latency_csv_path
-        )
+        all_latency_stats = combine_chunk_latency_stats(self.chunk_path, latency_csv_path)
         if all_latency_stats:
             global_stats = compute_global_latency_stats(all_latency_stats)
             if global_stats and global_stats.get("count", 0) > 0:
@@ -412,9 +403,7 @@ class RoofAgeExporter(BaseExporter):
                 try:
                     roofs_list.append(gpd.read_parquet(roofs_file))
                 except Exception as e:
-                    self.logger.warning(
-                        f"Chunk {chunk_id}: failed to read roofs file {roofs_file}: {e}. Skipping."
-                    )
+                    self.logger.warning(f"Chunk {chunk_id}: failed to read roofs file {roofs_file}: {e}. Skipping.")
 
             # Load metadata
             metadata_file = storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
@@ -432,9 +421,7 @@ class RoofAgeExporter(BaseExporter):
                 try:
                     errors_list.append(pd.read_parquet(errors_file))
                 except Exception as e:
-                    self.logger.warning(
-                        f"Chunk {chunk_id}: failed to read errors file {errors_file}: {e}. Skipping."
-                    )
+                    self.logger.warning(f"Chunk {chunk_id}: failed to read errors file {errors_file}: {e}. Skipping.")
 
         # Combine results
         if roofs_list:
@@ -479,17 +466,10 @@ class RoofAgeExporter(BaseExporter):
         if self.include_aoi_geometry and len(roofs_gdf) > 0:
             self.logger.info("Merging roof data with AOI attributes...")
             aoi_for_merge = aoi_gdf.rename(columns={"geometry": "aoi_geometry"})
-            roofs_gdf = roofs_gdf.merge(
-                aoi_for_merge,
-                left_on=AOI_ID_COLUMN_NAME,
-                right_index=True,
-                how="left"
-            )
+            roofs_gdf = roofs_gdf.merge(aoi_for_merge, left_on=AOI_ID_COLUMN_NAME, right_index=True, how="left")
             # Convert aoi_geometry to WKT for CSV compatibility
             if "aoi_geometry" in roofs_gdf.columns:
-                roofs_gdf["aoi_geometry"] = roofs_gdf["aoi_geometry"].apply(
-                    lambda g: g.wkt if g is not None else None
-                )
+                roofs_gdf["aoi_geometry"] = roofs_gdf["aoi_geometry"].apply(lambda g: g.wkt if g is not None else None)
 
         # Save outputs
         self._save_outputs(roofs_gdf, metadata_df, errors_df, self.final_path)
@@ -540,9 +520,7 @@ class RoofAgeExporter(BaseExporter):
                 # Convert geometry to WKT for CSV
                 roofs_df = pd.DataFrame(roofs_gdf)
                 if "geometry" in roofs_df.columns:
-                    roofs_df["geometry"] = roofs_df["geometry"].apply(
-                        lambda g: g.wkt if g is not None else None
-                    )
+                    roofs_df["geometry"] = roofs_df["geometry"].apply(lambda g: g.wkt if g is not None else None)
 
                 # Define public-facing fields for CSV export based on swagger spec
                 # Excludes internal fields: hilbertId, timeline, resourceId, assessorDataDetails
@@ -618,6 +596,7 @@ def main():
     except Exception as e:
         logger.error(f"Export failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

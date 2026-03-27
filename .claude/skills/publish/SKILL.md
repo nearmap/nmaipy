@@ -1,4 +1,5 @@
 ---
+name: publish
 description: Prepare and publish a release to PyPI and GitHub
 ---
 
@@ -26,34 +27,39 @@ Execute these steps in order, stopping if any step fails:
    - Compare current `__version__` with latest GitHub release tag
    - If version hasn't been bumped, stop and ask user to update version first
 
-3. **Run test suite**
+3. **Enforce code formatting**
+   - Run `black nmaipy/ tests/` and `isort nmaipy/ tests/`
+   - If any files were reformatted, stage them and present a suggested commit message for user review
+   - This ensures consistent formatting before release
+
+4. **Run test suite**
    - Run `pytest` and verify all tests pass
    - If tests fail, attempt to fix failures where appropriate (obvious bugs, missing imports, etc.)
    - Stage any fixes and present a suggested commit message for user review
    - If fixes require user decision or failures are unclear, report and ask how to proceed
 
-4. **Code review against last release**
+5. **Code review against last release**
    - Get the diff since the last release tag: `git diff $(git describe --tags --abbrev=0)..HEAD`
    - Use the code-reviewer agent to review all changes
    - Focus on: correctness, breaking changes, security issues, missing tests
    - Report any concerns to the user and ask whether to proceed
    - This catches issues that may have bypassed proper PR review
 
-5. **Determine release path**
+6. **Determine release path**
    - If on a feature branch (not main/master): Create a PR to main
    - If on main/master or PR already merged: Proceed to release
 
-6. **Build and publish to PyPI**
+7. **Build and publish to PyPI**
    - Clean old builds: `rm -rf dist/ build/ *.egg-info`
    - Build: `python -m build`
    - Verify: `twine check dist/*`
    - Upload: `twine upload dist/*`
 
-7. **Tag and push**
+8. **Tag and push**
    - Create annotated tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
    - Push tag: `git push origin vX.Y.Z`
 
-8. **Write release notes**
+9. **Write release notes**
    - Review all changes since last release: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
    - Write comprehensive release notes covering:
      - **What's New**: One sentence summary of the release
@@ -64,7 +70,7 @@ Execute these steps in order, stopping if any step fails:
    - Present draft release notes to user for review before creating the release
    - Do NOT just use `--generate-notes` alone - that only shows commit titles
 
-9. **Create GitHub release**
+10. **Create GitHub release**
    - Use `gh release create` with:
      - Tag name (vX.Y.Z)
      - Title (vX.Y.Z)

@@ -20,9 +20,7 @@ ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
 
 # Roof Age API pagination settings
 ROOF_AGE_DEFAULT_PAGE_LIMIT = 1000  # Default max features per page (API default)
-ROOF_AGE_NEXT_CURSOR_FIELD = (
-    "nextCursor"  # Field name for pagination cursor in response
-)
+ROOF_AGE_NEXT_CURSOR_FIELD = "nextCursor"  # Field name for pagination cursor in response
 
 # Minimum IoU threshold for roof-to-roof-instance matching
 # Matches below this threshold are not trusted and will not be assigned as parent/primary
@@ -183,16 +181,10 @@ SQUARED_METERS_TO_SQUARED_FEET = METERS_TO_FEET * METERS_TO_FEET
 ADDRESS_FIELDS = ("streetAddress", "city", "state", "zip")
 
 # Class IDs
-BUILDING_ID = (
-    "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # DEPRECATED: Legacy clone of roof semantic
-)
-BUILDING_NEW_ID = (
-    "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # Current semantic building definition
-)
+BUILDING_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"  # DEPRECATED: Legacy clone of roof semantic
+BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # Current semantic building definition
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
-BUILDING_LIFECYCLE_ID = (
-    "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
-)
+BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
 BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
 
 # Deprecated class IDs - filtered out early in processing
@@ -325,9 +317,7 @@ def refresh_class_descriptions(api_key: str = None):
     # Preserve synthetic entries not from Feature API
     for cid in PER_CLASS_FILE_CLASS_IDS:
         if cid not in descriptions:
-            descriptions.setdefault(
-                cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
-            )
+            descriptions.setdefault(cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}"))
     _write_class_descriptions(descriptions)
     FEATURE_CLASS_DESCRIPTIONS.update(descriptions)
     return descriptions
@@ -341,6 +331,7 @@ def _write_class_descriptions(descriptions: dict):
             f.write("\n")
     except OSError:
         pass  # Read-only install (e.g. site-packages); in-memory update still applies
+
 
 CONNECTED_CLASS_IDS = (
     SURFACES_IDS
@@ -357,9 +348,7 @@ CLASS_1054_POLE = "46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"
 # Roof Condition / Malady Classes
 CLASS_1050_TARP = "abb1f304-ce01-527b-b799-cbfd07551b2c"  # "temporary repair",
 CLASS_1052_RUST = "526496bf-7344-5024-82d7-77ceb671feb4"  # "rust",
-CLASS_1079_MISSING_SHINGLES = (
-    "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12"  # "missing tiles or shingles",
-)
+CLASS_1079_MISSING_SHINGLES = "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12"  # "missing tiles or shingles",
 CLASS_1139_DEBRIS = "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e"  # "debris",
 CLASS_1140_EXPOSED_DECK = "2905ba1c-6d96-58bc-9b1b-5911b3ead023"  # "exposed_deck",
 CLASS_1051_PONDING = "f41e02b0-adc0-5b46-ac95-8c59aa9fe317"  # "ponding",
@@ -417,9 +406,7 @@ ROLLUP_BUILDING_PRIMARY_CLIPPED_AREA_SQM_ID = "b1cf8df4-eb66-5571-ad71-b5db13d52
 ROLLUP_BUILDING_TOTAL_CLIPPED_AREA_SQM_ID = "c54b9fdd-a94e-5986-9c72-91a49f239f12"
 ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID = "166850d4-47e8-5db9-b79f-f1fe6e648c76"
 ROLLUP_BUILDING_TOTAL_UNCLIPPED_AREA_SQM_ID = "5ce163ea-8f3c-5f2c-aeff-15783809a82c"
-ROLLUP_BUILDING_PRIMARY_FIDELITY = (
-    ""  # TODO: This isn't in the API yet, so doesn't have an ID.
-)
+ROLLUP_BUILDING_PRIMARY_FIDELITY = ""  # TODO: This isn't in the API yet, so doesn't have an ID.
 ROLLUP_BUILDING_PRESENT_CONFIDENCE = "e5e1877b-3377-59ac-b82e-416c8c7c9a56"
 ROLLUP_TREE_CANOPY_COUNT_ID = "14366753-df09-574d-927f-d775259eed95"
 ROLLUP_TREE_CANOPY_AREA_CLIPPED_SQFT_ID = "c2b3ad4c-61a6-5601-b999-5e0c08d71880"

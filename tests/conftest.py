@@ -10,7 +10,7 @@ from shapely.geometry import Polygon
 from shapely.wkt import loads
 
 from nmaipy import parcels
-from nmaipy.constants import LAT_LONG_CRS, AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, LAT_LONG_CRS
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -23,13 +23,13 @@ def cleanup_test_artifacts():
     test_dir = Path(__file__).parent.absolute() / "data"
     cache_dir = test_dir / "cache"
     processed_dir = test_dir / "processed"
-    
+
     # Clean at start of session
     shutil.rmtree(cache_dir, ignore_errors=True)
     shutil.rmtree(processed_dir, ignore_errors=True)
-    
+
     yield
-    
+
     # Clean at end of session
     shutil.rmtree(cache_dir, ignore_errors=True)
     shutil.rmtree(processed_dir, ignore_errors=True)

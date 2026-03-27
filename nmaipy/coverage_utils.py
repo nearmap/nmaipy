@@ -1,16 +1,14 @@
-import requests
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
 import concurrent.futures
 import logging
 from pathlib import Path
 
-
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
+import requests
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
-
+from urllib3.util.retry import Retry
 
 s = requests.Session()
 
@@ -63,7 +61,16 @@ def poly2coordstring(poly):
 
 
 def get_surveys_from_point(
-    lon, lat, since, until, apikey, coverage_type, include_disaster=False, has_3d=False, prerelease=False, limit=100
+    lon,
+    lat,
+    since,
+    until,
+    apikey,
+    coverage_type,
+    include_disaster=False,
+    has_3d=False,
+    prerelease=False,
+    limit=100,
 ):
     fields = "id,captureDate,resources,tags"
     if coverage_type == STANDARD_COVERAGE:
@@ -104,7 +111,7 @@ def get_survey_resource_id_from_survey_id_query(resources):
     Get the survey resource id from the resources list, after being given the "resources" field from the survey_id query coverage/v2/surveys/{survey_id} API.
     """
     if len(resources) == 1:
-       return resources[0]["id"]
+        return resources[0]["id"]
     else:
         raise Exception("More than one resource returned from survey_id query")
 
@@ -303,7 +310,16 @@ def get_coverage_from_points(
                 if coverage_type == STANDARD_COVERAGE:
                     c = c.loc[
                         :,
-                        [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d", "tags"],
+                        [
+                            id_col,
+                            "captureDate",
+                            "survey_id",
+                            "survey_resource_id",
+                            "tiles",
+                            "aifeatures",
+                            "3d",
+                            "tags",
+                        ],
                     ].set_index(id_col)
                 elif coverage_type == AI_COVERAGE:
                     c = c.loc[
@@ -363,9 +379,7 @@ def threaded_get_coverage_from_survey_ids(
     return results
 
 
-def get_surveys_from_id(
-    survey_id, apikey, limit=100
-):
+def get_surveys_from_id(survey_id, apikey, limit=100):
     fields = "id,captureDate,resources"
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
     url += f"&apikey={apikey}"
@@ -441,7 +455,9 @@ def get_coverage_from_survey_ids(
                 c = pd.concat(c_with_idx)
                 c["survey_resource_id"] = c["resources"].apply(get_survey_resource_id_from_survey_id_query)
                 c = c.rename(columns={"id": "survey_id"})
-            if (df_coverage_empty is None):  # Set an empty dataframe with the right columns for writing dummy parquet cache files
+            if (
+                df_coverage_empty is None
+            ):  # Set an empty dataframe with the right columns for writing dummy parquet cache files
                 df_coverage_empty = pd.DataFrame([], columns=c.columns).astype(c.dtypes)
             else:
                 c = df_coverage_empty
@@ -455,7 +471,15 @@ def get_coverage_from_survey_ids(
             if len(c) > 0:
                 c = c.loc[
                     :,
-                    [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"],
+                    [
+                        id_col,
+                        "captureDate",
+                        "survey_id",
+                        "survey_resource_id",
+                        "tiles",
+                        "aifeatures",
+                        "3d",
+                    ],
                 ].set_index(id_col)
                 c["captureDate"] = pd.to_datetime(c["captureDate"])
                 df_coverage.append(c)

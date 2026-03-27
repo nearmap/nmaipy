@@ -14,17 +14,21 @@ def _make_roof(material_components, shape_components):
     """Build a minimal roof dict with material and shape attributes."""
     attributes = []
     if material_components:
-        attributes.append({
-            "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
-            "description": "Roof material",
-            "components": material_components,
-        })
+        attributes.append(
+            {
+                "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
+                "description": "Roof material",
+                "components": material_components,
+            }
+        )
     if shape_components:
-        attributes.append({
-            "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
-            "description": "Roof types",
-            "components": shape_components,
-        })
+        attributes.append(
+            {
+                "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+                "description": "Roof types",
+                "components": shape_components,
+            }
+        )
     return {"attributes": attributes}
 
 
