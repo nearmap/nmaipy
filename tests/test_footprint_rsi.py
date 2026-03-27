@@ -1,5 +1,7 @@
 """Tests for INDS-2030: Resolve footprint RSI from building lifecycle."""
 
+import json
+
 import geopandas as gpd
 import pandas as pd
 import pytest
@@ -7,6 +9,7 @@ from shapely.geometry import box
 
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
+    BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
     ROOF_ID,
@@ -16,9 +19,6 @@ from nmaipy.parcels import (
     build_parent_lookup,
     resolve_footprint_rsi,
 )
-
-# Building (Deprecated) class ID
-BUILDING_DEPRECATED_ID = "a2e4ae39-8a61-5515-9d18-8900aa6e6072"
 
 
 def _make_features_gdf(features: list) -> gpd.GeoDataFrame:
@@ -51,14 +51,12 @@ def _make_roof(feature_id="roof-1", parent_id="bldg-dep-1", rsi=None, aoi_id="ao
     return f
 
 
-def _make_building_deprecated(
-    feature_id="bldg-dep-1", parent_id="bl-1", aoi_id="aoi-1"
-):
+def _make_building_deprecated(feature_id="bldg-dep-1", parent_id="bl-1", aoi_id="aoi-1"):
     """Create a Building (Deprecated) feature dict."""
     return {
         AOI_ID_COLUMN_NAME: aoi_id,
         "feature_id": feature_id,
-        "class_id": BUILDING_DEPRECATED_ID,
+        "class_id": BUILDING_ID,
         "description": "Building (Deprecated)",
         "parent_id": parent_id,
         "confidence": 0.9,
@@ -139,8 +137,6 @@ class TestExtractRsiFromFeature:
 
     def test_json_string(self):
         """RSI as JSON string (from Parquet roundtrip)."""
-        import json
-
         feature = {"roof_spotlight_index": json.dumps({"value": 90, "confidence": 0.6})}
         result = _extract_rsi_from_feature(feature)
         assert result["roof_spotlight_index"] == 90

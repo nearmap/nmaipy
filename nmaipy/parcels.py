@@ -734,7 +734,10 @@ def feature_attributes(
         ):
             _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
 
-    # Pre-select primary building lifecycle for footprint RSI resolution (INDS-2030)
+    # Build parent lookup once for all RSI resolution in this parcel (INDS-2030)
+    _parent_lookup = build_parent_lookup(features_gdf) if len(features_gdf) > 0 else {}
+
+    # Pre-select primary building lifecycle for reuse in the class loop
     _primary_bl = None
     bl_features = features_gdf[features_gdf.class_id == BUILDING_LIFECYCLE_ID]
     if len(bl_features) > 0:
@@ -974,19 +977,15 @@ def feature_attributes(
                 # TODO: Finish this.
                 pass
 
-    # INDS-2030: Resolve best RSI from primary roof or primary building lifecycle.
-    # When structural damage is present and if BL was requested, the API puts RSI on the BL
-    # instead of the roof.
+    # INDS-2030: Resolve best RSI for the primary roof.
+    # Uses resolve_footprint_rsi to check the primary roof's own RSI first, then
+    # traverses its parent chain to find BL RSI (correct for structural damage parcels).
     _fp_rsi = {}
-    _primary_roof_rsi_key = "primary_roof_roof_spotlight_index"
-    if _primary_roof_rsi_key in parcel and parcel[_primary_roof_rsi_key] is not None:
-        _fp_rsi["primary_roof_spotlight_index"] = parcel[_primary_roof_rsi_key]
-        _fp_rsi["primary_roof_spotlight_index_confidence"] = parcel.get("primary_roof_roof_spotlight_index_confidence")
-    elif _primary_bl is not None:
-        bl_rsi = _extract_rsi_from_feature(_primary_bl)
-        if bl_rsi:
-            _fp_rsi["primary_roof_spotlight_index"] = bl_rsi.get("roof_spotlight_index")
-            _fp_rsi["primary_roof_spotlight_index_confidence"] = bl_rsi.get("roof_spotlight_index_confidence")
+    if _primary_roof is not None:
+        fp = resolve_footprint_rsi(_primary_roof, parent_lookup=_parent_lookup)
+        if fp:
+            _fp_rsi["primary_roof_spotlight_index"] = fp.get("roof_spotlight_index")
+            _fp_rsi["primary_roof_spotlight_index_confidence"] = fp.get("roof_spotlight_index_confidence")
     parcel.update(_fp_rsi)
     # Remove the raw flattened RSI columns — primary_roof_spotlight_index supersedes them
     parcel.pop("primary_roof_roof_spotlight_index", None)
@@ -995,7 +994,6 @@ def feature_attributes(
     # INDS-2030: Min/max/area-weighted-mean RSI across all roofs in the parcel.
     # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
     if len(roof_features) > 0:
-        p_lookup = build_parent_lookup(features_gdf)
         rsi_vals = []
         rsi_areas = []
         area_col = (
@@ -1004,7 +1002,7 @@ def feature_attributes(
             else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
         )
         for _, rf in roof_features.iterrows():
-            fp = resolve_footprint_rsi(rf, parent_lookup=p_lookup)
+            fp = resolve_footprint_rsi(rf, parent_lookup=_parent_lookup)
             rsi = fp.get("roof_spotlight_index") if fp else None
             if rsi is not None:
                 rsi_vals.append(rsi)

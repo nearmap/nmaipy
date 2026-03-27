@@ -770,6 +770,9 @@ def _compute_feature_class_data(
     if len(class_features) == 0:
         return (None, None)
 
+    # Build parent lookup once for all RSI resolution in this function (INDS-2030)
+    p_lookup = build_parent_lookup(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {}
+
     # Build output DataFrame using vectorized operations (much faster than iterrows)
     # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
     n_rows = len(class_features)
@@ -1006,7 +1009,6 @@ def _compute_feature_class_data(
             if bl_in_features and "roof_spotlight_index" in class_features.columns:
                 rsi_vals = np.full(n_rows, None, dtype=object)
                 rsi_conf = np.full(n_rows, None, dtype=object)
-                p_lookup = build_parent_lookup(features_gdf)
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
                 for i, row in enumerate(roof_records_for_fp):
                     fp = resolve_footprint_rsi(row, parent_lookup=p_lookup)
@@ -1022,7 +1024,7 @@ def _compute_feature_class_data(
                         if "roof_spotlight_index_confidence" in part.columns:
                             part["roof_spotlight_index_confidence"] = rsi_conf
         except Exception as e:
-            logger.debug(f"Could not resolve footprint RSI for roofs: {e}")
+            logger.warning(f"Could not resolve footprint RSI for roofs: {e}")
 
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
@@ -1168,7 +1170,6 @@ def _compute_feature_class_data(
                     # For each child roof, resolve best RSI (roof's own first,
                     # then BL fallback) so min/max reflect the same logic as
                     # the per-row roof_spotlight_index column.
-                    p_lookup = build_parent_lookup(features_gdf)
                     rsi_lookup = {}
                     for fid, attrs in roof_attrs.items():
                         if "roof_spotlight_index" in attrs:
@@ -1328,8 +1329,6 @@ def _compute_feature_class_data(
                 else features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
             )
             if len(roofs) > 0 and "parent_id" in roofs.columns:
-                p_lookup = build_parent_lookup(features_gdf)
-
                 # Map each roof to its ancestor BL via parent_id chain
                 roof_to_bl = {}
                 for _, roof_row in roofs.iterrows():
@@ -1440,7 +1439,7 @@ def _compute_feature_class_data(
                         if fp_batch:
                             df_parts.append(pd.DataFrame(fp_batch, index=range(n_rows)))
         except Exception as e:
-            logger.debug(f"Could not link roofs to building lifecycles: {e}")
+            logger.warning(f"Could not link roofs to building lifecycles: {e}")
 
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
