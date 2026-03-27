@@ -26,7 +26,7 @@ SAMPLE_WIND_SCORE = {
     "modelInputFeatures": {
         "pitchedRoofPresent": 1,
         "metalPresent": 0,
-    }
+    },
 }
 
 SAMPLE_HAIL_SCORE = {
@@ -40,7 +40,7 @@ SAMPLE_HAIL_SCORE = {
     "modelInputFeatures": {
         "flatPresent": 0,
         "shinglePresent": 1,
-    }
+    },
 }
 
 SAMPLE_WILDFIRE_SCORE = {
@@ -52,16 +52,13 @@ SAMPLE_WILDFIRE_SCORE = {
     "modelInputFeatures": {
         "fireResistantMaterialPresent": 0,
         "roofDebrisRatio": 0,
-    }
+    },
 }
 
 SAMPLE_WIND_HAIL_RISK_SCORE = {
     "riskScore": 4,
     "riskRateFactor": 0.58,
-    "modelInputFeatures": {
-        "windRiskScore": 3,
-        "hailRiskScore": 4
-    }
+    "modelInputFeatures": {"windRiskScore": 3, "hailRiskScore": 4},
 }
 
 
@@ -71,10 +68,10 @@ class TestWindScore:
     def test_wind_score_extraction(self):
         """Test that windScore fields are correctly extracted."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'windScore': SAMPLE_WIND_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "windScore": SAMPLE_WIND_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -89,10 +86,10 @@ class TestWindScore:
     def test_wind_score_snake_case(self):
         """Test that snake_case field name works."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'wind_score': SAMPLE_WIND_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "wind_score": SAMPLE_WIND_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -100,11 +97,7 @@ class TestWindScore:
 
     def test_wind_score_missing(self):
         """Test that missing windScore is handled gracefully."""
-        roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'attributes': []
-        }
+        roof = {"feature_id": "test_roof", "class_id": ROOF_ID, "attributes": []}
 
         result = flatten_roof_attributes([roof], country="us")
         assert "wind_vulnerability_score" not in result
@@ -117,10 +110,10 @@ class TestHailScore:
     def test_hail_score_extraction(self):
         """Test that hailScore fields are correctly extracted."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'hailScore': SAMPLE_HAIL_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "hailScore": SAMPLE_HAIL_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -135,10 +128,10 @@ class TestHailScore:
     def test_hail_score_snake_case(self):
         """Test that snake_case field name works."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'hail_score': SAMPLE_HAIL_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "hail_score": SAMPLE_HAIL_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -146,11 +139,7 @@ class TestHailScore:
 
     def test_hail_score_missing(self):
         """Test that missing hailScore is handled gracefully."""
-        roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'attributes': []
-        }
+        roof = {"feature_id": "test_roof", "class_id": ROOF_ID, "attributes": []}
 
         result = flatten_roof_attributes([roof], country="us")
         assert "hail_vulnerability_score" not in result
@@ -163,10 +152,10 @@ class TestWildfireScore:
     def test_wildfire_score_extraction(self):
         """Test that wildfireScore fields are correctly extracted."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'wildfireScore': SAMPLE_WILDFIRE_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "wildfireScore": SAMPLE_WILDFIRE_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -179,10 +168,10 @@ class TestWildfireScore:
     def test_wildfire_score_snake_case(self):
         """Test that snake_case field name works."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'wildfire_score': SAMPLE_WILDFIRE_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "wildfire_score": SAMPLE_WILDFIRE_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -190,11 +179,7 @@ class TestWildfireScore:
 
     def test_wildfire_score_missing(self):
         """Test that missing wildfireScore is handled gracefully."""
-        roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'attributes': []
-        }
+        roof = {"feature_id": "test_roof", "class_id": ROOF_ID, "attributes": []}
 
         result = flatten_roof_attributes([roof], country="us")
         assert "wildfire_vulnerability_score" not in result
@@ -206,10 +191,10 @@ class TestWindHailRiskScore:
     def test_wind_hail_risk_score_extraction(self):
         """Test that windHailRiskScore fields are correctly extracted."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'windHailRiskScore': SAMPLE_WIND_HAIL_RISK_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "windHailRiskScore": SAMPLE_WIND_HAIL_RISK_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -220,10 +205,10 @@ class TestWindHailRiskScore:
     def test_wind_hail_risk_score_snake_case(self):
         """Test that snake_case field name works."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'wind_hail_risk_score': SAMPLE_WIND_HAIL_RISK_SCORE,
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "wind_hail_risk_score": SAMPLE_WIND_HAIL_RISK_SCORE,
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -231,11 +216,7 @@ class TestWindHailRiskScore:
 
     def test_wind_hail_risk_score_missing(self):
         """Test that missing windHailRiskScore is handled gracefully."""
-        roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'attributes': []
-        }
+        roof = {"feature_id": "test_roof", "class_id": ROOF_ID, "attributes": []}
 
         result = flatten_roof_attributes([roof], country="us")
         assert "wind_hail_risk_score" not in result
@@ -247,18 +228,18 @@ class TestAllScoresTogether:
     def test_all_scores_together(self):
         """Test that all score types can coexist on the same roof."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'windScore': SAMPLE_WIND_SCORE,
-            'hailScore': SAMPLE_HAIL_SCORE,
-            'wildfireScore': SAMPLE_WILDFIRE_SCORE,
-            'windHailRiskScore': SAMPLE_WIND_HAIL_RISK_SCORE,
-            'hurricaneScore': {
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "windScore": SAMPLE_WIND_SCORE,
+            "hailScore": SAMPLE_HAIL_SCORE,
+            "wildfireScore": SAMPLE_WILDFIRE_SCORE,
+            "windHailRiskScore": SAMPLE_WIND_HAIL_RISK_SCORE,
+            "hurricaneScore": {
                 "vulnerabilityScore": 4,
                 "vulnerabilityProbability": 0.5,
-                "vulnerabilityRateFactor": 1.0
+                "vulnerabilityRateFactor": 1.0,
             },
-            'attributes': []
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -283,11 +264,11 @@ class TestAllScoresTogether:
     def test_json_string_format(self):
         """Test that JSON string format (from parquet deserialization) works."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'windScore': json.dumps(SAMPLE_WIND_SCORE),
-            'hailScore': json.dumps(SAMPLE_HAIL_SCORE),
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "windScore": json.dumps(SAMPLE_WIND_SCORE),
+            "hailScore": json.dumps(SAMPLE_HAIL_SCORE),
+            "attributes": [],
         }
 
         result = flatten_roof_attributes([roof], country="us")
@@ -298,12 +279,12 @@ class TestAllScoresTogether:
     def test_invalid_score_data(self):
         """Test that invalid score data is handled gracefully."""
         roof = {
-            'feature_id': 'test_roof',
-            'class_id': ROOF_ID,
-            'windScore': "not a valid json",
-            'hailScore': None,
-            'wildfireScore': 123,  # Should be dict
-            'attributes': []
+            "feature_id": "test_roof",
+            "class_id": ROOF_ID,
+            "windScore": "not a valid json",
+            "hailScore": None,
+            "wildfireScore": 123,  # Should be dict
+            "attributes": [],
         }
 
         # Should not crash

@@ -8,6 +8,7 @@ These tests verify:
 - CSV/parquet I/O for latency data
 - Reproducibility of bootstrap sampling with seeded RNG
 """
+
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -18,6 +19,8 @@ import pytest
 
 from nmaipy.api_common import (
     LATENCY_BUCKETS,
+    _get_latency_bucket_names,
+    _stats_to_row,
     collect_latency_stats_from_apis,
     combine_chunk_latency_stats,
     compute_global_latency_stats,
@@ -25,8 +28,6 @@ from nmaipy.api_common import (
     read_latency_csv,
     save_chunk_latency_stats,
     write_latency_csv,
-    _get_latency_bucket_names,
-    _stats_to_row,
 )
 
 
@@ -81,11 +82,13 @@ class TestComputeGlobalLatencyStats:
 
     def test_single_chunk(self):
         """Single chunk should return its stats."""
-        chunk_stats = [{
-            "mean": 100.0,
-            "count": 50,
-            "histogram": [10, 20, 15, 5] + [0] * (len(LATENCY_BUCKETS) - 5),
-        }]
+        chunk_stats = [
+            {
+                "mean": 100.0,
+                "count": 50,
+                "histogram": [10, 20, 15, 5] + [0] * (len(LATENCY_BUCKETS) - 5),
+            }
+        ]
         result = compute_global_latency_stats(chunk_stats)
 
         assert result["mean"] == 100.0
@@ -96,8 +99,16 @@ class TestComputeGlobalLatencyStats:
     def test_reproducibility_with_seed(self):
         """Same seed should produce identical results."""
         chunk_stats = [
-            {"mean": 100.0, "count": 50, "histogram": [10, 20, 15, 5] + [0] * (len(LATENCY_BUCKETS) - 5)},
-            {"mean": 150.0, "count": 30, "histogram": [5, 10, 10, 5] + [0] * (len(LATENCY_BUCKETS) - 5)},
+            {
+                "mean": 100.0,
+                "count": 50,
+                "histogram": [10, 20, 15, 5] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
+            {
+                "mean": 150.0,
+                "count": 30,
+                "histogram": [5, 10, 10, 5] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
         ]
 
         result1 = compute_global_latency_stats(chunk_stats, seed=42)
@@ -110,11 +121,31 @@ class TestComputeGlobalLatencyStats:
         """Different seeds should produce (slightly) different CIs with enough chunks."""
         # Need more chunks for bootstrap variability to manifest
         chunk_stats = [
-            {"mean": 80.0, "count": 40, "histogram": [15, 15, 8, 2] + [0] * (len(LATENCY_BUCKETS) - 5)},
-            {"mean": 100.0, "count": 50, "histogram": [10, 20, 15, 5] + [0] * (len(LATENCY_BUCKETS) - 5)},
-            {"mean": 120.0, "count": 45, "histogram": [5, 15, 18, 7] + [0] * (len(LATENCY_BUCKETS) - 5)},
-            {"mean": 150.0, "count": 30, "histogram": [5, 10, 10, 5] + [0] * (len(LATENCY_BUCKETS) - 5)},
-            {"mean": 180.0, "count": 35, "histogram": [2, 8, 15, 10] + [0] * (len(LATENCY_BUCKETS) - 5)},
+            {
+                "mean": 80.0,
+                "count": 40,
+                "histogram": [15, 15, 8, 2] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
+            {
+                "mean": 100.0,
+                "count": 50,
+                "histogram": [10, 20, 15, 5] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
+            {
+                "mean": 120.0,
+                "count": 45,
+                "histogram": [5, 15, 18, 7] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
+            {
+                "mean": 150.0,
+                "count": 30,
+                "histogram": [5, 10, 10, 5] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
+            {
+                "mean": 180.0,
+                "count": 35,
+                "histogram": [2, 8, 15, 10] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
         ]
 
         result1 = compute_global_latency_stats(chunk_stats, seed=42)
@@ -127,8 +158,16 @@ class TestComputeGlobalLatencyStats:
     def test_weighted_mean_calculation(self):
         """Global mean should be weighted by count."""
         chunk_stats = [
-            {"mean": 100.0, "count": 100, "histogram": [100] + [0] * (len(LATENCY_BUCKETS) - 2)},
-            {"mean": 200.0, "count": 100, "histogram": [0, 0, 0, 100] + [0] * (len(LATENCY_BUCKETS) - 5)},
+            {
+                "mean": 100.0,
+                "count": 100,
+                "histogram": [100] + [0] * (len(LATENCY_BUCKETS) - 2),
+            },
+            {
+                "mean": 200.0,
+                "count": 100,
+                "histogram": [0, 0, 0, 100] + [0] * (len(LATENCY_BUCKETS) - 5),
+            },
         ]
 
         result = compute_global_latency_stats(chunk_stats)
@@ -161,15 +200,17 @@ class TestCollectLatencyStatsFromApis:
 
     def test_no_apis_returns_none(self):
         """No API clients should return None."""
-        result = collect_latency_stats_from_apis(
-            [], "chunk_0", "2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 60000
-        )
+        result = collect_latency_stats_from_apis([], "chunk_0", "2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 60000)
         assert result is None
 
     def test_none_apis_returns_none(self):
         """All None API clients should return None."""
         result = collect_latency_stats_from_apis(
-            [None, None], "chunk_0", "2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 60000
+            [None, None],
+            "chunk_0",
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T00:01:00Z",
+            60000,
         )
         assert result is None
 
@@ -195,7 +236,11 @@ class TestCollectLatencyStatsFromApis:
         api2 = self._create_mock_api([150, 250], retry_count=2, cache_hits=3)
 
         result = collect_latency_stats_from_apis(
-            [api1, api2], "chunk_0", "2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 60000
+            [api1, api2],
+            "chunk_0",
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T00:01:00Z",
+            60000,
         )
 
         assert result["count"] == 4
@@ -208,7 +253,11 @@ class TestCollectLatencyStatsFromApis:
         api = self._create_mock_api([100, 200, 300])
 
         result = collect_latency_stats_from_apis(
-            [None, api, None], "chunk_0", "2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 60000
+            [None, api, None],
+            "chunk_0",
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T00:01:00Z",
+            60000,
         )
 
         assert result["count"] == 3

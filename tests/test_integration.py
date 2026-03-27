@@ -7,21 +7,21 @@ boundaries. Tests are skipped if API_KEY is not set.
 """
 
 import os
-import pytest
 import tempfile
-import pandas as pd
-import geopandas as gpd
 from pathlib import Path
+
+import geopandas as gpd
+import pandas as pd
+import pytest
 from dotenv import load_dotenv
 
 from nmaipy.exporter import AOIExporter
-
 
 # Load .env file for API key if available
 load_dotenv()
 
 # Check if API key is available for integration tests
-HAS_API_KEY = bool(os.environ.get('API_KEY'))
+HAS_API_KEY = bool(os.environ.get("API_KEY"))
 
 
 class TestIntegration:
@@ -36,10 +36,10 @@ class TestIntegration:
 
             # Create exporter
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=str(output_dir),
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 processes=1,
                 save_features=False,
             )
@@ -67,10 +67,10 @@ class TestIntegration:
             output_dir = Path(tmpdir) / "us_test"
 
             exporter = AOIExporter(
-                aoi_file='data/examples/us_parcels.geojson',
+                aoi_file="data/examples/us_parcels.geojson",
                 output_dir=str(output_dir),
-                country='us',
-                packs=['building'],
+                country="us",
+                packs=["building"],
                 processes=1,
             )
 
@@ -83,7 +83,7 @@ class TestIntegration:
 
             df = pd.read_csv(rollup_file)
             assert len(df) >= 1, f"Expected at least 1 parcel, got {len(df)}"
-    
+
     @pytest.mark.integration
     @pytest.mark.skipif(not HAS_API_KEY, reason="API_KEY not set - skipping integration test")
     def test_large_area_triggers_gridding(self):
@@ -92,10 +92,10 @@ class TestIntegration:
             output_dir = Path(tmpdir) / "large_test"
 
             exporter = AOIExporter(
-                aoi_file='data/examples/large_area.geojson',
+                aoi_file="data/examples/large_area.geojson",
                 output_dir=str(output_dir),
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 processes=1,
                 aoi_grid_inexact=True,
             )
@@ -115,10 +115,10 @@ class TestIntegration:
             output_dir = Path(tmpdir) / "multi_pack"
 
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=str(output_dir),
-                country='au',
-                packs=['building', 'vegetation'],
+                country="au",
+                packs=["building", "vegetation"],
                 processes=1,
             )
 
@@ -131,7 +131,7 @@ class TestIntegration:
 
             df = pd.read_csv(rollup_file)
             # Should have columns for both building and vegetation
-            assert any('roof' in col.lower() for col in df.columns), "No building/roof columns found"
+            assert any("roof" in col.lower() for col in df.columns), "No building/roof columns found"
 
     @pytest.mark.integration
     @pytest.mark.skipif(not HAS_API_KEY, reason="API_KEY not set - skipping integration test")
@@ -141,10 +141,10 @@ class TestIntegration:
             output_dir = Path(tmpdir) / "features_test"
 
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=str(output_dir),
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 processes=1,
                 save_features=True,
             )
@@ -166,12 +166,12 @@ class TestIntegration:
             output_dir = Path(tmpdir) / "parquet_test"
 
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=str(output_dir),
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 processes=1,
-                tabular_file_format='parquet',
+                tabular_file_format="parquet",
             )
 
             exporter.run()
@@ -182,8 +182,9 @@ class TestIntegration:
             csv_files = [final_dir / "rollup.csv"] if (final_dir / "rollup.csv").exists() else []
 
             # Either parquet or csv should exist
-            assert len(parquet_files) > 0 or len(csv_files) > 0, \
-                f"No output file created. Files: {list(final_dir.iterdir())}"
+            assert (
+                len(parquet_files) > 0 or len(csv_files) > 0
+            ), f"No output file created. Files: {list(final_dir.iterdir())}"
 
     @pytest.mark.integration
     @pytest.mark.skipif(not HAS_API_KEY, reason="API_KEY not set - skipping integration test")
@@ -194,10 +195,10 @@ class TestIntegration:
 
             # Use the smallest example file for quick testing
             exporter = AOIExporter(
-                aoi_file='data/examples/sydney_parcels.geojson',
+                aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=str(output_dir),
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
                 processes=1,
                 chunk_size=10,
             )
@@ -212,22 +213,22 @@ class TestIntegration:
 
             df = pd.read_csv(rollup_file)
             assert len(df) > 0, "Live API test: no data returned"
-    
+
     @pytest.mark.integration
     def test_error_handling_missing_file(self):
         """Test error handling for missing input file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             exporter = AOIExporter(
-                aoi_file='data/examples/nonexistent.geojson',
+                aoi_file="data/examples/nonexistent.geojson",
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
             )
-            
+
             # Should raise an error when trying to run
             with pytest.raises(Exception):
                 exporter.run()
-    
+
     @pytest.mark.integration
     def test_error_handling_invalid_geojson(self):
         """Test error handling for invalid GeoJSON."""
@@ -235,14 +236,14 @@ class TestIntegration:
             # Create an invalid GeoJSON file
             invalid_file = Path(tmpdir) / "invalid.geojson"
             invalid_file.write_text('{"not": "valid geojson"}')
-            
+
             exporter = AOIExporter(
                 aoi_file=str(invalid_file),
                 output_dir=tmpdir,
-                country='au',
-                packs=['building'],
+                country="au",
+                packs=["building"],
             )
-            
+
             # Should handle invalid GeoJSON gracefully
             with pytest.raises(Exception):
                 exporter.run()

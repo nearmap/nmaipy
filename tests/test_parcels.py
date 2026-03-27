@@ -37,9 +37,20 @@ def test_gen_data(parcels_gdf, data_directory: Path, cache_directory: Path):
     Generate the test data for the parcels tests. Uses a specific date to ensure the data is consistent.
     """
     outfname = data_directory / "test_features.csv"
-    packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
+    packs = [
+        "building",
+        "building_char",
+        "roof_char",
+        "roof_cond",
+        "surfaces",
+        "vegetation",
+    ]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, parcel_mode=True).get_features_gdf_bulk(
-        parcels_gdf, packs=packs, region="au", since_bulk="2025-04-03", until_bulk="2025-04-03"
+        parcels_gdf,
+        packs=packs,
+        region="au",
+        since_bulk="2025-04-03",
+        until_bulk="2025-04-03",
     )
     features_gdf.to_csv(outfname)
 
@@ -50,9 +61,20 @@ def test_gen_data_2(parcels_2_gdf, data_directory: Path, cache_directory: Path):
     Generate secondary test data set.
     """
     outfname = data_directory / "test_features_2.csv"
-    packs = ["building", "building_char", "roof_char", "roof_cond", "surfaces", "vegetation"]
+    packs = [
+        "building",
+        "building_char",
+        "roof_char",
+        "roof_cond",
+        "surfaces",
+        "vegetation",
+    ]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1).get_features_gdf_bulk(
-        parcels_2_gdf, packs=packs, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
+        parcels_2_gdf,
+        packs=packs,
+        region="us",
+        since_bulk="2022-06-29",
+        until_bulk="2022-06-29",
     )
     features_gdf.to_csv(outfname)
 
@@ -68,7 +90,9 @@ def test_gen_data_3d(parcels_2_gdf, data_directory: Path, cache_directory: Path)
     small_gdf = parcels_2_gdf.head(10)
     packs = ["building", "building_char"]
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1, only3d=True).get_features_gdf_bulk(
-        small_gdf, packs=packs, region="us",
+        small_gdf,
+        packs=packs,
+        region="us",
     )
     features_gdf.to_csv(outfname)
 
@@ -82,7 +106,11 @@ def test_gen_data_2_all_packs(parcels_2_gdf, data_directory: Path, cache_directo
     """
     # Feature API: all packs
     features_gdf, _, _ = FeatureApi(cache_dir=cache_directory, threads=1).get_features_gdf_bulk(
-        parcels_2_gdf, packs=None, region="us", since_bulk="2022-06-29", until_bulk="2022-06-29"
+        parcels_2_gdf,
+        packs=None,
+        region="us",
+        since_bulk="2022-06-29",
+        until_bulk="2022-06-29",
     )
     # Roof Age API: first 10 parcels (enough to get roof instances)
     roof_age_gdf, _, _ = RoofAgeApi(cache_dir=cache_directory).get_roof_age_bulk(parcels_2_gdf.head(10))
@@ -96,13 +124,17 @@ class TestParcels:
     def test_flatten_building(self):
         country = "au"
         attributes = {
-                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
-                "description": "Building 3d attributes",
-                "has3dAttributes": True,
-                "height": 8.887635612487793,
-                "numStories": {"1": 0.057618971750252275, "2": 0.8145058300927666, "3+": 0.1278751981569811},
-            }
-        
+            "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+            "description": "Building 3d attributes",
+            "has3dAttributes": True,
+            "height": 8.887635612487793,
+            "numStories": {
+                "1": 0.057618971750252275,
+                "2": 0.8145058300927666,
+                "3+": 0.1278751981569811,
+            },
+        }
+
         expected = {
             "has_3d_attributes": "Y",
             "height_m": 8.9,
@@ -122,7 +154,11 @@ class TestParcels:
                 "description": "Building 3d attributes",
                 "has3dAttributes": True,
                 "height": 8.887635612487793,
-                "numStories": {"1": 0.057618971750252275, "2": 0.8145058300927666, "3+": 0.1278751981569811},
+                "numStories": {
+                    "1": 0.057618971750252275,
+                    "2": 0.8145058300927666,
+                    "3+": 0.1278751981569811,
+                },
             },
             {
                 "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
@@ -174,15 +210,21 @@ class TestParcels:
     def test_flatten_building_json_string_format(self):
         """Test with JSON string format (attributes serialized to JSON in parquet)."""
         country = "us"
-        attributes = json.dumps([
-            {
-                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
-                "description": "Building 3d attributes",
-                "has3dAttributes": True,
-                "height": 4.7460938,
-                "numStories": {"1": 0.9793301, "2": 0.020153718, "3+": 0.00051615527},
-            },
-        ])
+        attributes = json.dumps(
+            [
+                {
+                    "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+                    "description": "Building 3d attributes",
+                    "has3dAttributes": True,
+                    "height": 4.7460938,
+                    "numStories": {
+                        "1": 0.9793301,
+                        "2": 0.020153718,
+                        "3+": 0.00051615527,
+                    },
+                },
+            ]
+        )
         building = {"attributes": attributes}
         result = parcels.flatten_building_attributes([building], country)
         assert result["has_3d_attributes"] == "Y"
@@ -193,15 +235,21 @@ class TestParcels:
         """Test with Python repr string format (from CSV round-trip via to_csv/read_csv)."""
         country = "us"
         # CSV round-trip produces repr() strings: single quotes, True/False instead of true/false
-        attributes = repr([
-            {
-                "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
-                "description": "Building 3d attributes",
-                "has3dAttributes": True,
-                "height": 4.7460938,
-                "numStories": {"1": 0.9793301, "2": 0.020153718, "3+": 0.00051615527},
-            },
-        ])
+        attributes = repr(
+            [
+                {
+                    "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+                    "description": "Building 3d attributes",
+                    "has3dAttributes": True,
+                    "height": 4.7460938,
+                    "numStories": {
+                        "1": 0.9793301,
+                        "2": 0.020153718,
+                        "3+": 0.00051615527,
+                    },
+                },
+            ]
+        )
         building = {"attributes": attributes}
         result = parcels.flatten_building_attributes([building], country)
         assert result["has_3d_attributes"] == "Y"
@@ -216,161 +264,163 @@ class TestParcels:
         assert result == {}
 
     def test_flatten_roof(self):
-        roof = {"attributes": [
-            {
-                "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
-                "description": "Roof 3d attributes",
-                "has3dAttributes": True,
-                "pitch": 26.21,
-            },
-            {
-                "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
-                "components": [
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
-                        "confidence": 1,
-                        "description": "Structurally Damaged Roof",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
-                        "confidence": 1,
-                        "description": "Roof With Temporary Repair",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
-                        "confidence": 1,
-                        "description": "Roof Ponding",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
-                        "confidence": 1,
-                        "description": "Roof Rusting",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
-                        "confidence": 1,
-                        "description": "Roof Tile/Shingle Discolouration",
-                        "ratio": 0,
-                    },
-                ],
-                "description": "Roof condition",
-            },
-            {
-                "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
-                "components": [
-                    {
-                        "areaSqft": 3059,
-                        "areaSqm": 284.2,
-                        "classId": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
-                        "confidence": 0.9904731109239588,
-                        "description": "Tile Roof",
-                        "dominant": True,
-                        "ratio": 0.9113204992491568,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
-                        "confidence": 1,
-                        "description": "Shingle Roof",
-                        "dominant": False,
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
-                        "confidence": 1,
-                        "description": "Metal Roof",
-                        "dominant": False,
-                        "ratio": 0,
-                    },
-                ],
-                "description": "Roof material",
-            },
-            {
-                "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
-                "components": [
-                    {
-                        "areaSqft": 517,
-                        "areaSqm": 48,
-                        "classId": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
-                        "confidence": 0.7464101831606086,
-                        "description": "Hip",
-                        "ratio": 0.15403978237857266,
-                    },
-                    {
-                        "areaSqft": 805,
-                        "areaSqm": 74.8,
-                        "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
-                        "confidence": 0.7787800614990344,
-                        "description": "Gable",
-                        "ratio": 0.23987592624504567,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
-                        "confidence": 1,
-                        "description": "Dutch Gable",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
-                        "confidence": 1,
-                        "description": "Flat",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "89582082-e5b8-5853-bc94-3a0392cab98a",
-                        "confidence": 1,
-                        "description": "Turret",
-                        "ratio": 0,
-                    },
-                    {
-                        "areaSqft": 66,
-                        "areaSqm": 6.1,
-                        "classId": "6e78c065-ecd9-59e3-8b62-cdef9a310dde",
-                        "confidence": 0.5372738248389376,
-                        "description": "Other Roof Shape",
-                        "ratio": 0.019589621131926836,
-                    },
-                ],
-                "description": "Roof types",
-            },
-            {
-                "classId": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
-                "components": [
-                    {
-                        "areaSqft": 0,
-                        "areaSqm": 0,
-                        "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
-                        "confidence": 1,
-                        "description": "Tree Overhang",
-                        "ratio": 0,
-                    }
-                ],
-                "description": "Roof tree overhang",
-            },
-        ]}
+        roof = {
+            "attributes": [
+                {
+                    "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
+                    "description": "Roof 3d attributes",
+                    "has3dAttributes": True,
+                    "pitch": 26.21,
+                },
+                {
+                    "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+                    "components": [
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+                            "confidence": 1,
+                            "description": "Structurally Damaged Roof",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+                            "confidence": 1,
+                            "description": "Roof With Temporary Repair",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+                            "confidence": 1,
+                            "description": "Roof Ponding",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+                            "confidence": 1,
+                            "description": "Roof Rusting",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+                            "confidence": 1,
+                            "description": "Roof Tile/Shingle Discolouration",
+                            "ratio": 0,
+                        },
+                    ],
+                    "description": "Roof condition",
+                },
+                {
+                    "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
+                    "components": [
+                        {
+                            "areaSqft": 3059,
+                            "areaSqm": 284.2,
+                            "classId": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+                            "confidence": 0.9904731109239588,
+                            "description": "Tile Roof",
+                            "dominant": True,
+                            "ratio": 0.9113204992491568,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+                            "confidence": 1,
+                            "description": "Shingle Roof",
+                            "dominant": False,
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+                            "confidence": 1,
+                            "description": "Metal Roof",
+                            "dominant": False,
+                            "ratio": 0,
+                        },
+                    ],
+                    "description": "Roof material",
+                },
+                {
+                    "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+                    "components": [
+                        {
+                            "areaSqft": 517,
+                            "areaSqm": 48,
+                            "classId": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+                            "confidence": 0.7464101831606086,
+                            "description": "Hip",
+                            "ratio": 0.15403978237857266,
+                        },
+                        {
+                            "areaSqft": 805,
+                            "areaSqm": 74.8,
+                            "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+                            "confidence": 0.7787800614990344,
+                            "description": "Gable",
+                            "ratio": 0.23987592624504567,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+                            "confidence": 1,
+                            "description": "Dutch Gable",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+                            "confidence": 1,
+                            "description": "Flat",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "89582082-e5b8-5853-bc94-3a0392cab98a",
+                            "confidence": 1,
+                            "description": "Turret",
+                            "ratio": 0,
+                        },
+                        {
+                            "areaSqft": 66,
+                            "areaSqm": 6.1,
+                            "classId": "6e78c065-ecd9-59e3-8b62-cdef9a310dde",
+                            "confidence": 0.5372738248389376,
+                            "description": "Other Roof Shape",
+                            "ratio": 0.019589621131926836,
+                        },
+                    ],
+                    "description": "Roof types",
+                },
+                {
+                    "classId": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+                    "components": [
+                        {
+                            "areaSqft": 0,
+                            "areaSqm": 0,
+                            "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+                            "confidence": 1,
+                            "description": "Tree Overhang",
+                            "ratio": 0,
+                        }
+                    ],
+                    "description": "Roof tree overhang",
+                },
+            ]
+        }
 
         expected = {
             "has_3d_attributes": "Y",
@@ -452,7 +502,9 @@ class TestParcels:
         for k in expected:
             # Check approximately equal for floats
             if isinstance(expected[k], float):
-                assert np.isclose(expected[k], actual[k], rtol=0.01), f"Expected {k} to be {expected[k]}, got {actual[k]}"
+                assert np.isclose(
+                    expected[k], actual[k], rtol=0.01
+                ), f"Expected {k} to be {expected[k]}, got {actual[k]}"
             else:
                 assert expected[k] == actual[k], f"Expected {k} to be {expected[k]}, got {actual[k]}"
         for k in actual:
@@ -473,9 +525,7 @@ class TestParcels:
             country=country,
             primary_decision="largest_intersection",
         )
-        expected = pd.read_csv(
-            data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME
-        )
+        expected = pd.read_csv(data_directory / "test_parcels_2_rollup.csv", index_col=AOI_ID_COLUMN_NAME)
         pd.testing.assert_frame_equal(df, expected, check_dtype=False)
 
         df = parcels.parcel_rollup(
@@ -485,9 +535,7 @@ class TestParcels:
             country=country,
             primary_decision="largest_intersection",
         )
-        expected = pd.read_csv(
-            data_directory / "test_parcels_rollup.csv", index_col=AOI_ID_COLUMN_NAME
-        )
+        expected = pd.read_csv(data_directory / "test_parcels_rollup.csv", index_col=AOI_ID_COLUMN_NAME)
         pd.testing.assert_frame_equal(df, expected, check_dtype=False)
 
     def test_nearest_primary(self):
@@ -559,21 +607,30 @@ class TestParcels:
             lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
         )
         features_gdf = features_gdf.merge(
-            gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"]
+            gdf[["feature_id", "clipped_area_sqm"]],
+            on=[AOI_ID_COLUMN_NAME, "feature_id"],
         )
         for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
             features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
         parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
         features_gdf = features_gdf.to_crs("EPSG:4326")
 
-        classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
+        classes_df = pd.DataFrame(
+            [["Pool"]],
+            columns=["description"],
+            index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"],
+        )
 
         # Test new "nearest" behavior: selects feature that contains target or is within 1m tolerance
         # Feature 2's boundary touches the target point (lat=42.0005), so it's within tolerance
         # Even though Feature 2 has lower confidence (0.85), it's selected because it's the only
         # feature within the 1m tolerance threshold
         rollup_df = parcels.parcel_rollup(
-            parcels_gdf, features_gdf, classes_df, country=country, primary_decision="nearest"
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country=country,
+            primary_decision="nearest",
         )
         expected = pd.DataFrame(
             [
@@ -654,18 +711,27 @@ class TestParcels:
             lambda row: row.geometry_feature.intersection(row.geometry_aoi).area, axis=1
         )
         features_gdf = features_gdf.merge(
-            gdf[["feature_id", "clipped_area_sqm"]], on=[AOI_ID_COLUMN_NAME, "feature_id"]
+            gdf[["feature_id", "clipped_area_sqm"]],
+            on=[AOI_ID_COLUMN_NAME, "feature_id"],
         )
         for col in ["area_sqm", "clipped_area_sqm", "unclipped_area_sqm"]:
             features_gdf[col.replace("sqm", "sqft")] = features_gdf[col] * 3.28084
         parcels_gdf = parcels_gdf.to_crs("EPSG:4326")
         features_gdf = features_gdf.to_crs("EPSG:4326")
 
-        classes_df = pd.DataFrame([["Pool"]], columns=["description"], index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"])
+        classes_df = pd.DataFrame(
+            [["Pool"]],
+            columns=["description"],
+            index=["0339726f-081e-5a6e-b9a9-42d95c1b5c8a"],
+        )
 
         # Test "optimal" method: target is far from all features, so falls back to largest
         rollup_df = parcels.parcel_rollup(
-            parcels_gdf, features_gdf, classes_df, country=country, primary_decision="optimal"
+            parcels_gdf,
+            features_gdf,
+            classes_df,
+            country=country,
+            primary_decision="optimal",
         )
 
         # Feature 1 (larger) should be selected because nearest returns None and optimal falls back to largest
@@ -705,7 +771,6 @@ class TestParcels:
         final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
         assert len(final_df) == len(parcel_gdf)
 
-
     def test_rollup_snake_geometry(self, cache_directory: Path):
         """
         There has been a particular challenge in past for clipped areas for connected classes working correctly with
@@ -722,22 +787,37 @@ class TestParcels:
         country = "us"
         packs = ["building", "vegetation"]
         aoi_id = 51310013081068
-        survey_resource_id = "e5cb96af-0e9c-5054-8789-2475b3ff9fdf" #2024-08-07 survey
+        survey_resource_id = "e5cb96af-0e9c-5054-8789-2475b3ff9fdf"  # 2024-08-07 survey
 
         parcels_gdf = gpd.GeoDataFrame(
-            [{"geometry": aoi, AOI_ID_COLUMN_NAME: aoi_id, "survey_resource_id": survey_resource_id}], crs=API_CRS
+            [
+                {
+                    "geometry": aoi,
+                    AOI_ID_COLUMN_NAME: aoi_id,
+                    "survey_resource_id": survey_resource_id,
+                }
+            ],
+            crs=API_CRS,
         ).set_index(AOI_ID_COLUMN_NAME)
 
         classes_df = pd.DataFrame(
             [
                 {"id": BUILDING_ID, "description": "building"},
-                {"id": VEG_MEDHIGH_ID, "description": "Medium and High Vegetation (>2m)"},
+                {
+                    "id": VEG_MEDHIGH_ID,
+                    "description": "Medium and High Vegetation (>2m)",
+                },
             ]
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory, compress_cache=True, threads=4)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(
-            aoi, country, packs, None, None, aoi_id, #survey_resource_id=survey_resource_id
+            aoi,
+            country,
+            packs,
+            None,
+            None,
+            aoi_id,  # survey_resource_id=survey_resource_id
         )
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -756,8 +836,9 @@ class TestParcels:
         # Check tree cover percentage is within +/- 2% of expected value (0.77)
         actual_pct = df.loc[51310013081068, "pct_tree_cover"]
         expected_pct = 0.77
-        assert abs(actual_pct - expected_pct) / expected_pct <= 0.02, \
-            f"Tree cover {actual_pct:.4f} differs by more than 2% relative error from expected {expected_pct}"
+        assert (
+            abs(actual_pct - expected_pct) / expected_pct <= 0.02
+        ), f"Tree cover {actual_pct:.4f} differs by more than 2% relative error from expected {expected_pct}"
 
     def test_large_query_geoid_11179800001006(self, cache_directory: Path):
         """
@@ -776,18 +857,24 @@ class TestParcels:
         aoi_id = 11179800001006
 
         parcels_gdf = gpd.GeoDataFrame(
-            [{"geometry": aoi, "aoi_id": aoi_id, "since": date_1, "until": date_2}], crs=API_CRS
+            [{"geometry": aoi, "aoi_id": aoi_id, "since": date_1, "until": date_2}],
+            crs=API_CRS,
         ).set_index(AOI_ID_COLUMN_NAME)
 
         classes_df = pd.DataFrame(
             [
                 {"id": BUILDING_ID, "description": "building"},
-                {"id": VEG_MEDHIGH_ID, "description": "Medium and High Vegetation (>2m)"},
+                {
+                    "id": VEG_MEDHIGH_ID,
+                    "description": "Medium and High Vegetation (>2m)",
+                },
             ]
         ).set_index("id")
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, country, packs, None, None, aoi_id, date_1, date_2)
+        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
+            aoi, country, packs, None, None, aoi_id, date_1, date_2
+        )
 
         df = parcels.parcel_rollup(
             parcels_gdf,
@@ -806,7 +893,6 @@ class TestParcels:
         assert (
             df.loc[11179800001006, "building_count"] == 40
         )  # Updated count with parcel_mode disabled during gridding.
-
 
     def test_rollup_3d_attributes(self, parcels_2_gdf, features_3d_gdf):
         """Test that 3D building attributes appear in rollup when using real API fixture data."""
@@ -829,17 +915,15 @@ class TestParcels:
 
         # Find columns for the new semantic building (BUILDING_NEW_ID)
         building_3d_cols = [c for c in rollup_df.columns if "has_3d_attributes" in c]
-        assert len(building_3d_cols) > 0, (
-            f"No 3D attribute columns found in rollup. Columns: {list(rollup_df.columns)}"
-        )
+        assert len(building_3d_cols) > 0, f"No 3D attribute columns found in rollup. Columns: {list(rollup_df.columns)}"
 
         col_prefix = building_3d_cols[0].rsplit("has_3d_attributes", 1)[0]
 
         # At least some parcels should have 3D data
         has_3d_col = f"{col_prefix}has_3d_attributes"
-        assert (rollup_df[has_3d_col] == "Y").any(), (
-            f"No parcels have 3D attributes. Values: {rollup_df[has_3d_col].value_counts().to_dict()}"
-        )
+        assert (
+            rollup_df[has_3d_col] == "Y"
+        ).any(), f"No parcels have 3D attributes. Values: {rollup_df[has_3d_col].value_counts().to_dict()}"
 
         # Height column should exist and have numeric values
         height_col = f"{col_prefix}height_ft"
@@ -862,7 +946,9 @@ class TestParcels:
 
         # Ground height column should exist with positive values
         ground_height_col = f"{col_prefix}ground_height_ft"
-        assert ground_height_col in rollup_df.columns, f"Missing {ground_height_col}. Columns: {list(rollup_df.columns)}"
+        assert (
+            ground_height_col in rollup_df.columns
+        ), f"Missing {ground_height_col}. Columns: {list(rollup_df.columns)}"
         ground_height_values = pd.to_numeric(rollup_df[ground_height_col], errors="coerce").dropna()
         assert len(ground_height_values) > 0, "No valid ground_height values"
         assert (ground_height_values > 0).all(), f"Ground height should be positive: {ground_height_values.tolist()}"
@@ -888,7 +974,14 @@ class TestLinkRoofInstancesToRoofs:
         )
 
         instances_gdf = gpd.GeoDataFrame(
-            [{"feature_id": "instance-1", "aoi_id": "aoi-1", "kind": "roof", "geometry": instance_geom}],
+            [
+                {
+                    "feature_id": "instance-1",
+                    "aoi_id": "aoi-1",
+                    "kind": "roof",
+                    "geometry": instance_geom,
+                }
+            ],
             geometry="geometry",
             crs=API_CRS,
         )
@@ -896,18 +989,19 @@ class TestLinkRoofInstancesToRoofs:
         ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(instances_gdf, roofs_gdf)
 
         # Primary should be None because IoU is below threshold
-        assert roofs_linked.loc["aoi-1", "primary_child_roof_age_feature_id"] is None, \
-            f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_age_feature_id']}"
+        assert (
+            roofs_linked.loc["aoi-1", "primary_child_roof_age_feature_id"] is None
+        ), f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_age_feature_id']}"
 
         # But the child list should still contain the instance for reference
         children = json.loads(roofs_linked.loc["aoi-1", "child_roof_instances"])
         assert len(children) == 1, "Child list should still contain the low-IoU match for reference"
-        assert children[0]["iou"] < MIN_ROOF_INSTANCE_IOU_THRESHOLD, \
-            f"IoU {children[0]['iou']} should be below threshold {MIN_ROOF_INSTANCE_IOU_THRESHOLD}"
+        assert (
+            children[0]["iou"] < MIN_ROOF_INSTANCE_IOU_THRESHOLD
+        ), f"IoU {children[0]['iou']} should be below threshold {MIN_ROOF_INSTANCE_IOU_THRESHOLD}"
 
         # Parent should also be None on the instance side
-        assert ri_linked.loc["aoi-1", "parent_id"] is None, \
-            "Parent should be None for low IoU match"
+        assert ri_linked.loc["aoi-1", "parent_id"] is None, "Parent should be None for low IoU match"
 
     def test_iou_above_threshold_assigns_primary(self):
         """Matches at or above MIN_ROOF_INSTANCE_IOU_THRESHOLD should be assigned."""
@@ -923,7 +1017,14 @@ class TestLinkRoofInstancesToRoofs:
         )
 
         instances_gdf = gpd.GeoDataFrame(
-            [{"feature_id": "instance-1", "aoi_id": "aoi-1", "kind": "roof", "geometry": instance_geom}],
+            [
+                {
+                    "feature_id": "instance-1",
+                    "aoi_id": "aoi-1",
+                    "kind": "roof",
+                    "geometry": instance_geom,
+                }
+            ],
             geometry="geometry",
             crs=API_CRS,
         )
@@ -1244,16 +1345,20 @@ class TestCalculateChildFeatureAttributes:
     def _make_components(self, class_ids_and_descriptions):
         """Build a components list from (classId, description) pairs."""
         return [
-            {"classId": cid, "description": desc, "areaSqm": 100, "areaSqft": 1076, "confidence": 0.9, "ratio": 0.5}
+            {
+                "classId": cid,
+                "description": desc,
+                "areaSqm": 100,
+                "areaSqft": 1076,
+                "confidence": 0.9,
+                "ratio": 0.5,
+            }
             for cid, desc in class_ids_and_descriptions
         ]
 
     def _make_child_features(self, features_data):
         """Build a GeoDataFrame of child features from list of (class_id, geometry, confidence)."""
-        records = [
-            {"class_id": cid, "geometry": geom, "confidence": conf}
-            for cid, geom, conf in features_data
-        ]
+        records = [{"class_id": cid, "geometry": geom, "confidence": conf} for cid, geom, conf in features_data]
         return gpd.GeoDataFrame(records, geometry="geometry")
 
     def _parent_box(self):
@@ -1263,12 +1368,25 @@ class TestCalculateChildFeatureAttributes:
     def test_no_matching_children_returns_zeros(self):
         """When child features exist but none match a component's classId, emit zeros."""
         parent = self._parent_box()
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-        ])
-        child_features = self._make_child_features([
-            (self.TILE_CLASS_ID, box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D / 2, self.SYD_LAT + self.D / 2), 0.95),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+            ]
+        )
+        child_features = self._make_child_features(
+            [
+                (
+                    self.TILE_CLASS_ID,
+                    box(
+                        self.SYD_LON,
+                        self.SYD_LAT,
+                        self.SYD_LON + self.D / 2,
+                        self.SYD_LAT + self.D / 2,
+                    ),
+                    0.95,
+                ),
+            ]
+        )
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
 
@@ -1280,9 +1398,11 @@ class TestCalculateChildFeatureAttributes:
     def test_empty_child_features_returns_zeros(self):
         """When child_features GeoDataFrame is empty (all filtered), emit zeros for all components."""
         parent = self._parent_box()
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+            ]
+        )
         child_features = gpd.GeoDataFrame({"class_id": [], "geometry": [], "confidence": []}, geometry="geometry")
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
@@ -1303,13 +1423,26 @@ class TestCalculateChildFeatureAttributes:
     def test_matching_children_intersect(self):
         """When matching child features intersect the parent, return correct area/ratio."""
         parent = self._parent_box()
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+            ]
+        )
         # Child feature covers left half of parent
-        child_features = self._make_child_features([
-            (self.STAINING_CLASS_ID, box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D / 2, self.SYD_LAT + self.D), 0.85),
-        ])
+        child_features = self._make_child_features(
+            [
+                (
+                    self.STAINING_CLASS_ID,
+                    box(
+                        self.SYD_LON,
+                        self.SYD_LAT,
+                        self.SYD_LON + self.D / 2,
+                        self.SYD_LAT + self.D,
+                    ),
+                    0.85,
+                ),
+            ]
+        )
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
 
@@ -1322,13 +1455,26 @@ class TestCalculateChildFeatureAttributes:
     def test_matching_children_no_intersection(self):
         """When matching child features exist but don't intersect, emit zeros."""
         parent = self._parent_box()
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+            ]
+        )
         # Child feature far from parent
-        child_features = self._make_child_features([
-            (self.STAINING_CLASS_ID, box(self.SYD_LON + 1, self.SYD_LAT + 1, self.SYD_LON + 1.001, self.SYD_LAT + 1.001), 0.85),
-        ])
+        child_features = self._make_child_features(
+            [
+                (
+                    self.STAINING_CLASS_ID,
+                    box(
+                        self.SYD_LON + 1,
+                        self.SYD_LAT + 1,
+                        self.SYD_LON + 1.001,
+                        self.SYD_LAT + 1.001,
+                    ),
+                    0.85,
+                ),
+            ]
+        )
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
 
@@ -1339,14 +1485,27 @@ class TestCalculateChildFeatureAttributes:
     def test_partial_match_some_components_missing(self):
         """Multiple components: one has matching children, another doesn't."""
         parent = self._parent_box()
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-            (self.RUSTING_CLASS_ID, "Roof Rusting"),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+                (self.RUSTING_CLASS_ID, "Roof Rusting"),
+            ]
+        )
         # Only staining has child features covering ~30% of parent
-        child_features = self._make_child_features([
-            (self.STAINING_CLASS_ID, box(self.SYD_LON, self.SYD_LAT, self.SYD_LON + self.D * 0.3, self.SYD_LAT + self.D), 0.9),
-        ])
+        child_features = self._make_child_features(
+            [
+                (
+                    self.STAINING_CLASS_ID,
+                    box(
+                        self.SYD_LON,
+                        self.SYD_LAT,
+                        self.SYD_LON + self.D * 0.3,
+                        self.SYD_LAT + self.D,
+                    ),
+                    0.9,
+                ),
+            ]
+        )
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
 
@@ -1361,12 +1520,20 @@ class TestCalculateChildFeatureAttributes:
         """US country code produces sqft area keys."""
         # Use a US location (~40°N, -74°W near NYC)
         parent = box(-74.0, 40.0, -74.0 + self.D, 40.0 + self.D)
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-        ])
-        child_features = self._make_child_features([
-            (self.STAINING_CLASS_ID, box(-74.0, 40.0, -74.0 + self.D / 2, 40.0 + self.D / 2), 0.5),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+            ]
+        )
+        child_features = self._make_child_features(
+            [
+                (
+                    self.STAINING_CLASS_ID,
+                    box(-74.0, 40.0, -74.0 + self.D / 2, 40.0 + self.D / 2),
+                    0.5,
+                ),
+            ]
+        )
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "us")
 
@@ -1377,9 +1544,11 @@ class TestCalculateChildFeatureAttributes:
     def test_imperial_units_empty_children(self):
         """US country code with empty children produces sqft area keys with zeros."""
         parent = box(-74.0, 40.0, -74.0 + self.D, 40.0 + self.D)
-        components = self._make_components([
-            (self.STAINING_CLASS_ID, "Roof Staining"),
-        ])
+        components = self._make_components(
+            [
+                (self.STAINING_CLASS_ID, "Roof Staining"),
+            ]
+        )
         child_features = gpd.GeoDataFrame({"class_id": [], "geometry": [], "confidence": []}, geometry="geometry")
 
         result = parcels.calculate_child_feature_attributes(parent, components, child_features, "us")
@@ -1419,7 +1588,11 @@ class TestFlattenRoofAttributesClippedFallback:
             ],
         }
         child_features = gpd.GeoDataFrame(
-            {"class_id": pd.Series(dtype=str), "geometry": pd.Series(dtype=object), "confidence": pd.Series(dtype=float)},
+            {
+                "class_id": pd.Series(dtype=str),
+                "geometry": pd.Series(dtype=object),
+                "confidence": pd.Series(dtype=float),
+            },
             geometry="geometry",
         )
 
@@ -1453,7 +1626,11 @@ class TestFlattenRoofAttributesClippedFallback:
             ],
         }
         child_features = gpd.GeoDataFrame(
-            {"class_id": pd.Series(dtype=str), "geometry": pd.Series(dtype=object), "confidence": pd.Series(dtype=float)},
+            {
+                "class_id": pd.Series(dtype=str),
+                "geometry": pd.Series(dtype=object),
+                "confidence": pd.Series(dtype=float),
+            },
             geometry="geometry",
         )
 
@@ -1521,8 +1698,11 @@ class TestApiMetadataInRollup:
         ]
 
         rollup = parcels.parcel_rollup(
-            parcels_gdf, roof_instance_features, classes_df,
-            country="us", primary_decision="largest_intersection",
+            parcels_gdf,
+            roof_instance_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
             api_metadata=api_metadata,
         )
         failed = rollup.loc["aoi_2"]
@@ -1560,8 +1740,11 @@ class TestApiMetadataInRollup:
         ]
 
         rollup = parcels.parcel_rollup(
-            parcels_gdf, roof_instance_features, classes_df,
-            country="us", primary_decision="largest_intersection",
+            parcels_gdf,
+            roof_instance_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
             api_metadata=api_metadata,
         )
 
@@ -1575,8 +1758,11 @@ class TestApiMetadataInRollup:
     def test_no_api_metadata_is_backward_compatible(self, parcels_gdf, roof_instance_features, classes_df):
         """When api_metadata is None, behaves identically to previous version (all 'N'/0 defaults)."""
         rollup = parcels.parcel_rollup(
-            parcels_gdf, roof_instance_features, classes_df,
-            country="us", primary_decision="largest_intersection",
+            parcels_gdf,
+            roof_instance_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
             api_metadata=None,
         )
         # Without api_metadata, all defaults are "N"/0 (old behavior)
@@ -1600,8 +1786,11 @@ class TestApiMetadataInRollup:
         ]
 
         rollup = parcels.parcel_rollup(
-            parcels_gdf, empty_features, classes_df,
-            country="us", primary_decision="largest_intersection",
+            parcels_gdf,
+            empty_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
             api_metadata=api_metadata,
         )
         row = rollup.loc["aoi_1"]
@@ -1627,8 +1816,11 @@ class TestApiMetadataInRollup:
         ]
 
         rollup = parcels.parcel_rollup(
-            parcels_gdf, roof_instance_features, classes_df,
-            country="us", primary_decision="largest_intersection",
+            parcels_gdf,
+            roof_instance_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
             api_metadata=api_metadata,
         )
 

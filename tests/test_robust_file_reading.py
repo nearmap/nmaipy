@@ -1,4 +1,5 @@
 """Tests for robust CSV and Parquet file reading with mixed types and explicit dtypes."""
+
 import tempfile
 from pathlib import Path
 
@@ -19,10 +20,18 @@ class TestRobustFileReading:
         # Create a temporary CSV file with mixed types in street_address column
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(f"{AOI_ID_COLUMN_NAME},street_address,city,geometry\n")
-            f.write('1,"123","Melbourne","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n')
-            f.write('2,"456","Melbourne","POLYGON((144.9 -37.7, 145.0 -37.7, 145.0 -37.8, 144.9 -37.8, 144.9 -37.7))"\n')
-            f.write('3,"789","Melbourne","POLYGON((144.9 -37.6, 145.0 -37.6, 145.0 -37.7, 144.9 -37.7, 144.9 -37.6))"\n')
-            f.write('4,"12A Main St","Melbourne","POLYGON((144.9 -37.5, 145.0 -37.5, 145.0 -37.6, 144.9 -37.6, 144.9 -37.5))"\n')
+            f.write(
+                '1,"123","Melbourne","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n'
+            )
+            f.write(
+                '2,"456","Melbourne","POLYGON((144.9 -37.7, 145.0 -37.7, 145.0 -37.8, 144.9 -37.8, 144.9 -37.7))"\n'
+            )
+            f.write(
+                '3,"789","Melbourne","POLYGON((144.9 -37.6, 145.0 -37.6, 145.0 -37.7, 144.9 -37.7, 144.9 -37.6))"\n'
+            )
+            f.write(
+                '4,"12A Main St","Melbourne","POLYGON((144.9 -37.5, 145.0 -37.5, 145.0 -37.6, 144.9 -37.6, 144.9 -37.5))"\n'
+            )
             f.write('5,"","Melbourne","POLYGON((144.9 -37.4, 145.0 -37.4, 145.0 -37.5, 144.9 -37.5, 144.9 -37.4))"\n')
             csv_path = f.name
 
@@ -58,8 +67,12 @@ class TestRobustFileReading:
         for suffix, sep in test_cases:
             with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
                 f.write(f"{AOI_ID_COLUMN_NAME}{sep}name{sep}geometry\n")
-                f.write(f'1{sep}"Test 1"{sep}"POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n')
-                f.write(f'2{sep}"Test 2"{sep}"POLYGON((144.9 -37.7, 145.0 -37.7, 145.0 -37.8, 144.9 -37.8, 144.9 -37.7))"\n')
+                f.write(
+                    f'1{sep}"Test 1"{sep}"POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n'
+                )
+                f.write(
+                    f'2{sep}"Test 2"{sep}"POLYGON((144.9 -37.7, 145.0 -37.7, 145.0 -37.8, 144.9 -37.8, 144.9 -37.7))"\n'
+                )
                 file_path = f.name
 
             try:
@@ -73,12 +86,14 @@ class TestRobustFileReading:
     def test_parquet_without_geometry(self):
         """Test reading parquet file without geometry column (non-geoparquet)."""
         # Create a non-geo parquet file with explicit dtypes
-        df = pd.DataFrame({
-            AOI_ID_COLUMN_NAME: [1, 2, 3, 4, 5],
-            "street_address": pd.array(["123", "456", "789", "12A Main St", None], dtype="string"),
-            "postal_code": pd.array([3000, 3001, 3002, 3003, None], dtype="Int64"),
-            "property_value": pd.array([500000.5, 600000.0, 700000.25, None, 550000.0], dtype="Float64"),
-        })
+        df = pd.DataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [1, 2, 3, 4, 5],
+                "street_address": pd.array(["123", "456", "789", "12A Main St", None], dtype="string"),
+                "postal_code": pd.array([3000, 3001, 3002, 3003, None], dtype="Int64"),
+                "property_value": pd.array([500000.5, 600000.0, 700000.25, None, 550000.0], dtype="Float64"),
+            }
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
             parquet_path = f.name
@@ -111,15 +126,18 @@ class TestRobustFileReading:
     def test_parquet_with_geometry(self):
         """Test reading geoparquet file with geometry column."""
         # Create a geoparquet file
-        gdf = gpd.GeoDataFrame({
-            AOI_ID_COLUMN_NAME: [1, 2, 3],
-            "name": ["Parcel 1", "Parcel 2", "Parcel 3"],
-            "geometry": [
-                Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
-                Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
-                Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
-            ],
-        }, crs="EPSG:4326")
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [1, 2, 3],
+                "name": ["Parcel 1", "Parcel 2", "Parcel 3"],
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
             parquet_path = f.name
@@ -189,7 +207,9 @@ class TestRobustFileReading:
             f.write(f"{AOI_ID_COLUMN_NAME},street_number,geometry\n")
             # First 100 rows are all numeric
             for i in range(1, 101):
-                f.write(f'{i},"{i * 10}","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n')
+                f.write(
+                    f'{i},"{i * 10}","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n'
+                )
             # Row 101 has text
             f.write(f'101,"10A","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n')
             csv_path = f.name
@@ -218,15 +238,18 @@ class TestRobustFileReading:
         when aoi_id was missing. When aoi_id existed as a column, the 'index'
         column leaked through, propagating row positions into all output files.
         """
-        gdf = gpd.GeoDataFrame({
-            AOI_ID_COLUMN_NAME: [10, 20, 30],
-            "name": ["A", "B", "C"],
-            "geometry": [
-                Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
-                Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
-                Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
-            ],
-        }, crs="EPSG:4326")
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [10, 20, 30],
+                "name": ["A", "B", "C"],
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
             parquet_path = f.name
@@ -238,10 +261,12 @@ class TestRobustFileReading:
             result = parcels.read_from_file(Path(parquet_path))
 
             assert result.index.name == AOI_ID_COLUMN_NAME, "aoi_id should be the index"
-            assert "index" not in result.columns, (
-                "Spurious 'index' column from RangeIndex leaked into output"
-            )
-            assert list(result.index) == [10, 20, 30], "aoi_id values should be preserved"
+            assert "index" not in result.columns, "Spurious 'index' column from RangeIndex leaked into output"
+            assert list(result.index) == [
+                10,
+                20,
+                30,
+            ], "aoi_id values should be preserved"
             assert "name" in result.columns, "Data columns should be preserved"
         finally:
             Path(parquet_path).unlink()
@@ -249,15 +274,18 @@ class TestRobustFileReading:
     def test_parquet_with_named_index_preserved(self):
         """A meaningful named index (not aoi_id) should be preserved as a column
         when read_from_file resets it to use aoi_id instead."""
-        gdf = gpd.GeoDataFrame({
-            "property_id": ["P1", "P2", "P3"],
-            AOI_ID_COLUMN_NAME: [100, 200, 300],
-            "geometry": [
-                Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
-                Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
-                Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
-            ],
-        }, crs="EPSG:4326").set_index("property_id")
+        gdf = gpd.GeoDataFrame(
+            {
+                "property_id": ["P1", "P2", "P3"],
+                AOI_ID_COLUMN_NAME: [100, 200, 300],
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        ).set_index("property_id")
 
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
             parquet_path = f.name
@@ -268,12 +296,8 @@ class TestRobustFileReading:
             result = parcels.read_from_file(Path(parquet_path))
 
             assert result.index.name == AOI_ID_COLUMN_NAME
-            assert "property_id" in result.columns, (
-                "Named index should be preserved as a column after reset_index"
-            )
-            assert "index" not in result.columns, (
-                "No spurious 'index' column should exist"
-            )
+            assert "property_id" in result.columns, "Named index should be preserved as a column after reset_index"
+            assert "index" not in result.columns, "No spurious 'index' column should exist"
         finally:
             Path(parquet_path).unlink()
 
@@ -281,15 +305,18 @@ class TestRobustFileReading:
         """If the input has an unnamed RangeIndex AND a pre-existing column called
         'index' (e.g. from a lazy pd.to_parquet()), the user's column must survive
         and not collide with reset_index()."""
-        gdf = gpd.GeoDataFrame({
-            AOI_ID_COLUMN_NAME: [1, 2, 3],
-            "index": [42, 99, 7],  # User's own column named "index"
-            "geometry": [
-                Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
-                Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
-                Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
-            ],
-        }, crs="EPSG:4326")
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [1, 2, 3],
+                "index": [42, 99, 7],  # User's own column named "index"
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
             parquet_path = f.name
@@ -300,11 +327,11 @@ class TestRobustFileReading:
             result = parcels.read_from_file(Path(parquet_path))
 
             assert result.index.name == AOI_ID_COLUMN_NAME
-            assert "index" in result.columns, (
-                "User's own 'index' column should be preserved"
-            )
-            assert list(result["index"]) == [42, 99, 7], (
-                "User's 'index' column values should be unchanged"
-            )
+            assert "index" in result.columns, "User's own 'index' column should be preserved"
+            assert list(result["index"]) == [
+                42,
+                99,
+                7,
+            ], "User's 'index' column values should be unchanged"
         finally:
             Path(parquet_path).unlink()

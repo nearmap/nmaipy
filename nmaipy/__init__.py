@@ -1,7 +1,7 @@
 """
 nmaipy - Nearmap AI Python Library
 
-Extract building footprints, vegetation, damage assessments, and other AI features 
+Extract building footprints, vegetation, damage assessments, and other AI features
 from Nearmap's aerial imagery using simple Python code.
 """
 

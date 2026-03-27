@@ -7,6 +7,7 @@ These tests verify:
 - Error handling
 - Caching behavior
 """
+
 import json
 import os
 import tempfile
@@ -47,21 +48,23 @@ def test_gen_roof_age_data(parcels_2_gdf, data_directory: Path, cache_directory:
 @pytest.fixture
 def test_aoi_nj():
     """Test AOI from New Jersey (from test_parcels_2.csv)"""
-    return Polygon([
-        [-74.27516463201826, 40.64218565282876],
-        [-74.27542320356542, 40.64233089427355],
-        [-74.27515898040713, 40.64251014788475],
-        [-74.27499790708188, 40.64236582723893],
-        [-74.27516554166887, 40.64218907322704],
-        [-74.27516463201826, 40.64218565282876]
-    ])
+    return Polygon(
+        [
+            [-74.27516463201826, 40.64218565282876],
+            [-74.27542320356542, 40.64233089427355],
+            [-74.27515898040713, 40.64251014788475],
+            [-74.27499790708188, 40.64236582723893],
+            [-74.27516554166887, 40.64218907322704],
+            [-74.27516463201826, 40.64218565282876],
+        ]
+    )
 
 
 @pytest.fixture
 def test_roof_age_response(data_directory):
     """Load the test roof age API response from fixture file"""
     fixture_path = data_directory / "test_roof_age_nj_response.json"
-    with open(fixture_path, 'r') as f:
+    with open(fixture_path, "r") as f:
         return json.load(f)
 
 
@@ -127,7 +130,7 @@ def test_build_request_payload_address(roof_age_api):
         "streetAddress": "123 Main St",
         "city": "Austin",
         "state": "TX",
-        "zip": "78701"
+        "zip": "78701",
     }
     payload = roof_age_api._build_request_payload(address=address)
 
@@ -139,7 +142,12 @@ def test_build_request_payload_address(roof_age_api):
 
 def test_build_request_payload_both_raises(roof_age_api, test_aoi_nj):
     """Test that providing both AOI and address raises error"""
-    address = {"streetAddress": "123 Main St", "city": "Austin", "state": "TX", "zip": "78701"}
+    address = {
+        "streetAddress": "123 Main St",
+        "city": "Austin",
+        "state": "TX",
+        "zip": "78701",
+    }
 
     with pytest.raises(ValueError, match="Cannot specify both"):
         roof_age_api._build_request_payload(aoi=test_aoi_nj, address=address)
@@ -207,7 +215,7 @@ def test_parse_empty_response(roof_age_api):
         "resourceId": "test-resource",
         "type": "FeatureCollection",
         "features": [],
-        "nextCursor": None
+        "nextCursor": None,
     }
 
     gdf = roof_age_api._parse_response(empty_response, "test_aoi")
@@ -240,7 +248,7 @@ def test_get_roof_age_by_aoi_real_api(test_aoi_nj):
 def test_get_roof_age_by_aoi_mocked(roof_age_api, test_aoi_nj, test_roof_age_response):
     """Test get_roof_age_by_aoi with mocked API response"""
     # Mock the session.post method
-    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+    with patch.object(roof_age_api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = True
@@ -257,7 +265,7 @@ def test_get_roof_age_by_aoi_mocked(roof_age_api, test_aoi_nj, test_roof_age_res
 
 def test_get_roof_age_by_aoi_error(roof_age_api, test_aoi_nj):
     """Test that API errors are handled correctly"""
-    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+    with patch.object(roof_age_api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = False
@@ -274,7 +282,7 @@ def test_get_roof_age_by_aoi_error(roof_age_api, test_aoi_nj):
 
 def test_caching(roof_age_api, test_aoi_nj, test_roof_age_response):
     """Test that caching works correctly"""
-    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+    with patch.object(roof_age_api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = True
@@ -300,18 +308,38 @@ def test_bulk_query(roof_age_api, test_roof_age_response):
     """Test bulk querying multiple AOIs"""
     # Create a small GeoDataFrame with 3 AOIs
     aois = [
-        Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]),
-        Polygon([[-74.276, 40.643], [-74.275, 40.643], [-74.275, 40.642], [-74.276, 40.642], [-74.276, 40.643]]),
-        Polygon([[-74.277, 40.644], [-74.276, 40.644], [-74.276, 40.643], [-74.277, 40.643], [-74.277, 40.644]]),
+        Polygon(
+            [
+                [-74.275, 40.642],
+                [-74.274, 40.642],
+                [-74.274, 40.641],
+                [-74.275, 40.641],
+                [-74.275, 40.642],
+            ]
+        ),
+        Polygon(
+            [
+                [-74.276, 40.643],
+                [-74.275, 40.643],
+                [-74.275, 40.642],
+                [-74.276, 40.642],
+                [-74.276, 40.643],
+            ]
+        ),
+        Polygon(
+            [
+                [-74.277, 40.644],
+                [-74.276, 40.644],
+                [-74.276, 40.643],
+                [-74.277, 40.643],
+                [-74.277, 40.644],
+            ]
+        ),
     ]
-    aoi_gdf = gpd.GeoDataFrame(
-        geometry=aois,
-        crs=API_CRS,
-        index=pd.Index([0, 1, 2], name=AOI_ID_COLUMN_NAME)
-    )
+    aoi_gdf = gpd.GeoDataFrame(geometry=aois, crs=API_CRS, index=pd.Index([0, 1, 2], name=AOI_ID_COLUMN_NAME))
 
     # Mock the API responses
-    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+    with patch.object(roof_age_api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = True
@@ -332,24 +360,37 @@ def test_bulk_query_with_errors(roof_age_api):
     """Test bulk query error handling - errors are returned in errors_df, not raised"""
     # Create a small GeoDataFrame
     aois = [
-        Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]),
-        Polygon([[-74.276, 40.643], [-74.275, 40.643], [-74.275, 40.642], [-74.276, 40.642], [-74.276, 40.643]]),
+        Polygon(
+            [
+                [-74.275, 40.642],
+                [-74.274, 40.642],
+                [-74.274, 40.641],
+                [-74.275, 40.641],
+                [-74.275, 40.642],
+            ]
+        ),
+        Polygon(
+            [
+                [-74.276, 40.643],
+                [-74.275, 40.643],
+                [-74.275, 40.642],
+                [-74.276, 40.642],
+                [-74.276, 40.643],
+            ]
+        ),
     ]
-    aoi_gdf = gpd.GeoDataFrame(
-        geometry=aois,
-        crs=API_CRS,
-        index=pd.Index([0, 1], name=AOI_ID_COLUMN_NAME)
-    )
+    aoi_gdf = gpd.GeoDataFrame(geometry=aois, crs=API_CRS, index=pd.Index([0, 1], name=AOI_ID_COLUMN_NAME))
 
     # Mock one success and one failure
-    with patch.object(roof_age_api, 'get_roof_age_by_aoi') as mock_get:
+    with patch.object(roof_age_api, "get_roof_age_by_aoi") as mock_get:
+
         def side_effect(aoi, aoi_id):
             if aoi_id == 0:
                 # Return a valid GeoDataFrame
                 return gpd.GeoDataFrame(
                     [{AOI_ID_COLUMN_NAME: aoi_id, "installation_date": "2020-01-01"}],
                     geometry=[aoi],
-                    crs=API_CRS
+                    crs=API_CRS,
                 )
             else:
                 # Raise an error
@@ -367,15 +408,21 @@ def test_bulk_query_with_errors(roof_age_api):
 
 def test_bulk_query_all_errors(roof_age_api):
     """Test that bulk query returns all errors when all requests fail"""
-    aois = [Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]])]
-    aoi_gdf = gpd.GeoDataFrame(
-        geometry=aois,
-        crs=API_CRS,
-        index=pd.Index([0], name=AOI_ID_COLUMN_NAME)
-    )
+    aois = [
+        Polygon(
+            [
+                [-74.275, 40.642],
+                [-74.274, 40.642],
+                [-74.274, 40.641],
+                [-74.275, 40.641],
+                [-74.275, 40.642],
+            ]
+        )
+    ]
+    aoi_gdf = gpd.GeoDataFrame(geometry=aois, crs=API_CRS, index=pd.Index([0], name=AOI_ID_COLUMN_NAME))
 
     # Mock all requests to fail
-    with patch.object(roof_age_api, 'get_roof_age_by_aoi') as mock_get:
+    with patch.object(roof_age_api, "get_roof_age_by_aoi") as mock_get:
         mock_get.side_effect = RoofAgeAPIError(None, "test_url", message="Test error")
 
         # All errors are returned in errors_df
@@ -396,15 +443,47 @@ def test_pagination(roof_age_api, test_aoi_nj):
         "features": [
             {
                 "type": "Feature",
-                "geometry": {"type": "Polygon", "coordinates": [[[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]]},
-                "properties": {"installationDate": "2020-01-01", "trustScore": 80.0, ROOF_AGE_AREA_FIELD: 100.0, "kind": "roof"}
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-74.275, 40.642],
+                            [-74.274, 40.642],
+                            [-74.274, 40.641],
+                            [-74.275, 40.641],
+                            [-74.275, 40.642],
+                        ]
+                    ],
+                },
+                "properties": {
+                    "installationDate": "2020-01-01",
+                    "trustScore": 80.0,
+                    ROOF_AGE_AREA_FIELD: 100.0,
+                    "kind": "roof",
+                },
             },
             {
                 "type": "Feature",
-                "geometry": {"type": "Polygon", "coordinates": [[[-74.276, 40.643], [-74.275, 40.643], [-74.275, 40.642], [-74.276, 40.642], [-74.276, 40.643]]]},
-                "properties": {"installationDate": "2019-05-15", "trustScore": 75.0, ROOF_AGE_AREA_FIELD: 150.0, "kind": "roof"}
-            }
-        ]
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-74.276, 40.643],
+                            [-74.275, 40.643],
+                            [-74.275, 40.642],
+                            [-74.276, 40.642],
+                            [-74.276, 40.643],
+                        ]
+                    ],
+                },
+                "properties": {
+                    "installationDate": "2019-05-15",
+                    "trustScore": 75.0,
+                    ROOF_AGE_AREA_FIELD: 150.0,
+                    "kind": "roof",
+                },
+            },
+        ],
     }
     page2_response = {
         "type": "FeatureCollection",
@@ -413,10 +492,26 @@ def test_pagination(roof_age_api, test_aoi_nj):
         "features": [
             {
                 "type": "Feature",
-                "geometry": {"type": "Polygon", "coordinates": [[[-74.277, 40.644], [-74.276, 40.644], [-74.276, 40.643], [-74.277, 40.643], [-74.277, 40.644]]]},
-                "properties": {"installationDate": "2018-08-20", "trustScore": 90.0, ROOF_AGE_AREA_FIELD: 200.0, "kind": "roof"}
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-74.277, 40.644],
+                            [-74.276, 40.644],
+                            [-74.276, 40.643],
+                            [-74.277, 40.643],
+                            [-74.277, 40.644],
+                        ]
+                    ],
+                },
+                "properties": {
+                    "installationDate": "2018-08-20",
+                    "trustScore": 90.0,
+                    ROOF_AGE_AREA_FIELD: 200.0,
+                    "kind": "roof",
+                },
             }
-        ]
+        ],
     }
 
     call_count = 0
@@ -432,7 +527,7 @@ def test_pagination(roof_age_api, test_aoi_nj):
             mock_response.json.return_value = page2_response
         return mock_response
 
-    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+    with patch.object(roof_age_api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_session.post.side_effect = mock_post
         mock_session._timeout = (120, 90)
@@ -459,14 +554,14 @@ def test_pagination(roof_age_api, test_aoi_nj):
 
 def test_pagination_with_limit(roof_age_api, test_aoi_nj):
     """Test that limit parameter is passed correctly to API"""
-    with patch.object(roof_age_api, '_session_scope') as mock_session_scope:
+    with patch.object(roof_age_api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = True
         mock_response.json.return_value = {
             "type": "FeatureCollection",
             "resourceId": "test-resource",
-            "features": []
+            "features": [],
         }
         mock_session.post.return_value = mock_response
         mock_session._timeout = (120, 90)
@@ -476,7 +571,7 @@ def test_pagination_with_limit(roof_age_api, test_aoi_nj):
 
         # Check that limit was included in the request payload
         call_args = mock_session.post.call_args
-        payload = call_args.kwargs.get('json', call_args[1].get('json', {}))
+        payload = call_args.kwargs.get("json", call_args[1].get("json", {}))
         assert payload.get("limit") == 500
 
 
@@ -535,14 +630,14 @@ def test_bulk_mode_parameter_included_in_request(cache_directory, test_aoi_nj):
     """Test that bulk=true parameter is included in request when bulk_mode=True"""
     api = RoofAgeApi(api_key="test_key", cache_dir=cache_directory, bulk_mode=True)
 
-    with patch.object(api, '_session_scope') as mock_session_scope:
+    with patch.object(api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = True
         mock_response.json.return_value = {
             "type": "FeatureCollection",
             "resourceId": "test-resource",
-            "features": []
+            "features": [],
         }
         mock_session.post.return_value = mock_response
         mock_session._timeout = (120, 90)
@@ -552,7 +647,7 @@ def test_bulk_mode_parameter_included_in_request(cache_directory, test_aoi_nj):
 
         # Check that bulk=true was included in params
         call_args = mock_session.post.call_args
-        params = call_args.kwargs.get('params', call_args[1].get('params', {}))
+        params = call_args.kwargs.get("params", call_args[1].get("params", {}))
         assert params.get("bulk") == "true", f"bulk param should be 'true', got {params}"
 
 
@@ -560,14 +655,14 @@ def test_bulk_mode_parameter_not_included_when_disabled(cache_directory, test_ao
     """Test that bulk parameter is not included when bulk_mode=False"""
     api = RoofAgeApi(api_key="test_key", cache_dir=cache_directory, bulk_mode=False)
 
-    with patch.object(api, '_session_scope') as mock_session_scope:
+    with patch.object(api, "_session_scope") as mock_session_scope:
         mock_session = Mock()
         mock_response = Mock()
         mock_response.ok = True
         mock_response.json.return_value = {
             "type": "FeatureCollection",
             "resourceId": "test-resource",
-            "features": []
+            "features": [],
         }
         mock_session.post.return_value = mock_response
         mock_session._timeout = (120, 90)
@@ -577,7 +672,7 @@ def test_bulk_mode_parameter_not_included_when_disabled(cache_directory, test_ao
 
         # Check that bulk param is NOT included
         call_args = mock_session.post.call_args
-        params = call_args.kwargs.get('params', call_args[1].get('params', {}))
+        params = call_args.kwargs.get("params", call_args[1].get("params", {}))
         assert "bulk" not in params, f"bulk param should not be present, got {params}"
 
 
@@ -618,7 +713,11 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
 
         assert len(result_df) == len(roofs_gdf)
 
-        expected_cols = ["roof_age_installation_date", "roof_age_trust_score", "roof_age_evidence_type"]
+        expected_cols = [
+            "roof_age_installation_date",
+            "roof_age_trust_score",
+            "roof_age_evidence_type",
+        ]
         for col in expected_cols:
             assert col in result_df.columns, f"Missing column: {col}"
 
@@ -638,7 +737,15 @@ def test_all_roof_age_fields_accounted_for(roof_age_api, test_roof_age_response)
     prompt you to add it to ROOF_AGE_PREFIX_COLUMNS in constants.py.
     """
     gdf = roof_age_api._parse_response(test_roof_age_response, "test_aoi")
-    structural = {AOI_ID_COLUMN_NAME, "feature_id", "class_id", "geometry", "area_sqm", "resource_id", "description"}
+    structural = {
+        AOI_ID_COLUMN_NAME,
+        "feature_id",
+        "class_id",
+        "geometry",
+        "area_sqm",
+        "resource_id",
+        "description",
+    }
     for col in gdf.columns:
         assert col in ROOF_AGE_PREFIX_COLUMNS or col in structural, (
             f"Column '{col}' from Roof Age API not in ROOF_AGE_PREFIX_COLUMNS or structural columns — "
@@ -686,9 +793,7 @@ class TestRoofAgeFieldMapping:
     def test_roof_instance_export_whitelists_columns(self, combined_features_gdf):
         """Only ROOF_AGE_PREFIX_COLUMNS get roof_age_ prefix; Feature API columns are excluded."""
         # Extract just the roof instance rows (as the exporter does)
-        ri_features = combined_features_gdf[
-            combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
-        ]
+        ri_features = combined_features_gdf[combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID]
         assert len(ri_features) > 0, "Should have roof instance features in combined data"
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -705,23 +810,34 @@ class TestRoofAgeFieldMapping:
             result_df = pd.read_csv(csv_path)
 
             # Core roof age columns must be present (these exist for all properties)
-            for col in ["roof_age_installation_date", "roof_age_trust_score",
-                        "roof_age_kind", "roof_age_map_browser_url", "roof_age_model_version",
-                        "roof_age_evidence_type", "roof_age_as_of_date"]:
+            for col in [
+                "roof_age_installation_date",
+                "roof_age_trust_score",
+                "roof_age_kind",
+                "roof_age_map_browser_url",
+                "roof_age_model_version",
+                "roof_age_evidence_type",
+                "roof_age_as_of_date",
+            ]:
                 assert col in result_df.columns, f"Missing expected column: {col}"
 
             # Every roof_age_ prefixed column must come from the whitelist
             for col in result_df.columns:
                 if col.startswith("roof_age_"):
-                    base = col[len("roof_age_"):]
-                    assert base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date", \
-                        f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
+                    base = col[len("roof_age_") :]
+                    assert (
+                        base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date"
+                    ), f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
 
             # Boolean fields converted to Y/N
-            assert set(result_df["roof_age_relevant_permits"].dropna().unique()) <= {"Y", "N"}, \
-                "Boolean relevant_permits should be Y/N"
-            assert set(result_df["roof_age_assessor_data"].dropna().unique()) <= {"Y", "N"}, \
-                "Boolean assessor_data should be Y/N"
+            assert set(result_df["roof_age_relevant_permits"].dropna().unique()) <= {
+                "Y",
+                "N",
+            }, "Boolean relevant_permits should be Y/N"
+            assert set(result_df["roof_age_assessor_data"].dropna().unique()) <= {
+                "Y",
+                "N",
+            }, "Boolean assessor_data should be Y/N"
 
             # CRITICAL: Feature API columns must NOT leak through with roof_age_ prefix
             # These are the exact columns that leaked in v4.4.0
@@ -743,30 +859,21 @@ class TestRoofAgeFieldMapping:
                 "roof_age_damage",
             ]
             for col in forbidden_columns:
-                assert col not in result_df.columns, \
-                    f"Feature API column leaked into roof instance export: {col}"
+                assert col not in result_df.columns, f"Feature API column leaked into roof instance export: {col}"
 
     def test_roof_export_includes_primary_child_columns(self, combined_features_gdf, features_2_gdf):
         """Roof age columns propagate as primary_child_roof_age_ on parent roofs."""
-        ri_features = combined_features_gdf[
-            combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID
-        ]
-        roof_features = combined_features_gdf[
-            combined_features_gdf["class_id"] == ROOF_ID
-        ]
+        ri_features = combined_features_gdf[combined_features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID]
+        roof_features = combined_features_gdf[combined_features_gdf["class_id"] == ROOF_ID]
 
         if len(ri_features) == 0 or len(roof_features) == 0:
             pytest.skip("Need both roof instances and roofs in combined data")
 
         # Link roof instances to roofs (replicating exporter flow)
-        ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(
-            ri_features, roof_features
-        )
+        ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(ri_features, roof_features)
 
         # Only test roofs that have a linked primary child
-        roofs_with_link = roofs_linked[
-            roofs_linked["primary_child_roof_age_feature_id"].notna()
-        ]
+        roofs_with_link = roofs_linked[roofs_linked["primary_child_roof_age_feature_id"].notna()]
         if len(roofs_with_link) == 0:
             pytest.skip("No roofs linked to roof instances in test data")
 
@@ -786,21 +893,25 @@ class TestRoofAgeFieldMapping:
             result_df = pd.read_csv(csv_path)
 
             # Primary child roof age columns should be present
-            for col in ["installation_date", "trust_score", "map_browser_url", "model_version"]:
+            for col in [
+                "installation_date",
+                "trust_score",
+                "map_browser_url",
+                "model_version",
+            ]:
                 prefixed = f"primary_child_roof_age_{col}"
                 assert prefixed in result_df.columns, f"Missing expected column: {prefixed}"
 
             # Every primary_child_roof_age_ column must come from the whitelist
             for col in result_df.columns:
                 if col.startswith("primary_child_roof_age_"):
-                    base = col[len("primary_child_roof_age_"):]
+                    base = col[len("primary_child_roof_age_") :]
                     allowed = (
                         base in ROOF_AGE_PREFIX_COLUMNS
                         or base in {"feature_id", "iou"}  # linkage columns
                         or col.startswith("primary_child_roof_age_years_")  # calculated
                     )
-                    assert allowed, \
-                        f"Unexpected primary_child_roof_age_ column: {col} (base '{base}')"
+                    assert allowed, f"Unexpected primary_child_roof_age_ column: {col} (base '{base}')"
 
             # Boolean primary child columns should be Y/N
             if "primary_child_roof_age_relevant_permits" in result_df.columns:
@@ -818,5 +929,4 @@ class TestRoofAgeFieldMapping:
                 "primary_child_roof_age_fidelity",
             ]
             for col in forbidden_columns:
-                assert col not in result_df.columns, \
-                    f"Feature API column leaked into roof export: {col}"
+                assert col not in result_df.columns, f"Feature API column leaked into roof export: {col}"

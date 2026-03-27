@@ -28,6 +28,7 @@ Example usage:
     roofs_gdf = client.get_roof_age_by_address(address, aoi_id="property_456")
     ```
 """
+
 import concurrent.futures
 import hashlib
 import json
@@ -120,7 +121,9 @@ class RoofAgeApi(BaseApiClient):
             url_root = ROOF_AGE_URL_ROOT
         self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_ENDPOINT}"
 
-        logger.debug(f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, bulk_mode: {bulk_mode}")
+        logger.debug(
+            f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, bulk_mode: {bulk_mode}"
+        )
 
     def _increment_progress(self):
         """Increment progress counter immediately after each request completes."""
@@ -162,7 +165,7 @@ class RoofAgeApi(BaseApiClient):
                     state=state,
                     city=city,
                     zipcode=zipcode,
-                    cache_key=cache_key
+                    cache_key=cache_key,
                 )
 
         # Default: use hash-based flat structure (for AOI queries or fallback)
@@ -219,11 +222,7 @@ class RoofAgeApi(BaseApiClient):
 
         return payload
 
-    def _build_cache_key(
-        self,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None
-    ) -> str:
+    def _build_cache_key(self, aoi: Optional[Polygon] = None, address: Optional[Dict[str, str]] = None) -> str:
         """
         Build a cache key for a roof age request.
 
@@ -268,9 +267,16 @@ class RoofAgeApi(BaseApiClient):
             logger.debug(f"No roof features found for {aoi_id}")
             # Return empty GeoDataFrame with expected columns (snake_case)
             return gpd.GeoDataFrame(
-                columns=[AOI_ID_COLUMN_NAME, "class_id", "description", "geometry",
-                         "installation_date", "trust_score", "area_sqm"],
-                crs=API_CRS
+                columns=[
+                    AOI_ID_COLUMN_NAME,
+                    "class_id",
+                    "description",
+                    "geometry",
+                    "installation_date",
+                    "trust_score",
+                    "area_sqm",
+                ],
+                crs=API_CRS,
             )
 
         # Parse features into records
@@ -329,9 +335,7 @@ class RoofAgeApi(BaseApiClient):
         gdf.columns = [stringcase.snakecase(c) for c in gdf.columns]
 
         # Drop redundant/internal columns (originals already mapped above)
-        gdf = gdf.drop(
-            columns=[c for c in ["timeline", "hilbert_id", "area"] if c in gdf.columns]
-        )
+        gdf = gdf.drop(columns=[c for c in ["timeline", "hilbert_id", "area"] if c in gdf.columns])
 
         return gdf
 
@@ -366,9 +370,7 @@ class RoofAgeApi(BaseApiClient):
 
         while True:
             page_count += 1
-            payload = self._build_request_payload(
-                aoi=aoi, address=address, cursor=cursor, limit=limit
-            )
+            payload = self._build_request_payload(aoi=aoi, address=address, cursor=cursor, limit=limit)
 
             with self._session_scope() as session:
                 t1 = time.monotonic()
@@ -394,14 +396,15 @@ class RoofAgeApi(BaseApiClient):
             # Capture all top-level metadata from first page (except features and nextCursor)
             if first_page_metadata is None:
                 first_page_metadata = {
-                    k: v for k, v in response_data.items()
-                    if k not in ("features", ROOF_AGE_NEXT_CURSOR_FIELD)
+                    k: v for k, v in response_data.items() if k not in ("features", ROOF_AGE_NEXT_CURSOR_FIELD)
                 }
 
             # Check for next page
             next_cursor = response_data.get(ROOF_AGE_NEXT_CURSOR_FIELD)
             if next_cursor:
-                logger.debug(f"Fetching page {page_count + 1} (got {len(features)} features, total so far: {len(all_features)})")
+                logger.debug(
+                    f"Fetching page {page_count + 1} (got {len(features)} features, total so far: {len(all_features)})"
+                )
                 cursor = next_cursor
             else:
                 # No more pages
@@ -456,9 +459,7 @@ class RoofAgeApi(BaseApiClient):
             params["bulk"] = "true"
 
         logger.debug(f"Requesting roof age data for {aoi_id}")
-        response_data = self._fetch_all_pages(
-            url=url, params=params, aoi=aoi, limit=limit
-        )
+        response_data = self._fetch_all_pages(url=url, params=params, aoi=aoi, limit=limit)
 
         # Cache the merged response
         self._save_to_cache(cache_key, response_data)
@@ -508,9 +509,7 @@ class RoofAgeApi(BaseApiClient):
             params["bulk"] = "true"
 
         logger.debug(f"Requesting roof age data for {aoi_id} at {address.get('streetAddress', 'unknown')}")
-        response_data = self._fetch_all_pages(
-            url=url, params=params, address=address, limit=limit
-        )
+        response_data = self._fetch_all_pages(url=url, params=params, address=address, limit=limit)
 
         # Cache the merged response
         self._save_to_cache(cache_key, response_data)

@@ -14,6 +14,7 @@ Selection Methods:
 The selection logic is independent of the specific feature type (roof, building, roof instance, etc.)
 and operates purely on geometric and attribute criteria.
 """
+
 from typing import Optional, Union
 
 import geopandas as gpd
@@ -165,9 +166,7 @@ def select_primary_by_nearest(
         containing_features = gdf.loc[contains_mask[contains_mask].index]
 
         # Apply confidence filtering if available
-        selected_idx = _select_best_by_confidence(
-            containing_features, confidence_col, high_confidence_threshold
-        )
+        selected_idx = _select_best_by_confidence(containing_features, confidence_col, high_confidence_threshold)
         logger.debug(f"Target point contained within non-small feature (idx={selected_idx})")
         return gdf.loc[selected_idx]
 
@@ -290,9 +289,7 @@ def select_primary_optimal(
         raise ValueError("Cannot select primary feature from empty GeoDataFrame")
 
     if geometry_projected_col not in gdf.columns:
-        raise ValueError(
-            f"geometry_projected_col='{geometry_projected_col}' must exist in the GeoDataFrame"
-        )
+        raise ValueError(f"geometry_projected_col='{geometry_projected_col}' must exist in the GeoDataFrame")
 
     # Try nearest method first (containment/proximity with non-small filtering)
     result = select_primary_by_nearest(
@@ -384,9 +381,7 @@ def select_primary(
 
     elif method == "nearest":
         if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
-            logger.debug(
-                "For 'nearest' method, lat/lon is required but was null - falling back to 'largest'"
-            )
+            logger.debug("For 'nearest' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
         if not geometry_projected_col or geometry_projected_col not in gdf.columns:
@@ -412,9 +407,7 @@ def select_primary(
 
     elif method == "optimal":
         if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
-            logger.debug(
-                "For 'optimal' method, lat/lon is required but was null - falling back to 'largest'"
-            )
+            logger.debug("For 'optimal' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
         if not geometry_projected_col or geometry_projected_col not in gdf.columns:

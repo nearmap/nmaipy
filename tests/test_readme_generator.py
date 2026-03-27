@@ -9,11 +9,10 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from nmaipy import storage
-
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from nmaipy import storage
 from nmaipy.__version__ import __version__
 from nmaipy.readme_generator import (
     ADDRESS_QUERY_COLUMNS,
@@ -76,7 +75,6 @@ class TestDiscoverFiles:
         filenames = [os.path.basename(f) for f in files]
         assert "rollup.csv" in filenames
         assert "other_file.csv" not in filenames
-
 
 
 class TestDetectClasses:
@@ -484,11 +482,13 @@ class TestParquetRollupColumns:
 
     def test_get_rollup_columns_from_parquet(self, tmp_path):
         """Verify columns are extracted from parquet rollup when no CSV rollup exists."""
-        table = pa.table({
-            "aoi_id": [0],
-            "roof_spotlight_index": [45],
-            "roof_age_installation_date": ["2020-01-01"],
-        })
+        table = pa.table(
+            {
+                "aoi_id": [0],
+                "roof_spotlight_index": [45],
+                "roof_age_installation_date": ["2020-01-01"],
+            }
+        )
         pq.write_table(table, tmp_path / "rollup.parquet")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
@@ -517,11 +517,13 @@ class TestParquetRollupColumns:
         config = {"_metadata": {}, "parameters": {"country": "us"}}
         (tmp_path / "export_config.json").write_text(json.dumps(config))
 
-        table = pa.table({
-            "aoi_id": [0],
-            "roof_spotlight_index": [45],
-            "roof_spotlight_index_confidence": [0.85],
-        })
+        table = pa.table(
+            {
+                "aoi_id": [0],
+                "roof_spotlight_index": [45],
+                "roof_spotlight_index_confidence": [0.85],
+            }
+        )
         pq.write_table(table, tmp_path / "rollup.parquet")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
@@ -589,4 +591,3 @@ class TestExactSkipMatch:
 
         class_columns = [c["column"] for c in classes]
         assert "latency_stats_detail" in class_columns, "Superstrings of skip names should not be skipped"
-

@@ -4,6 +4,7 @@ Tests for the Roof Age Exporter CLI.
 Note: Tests that require mocking the API must mock at the process_chunk level
 since the exporter uses multiprocessing, and mocks don't cross process boundaries.
 """
+
 import json
 import os
 from pathlib import Path
@@ -14,8 +15,8 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
-from nmaipy.roof_age_exporter import RoofAgeExporter
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.roof_age_exporter import RoofAgeExporter
 
 
 @pytest.fixture
@@ -81,23 +82,31 @@ def test_exporter_process_chunk_with_cached_data(test_aoi_file, test_output_dir,
     # Prepare AOI GeoDataFrame matching the cached data's AOI IDs
     aoi_ids = roof_age_gdf[AOI_ID_COLUMN_NAME].unique()
     aois = [
-        Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]])
+        Polygon(
+            [
+                [-74.275, 40.642],
+                [-74.274, 40.642],
+                [-74.274, 40.641],
+                [-74.275, 40.641],
+                [-74.275, 40.642],
+            ]
+        )
         for _ in aoi_ids
     ]
-    aoi_gdf = gpd.GeoDataFrame(
-        geometry=aois,
-        crs=API_CRS,
-        index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME)
-    )
+    aoi_gdf = gpd.GeoDataFrame(geometry=aois, crs=API_CRS, index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME))
 
     # Ensure chunk directory exists
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
 
     # Patch the API to return real cached data instead of making network calls
-    with patch('nmaipy.roof_age_exporter.RoofAgeApi') as mock_api_class:
+    with patch("nmaipy.roof_age_exporter.RoofAgeApi") as mock_api_class:
         mock_api = Mock()
         mock_api_class.return_value = mock_api
-        mock_api.get_roof_age_bulk.return_value = (roof_age_gdf.copy(), roof_age_metadata_df.copy(), pd.DataFrame())
+        mock_api.get_roof_age_bulk.return_value = (
+            roof_age_gdf.copy(),
+            roof_age_metadata_df.copy(),
+            pd.DataFrame(),
+        )
         mock_api.get_latency_stats.return_value = None
 
         exporter.process_chunk("test_chunk_0000", aoi_gdf)
@@ -131,27 +140,33 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
 
     # Prepare test AOI data
     aois = [
-        Polygon([[-74.275, 40.642], [-74.274, 40.642], [-74.274, 40.641], [-74.275, 40.641], [-74.275, 40.642]]),
+        Polygon(
+            [
+                [-74.275, 40.642],
+                [-74.274, 40.642],
+                [-74.274, 40.641],
+                [-74.275, 40.641],
+                [-74.275, 40.642],
+            ]
+        ),
     ]
-    aoi_gdf = gpd.GeoDataFrame(
-        geometry=aois,
-        crs=API_CRS,
-        index=pd.Index([0], name=AOI_ID_COLUMN_NAME)
-    )
+    aoi_gdf = gpd.GeoDataFrame(geometry=aois, crs=API_CRS, index=pd.Index([0], name=AOI_ID_COLUMN_NAME))
 
     # Ensure chunk directory exists
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
 
-    with patch('nmaipy.roof_age_exporter.RoofAgeApi') as mock_api_class:
+    with patch("nmaipy.roof_age_exporter.RoofAgeApi") as mock_api_class:
         mock_api = Mock()
         mock_api_class.return_value = mock_api
 
         # Return empty results with errors
         roofs_gdf = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
         metadata_df = pd.DataFrame()
-        errors_df = pd.DataFrame([
-            {AOI_ID_COLUMN_NAME: 0, "status_code": 404, "message": "Not found"},
-        ])
+        errors_df = pd.DataFrame(
+            [
+                {AOI_ID_COLUMN_NAME: 0, "status_code": 404, "message": "Not found"},
+            ]
+        )
         errors_df = errors_df.set_index(AOI_ID_COLUMN_NAME)
 
         mock_api.get_roof_age_bulk.return_value = (roofs_gdf, metadata_df, errors_df)
@@ -161,7 +176,7 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
         exporter.process_chunk("test_chunk_0000", aoi_gdf)
 
         # Verify error file was created
-        assert (Path(exporter.chunk_path) /"roof_age_errors_test_chunk_0000.parquet").exists()
+        assert (Path(exporter.chunk_path) / "roof_age_errors_test_chunk_0000.parquet").exists()
 
 
 @pytest.mark.integration
