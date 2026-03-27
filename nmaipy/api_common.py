@@ -38,6 +38,7 @@ from nmaipy.constants import (
     AREA_CRS,
     BACKOFF_FACTOR,
     BACKOFF_JITTER,
+    BACKOFF_MAX,
     DUMMY_STATUS_CODE,
     MAX_RETRIES,
     READ_TIMEOUT_SECONDS,
@@ -172,14 +173,11 @@ def format_error_summary_table(status_counts, message_counts, max_message_len=16
 
 class RetryRequest(Retry):
     """
-    Inherited retry request with controlled backoff timing.
+    Extended retry strategy with first-retry logging and broader exception coverage.
 
-    BACKOFF_MAX set to 10s to allow more time for transient failures to resolve.
-    BACKOFF_MIN set to 2s to provide more breathing room before retrying.
+    Backoff timing is controlled entirely by urllib3's built-in parameters
+    (backoff_factor, backoff_max, backoff_jitter) passed at construction time.
     """
-
-    BACKOFF_MIN = 2.0  # Minimum backoff time in seconds
-    BACKOFF_MAX = 10  # Maximum backoff time in seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -240,19 +238,6 @@ class RetryRequest(Retry):
             logger.info(f"{reason} causing retry of request {clean_url}")
 
         return result
-
-    def new_timeout(self, *args, **kwargs):
-        """Override to enforce backoff time between BACKOFF_MIN and BACKOFF_MAX"""
-        timeout = super().new_timeout(*args, **kwargs)
-        return min(max(timeout, self.BACKOFF_MIN), self.BACKOFF_MAX)  # Clamp between min and max seconds
-
-    @classmethod
-    def from_int(cls, retries, **kwargs):
-        """Helper to create retry config with better defaults"""
-        kwargs.setdefault("backoff_factor", BACKOFF_FACTOR)
-        kwargs.setdefault("status_forcelist", [429, 500, 502, 503, 504])
-        kwargs.setdefault("respect_retry_after_header", True)
-        return super().from_int(retries, **kwargs)
 
 
 class APIError(Exception):
@@ -497,7 +482,7 @@ class BaseApiClient:
             total=self.maxretry,
             backoff_factor=BACKOFF_FACTOR,
             backoff_jitter=BACKOFF_JITTER,
-            backoff_max=30,
+            backoff_max=BACKOFF_MAX,
             status_forcelist=status_forcelist,
             allowed_methods=["GET", "POST"],
             raise_on_status=False,

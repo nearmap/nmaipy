@@ -73,8 +73,11 @@ ROOF_AGE_PREFIX_COLUMNS = {
 MAX_RETRIES = 10
 
 # Exponential backoff multiplier for retries
-# Formula: backoff_factor * 2^(retry_number - 1), capped at backoff_max (30s), plus uniform jitter
+# Formula: backoff_factor * 2^(retry_number - 1), capped at BACKOFF_MAX, plus uniform jitter [0, BACKOFF_JITTER]
 BACKOFF_FACTOR = 0.5
+
+# Maximum backoff time in seconds (caps the exponential curve before jitter is added)
+BACKOFF_MAX = 30
 
 # Jitter added to exponential backoff to desynchronize parallel workers (thundering herd prevention).
 # Adds uniform(0, BACKOFF_JITTER) seconds to each retry delay via urllib3's backoff_jitter parameter.
