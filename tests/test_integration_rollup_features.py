@@ -656,16 +656,22 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                     "primary_child_roof_age_years_as_of_date" in roof_gdf.columns
                 ), "Roof parquet should have primary_child_roof_age_years_as_of_date"
 
-    # 4. Check rollup CSV
+    # 4. Check rollup CSV — roof age columns use rollup naming (primary_roof_instance_roof_age_*)
     rollup_csv = final_dir / "rollup.csv"
-    if rollup_csv.exists():
-        rollup_df = pd.read_csv(rollup_csv)
-        if "primary_child_roof_age_installation_date" in rollup_df.columns:
-            rollups_with_age = rollup_df[rollup_df["primary_child_roof_age_installation_date"].notna()]
-            if len(rollups_with_age) > 0:
-                assert (
-                    "primary_child_roof_age_years_as_of_date" in rollup_df.columns
-                ), "Rollup should have primary_child_roof_age_years_as_of_date"
+    assert rollup_csv.exists(), "Rollup CSV should exist"
+    rollup_df = pd.read_csv(rollup_csv)
+
+    # With roof_age=True, rollup must have roof instance roof age columns
+    assert (
+        "primary_roof_instance_roof_age_years_as_of_date" in rollup_df.columns
+    ), f"Rollup should have primary_roof_instance_roof_age_years_as_of_date, got columns: {[c for c in rollup_df.columns if 'roof' in c]}"
+    assert (
+        "primary_roof_instance_roof_age_trust_score" in rollup_df.columns
+    ), "Rollup should have primary_roof_instance_roof_age_trust_score"
+
+    # Verify at least some rows have data
+    rollups_with_age = rollup_df[rollup_df["primary_roof_instance_roof_age_years_as_of_date"].notna()]
+    assert len(rollups_with_age) > 0, "At least some rollup rows should have roof age data"
 
     # 5. Cross-verify consistency between files
     if roof_csv.exists() and roof_parquet.exists():

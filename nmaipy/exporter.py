@@ -2824,6 +2824,28 @@ class NearmapAIExporter(BaseExporter):
                                         f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
                                     )
 
+                # Rebuild features_gdf_with_deprecated to include roof instances and
+                # linked roof data (primary_child_roof_age_* columns on roofs).
+                # The original reference was captured before roof age processing, so it
+                # lacks roof instance rows and IoU-linked columns that parcel_rollup needs
+                # to generate rollup roof age columns.
+                if self.roof_age and len(features_gdf) > 0:
+                    deprecated_features = features_gdf_with_deprecated[
+                        features_gdf_with_deprecated["class_id"].isin(DEPRECATED_CLASS_IDS)
+                    ]
+                    if len(deprecated_features) > 0:
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings(
+                                "ignore",
+                                message=".*concatenation with empty or all-NA.*",
+                            )
+                            features_gdf_with_deprecated = gpd.GeoDataFrame(
+                                pd.concat([features_gdf, deprecated_features], ignore_index=False),
+                                crs=API_CRS,
+                            )
+                    else:
+                        features_gdf_with_deprecated = features_gdf
+
                 # Build API metadata pairs for parcel_rollup: each pair tells
                 # the rollup which classes an API covers and which AOIs it succeeded for.
                 feature_api_classes = classes_df[classes_df.index != ROOF_INSTANCE_CLASS_ID]
