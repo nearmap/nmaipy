@@ -610,12 +610,9 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     """Build a feature_id → row dict for fast parent_id chain traversal."""
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
-    lookup = {}
-    for _, row in features_gdf.iterrows():
-        fid = row.get("feature_id")
-        if fid is not None:
-            lookup[fid] = row
-    return lookup
+    mask = features_gdf["feature_id"].notna()
+    filtered = features_gdf[mask]
+    return {fid: filtered.iloc[i] for i, fid in enumerate(filtered["feature_id"].values)}
 
 
 def resolve_footprint_rsi(
@@ -734,7 +731,7 @@ def feature_attributes(
         ):
             _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
 
-    # Build parent lookup once for all RSI resolution in this parcel (INDS-2030)
+    # Build parent lookup once for all RSI resolution in this parcel
     _parent_lookup = build_parent_lookup(features_gdf) if len(features_gdf) > 0 else {}
 
     # Pre-select primary building lifecycle for reuse in the class loop
@@ -977,7 +974,7 @@ def feature_attributes(
                 # TODO: Finish this.
                 pass
 
-    # INDS-2030: Resolve best RSI for the primary roof.
+    # Resolve best RSI for the primary roof.
     # Uses resolve_footprint_rsi to check the primary roof's own RSI first, then
     # traverses its parent chain to find BL RSI (correct for structural damage parcels).
     _fp_rsi = {}
@@ -991,7 +988,7 @@ def feature_attributes(
     parcel.pop("primary_roof_roof_spotlight_index", None)
     parcel.pop("primary_roof_roof_spotlight_index_confidence", None)
 
-    # INDS-2030: Min/max/area-weighted-mean RSI across all roofs in the parcel.
+    # Min/max/area-weighted-mean RSI across all roofs in the parcel.
     # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
     if len(roof_features) > 0:
         rsi_vals = []

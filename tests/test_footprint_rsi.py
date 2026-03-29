@@ -1,4 +1,4 @@
-"""Tests for INDS-2030: Resolve footprint RSI from building lifecycle."""
+"""Tests for resolving footprint RSI from building lifecycle."""
 
 import json
 

@@ -89,13 +89,13 @@ from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
-    _parse_include_param,
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
     flatten_building_attributes,
     flatten_roof_attributes,
 )
 from nmaipy.parcels import (
+    _extract_rsi_from_feature,
     build_parent_lookup,
     link_roofs_to_buildings,
     resolve_footprint_rsi,
@@ -622,7 +622,8 @@ def _compute_all_per_class_data(
 
     Args:
         all_features_gdf: Optional GeoDataFrame including deprecated features for
-            parent_id chain traversal (INDS-2030). If None, chunk_gdf is used.
+            parent_id chain traversal (e.g. Roof → Deprecated Building → Building Lifecycle).
+            If None, chunk_gdf is used.
     """
     if whitelisted_classes is None:
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
@@ -770,7 +771,7 @@ def _compute_feature_class_data(
     if len(class_features) == 0:
         return (None, None)
 
-    # Build parent lookup once for all RSI resolution in this function (INDS-2030)
+    # Build parent lookup once for all RSI resolution in this function
     p_lookup = build_parent_lookup(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {}
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
@@ -999,7 +1000,7 @@ def _compute_feature_class_data(
         except Exception as e:
             logger.debug(f"Could not flatten roof attributes: {e}")
 
-        # INDS-2030: Resolve best RSI per roof.
+        # Resolve best RSI per roof.
         # For each roof: check roof's own RSI first, then traverse parent chain to BL.
         # Overwrites roof_spotlight_index/confidence with the resolved value.
         try:
@@ -1023,8 +1024,8 @@ def _compute_feature_class_data(
                             part["roof_spotlight_index"] = rsi_vals
                         if "roof_spotlight_index_confidence" in part.columns:
                             part["roof_spotlight_index_confidence"] = rsi_conf
-        except Exception as e:
-            logger.warning(f"Could not resolve footprint RSI for roofs: {e}")
+        except Exception:
+            logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
@@ -1211,38 +1212,24 @@ def _compute_feature_class_data(
                     if roof_attr_batch:
                         df_parts.append(pd.DataFrame(roof_attr_batch, index=range(n_rows)))
 
-                # INDS-2030: Resolve best RSI per building.
-                # For each building: check primary child roof RSI first, then
-                # fall back to the building's parent (building lifecycle) RSI.
+                # Resolve best RSI per building.
+                # For each building: resolve via primary child roof (roof's own RSI first,
+                # then BL fallback via parent chain), same logic as the per-roof resolution.
                 if roof_attrs:
                     rsi_vals = np.full(n_rows, None, dtype=object)
                     rsi_conf = np.full(n_rows, None, dtype=object)
-                    bl_features_for_rsi = (
-                        features_gdf[features_gdf["class_id"] == BUILDING_LIFECYCLE_ID]
-                        if BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values
-                        else None
-                    )
+                    pcr_ids = buildings_linked["primary_child_roof_id"].values
 
-                    for i, (_, bldg_row) in enumerate(buildings_linked.iterrows()):
-                        pcr_id = bldg_row.get("primary_child_roof_id")
-                        if pd.notna(pcr_id) and pcr_id in roof_attrs:
-                            rsi_val = roof_attrs[pcr_id].get("roof_spotlight_index")
-                            if rsi_val is not None:
-                                rsi_vals[i] = rsi_val
-                                rsi_conf[i] = roof_attrs[pcr_id].get("roof_spotlight_index_confidence")
-                                continue
-                        # Fall back to building's parent BL
-                        if bl_features_for_rsi is not None:
-                            bldg_parent_id = bldg_row.get("parent_id")
-                            if pd.notna(bldg_parent_id):
-                                bl_match = bl_features_for_rsi[bl_features_for_rsi["feature_id"] == bldg_parent_id]
-                                if len(bl_match) > 0:
-                                    bl_row = bl_match.iloc[0]
-                                    rsi_raw = bl_row.get("roof_spotlight_index")
-                                    rsi_data = _parse_include_param(rsi_raw)
-                                    if rsi_data and "value" in rsi_data:
-                                        rsi_vals[i] = rsi_data["value"]
-                                        rsi_conf[i] = rsi_data.get("confidence")
+                    for i, pcr_id in enumerate(pcr_ids):
+                        roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
+                        if roof_row is not None:
+                            fp = resolve_footprint_rsi(roof_row, parent_lookup=p_lookup)
+                        else:
+                            # No child roof — try building's own parent chain to BL
+                            fp = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
+                        if fp:
+                            rsi_vals[i] = fp.get("roof_spotlight_index")
+                            rsi_conf[i] = fp.get("roof_spotlight_index_confidence")
 
                     if any(v is not None for v in rsi_vals):
                         rsi_batch = {}
@@ -1413,20 +1400,16 @@ def _compute_feature_class_data(
                     # Resolve footprint RSI: primary child roof first, then BL's own
                     fp_rsi_vals = np.full(n_rows, None, dtype=object)
                     fp_rsi_conf = np.full(n_rows, None, dtype=object)
-                    for i, (_, bl_row) in enumerate(class_features.iterrows()):
-                        pcr_id = primary_ids[i]
-                        if pcr_id is not None and pcr_id in roof_attrs:
-                            rsi_val = roof_attrs[pcr_id].get("roof_spotlight_index")
-                            if rsi_val is not None:
-                                fp_rsi_vals[i] = rsi_val
-                                fp_rsi_conf[i] = roof_attrs[pcr_id].get("roof_spotlight_index_confidence")
-                                continue
-                        # Fall back to BL's own RSI
-                        rsi_raw = bl_row.get("roof_spotlight_index")
-                        rsi_data = _parse_include_param(rsi_raw)
-                        if rsi_data and "value" in rsi_data:
-                            fp_rsi_vals[i] = rsi_data["value"]
-                            fp_rsi_conf[i] = rsi_data.get("confidence")
+                    for i, pcr_id in enumerate(primary_ids):
+                        roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
+                        if roof_row is not None:
+                            fp = resolve_footprint_rsi(roof_row, parent_lookup=p_lookup)
+                        else:
+                            # No child roof — use BL's own RSI
+                            fp = _extract_rsi_from_feature(class_features.iloc[i])
+                        if fp:
+                            fp_rsi_vals[i] = fp.get("roof_spotlight_index")
+                            fp_rsi_conf[i] = fp.get("roof_spotlight_index_confidence")
 
                     if any(v is not None for v in fp_rsi_vals):
                         fp_batch = {}
@@ -1438,8 +1421,8 @@ def _compute_feature_class_data(
                             added_cols.add("roof_spotlight_index_confidence")
                         if fp_batch:
                             df_parts.append(pd.DataFrame(fp_batch, index=range(n_rows)))
-        except Exception as e:
-            logger.warning(f"Could not link roofs to building lifecycles: {e}")
+        except Exception:
+            logger.error("Could not link roofs to building lifecycles", exc_info=True)
 
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
@@ -2615,7 +2598,7 @@ class NearmapAIExporter(BaseExporter):
                 )
 
                 # Filter out deprecated feature classes early.
-                # Keep unfiltered reference for parent_id chain traversal (INDS-2030:
+                # Keep unfiltered reference for parent_id chain traversal
                 # Roof -> Building Deprecated -> Building Lifecycle).
                 features_gdf_with_deprecated = features_gdf
                 if len(features_gdf) > 0 and "class_id" in features_gdf.columns:
@@ -2855,7 +2838,9 @@ class NearmapAIExporter(BaseExporter):
                     api_metadata.append((roof_age_metadata_df, roof_age_classes))
 
                 # Create rollup — pass features_gdf_with_deprecated so
-                # build_parent_lookup can traverse Roof → Deprecated Building → BL
+                # build_parent_lookup can still traverse legacy parent_id chains
+                # (e.g. Roof → Deprecated Building → BL) alongside the newer
+                # Building New → BL path
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
                     features_gdf_with_deprecated,
