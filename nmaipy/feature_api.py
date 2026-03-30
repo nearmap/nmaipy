@@ -44,7 +44,7 @@ from nmaipy.constants import (
     API_CRS,
     AREA_CRS,
     BACKOFF_FACTOR,
-    BACKOFF_JITTER,
+    BACKOFF_MAX,
     CHUNKED_ENCODING_RETRY_DELAY,
     CONNECTED_CLASS_IDS,
     DUMMY_STATUS_CODE,
@@ -60,6 +60,7 @@ from nmaipy.constants import (
     SLOW_REQUEST_THRESHOLD_SECONDS,
     SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
+    THREAD_STARTUP_JITTER_SECONDS,
     TIMEOUT_SECONDS,
     UNTIL_COL_NAME,
 )
@@ -808,9 +809,8 @@ class FeatureApi(GriddedApiClient):
                         logger.debug(
                             f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}"
                         )
-                        time.sleep(
-                            CHUNKED_ENCODING_RETRY_DELAY + random.uniform(0, BACKOFF_JITTER)
-                        )  # Jittered pause before retry
+                        base = CHUNKED_ENCODING_RETRY_DELAY * (2**retry_attempt)
+                        time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff
                         continue
                     else:
                         # Exhausted all retries, log error and fall back to size error
@@ -1206,6 +1206,11 @@ class FeatureApi(GriddedApiClient):
             raise ValueError(
                 f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
+
+        # Spread the chunk-start burst: sleep a random duration before the first request.
+        # Only on outer AOI calls (not grid cells) to avoid compounding delay on large AOIs.
+        if not in_gridding_mode:
+            time.sleep(random.uniform(0, THREAD_STARTUP_JITTER_SECONDS))
 
         # Check if AOI is too large and should be gridded directly
         if geometry is not None and not fail_hard_regrid and not in_gridding_mode:

@@ -783,6 +783,6 @@ def test_rsi_in_rollup_and_per_class_exports(integration_test_dir, test_us_aoi_f
     # 5. RSI min/max/mean in rollup
     assert "roof_spotlight_index_min" in rollup_df.columns, "Rollup missing roof_spotlight_index_min"
     assert "roof_spotlight_index_max" in rollup_df.columns, "Rollup missing roof_spotlight_index_max"
-    assert "roof_spotlight_index_area_weighted_mean" in rollup_df.columns, (
-        "Rollup missing roof_spotlight_index_area_weighted_mean"
-    )
+    assert (
+        "roof_spotlight_index_area_weighted_mean" in rollup_df.columns
+    ), "Rollup missing roof_spotlight_index_area_weighted_mean"

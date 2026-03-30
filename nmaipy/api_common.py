@@ -15,12 +15,14 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import ssl
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from http.client import RemoteDisconnected
+from itertools import takewhile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -37,7 +39,6 @@ from nmaipy import log, storage
 from nmaipy.constants import (
     AREA_CRS,
     BACKOFF_FACTOR,
-    BACKOFF_JITTER,
     BACKOFF_MAX,
     DUMMY_STATUS_CODE,
     MAX_RETRIES,
@@ -173,10 +174,11 @@ def format_error_summary_table(status_counts, message_counts, max_message_len=16
 
 class RetryRequest(Retry):
     """
-    Extended retry strategy with first-retry logging and broader exception coverage.
+    Extended retry strategy with full-jitter backoff, first-retry logging, and broader exception coverage.
 
-    Backoff timing is controlled entirely by urllib3's built-in parameters
-    (backoff_factor, backoff_max, backoff_jitter) passed at construction time.
+    Implements full jitter: sleep = uniform(0, min(backoff_max, backoff_factor * 2^n)).
+    Jitter scales with retry count — fast recovery on early retries, strong desynchronisation
+    on late retries (thundering herd prevention for parallel exports).
     """
 
     def __init__(self, *args, **kwargs):
@@ -208,6 +210,19 @@ class RetryRequest(Retry):
                 ssl.SSLEOFError,  # Explicit SSL EOF error
             }
         )
+
+    def get_backoff_time(self) -> float:
+        """Full jitter backoff: sleep = uniform(0, min(backoff_max, backoff_factor * 2^n)).
+
+        Jitter scales proportionally with retry count:
+          - Early retries: small jitter → fast recovery from transient errors
+          - Late retries: large jitter → desynchronises parallel workers (thundering herd prevention)
+        """
+        consecutive_errors_len = len(list(takewhile(lambda x: x.redirect_location is None, reversed(self.history))))
+        if consecutive_errors_len <= 1:
+            return 0
+        base = self.backoff_factor * (2 ** (consecutive_errors_len - 1))
+        return random.uniform(0, min(self.backoff_max, base))
 
     def increment(
         self,
@@ -481,7 +496,6 @@ class BaseApiClient:
         retries = RetryRequest(
             total=self.maxretry,
             backoff_factor=BACKOFF_FACTOR,
-            backoff_jitter=BACKOFF_JITTER,
             backoff_max=BACKOFF_MAX,
             status_forcelist=status_forcelist,
             allowed_methods=["GET", "POST"],
