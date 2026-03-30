@@ -610,12 +610,21 @@ def extract_rsi_from_feature(feature) -> dict:
 
 
 def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
-    """Build a feature_id → row dict for fast parent_id chain traversal."""
+    """Build a feature_id → row dict for fast parent_id chain traversal.
+
+    Returns plain dicts (not pd.Series views) so the lookup is lightweight
+    and decoupled from the source DataFrame.  Resets a named index (e.g.
+    aoi_id) into the dict so it is not silently dropped.
+    """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
     mask = features_gdf["feature_id"].notna()
     filtered = features_gdf[mask]
-    return {fid: filtered.iloc[i] for i, fid in enumerate(filtered["feature_id"].values)}
+    # reset_index promotes a named index (typically aoi_id) into a column
+    # so to_dict("records") preserves it in every dict.
+    if filtered.index.name is not None:
+        filtered = filtered.reset_index()
+    return dict(zip(filtered["feature_id"].values, filtered.to_dict("records")))
 
 
 def resolve_footprint_rsi(

@@ -232,13 +232,31 @@ class TestUploadFile:
         # Should not raise
         storage.upload_file(fpath, fpath)
 
-    @patch("nmaipy.storage._get_s3_filesystem")
-    def test_upload_to_s3(self, mock_get_fs):
-        mock_fs = MagicMock()
-        mock_get_fs.return_value = mock_fs
+    @patch("nmaipy.storage._get_s3_boto3_client")
+    def test_upload_to_s3(self, mock_get_client, tmp_path):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
 
-        storage.upload_file("/tmp/local.parquet", "s3://bucket/key.parquet")
-        mock_fs.put.assert_called_with("/tmp/local.parquet", "s3://bucket/key.parquet")
+        # Create a real local file so Path.stat() works
+        src = tmp_path / "local.parquet"
+        src.write_bytes(b"data")
+
+        storage.upload_file(str(src), "s3://bucket/key.parquet")
+        mock_client.upload_file.assert_called_once_with(
+            str(src), "bucket", "key.parquet", Config=None,
+        )
+
+    @patch("nmaipy.storage._get_s3_boto3_client")
+    @patch("nmaipy.storage.Path")
+    def test_upload_to_s3_large_file_uses_transfer_config(self, mock_path_cls, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        # Simulate a file larger than _LARGE_FILE_THRESHOLD (1 GB)
+        mock_path_cls.return_value.stat.return_value.st_size = 2 * 1024**3
+
+        storage.upload_file("/tmp/big.parquet", "s3://bucket/big.parquet")
+        call_args = mock_client.upload_file.call_args
+        assert call_args[1]["Config"] is storage._LARGE_FILE_TRANSFER_CONFIG
 
 
 # ---------------------------------------------------------------------------
