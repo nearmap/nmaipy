@@ -183,8 +183,8 @@ def read_from_file(
         if id_column not in parcels_gdf:
             logger.info(f"Missing {AOI_ID_COLUMN_NAME} column in parcel data - generating unique IDs")
             parcels_gdf.index.name = id_column  # Set a new unique ordered index for reference
-        else:  # The index must already be there as a column
-            logger.warning(f"Moving {AOI_ID_COLUMN_NAME} to be the index - generating unique IDs")
+        else:  # The existing aoi_id column must be promoted to the index
+            logger.info(f"Moving existing {AOI_ID_COLUMN_NAME} column to be the index")
             parcels_gdf = parcels_gdf.set_index(id_column)
 
     if parcels_gdf.index.duplicated().any():

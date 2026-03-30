@@ -237,20 +237,24 @@ class RetryRequest(Retry):
         result = super().increment(method, url, response, error, _pool, _stacktrace)
 
         # Log on first retry only (history is a tuple, check length)
+        # Skip logging for 429s — these are expected under high concurrency
         if result and len(result.history) == 1:
-            if response is not None:
-                reason = f"HTTP {response.status} {response.reason}"
-            elif error is not None:
-                reason = f"{type(error).__name__}: {str(error)[:100]}"
+            if response is not None and response.status == HTTPStatus.TOO_MANY_REQUESTS:
+                pass
             else:
-                reason = "unknown reason"
+                if response is not None:
+                    reason = f"HTTP {response.status} {response.reason}"
+                elif error is not None:
+                    reason = f"{type(error).__name__}: {str(error)[:100]}"
+                else:
+                    reason = "unknown reason"
 
-            # Clean URL of API key for logging
-            clean_url = url
-            if url and "apikey=" in url:
-                clean_url = url.split("apikey=")[0] + "apikey=***"
+                # Clean URL of API key for logging
+                clean_url = url
+                if url and "apikey=" in url:
+                    clean_url = url.split("apikey=")[0] + "apikey=***"
 
-            logger.info(f"{reason} causing retry of request {clean_url}")
+                logger.info(f"{reason} causing retry of request {clean_url}")
 
         return result
 
