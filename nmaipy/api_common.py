@@ -420,10 +420,17 @@ class BaseApiClient:
         else:
             self.api_key = os.environ.get("API_KEY", None)
         if self.api_key is None:
-            raise ValueError(
-                "No API KEY provided. Provide a key when initializing the client or set an API_KEY "
-                "environment variable"
-            )
+            if cache_dir is not None:
+                logger.warning(
+                    "No API KEY provided — operating in cache-only mode. "
+                    "API calls will fail if the cache does not contain the requested data."
+                )
+                self.api_key = ""
+            else:
+                raise ValueError(
+                    "No API KEY provided. Provide a key when initializing the client or set an API_KEY "
+                    "environment variable"
+                )
 
         # Cache configuration
         self.cache_dir = str(cache_dir) if cache_dir is not None else None
@@ -451,7 +458,7 @@ class BaseApiClient:
         self.cleanup()
 
     def cleanup(self):
-        """Clean up all sessions"""
+        """Clean up all sessions and cached adapters"""
         if hasattr(self, "_lock") and hasattr(self, "_sessions"):
             with self._lock:
                 for session in self._sessions:
@@ -468,12 +475,19 @@ class BaseApiClient:
                     except Exception:
                         pass
                 self._sessions.clear()
+        # Clear thread-local adapter cache (only affects calling thread,
+        # but other threads' adapters are already closed via self._sessions above)
+        if hasattr(self, "_thread_local") and hasattr(self._thread_local, "adapters"):
+            self._thread_local.adapters.clear()
 
     @contextlib.contextmanager
     def _session_scope(self, status_forcelist=None):
         """
         Context manager for session lifecycle.
-        Creates fresh session each time to prevent resource accumulation.
+        Creates fresh session each time to prevent state accumulation, but reuses
+        the HTTPAdapter (connection pool) per-thread to avoid DNS resolution on
+        every request. Without adapter reuse, high concurrency (600+ threads)
+        overwhelms the system DNS resolver, causing synchronized retry storms.
 
         Args:
             status_forcelist: List of HTTP status codes to retry on. Defaults to [429, 500, 502, 503, 504]
@@ -490,39 +504,46 @@ class BaseApiClient:
                 HTTPStatus.GATEWAY_TIMEOUT,  # 504
             ]
 
-        # Always create a fresh session to prevent resource accumulation
+        # Reuse thread-local adapter (connection pool + DNS cache) across requests.
+        # Keyed by retry config so different retry policies get separate pools.
+        cache_key = tuple(sorted(status_forcelist))
+        if not hasattr(self._thread_local, "adapters"):
+            self._thread_local.adapters = {}
+
+        adapter = self._thread_local.adapters.get(cache_key)
+        if adapter is None:
+            retries = RetryRequest(
+                total=self.maxretry,
+                backoff_factor=BACKOFF_FACTOR,
+                backoff_max=BACKOFF_MAX,
+                status_forcelist=status_forcelist,
+                allowed_methods=["GET", "POST"],
+                raise_on_status=False,
+                connect=self.maxretry,
+                read=self.maxretry,
+                redirect=self.maxretry,
+            )
+            pool_size = min(max(self.threads, 10), 50)
+            adapter = HTTPAdapter(
+                max_retries=retries,
+                pool_maxsize=pool_size,
+                pool_connections=pool_size,
+                pool_block=True,
+            )
+            self._thread_local.adapters[cache_key] = adapter
+            with self._lock:
+                self._sessions.append(adapter)  # Track for cleanup
+
+        # Fresh session per request — prevents state accumulation (cookies, auth, etc.)
         session = requests.Session()
-
-        retries = RetryRequest(
-            total=self.maxretry,
-            backoff_factor=BACKOFF_FACTOR,
-            backoff_max=BACKOFF_MAX,
-            status_forcelist=status_forcelist,
-            allowed_methods=["GET", "POST"],
-            raise_on_status=False,
-            connect=self.maxretry,
-            read=self.maxretry,
-            redirect=self.maxretry,
-        )
-
-        # Dynamic pool sizing: match pool size to thread count
-        # Min 10 for basic concurrency, max 50 to prevent file handle exhaustion
-        pool_size = min(max(self.threads, 10), 50)
-        adapter = HTTPAdapter(
-            max_retries=retries,
-            pool_maxsize=pool_size,
-            pool_connections=pool_size,
-            pool_block=True,
-        )
         session.mount("https://", adapter)
-
-        # Store timeout for use in requests (connect timeout, read timeout)
         session._timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
 
         try:
             yield session
         finally:
-            # Always close the session to prevent resource leaks
+            # Detach shared adapter before closing session, so the pool survives
+            session.adapters.clear()
             try:
                 session.close()
             except Exception:

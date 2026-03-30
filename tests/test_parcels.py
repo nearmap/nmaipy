@@ -739,6 +739,7 @@ class TestParcels:
         # Feature 1 is larger than feature 0
         assert rollup_df["primary_pool_clipped_area_sqft"].iloc[0] > 3000, "Should select the larger feature"
 
+    @pytest.mark.live_api
     def test_rollup_gridded(self, cache_directory: Path, parcel_gdf_au_tests: gpd.GeoDataFrame):
         packs = ["building", "vegetation"]
         country = "au"
@@ -771,6 +772,7 @@ class TestParcels:
         final_df = metadata_df.merge(rollup_df, on=AOI_ID_COLUMN_NAME).merge(parcel_gdf, on=AOI_ID_COLUMN_NAME)
         assert len(final_df) == len(parcel_gdf)
 
+    @pytest.mark.live_api
     def test_rollup_snake_geometry(self, cache_directory: Path):
         """
         There has been a particular challenge in past for clipped areas for connected classes working correctly with
@@ -840,6 +842,7 @@ class TestParcels:
             abs(actual_pct - expected_pct) / expected_pct <= 0.02
         ), f"Tree cover {actual_pct:.4f} differs by more than 2% relative error from expected {expected_pct}"
 
+    @pytest.mark.live_api
     def test_large_query_geoid_11179800001006(self, cache_directory: Path):
         """
         Test a particular US census block.

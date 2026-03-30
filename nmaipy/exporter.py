@@ -1034,6 +1034,7 @@ def _compute_feature_class_data(
             if bl_in_features and "roof_spotlight_index" in class_features.columns:
                 rsi_vals = np.full(n_rows, None, dtype=object)
                 rsi_conf = np.full(n_rows, None, dtype=object)
+                rsi_mver = np.full(n_rows, None, dtype=object)
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
                 for i, row in enumerate(roof_records_for_fp):
                     resolved_rsi = extract_rsi_from_feature(row)
@@ -1046,6 +1047,7 @@ def _compute_feature_class_data(
                     if resolved_rsi:
                         rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
                         rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
+                        rsi_mver[i] = resolved_rsi.get("roof_spotlight_index_model_version")
 
                 if any(v is not None for v in rsi_vals):
                     # Overwrite roof_spotlight_index in existing df_parts
@@ -1054,6 +1056,10 @@ def _compute_feature_class_data(
                             part["roof_spotlight_index"] = rsi_vals
                         if "roof_spotlight_index_confidence" in part.columns:
                             part["roof_spotlight_index_confidence"] = rsi_conf
+                    if any(v is not None for v in rsi_mver):
+                        for part in df_parts:
+                            if "roof_spotlight_index_model_version" in part.columns:
+                                part["roof_spotlight_index_model_version"] = rsi_mver
         except Exception:
             logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 
@@ -1250,6 +1256,7 @@ def _compute_feature_class_data(
                 if roof_attrs:
                     rsi_vals = np.full(n_rows, None, dtype=object)
                     rsi_conf = np.full(n_rows, None, dtype=object)
+                    rsi_mver = np.full(n_rows, None, dtype=object)
                     pcr_ids = buildings_linked["primary_child_roof_id"].values
 
                     for i, pcr_id in enumerate(pcr_ids):
@@ -1265,6 +1272,7 @@ def _compute_feature_class_data(
                         if resolved_rsi:
                             rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
                             rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
+                            rsi_mver[i] = resolved_rsi.get("roof_spotlight_index_model_version")
 
                     if any(v is not None for v in rsi_vals):
                         rsi_batch = {}
@@ -1274,6 +1282,9 @@ def _compute_feature_class_data(
                         if "roof_spotlight_index_confidence" not in added_cols:
                             rsi_batch["roof_spotlight_index_confidence"] = rsi_conf
                             added_cols.add("roof_spotlight_index_confidence")
+                        if any(v is not None for v in rsi_mver) and "roof_spotlight_index_model_version" not in added_cols:
+                            rsi_batch["roof_spotlight_index_model_version"] = rsi_mver
+                            added_cols.add("roof_spotlight_index_model_version")
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
 
@@ -1434,6 +1445,7 @@ def _compute_feature_class_data(
                     # then fall back to BL's own RSI.
                     rsi_vals = np.full(n_rows, None, dtype=object)
                     rsi_conf = np.full(n_rows, None, dtype=object)
+                    rsi_mver = np.full(n_rows, None, dtype=object)
                     for i, pcr_id in enumerate(primary_ids):
                         roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
                         if roof_row is not None:
@@ -1451,6 +1463,7 @@ def _compute_feature_class_data(
                         if resolved_rsi:
                             rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
                             rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
+                            rsi_mver[i] = resolved_rsi.get("roof_spotlight_index_model_version")
 
                     if any(v is not None for v in rsi_vals):
                         rsi_batch = {}
@@ -1460,6 +1473,9 @@ def _compute_feature_class_data(
                         if "roof_spotlight_index_confidence" not in added_cols:
                             rsi_batch["roof_spotlight_index_confidence"] = rsi_conf
                             added_cols.add("roof_spotlight_index_confidence")
+                        if any(v is not None for v in rsi_mver) and "roof_spotlight_index_model_version" not in added_cols:
+                            rsi_batch["roof_spotlight_index_model_version"] = rsi_mver
+                            added_cols.add("roof_spotlight_index_model_version")
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
         except Exception:
