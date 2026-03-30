@@ -73,8 +73,7 @@ def test_gen_hurricane_score_data(cache_directory: Path):
     )
 
     test_gdf = gpd.GeoDataFrame(
-        [{"aoi_id": "hurricane_score_test_area", "geometry": test_polygon}],
-        crs="EPSG:4326",
+        [{"aoi_id": "hurricane_score_test_area", "geometry": test_polygon}], crs="EPSG:4326"
     ).set_index(AOI_ID_COLUMN_NAME)
 
     api_key = os.getenv("API_KEY")
@@ -215,11 +214,7 @@ def test_handles_missing_hurricane_score_gracefully():
     """Test that the function handles missing hurricaneScore gracefully."""
 
     # Create a roof without hurricaneScore (simulating building-only API response)
-    roof = {
-        "feature_id": "test_feature_no_score",
-        "class_id": ROOF_ID,
-        "attributes": [],
-    }
+    roof = {"feature_id": "test_feature_no_score", "class_id": ROOF_ID, "attributes": []}
 
     # Run flatten_roof_attributes - should not crash even without hurricaneScore
     result = flatten_roof_attributes([roof], country="us")
@@ -296,12 +291,7 @@ def test_hurricane_score_invalid_data():
     assert "hurricane_vulnerability_score" not in result_scalar
 
     # Test with None hurricaneScore
-    roof_none = {
-        "feature_id": "test_feature_2",
-        "class_id": ROOF_ID,
-        "hurricane_score": None,
-        "attributes": [],
-    }
+    roof_none = {"feature_id": "test_feature_2", "class_id": ROOF_ID, "hurricane_score": None, "attributes": []}
 
     result_none = flatten_roof_attributes([roof_none], country="us")
     assert "hurricane_vulnerability_score" not in result_none
@@ -387,15 +377,9 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
     features_gdf = features_gdf.set_index(AOI_ID_COLUMN_NAME)
 
     # Create parcels GeoDataFrame
-    parcel_geom = box(
-        payload["extentMinX"],
-        payload["extentMinY"],
-        payload["extentMaxX"],
-        payload["extentMaxY"],
-    )
+    parcel_geom = box(payload["extentMinX"], payload["extentMinY"], payload["extentMaxX"], payload["extentMaxY"])
     parcels_gdf = gpd.GeoDataFrame(
-        {"aoi_id": ["test_parcel_hurricane"], "geometry": [parcel_geom]},
-        crs="EPSG:4326",
+        {"aoi_id": ["test_parcel_hurricane"], "geometry": [parcel_geom]}, crs="EPSG:4326"
     ).set_index(AOI_ID_COLUMN_NAME)
 
     # Create classes dataframe
@@ -424,10 +408,7 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
 
     # Verify the hurricaneScore values (use whatever roof was selected as primary)
     primary_score = rollup_df["primary_roof_hurricane_vulnerability_score"].iloc[0]
-    assert primary_score in [
-        4,
-        5,
-    ], f"Expected hurricaneScore 4 or 5, got {primary_score}"
+    assert primary_score in [4, 5], f"Expected hurricaneScore 4 or 5, got {primary_score}"
 
     # Probability should be present and reasonable
     primary_prob = rollup_df["primary_roof_hurricane_vulnerability_probability"].iloc[0]
@@ -436,13 +417,15 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
     # Rate factor should be present
     assert "primary_roof_hurricane_vulnerability_rate_factor" in rollup_df.columns
 
-    # RSI should also be present (from real API response)
-    assert "primary_roof_roof_spotlight_index" in rollup_df.columns
-    # Real RSI value from the API
-    primary_rsi = rollup_df["primary_roof_roof_spotlight_index"].iloc[0]
+    # Resolved RSI should be present (roof-first, BL-fallback)
+    assert "primary_roof_spotlight_index" in rollup_df.columns
+    primary_rsi = rollup_df["primary_roof_spotlight_index"].iloc[0]
     assert primary_rsi > 0, f"Expected positive RSI value, got {primary_rsi}"
 
-    assert "primary_roof_roof_spotlight_index_confidence" in rollup_df.columns
-    # Confidence should be present and reasonable
-    rsi_conf = rollup_df["primary_roof_roof_spotlight_index_confidence"].iloc[0]
+    assert "primary_roof_spotlight_index_confidence" in rollup_df.columns
+    rsi_conf = rollup_df["primary_roof_spotlight_index_confidence"].iloc[0]
     assert 0 < rsi_conf <= 1, f"Expected confidence between 0 and 1, got {rsi_conf}"
+
+    # Raw flattened RSI columns should be removed (superseded by resolved columns)
+    assert "primary_roof_roof_spotlight_index" not in rollup_df.columns
+    assert "primary_roof_roof_spotlight_index_confidence" not in rollup_df.columns

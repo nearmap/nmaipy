@@ -15,7 +15,7 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     AREA_CRS,
-    BUILDING_ID,
+    BUILDING_NEW_ID,
     LAWN_GRASS_ID,
     MIN_ROOF_INSTANCE_IOU_THRESHOLD,
     POOL_ID,
@@ -802,7 +802,7 @@ class TestParcels:
 
         classes_df = pd.DataFrame(
             [
-                {"id": BUILDING_ID, "description": "building"},
+                {"id": BUILDING_NEW_ID, "description": "building"},
                 {
                     "id": VEG_MEDHIGH_ID,
                     "description": "Medium and High Vegetation (>2m)",
@@ -863,7 +863,7 @@ class TestParcels:
 
         classes_df = pd.DataFrame(
             [
-                {"id": BUILDING_ID, "description": "building"},
+                {"id": BUILDING_NEW_ID, "description": "building"},
                 {
                     "id": VEG_MEDHIGH_ID,
                     "description": "Medium and High Vegetation (>2m)",
@@ -887,9 +887,7 @@ class TestParcels:
         # str(parcels_gdf.geometry.union_all())
         # str(features_gdf.query("confidence >= 0.65 & fidelity >= 0.15").union_all())
 
-        # Building count increased from 25 -> 39 -> 40
-        # The latest increase (39 to 40) is because parcel_mode is now disabled during gridding
-        # to ensure consistent include parameter values across grid cells.
+        # Building count (using BUILDING_NEW_ID; previously used deprecated BUILDING_ID)
         assert (
             df.loc[11179800001006, "building_count"] == 40
         )  # Updated count with parcel_mode disabled during gridding.

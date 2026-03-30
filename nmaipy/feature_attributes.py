@@ -482,9 +482,8 @@ def flatten_roof_attributes(
 
     # Handle components and other attributes
     for roof in roofs:
-        # Handle roofSpotlightIndex - check both camelCase and snake_case versions
-        # Use _parse_include_param to handle both dict and JSON string formats
-        rsi_raw = roof.get("roofSpotlightIndex") or roof.get("roof_spotlight_index")
+        # Always snake_case names after feature_api.py column conversion
+        rsi_raw = roof.get("roof_spotlight_index")
         rsi_data = _parse_include_param(rsi_raw)
         if rsi_data:
             if "value" in rsi_data:

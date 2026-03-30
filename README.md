@@ -185,6 +185,23 @@ This is valuable for:
 - Maintenance planning and capital budgeting
 - Real estate due diligence
 
+### Roof Condition (RSI) with Structural Damage Fallback
+Extract Roof Spotlight Index scores that automatically resolve the best RSI per roof — using the roof's own score when available, or falling back to the building lifecycle score when structural damage is present:
+
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='rsi_results',
+    country='us',
+    packs=['building', 'damage_non_postcat'],
+    include=['roofSpotlightIndex'],
+    save_features=True
+)
+exporter.run()
+```
+
+The `damage_non_postcat` pack provides building lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
+
 ## Available AI Features
 
 Some of the more common AI packs are below - there are more and growing, available via API request or on the Nearmap help.nearmap.com page.

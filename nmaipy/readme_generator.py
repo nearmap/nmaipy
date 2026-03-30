@@ -532,11 +532,22 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines.append(
             """
 **RSI Score Interpretation:**
-- **81-100**: Excellent condition (minimal/no visible defects)
-- **61-80**: Good condition
-- **41-60**: Fair condition
-- **21-40**: Poor condition
-- **0-20**: Very poor condition (severe defects)
+- **91-100**: Very good
+- **81-90**: Good
+- **71-80**: Moderate
+- **61-70**: Fair
+- **51-60**: Low
+- **26-50**: Poor
+- **0-25**: Needs replacement
+
+The `roof_spotlight_index` columns in this export contain the **resolved best RSI** per roof —
+using the roof's own score when available, or falling back to the building lifecycle score when
+structural damage is present. When structural damage causes holes in the roof polygon, the API
+calculates RSI on the building lifecycle polygon instead to avoid falsely inflating the score.
+
+This fallback only applies when building lifecycle features are included in the export
+(e.g. via `--packs building damage_non_postcat`). Without building lifecycle data, only
+roofs without structural damage will have an RSI value.
 
 For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-spotlight-index-rsi
 """

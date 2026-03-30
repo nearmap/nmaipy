@@ -27,3 +27,4 @@ run.py
 run_*.py
 !run_10_test.py
 run.sh
+.DS_Store

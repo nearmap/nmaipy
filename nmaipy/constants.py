@@ -68,20 +68,22 @@ ROOF_AGE_PREFIX_COLUMNS = {
 # gracefully while preventing indefinite blocking on persistent errors.
 
 # Maximum number of retry attempts for failed requests
-# With exponential backoff (0.5s factor, backoff_max=35s, jitter up to 5s), retry delays are approximately:
-# 0s, 0-5.5s, 1-6s, 2-7s, 4-9s, 8-13s, 16-21s, 32-35s (capped), ...
+# Uses full jitter backoff: sleep = uniform(0, min(BACKOFF_MAX, BACKOFF_FACTOR * 2^n))
+# Retry delays are approximately: 0s, 0-1s, 0-2s, 0-4s, 0-8s, 0-16s, 0-32s, 0-60s (capped), ...
 MAX_RETRIES = 10
 
 # Exponential backoff multiplier for retries
-# Formula: backoff_factor * 2^(retry_number - 1), capped at BACKOFF_MAX, plus uniform jitter [0, BACKOFF_JITTER]
+# Full jitter formula: sleep = uniform(0, min(BACKOFF_MAX, BACKOFF_FACTOR * 2^(retry_number - 1)))
+# Jitter scales with retry count: fast recovery on early retries, strong desync on late ones.
 BACKOFF_FACTOR = 0.5
 
-# Maximum backoff time in seconds (caps the exponential curve before jitter is added)
-BACKOFF_MAX = 35
+# Maximum backoff time in seconds (caps the full jitter range on late retries)
+# With 480 parallel workers all retrying at once: 480 / 60 ≈ 8 req/s
+BACKOFF_MAX = 60
 
-# Jitter added to exponential backoff to desynchronize parallel workers (thundering herd prevention).
-# Adds uniform(0, BACKOFF_JITTER) seconds to each retry delay via urllib3's backoff_jitter parameter.
-BACKOFF_JITTER = 5.0
+# Maximum random sleep before a thread's first AOI request, to spread the chunk-start burst.
+# With 50 threads: requests spread over 5s = ~10 req/s at startup instead of an instant spike.
+THREAD_STARTUP_JITTER_SECONDS = 5.0
 
 # Maximum time to wait for initial server response (connection + waiting for first byte)
 TIMEOUT_SECONDS = 120
@@ -193,10 +195,12 @@ BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # Current semantic bui
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
 BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
 BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
+FLAT_DEPRECATED_ROOF_ID = "224f98d3-b853-542a-8b18-e1e46e3a8200"  # DEPRECATED: Replaced by CLASS_1191_FLAT
 
-# Deprecated class IDs - filtered out early in processing
+# Deprecated class IDs - filtered out early in processing, before any saved chunk files
 DEPRECATED_CLASS_IDS = [
     BUILDING_ID,  # Replaced by BUILDING_NEW_ID
+    FLAT_DEPRECATED_ROOF_ID,  # Replaced by CLASS_1191_FLAT
 ]
 
 # Roof Instance - a temporal slice of a roof from the Roof Age API
@@ -254,7 +258,6 @@ METAL_ROOF_ID = "4424186a-0b42-5608-a5a0-d4432695c260"
 TILE_ROOF_ID = "516fdfd5-0be9-59fe-b849-92faef8ef26e"
 SHINGLE_ROOF_ID = "4bbf8dbd-cc81-5773-961f-0121101422be"
 
-FLAT_DEPRECATED_ROOF_ID = "224f98d3-b853-542a-8b18-e1e46e3a8200"
 HIP_ROOF_ID = "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9"
 GABLE_ROOF_ID = "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2"
 DUTCH_GABLE_ROOF_ID = "3719eb40-d6d1-5071-bbe6-379a551bb65f"

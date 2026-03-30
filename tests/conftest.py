@@ -220,6 +220,23 @@ def roof_age_metadata_df(data_directory: Path) -> pd.DataFrame:
 
 
 @pytest.fixture(scope="session")
+def features_rsi_gdf(data_directory: Path) -> gpd.GeoDataFrame:
+    """
+    Features with RSI data: Roof, Building(Deprecated), Building(New) rows; no BL rows.
+    Loaded from test_features_rsi.csv with geometry and roof_spotlight_index parsed.
+    """
+    df = pd.read_csv(data_directory / "test_features_rsi.csv", index_col=AOI_ID_COLUMN_NAME)
+    df["roof_spotlight_index"] = df["roof_spotlight_index"].apply(
+        lambda v: None if pd.isna(v) else ast.literal_eval(str(v))
+    )
+    return gpd.GeoDataFrame(
+        df.drop("geometry", axis=1),
+        geometry=df["geometry"].apply(loads),
+        crs=LAT_LONG_CRS,
+    )
+
+
+@pytest.fixture(scope="session")
 def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd.GeoDataFrame:
     """
     A very large AOI in Adelaide, and a smaller AOI in Sydney to test gridding / large scale behaviour.

@@ -656,16 +656,22 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                     "primary_child_roof_age_years_as_of_date" in roof_gdf.columns
                 ), "Roof parquet should have primary_child_roof_age_years_as_of_date"
 
-    # 4. Check rollup CSV
+    # 4. Check rollup CSV — roof age columns use rollup naming (primary_roof_instance_roof_age_*)
     rollup_csv = final_dir / "rollup.csv"
-    if rollup_csv.exists():
-        rollup_df = pd.read_csv(rollup_csv)
-        if "primary_child_roof_age_installation_date" in rollup_df.columns:
-            rollups_with_age = rollup_df[rollup_df["primary_child_roof_age_installation_date"].notna()]
-            if len(rollups_with_age) > 0:
-                assert (
-                    "primary_child_roof_age_years_as_of_date" in rollup_df.columns
-                ), "Rollup should have primary_child_roof_age_years_as_of_date"
+    assert rollup_csv.exists(), "Rollup CSV should exist"
+    rollup_df = pd.read_csv(rollup_csv)
+
+    # With roof_age=True, rollup must have roof instance roof age columns
+    assert (
+        "primary_roof_instance_roof_age_years_as_of_date" in rollup_df.columns
+    ), f"Rollup should have primary_roof_instance_roof_age_years_as_of_date, got columns: {[c for c in rollup_df.columns if 'roof' in c]}"
+    assert (
+        "primary_roof_instance_roof_age_trust_score" in rollup_df.columns
+    ), "Rollup should have primary_roof_instance_roof_age_trust_score"
+
+    # Verify at least some rows have data
+    rollups_with_age = rollup_df[rollup_df["primary_roof_instance_roof_age_years_as_of_date"].notna()]
+    assert len(rollups_with_age) > 0, "At least some rollup rows should have roof age data"
 
     # 5. Cross-verify consistency between files
     if roof_csv.exists() and roof_parquet.exists():
@@ -692,3 +698,91 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                             assert (
                                 abs(csv_val - parquet_val) < 0.01
                             ), f"Age mismatch for feature {fid}: CSV={csv_val}, Parquet={parquet_val}"
+
+
+@pytest.fixture
+def test_us_aoi_for_rsi(integration_test_dir):
+    """Create a US AOI for RSI integration testing (Phoenix, AZ — known to have RSI data)."""
+    test_polygon = Polygon(
+        [
+            (-111.926, 33.414),
+            (-111.925, 33.414),
+            (-111.925, 33.415),
+            (-111.926, 33.415),
+            (-111.926, 33.414),
+        ]
+    )
+    test_aoi = gpd.GeoDataFrame({"aoi_id": ["rsi_test"], "geometry": [test_polygon]}, crs="EPSG:4326")
+    aoi_file = integration_test_dir / "test_us_rsi.geojson"
+    test_aoi.to_file(aoi_file, driver="GeoJSON")
+    return aoi_file
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_rsi_in_rollup_and_per_class_exports(integration_test_dir, test_us_aoi_for_rsi):
+    """
+    Integration test verifying RSI propagates through the full export pipeline:
+    - Rollup CSV has primary_roof_spotlight_index
+    - Per-class roof CSV/parquet have roof_spotlight_index
+    - Per-class building CSV/parquet have roof_spotlight_index (resolved from child roof)
+
+    This exercises resolve_footprint_rsi() in the per-class export path.
+    """
+    from nmaipy.constants import BUILDING_NEW_ID, ROOF_ID
+
+    exporter = AOIExporter(
+        aoi_file=str(test_us_aoi_for_rsi),
+        output_dir=str(integration_test_dir),
+        country="us",
+        packs=["building"],
+        include=["roofSpotlightIndex"],
+        save_features=True,
+        class_level_files=True,
+        no_cache=True,
+        processes=1,
+    )
+    exporter.run()
+
+    final_dir = integration_test_dir / "final"
+    assert final_dir.exists()
+
+    # 1. Rollup must have RSI columns
+    rollup_csv = final_dir / "rollup.csv"
+    assert rollup_csv.exists()
+    rollup_df = pd.read_csv(rollup_csv)
+    assert "primary_roof_spotlight_index" in rollup_df.columns, (
+        f"Rollup missing primary_roof_spotlight_index. RSI columns: "
+        f"{[c for c in rollup_df.columns if 'spotlight' in c]}"
+    )
+    assert rollup_df["primary_roof_spotlight_index"].notna().any(), "No RSI values in rollup"
+
+    # 2. Per-class roof CSV must have RSI
+    roof_csv = final_dir / "roof.csv"
+    if roof_csv.exists():
+        roof_df = pd.read_csv(roof_csv)
+        assert "roof_spotlight_index" in roof_df.columns, "Roof CSV missing roof_spotlight_index"
+        assert roof_df["roof_spotlight_index"].notna().any(), "No RSI values in roof CSV"
+
+    # 3. Per-class roof parquet must have RSI
+    roof_parquet = final_dir / "roof_features.parquet"
+    if roof_parquet.exists():
+        roof_gdf = gpd.read_parquet(roof_parquet)
+        assert "roof_spotlight_index" in roof_gdf.columns, "Roof parquet missing roof_spotlight_index"
+
+    # 4. Per-class building CSV must have RSI (resolved from child roof)
+    building_csv = final_dir / "building.csv"
+    if building_csv.exists():
+        bldg_df = pd.read_csv(building_csv)
+        assert "roof_spotlight_index" in bldg_df.columns, (
+            f"Building CSV missing roof_spotlight_index. Columns with 'spotlight': "
+            f"{[c for c in bldg_df.columns if 'spotlight' in c]}"
+        )
+        assert bldg_df["roof_spotlight_index"].notna().any(), "No RSI values in building CSV"
+
+    # 5. RSI min/max/mean in rollup
+    assert "roof_spotlight_index_min" in rollup_df.columns, "Rollup missing roof_spotlight_index_min"
+    assert "roof_spotlight_index_max" in rollup_df.columns, "Rollup missing roof_spotlight_index_max"
+    assert (
+        "roof_spotlight_index_area_weighted_mean" in rollup_df.columns
+    ), "Rollup missing roof_spotlight_index_area_weighted_mean"
