@@ -504,6 +504,8 @@ def flatten_roof_attributes(
                 flattened["hurricane_vulnerability_probability"] = hurricane_score_data["vulnerabilityProbability"]
             if "vulnerabilityRateFactor" in hurricane_score_data:
                 flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
+            if "modelVersion" in hurricane_score_data:
+                flattened["hurricane_score_model_version"] = hurricane_score_data["modelVersion"]
             # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
 
         # Handle windScore - check both camelCase and snake_case versions
@@ -522,6 +524,8 @@ def flatten_roof_attributes(
                 flattened["wind_risk_rate_factor"] = wind_score_data["riskRateFactor"]
             if "femaAnnualWindFrequency" in wind_score_data:
                 flattened["wind_fema_annual_frequency"] = wind_score_data["femaAnnualWindFrequency"]
+            if "modelVersion" in wind_score_data:
+                flattened["wind_score_model_version"] = wind_score_data["modelVersion"]
 
         # Handle hailScore - check both camelCase and snake_case versions
         hail_raw = roof.get("hailScore") or roof.get("hail_score")
@@ -539,6 +543,8 @@ def flatten_roof_attributes(
                 flattened["hail_risk_rate_factor"] = hail_score_data["riskRateFactor"]
             if "femaAnnualHailFrequency" in hail_score_data:
                 flattened["hail_fema_annual_frequency"] = hail_score_data["femaAnnualHailFrequency"]
+            if "modelVersion" in hail_score_data:
+                flattened["hail_score_model_version"] = hail_score_data["modelVersion"]
 
         # Handle wildfireScore - check both camelCase and snake_case versions
         wildfire_raw = roof.get("wildfireScore") or roof.get("wildfire_score")
@@ -552,6 +558,8 @@ def flatten_roof_attributes(
                 flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data["vulnerabilityRateFactor"]
             if "femaAnnualWildfireFrequency" in wildfire_score_data:
                 flattened["wildfire_fema_annual_frequency"] = wildfire_score_data["femaAnnualWildfireFrequency"]
+            if "modelVersion" in wildfire_score_data:
+                flattened["wildfire_score_model_version"] = wildfire_score_data["modelVersion"]
 
         # Handle windHailRiskScore - combined wind+hail risk score
         wind_hail_raw = roof.get("windHailRiskScore") or roof.get("wind_hail_risk_score")
@@ -561,6 +569,8 @@ def flatten_roof_attributes(
                 flattened["wind_hail_risk_score"] = wind_hail_score_data["riskScore"]
             if "riskRateFactor" in wind_hail_score_data:
                 flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data["riskRateFactor"]
+            if "modelVersion" in wind_hail_score_data:
+                flattened["wind_hail_risk_score_model_version"] = wind_hail_score_data["modelVersion"]
 
         # Handle defensibleSpace - check both camelCase and snake_case versions
         # Use _parse_include_param to handle both dict and JSON string formats
@@ -594,6 +604,8 @@ def flatten_roof_attributes(
                     if "defensibleSpaceCoverageRatio" in zone:
                         flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
                     # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
+            if "modelVersion" in defensible_space_data:
+                flattened["defensible_space_model_version"] = defensible_space_data["modelVersion"]
 
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns

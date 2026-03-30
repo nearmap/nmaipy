@@ -960,6 +960,20 @@ class FeatureApi(GriddedApiClient):
             if parcel_mode and len(features) > 0 and "belongsToParcel" in features[0]:
                 features = [f for f in features if f.get("belongsToParcel", True)]
 
+            # Inject modelVersion from response-level "versions" into each feature's
+            # include parameter dicts. The API returns model versions at the response
+            # level (e.g. versions.roofSpotlightIndex.modelVersion) rather than inside
+            # each feature's include object.
+            response_versions = payload.get("versions", {})
+            if response_versions:
+                for feature in features:
+                    for include_key, version_info in response_versions.items():
+                        model_version = version_info.get("modelVersion")
+                        if model_version and include_key in feature:
+                            include_data = feature[include_key]
+                            if isinstance(include_data, dict):
+                                include_data["modelVersion"] = model_version
+
             # Check for and use clippedGeometry if present
             # Add a new flag for multiparcel features (those with clippedGeometry)
             for feature in features:

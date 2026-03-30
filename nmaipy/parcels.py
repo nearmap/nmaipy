@@ -1029,10 +1029,13 @@ def feature_attributes(
         if resolved_rsi:
             _fp_rsi["primary_roof_spotlight_index"] = resolved_rsi.get("roof_spotlight_index")
             _fp_rsi["primary_roof_spotlight_index_confidence"] = resolved_rsi.get("roof_spotlight_index_confidence")
+            if "roof_spotlight_index_model_version" in resolved_rsi:
+                _fp_rsi["primary_roof_spotlight_index_model_version"] = resolved_rsi["roof_spotlight_index_model_version"]
     parcel.update(_fp_rsi)
     # Remove the raw flattened RSI columns — primary_roof_spotlight_index supersedes them
     parcel.pop("primary_roof_roof_spotlight_index", None)
     parcel.pop("primary_roof_roof_spotlight_index_confidence", None)
+    parcel.pop("primary_roof_roof_spotlight_index_model_version", None)
 
     # Min/max/area-weighted-mean RSI across all roofs in the parcel.
     # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
