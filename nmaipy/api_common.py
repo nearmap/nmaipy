@@ -420,10 +420,17 @@ class BaseApiClient:
         else:
             self.api_key = os.environ.get("API_KEY", None)
         if self.api_key is None:
-            raise ValueError(
-                "No API KEY provided. Provide a key when initializing the client or set an API_KEY "
-                "environment variable"
-            )
+            if cache_dir is not None:
+                logger.warning(
+                    "No API KEY provided — operating in cache-only mode. "
+                    "API calls will fail if the cache does not contain the requested data."
+                )
+                self.api_key = ""
+            else:
+                raise ValueError(
+                    "No API KEY provided. Provide a key when initializing the client or set an API_KEY "
+                    "environment variable"
+                )
 
         # Cache configuration
         self.cache_dir = str(cache_dir) if cache_dir is not None else None
