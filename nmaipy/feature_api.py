@@ -809,8 +809,8 @@ class FeatureApi(GriddedApiClient):
                         logger.debug(
                             f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}"
                         )
-                        base = CHUNKED_ENCODING_RETRY_DELAY * (2**retry_attempt)
-                        time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff
+                        base = CHUNKED_ENCODING_RETRY_DELAY * (2 ** (retry_attempt + 1))
+                        time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff (min avg ~1s)
                         continue
                     else:
                         # Exhausted all retries, log error and fall back to size error
@@ -1207,10 +1207,12 @@ class FeatureApi(GriddedApiClient):
                 f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
 
-        # Spread the chunk-start burst: sleep a random duration before the first request.
+        # Spread the chunk-start burst: sleep once per thread before its first AOI request.
+        # Uses thread-local storage so each thread only sleeps once, not on every AOI.
         # Only on outer AOI calls (not grid cells) to avoid compounding delay on large AOIs.
-        if not in_gridding_mode:
+        if not in_gridding_mode and not getattr(self._thread_local, "startup_jitter_done", False):
             time.sleep(random.uniform(0, THREAD_STARTUP_JITTER_SECONDS))
+            self._thread_local.startup_jitter_done = True
 
         # Check if AOI is too large and should be gridded directly
         if geometry is not None and not fail_hard_regrid and not in_gridding_mode:
