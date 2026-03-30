@@ -573,6 +573,47 @@ def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=ref_schema)
 
 
+# Raw RSI columns excluded from per-class output; the resolved
+# roof_spotlight_index/confidence/model_version columns are added separately.
+_EXCLUDE_RSI = {
+    "primary_child_roof_roof_spotlight_index",
+    "primary_child_roof_roof_spotlight_index_confidence",
+    "primary_child_roof_roof_spotlight_index_model_version",
+}
+
+# RSI column names emitted by _resolve_rsi_batch.
+_RSI_COLUMNS = (
+    "roof_spotlight_index",
+    "roof_spotlight_index_confidence",
+    "roof_spotlight_index_model_version",
+)
+
+
+def _resolve_rsi_batch(n_rows, resolve_fn):
+    """Resolve RSI for *n_rows* rows, returning (vals, conf, mver) numpy arrays.
+
+    *resolve_fn(i)* is called for each row index and must return a dict with
+    roof_spotlight_index / roof_spotlight_index_confidence /
+    roof_spotlight_index_model_version keys, or a falsy value (None/{}).
+
+    Returns None if no RSI was resolved for any row.
+    """
+    vals = np.full(n_rows, None, dtype=object)
+    conf = np.full(n_rows, None, dtype=object)
+    mver = np.full(n_rows, None, dtype=object)
+
+    for i in range(n_rows):
+        resolved = resolve_fn(i)
+        if resolved:
+            vals[i] = resolved.get("roof_spotlight_index")
+            conf[i] = resolved.get("roof_spotlight_index_confidence")
+            mver[i] = resolved.get("roof_spotlight_index_model_version")
+
+    if not np.any(pd.notna(vals)):
+        return None
+    return vals, conf, mver
+
+
 def _dataframe_to_records_with_index(df):
     """Convert DataFrame to list of dicts, re-injecting the index if it is AOI_ID_COLUMN_NAME.
 
@@ -664,10 +705,15 @@ def _compute_all_per_class_data(
         # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
         # the correct path to BL is Roof →(IoU)→ Building(New) →(parent_id)→ BL.
+        # Results are reused in _compute_feature_class_data for Building(New) class output.
+        roofs_linked_chunk = None
+        buildings_linked_chunk = None
         if len(roof_features_chunk) > 0 and BUILDING_NEW_ID in chunk_class_ids:
             building_new_chunk = chunk_gdf[chunk_gdf["class_id"] == BUILDING_NEW_ID]
             if len(building_new_chunk) > 0:
-                roofs_linked_chunk, _ = link_roofs_to_buildings(roof_features_chunk, building_new_chunk)
+                roofs_linked_chunk, buildings_linked_chunk = link_roofs_to_buildings(
+                    roof_features_chunk, building_new_chunk
+                )
                 roof_to_building_lookup = {
                     fid: bid
                     for fid, bid in zip(
@@ -727,6 +773,8 @@ def _compute_all_per_class_data(
                 roof_attrs_cache=roof_attrs_cache_chunk,
                 parent_lookup=shared_parent_lookup,
                 roof_to_building_lookup=roof_to_building_lookup,
+                roofs_linked=roofs_linked_chunk,
+                buildings_linked=buildings_linked_chunk,
             )
         except Exception as e:
             _log.error(f"Per-class export failed for {desc}: {e}")
@@ -759,6 +807,8 @@ def _compute_feature_class_data(
     roof_attrs_cache: dict = None,
     parent_lookup: dict = None,
     roof_to_building_lookup: dict = None,
+    roofs_linked: gpd.GeoDataFrame = None,
+    buildings_linked: gpd.GeoDataFrame = None,
 ) -> tuple:
     """
     Compute the flat attribute DataFrame and GeoDataFrame for a single feature class.
@@ -1032,34 +1082,27 @@ def _compute_feature_class_data(
                 BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values if features_gdf is not None else False
             )
             if bl_in_features and "roof_spotlight_index" in class_features.columns:
-                rsi_vals = np.full(n_rows, None, dtype=object)
-                rsi_conf = np.full(n_rows, None, dtype=object)
-                rsi_mver = np.full(n_rows, None, dtype=object)
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
-                for i, row in enumerate(roof_records_for_fp):
-                    resolved_rsi = extract_rsi_from_feature(row)
-                    if not resolved_rsi:
+
+                def _resolve_roof_rsi(i):
+                    row = roof_records_for_fp[i]
+                    rsi = extract_rsi_from_feature(row)
+                    if not rsi:
                         bn_id = _roof_to_building.get(row.get("feature_id"))
                         if bn_id:
                             bn_row = p_lookup.get(bn_id)
                             if bn_row is not None:
-                                resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
-                    if resolved_rsi:
-                        rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
-                        rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
-                        rsi_mver[i] = resolved_rsi.get("roof_spotlight_index_model_version")
+                                rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                    return rsi
 
-                if any(v is not None for v in rsi_vals):
+                rsi_result = _resolve_rsi_batch(n_rows, _resolve_roof_rsi)
+                if rsi_result is not None:
+                    rsi_vals, rsi_conf, rsi_mver = rsi_result
                     # Overwrite roof_spotlight_index in existing df_parts
                     for part in df_parts:
-                        if "roof_spotlight_index" in part.columns:
-                            part["roof_spotlight_index"] = rsi_vals
-                        if "roof_spotlight_index_confidence" in part.columns:
-                            part["roof_spotlight_index_confidence"] = rsi_conf
-                    if any(v is not None for v in rsi_mver):
-                        for part in df_parts:
-                            if "roof_spotlight_index_model_version" in part.columns:
-                                part["roof_spotlight_index_model_version"] = rsi_mver
+                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                            if col in part.columns:
+                                part[col] = arr
         except Exception:
             logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 
@@ -1117,18 +1160,18 @@ def _compute_feature_class_data(
         except Exception as e:
             logger.debug(f"Could not flatten building attributes: {e}")
 
-        # Get roofs from the full features_gdf
-        roofs = (
-            roof_features.copy()
-            if roof_features is not None
-            else features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
-        )
-
-        if len(roofs) > 0:
-            try:
-                # Link roofs to buildings (spatial IoU)
+        # Use pre-computed roof-to-building linkage if available, otherwise compute now.
+        if roofs_linked is None or buildings_linked is None:
+            roofs = (
+                roof_features.copy()
+                if roof_features is not None
+                else features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
+            )
+            if len(roofs) > 0:
                 roofs_linked, buildings_linked = link_roofs_to_buildings(roofs, class_features)
 
+        if roofs_linked is not None and buildings_linked is not None and len(roofs_linked) > 0:
+            try:
                 # Add linkage columns
                 bldg_linkage_batch = {}
                 for col in [
@@ -1185,12 +1228,6 @@ def _compute_feature_class_data(
                     primary_ids = buildings_linked["primary_child_roof_id"].values
                     mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
 
-                    # Exclude raw RSI columns — resolved roof_spotlight_index is added below
-                    _EXCLUDE_RSI = {
-                        "primary_child_roof_roof_spotlight_index",
-                        "primary_child_roof_roof_spotlight_index_confidence",
-                        "primary_child_roof_roof_spotlight_index_model_version",
-                    }
                     roof_attr_batch = {}
                     _DOM = (
                         "primary_child_roof_dominant_roof_material_",
@@ -1254,37 +1291,27 @@ def _compute_feature_class_data(
                 # For each building: resolve via primary child roof (roof's own RSI first,
                 # then BL fallback via Building(New) → BL parent_id), same logic as per-roof.
                 if roof_attrs:
-                    rsi_vals = np.full(n_rows, None, dtype=object)
-                    rsi_conf = np.full(n_rows, None, dtype=object)
-                    rsi_mver = np.full(n_rows, None, dtype=object)
                     pcr_ids = buildings_linked["primary_child_roof_id"].values
+                    bl_records = _dataframe_to_records_with_index(buildings_linked)
 
-                    for i, pcr_id in enumerate(pcr_ids):
+                    def _resolve_bn_rsi(i):
+                        pcr_id = pcr_ids[i]
                         roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
                         if roof_row is not None:
-                            resolved_rsi = extract_rsi_from_feature(roof_row)
-                            if not resolved_rsi:
-                                # Roof lacks RSI — use Building(New) → BL path (1-hop)
-                                resolved_rsi = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
-                        else:
-                            # No child roof — traverse Building(New) → BL directly
-                            resolved_rsi = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
-                        if resolved_rsi:
-                            rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
-                            rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
-                            rsi_mver[i] = resolved_rsi.get("roof_spotlight_index_model_version")
+                            rsi = extract_rsi_from_feature(roof_row)
+                            if rsi:
+                                return rsi
+                        # Roof lacks RSI or no child roof — traverse BN → BL
+                        return resolve_footprint_rsi(bl_records[i], parent_lookup=p_lookup)
 
-                    if any(v is not None for v in rsi_vals):
+                    rsi_result = _resolve_rsi_batch(n_rows, _resolve_bn_rsi)
+                    if rsi_result is not None:
+                        rsi_vals, rsi_conf, rsi_mver = rsi_result
                         rsi_batch = {}
-                        if "roof_spotlight_index" not in added_cols:
-                            rsi_batch["roof_spotlight_index"] = rsi_vals
-                            added_cols.add("roof_spotlight_index")
-                        if "roof_spotlight_index_confidence" not in added_cols:
-                            rsi_batch["roof_spotlight_index_confidence"] = rsi_conf
-                            added_cols.add("roof_spotlight_index_confidence")
-                        if any(v is not None for v in rsi_mver) and "roof_spotlight_index_model_version" not in added_cols:
-                            rsi_batch["roof_spotlight_index_model_version"] = rsi_mver
-                            added_cols.add("roof_spotlight_index_model_version")
+                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                            if col not in added_cols:
+                                rsi_batch[col] = arr
+                                added_cols.add(col)
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
 
@@ -1427,12 +1454,6 @@ def _compute_feature_class_data(
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
                     mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
 
-                    # Exclude raw RSI columns — resolved roof_spotlight_index is added below
-                    _EXCLUDE_RSI = {
-                        "primary_child_roof_roof_spotlight_index",
-                        "primary_child_roof_roof_spotlight_index_confidence",
-                        "primary_child_roof_roof_spotlight_index_model_version",
-                    }
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
                         if col not in added_cols and col not in _EXCLUDE_RSI:
@@ -1443,39 +1464,31 @@ def _compute_feature_class_data(
 
                     # Resolve footprint RSI: primary child roof first (IoU-linked via BN),
                     # then fall back to BL's own RSI.
-                    rsi_vals = np.full(n_rows, None, dtype=object)
-                    rsi_conf = np.full(n_rows, None, dtype=object)
-                    rsi_mver = np.full(n_rows, None, dtype=object)
-                    for i, pcr_id in enumerate(primary_ids):
+                    bl_records = _dataframe_to_records_with_index(class_features)
+
+                    def _resolve_bl_rsi(i):
+                        pcr_id = primary_ids[i]
                         roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
                         if roof_row is not None:
-                            resolved_rsi = extract_rsi_from_feature(roof_row)
-                            if not resolved_rsi:
-                                # Roof lacks RSI — traverse BN → BL via parent_id
+                            rsi = extract_rsi_from_feature(roof_row)
+                            if not rsi:
                                 bn_id = _roof_to_building.get(pcr_id)
                                 if bn_id:
                                     bn_row = p_lookup.get(bn_id)
                                     if bn_row is not None:
-                                        resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
-                        else:
-                            # No child roof — use BL's own RSI
-                            resolved_rsi = extract_rsi_from_feature(class_features.iloc[i])
-                        if resolved_rsi:
-                            rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
-                            rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
-                            rsi_mver[i] = resolved_rsi.get("roof_spotlight_index_model_version")
+                                        rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                            return rsi
+                        # No child roof — use BL's own RSI
+                        return extract_rsi_from_feature(bl_records[i])
 
-                    if any(v is not None for v in rsi_vals):
+                    rsi_result = _resolve_rsi_batch(n_rows, _resolve_bl_rsi)
+                    if rsi_result is not None:
+                        rsi_vals, rsi_conf, rsi_mver = rsi_result
                         rsi_batch = {}
-                        if "roof_spotlight_index" not in added_cols:
-                            rsi_batch["roof_spotlight_index"] = rsi_vals
-                            added_cols.add("roof_spotlight_index")
-                        if "roof_spotlight_index_confidence" not in added_cols:
-                            rsi_batch["roof_spotlight_index_confidence"] = rsi_conf
-                            added_cols.add("roof_spotlight_index_confidence")
-                        if any(v is not None for v in rsi_mver) and "roof_spotlight_index_model_version" not in added_cols:
-                            rsi_batch["roof_spotlight_index_model_version"] = rsi_mver
-                            added_cols.add("roof_spotlight_index_model_version")
+                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                            if col not in added_cols:
+                                rsi_batch[col] = arr
+                                added_cols.add(col)
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
         except Exception:

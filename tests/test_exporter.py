@@ -468,8 +468,7 @@ class TestExporter:
 
             # Verify essential columns exist
             assert "geometry" in consolidated_features.columns, "Missing geometry column"
-            # Features data uses 'index' column (from the original parcel index) instead of 'aoi_id'
-            assert "index" in consolidated_features.columns, "Missing index column"
+            assert "aoi_id" in consolidated_features.columns, "Missing aoi_id column"
 
     def test_aoi_exporter_has_run_method(self):
         """Test that AOIExporter has run() method, not export()."""

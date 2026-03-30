@@ -17,11 +17,36 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import boto3
 import fsspec
 import pyarrow as pa
 import pyarrow.parquet as pq
+from boto3.s3.transfer import TransferConfig
 
+# Tuned transfer config for large files (>1GB).
+# Default boto3 uses 8MB parts / 10 threads — too conservative for multi-GB files.
+# 64MB parts with 25 threads saturates typical EC2-to-S3 bandwidth much better.
+_LARGE_FILE_THRESHOLD = 1 * 1024**3  # 1 GB
+_LARGE_FILE_TRANSFER_CONFIG = TransferConfig(
+    multipart_chunksize=64 * 1024**2,  # 64 MB parts
+    max_concurrency=25,  # ~1.6 GB peak buffer — fine on export machines
+    multipart_threshold=64 * 1024**2,  # Use multipart above 64 MB
+)
+
+_s3_boto3_client_cache = {}
 _s3_filesystem_cache = {}
+
+
+def _get_s3_boto3_client():
+    """Return a per-process cached boto3 S3 client.
+
+    Used for uploads where we need TransferConfig control that s3fs
+    doesn't expose.  Same fork-safety pattern as _get_s3_filesystem.
+    """
+    pid = os.getpid()
+    if pid not in _s3_boto3_client_cache:
+        _s3_boto3_client_cache[pid] = boto3.client("s3")
+    return _s3_boto3_client_cache[pid]
 
 
 def _get_s3_filesystem():
@@ -178,18 +203,33 @@ def file_size(path: str) -> int:
         return Path(path).stat().st_size
 
 
+def _parse_s3_uri(uri: str) -> tuple:
+    """Split 's3://bucket/key' into (bucket, key)."""
+    without_scheme = uri[len("s3://"):]
+    bucket, _, key = without_scheme.partition("/")
+    return bucket, key
+
+
 def upload_file(local_path: str, remote_path: str) -> None:
     """
     Upload a local file to a remote path. If remote_path is local,
     copies the file instead.
+
+    For S3 destinations, files above 1 GB use a tuned TransferConfig with
+    larger multipart chunks and higher concurrency to saturate network
+    bandwidth.  Smaller files use boto3 defaults.
 
     Args:
         local_path: Source file on local filesystem
         remote_path: Destination path (local or S3)
     """
     if is_s3_path(remote_path):
-        fs = _get_s3_filesystem()
-        fs.put(str(local_path), remote_path)
+        bucket, key = _parse_s3_uri(remote_path)
+        local_size = Path(local_path).stat().st_size
+        config = _LARGE_FILE_TRANSFER_CONFIG if local_size >= _LARGE_FILE_THRESHOLD else None
+        _get_s3_boto3_client().upload_file(
+            str(local_path), bucket, key, Config=config,
+        )
     else:
         if str(local_path) != str(remote_path):
             shutil.copy2(str(local_path), str(remote_path))
