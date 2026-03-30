@@ -878,6 +878,7 @@ class TestParcels:
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(
             aoi, country, packs, None, None, aoi_id, date_1, date_2
         )
+        assert features_gdf is not None, f"get_features_gdf returned None; error={error}"
 
         df = parcels.parcel_rollup(
             parcels_gdf,

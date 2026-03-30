@@ -409,7 +409,7 @@ class FeatureApi(GriddedApiClient):
             temp_filename = f"{str(uuid.uuid4())}.tmp"
             if self.compress_cache:
                 temp_filename = f"{temp_filename}.gz"
-            temp_path = Path(storage.join_path(self.cache_dir, temp_filename))
+            temp_path = Path(parent_dir) / temp_filename
 
             try:
                 if self.compress_cache:

@@ -594,7 +594,7 @@ def _resolve_rsi_batch(n_rows, resolve_fn):
 
     *resolve_fn(i)* is called for each row index and must return a dict with
     roof_spotlight_index / roof_spotlight_index_confidence /
-    roof_spotlight_index_model_version keys, or an empty dict.
+    roof_spotlight_index_model_version keys, or a falsy value (None/{}).
 
     Returns None if no RSI was resolved for any row.
     """
