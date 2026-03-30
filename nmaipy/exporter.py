@@ -1357,7 +1357,11 @@ def _compute_feature_class_data(
                     if bn_id:
                         bn_row = p_lookup.get(bn_id)
                         if bn_row is not None:
-                            bl_fid = bn_row.get("parent_id") if hasattr(bn_row, "get") else getattr(bn_row, "parent_id", None)
+                            bl_fid = (
+                                bn_row.get("parent_id")
+                                if hasattr(bn_row, "get")
+                                else getattr(bn_row, "parent_id", None)
+                            )
                             if bl_fid:
                                 roof_to_bl[roof_fid] = bl_fid
 

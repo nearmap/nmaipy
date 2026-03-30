@@ -1017,7 +1017,9 @@ def feature_attributes(
         resolved_rsi = _extract_rsi_from_feature(_primary_roof)
         if not resolved_rsi:
             bn_id = _roof_to_building.get(
-                _primary_roof.get("feature_id") if hasattr(_primary_roof, "get") else getattr(_primary_roof, "feature_id", None)
+                _primary_roof.get("feature_id")
+                if hasattr(_primary_roof, "get")
+                else getattr(_primary_roof, "feature_id", None)
             )
             if bn_id:
                 bn_row = _parent_lookup.get(bn_id)
