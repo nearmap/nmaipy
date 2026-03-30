@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Union, overload
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import stringcase
 from dateutil.parser import parse as parse_date
 from shapely import wkb
 
@@ -40,6 +41,66 @@ logger = log.get_logger()
 # String representations for boolean values in CSV outputs
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
+
+# Declarative mapping from API include parameters to flattened output columns.
+# Each entry: camelCase API key → {snake_key for lookup/modelVersion, fields: {api_field: output_col}}.
+# modelVersion is handled uniformly: output is always "{snake_key}_model_version".
+# defensibleSpace is excluded — its zone-based nesting requires special handling.
+INCLUDE_FIELD_MAPPINGS = {
+    "roofSpotlightIndex": {
+        "snake_key": "roof_spotlight_index",
+        "fields": {
+            "value": "roof_spotlight_index",
+            "confidence": "roof_spotlight_index_confidence",
+        },
+    },
+    "hurricaneScore": {
+        "snake_key": "hurricane_score",
+        "fields": {
+            "vulnerabilityScore": "hurricane_vulnerability_score",
+            "vulnerabilityProbability": "hurricane_vulnerability_probability",
+            "vulnerabilityRateFactor": "hurricane_vulnerability_rate_factor",
+        },
+    },
+    "windScore": {
+        "snake_key": "wind_score",
+        "fields": {
+            "vulnerabilityScore": "wind_vulnerability_score",
+            "vulnerabilityProbability": "wind_vulnerability_probability",
+            "vulnerabilityRateFactor": "wind_vulnerability_rate_factor",
+            "riskScore": "wind_risk_score",
+            "riskRateFactor": "wind_risk_rate_factor",
+            "femaAnnualWindFrequency": "wind_fema_annual_frequency",
+        },
+    },
+    "hailScore": {
+        "snake_key": "hail_score",
+        "fields": {
+            "vulnerabilityScore": "hail_vulnerability_score",
+            "vulnerabilityProbability": "hail_vulnerability_probability",
+            "vulnerabilityRateFactor": "hail_vulnerability_rate_factor",
+            "riskScore": "hail_risk_score",
+            "riskRateFactor": "hail_risk_rate_factor",
+            "femaAnnualHailFrequency": "hail_fema_annual_frequency",
+        },
+    },
+    "wildfireScore": {
+        "snake_key": "wildfire_score",
+        "fields": {
+            "vulnerabilityScore": "wildfire_vulnerability_score",
+            "vulnerabilityProbability": "wildfire_vulnerability_probability",
+            "vulnerabilityRateFactor": "wildfire_vulnerability_rate_factor",
+            "femaAnnualWildfireFrequency": "wildfire_fema_annual_frequency",
+        },
+    },
+    "windHailRiskScore": {
+        "snake_key": "wind_hail_risk_score",
+        "fields": {
+            "riskScore": "wind_hail_risk_score",
+            "riskRateFactor": "wind_hail_risk_rate_factor",
+        },
+    },
+}
 
 
 def convert_bool_columns_to_yn(batch):
@@ -482,98 +543,20 @@ def flatten_roof_attributes(
 
     # Handle components and other attributes
     for roof in roofs:
-        # Always snake_case names after feature_api.py column conversion
-        rsi_raw = roof.get("roof_spotlight_index")
-        rsi_data = _parse_include_param(rsi_raw)
-        if rsi_data:
-            if "value" in rsi_data:
-                flattened["roof_spotlight_index"] = rsi_data["value"]
-            if "confidence" in rsi_data:
-                flattened["roof_spotlight_index_confidence"] = rsi_data["confidence"]
-            if "modelVersion" in rsi_data:
-                flattened["roof_spotlight_index_model_version"] = rsi_data["modelVersion"]
+        # Flatten include parameters (RSI, scores) via INCLUDE_FIELD_MAPPINGS table
+        for camel_key, config in INCLUDE_FIELD_MAPPINGS.items():
+            raw = roof.get(camel_key) or roof.get(config["snake_key"])
+            data = _parse_include_param(raw)
+            if not data:
+                continue
+            for api_field, output_col in config["fields"].items():
+                if api_field in data:
+                    flattened[output_col] = data[api_field]
+            for key in ("modelVersion",):
+                if key in data:
+                    flattened[f"{config['snake_key']}_{stringcase.snakecase(key)}"] = data[key]
 
-        # Handle hurricaneScore - check both camelCase and snake_case versions
-        # Use _parse_include_param to handle both dict and JSON string formats
-        hurricane_raw = roof.get("hurricaneScore") or roof.get("hurricane_score")
-        hurricane_score_data = _parse_include_param(hurricane_raw)
-        if hurricane_score_data:
-            if "vulnerabilityScore" in hurricane_score_data:
-                flattened["hurricane_vulnerability_score"] = hurricane_score_data["vulnerabilityScore"]
-            if "vulnerabilityProbability" in hurricane_score_data:
-                flattened["hurricane_vulnerability_probability"] = hurricane_score_data["vulnerabilityProbability"]
-            if "vulnerabilityRateFactor" in hurricane_score_data:
-                flattened["hurricane_vulnerability_rate_factor"] = hurricane_score_data["vulnerabilityRateFactor"]
-            if "modelVersion" in hurricane_score_data:
-                flattened["hurricane_score_model_version"] = hurricane_score_data["modelVersion"]
-            # Note: modelInputFeatures are not flattened as they are too detailed for typical use cases
-
-        # Handle windScore - check both camelCase and snake_case versions
-        wind_raw = roof.get("windScore") or roof.get("wind_score")
-        wind_score_data = _parse_include_param(wind_raw)
-        if wind_score_data:
-            if "vulnerabilityScore" in wind_score_data:
-                flattened["wind_vulnerability_score"] = wind_score_data["vulnerabilityScore"]
-            if "vulnerabilityProbability" in wind_score_data:
-                flattened["wind_vulnerability_probability"] = wind_score_data["vulnerabilityProbability"]
-            if "vulnerabilityRateFactor" in wind_score_data:
-                flattened["wind_vulnerability_rate_factor"] = wind_score_data["vulnerabilityRateFactor"]
-            if "riskScore" in wind_score_data:
-                flattened["wind_risk_score"] = wind_score_data["riskScore"]
-            if "riskRateFactor" in wind_score_data:
-                flattened["wind_risk_rate_factor"] = wind_score_data["riskRateFactor"]
-            if "femaAnnualWindFrequency" in wind_score_data:
-                flattened["wind_fema_annual_frequency"] = wind_score_data["femaAnnualWindFrequency"]
-            if "modelVersion" in wind_score_data:
-                flattened["wind_score_model_version"] = wind_score_data["modelVersion"]
-
-        # Handle hailScore - check both camelCase and snake_case versions
-        hail_raw = roof.get("hailScore") or roof.get("hail_score")
-        hail_score_data = _parse_include_param(hail_raw)
-        if hail_score_data:
-            if "vulnerabilityScore" in hail_score_data:
-                flattened["hail_vulnerability_score"] = hail_score_data["vulnerabilityScore"]
-            if "vulnerabilityProbability" in hail_score_data:
-                flattened["hail_vulnerability_probability"] = hail_score_data["vulnerabilityProbability"]
-            if "vulnerabilityRateFactor" in hail_score_data:
-                flattened["hail_vulnerability_rate_factor"] = hail_score_data["vulnerabilityRateFactor"]
-            if "riskScore" in hail_score_data:
-                flattened["hail_risk_score"] = hail_score_data["riskScore"]
-            if "riskRateFactor" in hail_score_data:
-                flattened["hail_risk_rate_factor"] = hail_score_data["riskRateFactor"]
-            if "femaAnnualHailFrequency" in hail_score_data:
-                flattened["hail_fema_annual_frequency"] = hail_score_data["femaAnnualHailFrequency"]
-            if "modelVersion" in hail_score_data:
-                flattened["hail_score_model_version"] = hail_score_data["modelVersion"]
-
-        # Handle wildfireScore - check both camelCase and snake_case versions
-        wildfire_raw = roof.get("wildfireScore") or roof.get("wildfire_score")
-        wildfire_score_data = _parse_include_param(wildfire_raw)
-        if wildfire_score_data:
-            if "vulnerabilityScore" in wildfire_score_data:
-                flattened["wildfire_vulnerability_score"] = wildfire_score_data["vulnerabilityScore"]
-            if "vulnerabilityProbability" in wildfire_score_data:
-                flattened["wildfire_vulnerability_probability"] = wildfire_score_data["vulnerabilityProbability"]
-            if "vulnerabilityRateFactor" in wildfire_score_data:
-                flattened["wildfire_vulnerability_rate_factor"] = wildfire_score_data["vulnerabilityRateFactor"]
-            if "femaAnnualWildfireFrequency" in wildfire_score_data:
-                flattened["wildfire_fema_annual_frequency"] = wildfire_score_data["femaAnnualWildfireFrequency"]
-            if "modelVersion" in wildfire_score_data:
-                flattened["wildfire_score_model_version"] = wildfire_score_data["modelVersion"]
-
-        # Handle windHailRiskScore - combined wind+hail risk score
-        wind_hail_raw = roof.get("windHailRiskScore") or roof.get("wind_hail_risk_score")
-        wind_hail_score_data = _parse_include_param(wind_hail_raw)
-        if wind_hail_score_data:
-            if "riskScore" in wind_hail_score_data:
-                flattened["wind_hail_risk_score"] = wind_hail_score_data["riskScore"]
-            if "riskRateFactor" in wind_hail_score_data:
-                flattened["wind_hail_risk_rate_factor"] = wind_hail_score_data["riskRateFactor"]
-            if "modelVersion" in wind_hail_score_data:
-                flattened["wind_hail_risk_score_model_version"] = wind_hail_score_data["modelVersion"]
-
-        # Handle defensibleSpace - check both camelCase and snake_case versions
-        # Use _parse_include_param to handle both dict and JSON string formats
+        # Defensible space has zone-based nesting — handle separately
         defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
         defensible_space_data = _parse_include_param(defensible_raw)
         if defensible_space_data:
@@ -605,7 +588,8 @@ def flatten_roof_attributes(
                         flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
                     # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
             if "modelVersion" in defensible_space_data:
-                flattened["defensible_space_model_version"] = defensible_space_data["modelVersion"]
+                key = "modelVersion"
+                flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
 
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns
