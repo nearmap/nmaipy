@@ -95,7 +95,7 @@ from nmaipy.feature_attributes import (
     flatten_roof_attributes,
 )
 from nmaipy.parcels import (
-    _extract_rsi_from_feature,
+    extract_rsi_from_feature,
     build_parent_lookup,
     link_roofs_to_buildings,
     resolve_footprint_rsi,
@@ -1036,7 +1036,7 @@ def _compute_feature_class_data(
                 rsi_conf = np.full(n_rows, None, dtype=object)
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
                 for i, row in enumerate(roof_records_for_fp):
-                    resolved_rsi = _extract_rsi_from_feature(row)
+                    resolved_rsi = extract_rsi_from_feature(row)
                     if not resolved_rsi:
                         bn_id = _roof_to_building.get(row.get("feature_id"))
                         if bn_id:
@@ -1255,7 +1255,7 @@ def _compute_feature_class_data(
                     for i, pcr_id in enumerate(pcr_ids):
                         roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
                         if roof_row is not None:
-                            resolved_rsi = _extract_rsi_from_feature(roof_row)
+                            resolved_rsi = extract_rsi_from_feature(roof_row)
                             if not resolved_rsi:
                                 # Roof lacks RSI — use Building(New) → BL path (1-hop)
                                 resolved_rsi = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
@@ -1437,7 +1437,7 @@ def _compute_feature_class_data(
                     for i, pcr_id in enumerate(primary_ids):
                         roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
                         if roof_row is not None:
-                            resolved_rsi = _extract_rsi_from_feature(roof_row)
+                            resolved_rsi = extract_rsi_from_feature(roof_row)
                             if not resolved_rsi:
                                 # Roof lacks RSI — traverse BN → BL via parent_id
                                 bn_id = _roof_to_building.get(pcr_id)
@@ -1447,7 +1447,7 @@ def _compute_feature_class_data(
                                         resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
                         else:
                             # No child roof — use BL's own RSI
-                            resolved_rsi = _extract_rsi_from_feature(class_features.iloc[i])
+                            resolved_rsi = extract_rsi_from_feature(class_features.iloc[i])
                         if resolved_rsi:
                             rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
                             rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")

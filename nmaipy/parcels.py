@@ -63,6 +63,7 @@ __all__ = [
     "link_roof_instances_to_roofs",
     "link_roofs_to_buildings",
     "build_parent_lookup",
+    "extract_rsi_from_feature",
     "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
     # Also re-export flattening functions for backwards compatibility
@@ -588,7 +589,7 @@ def link_roofs_to_buildings(
     return rf_gdf, bldg_gdf
 
 
-def _extract_rsi_from_feature(feature) -> dict:
+def extract_rsi_from_feature(feature) -> dict:
     """Extract RSI fields from a feature row, returning a dict or empty dict."""
     rsi_raw = (
         feature.get("roof_spotlight_index")
@@ -648,7 +649,7 @@ def resolve_footprint_rsi(
         or empty dict if no RSI found anywhere in the chain.
     """
     # Check if the feature itself has RSI
-    rsi = _extract_rsi_from_feature(feature)
+    rsi = extract_rsi_from_feature(feature)
     if rsi:
         return rsi
 
@@ -667,7 +668,7 @@ def resolve_footprint_rsi(
         if parent is None:
             break
         if parent.get("class_id") == BUILDING_LIFECYCLE_ID:
-            return _extract_rsi_from_feature(parent)
+            return extract_rsi_from_feature(parent)
         pid = parent.get("parent_id") if hasattr(parent, "get") else getattr(parent, "parent_id", None)
 
     return {}
@@ -752,10 +753,10 @@ def feature_attributes(
             if "geometry_feature" in roof_features.columns:
                 roofs_for_link = roof_features.drop(columns=["geometry_aoi"], errors="ignore").rename(
                     columns={"geometry_feature": "geometry"}
-                )
+                ).set_geometry("geometry")
                 bns_for_link = bn_features.drop(columns=["geometry_aoi"], errors="ignore").rename(
                     columns={"geometry_feature": "geometry"}
-                )
+                ).set_geometry("geometry")
             else:
                 roofs_for_link = roof_features
                 bns_for_link = bn_features
@@ -1014,7 +1015,7 @@ def feature_attributes(
     # IoU-linked Building(New) → Building Lifecycle via parent_id.
     _fp_rsi = {}
     if _primary_roof is not None:
-        resolved_rsi = _extract_rsi_from_feature(_primary_roof)
+        resolved_rsi = extract_rsi_from_feature(_primary_roof)
         if not resolved_rsi:
             bn_id = _roof_to_building.get(
                 _primary_roof.get("feature_id")
@@ -1044,7 +1045,7 @@ def feature_attributes(
             else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
         )
         for rf in roof_features.to_dict("records"):
-            resolved_rsi = _extract_rsi_from_feature(rf)
+            resolved_rsi = extract_rsi_from_feature(rf)
             if not resolved_rsi:
                 bn_id = _roof_to_building.get(rf.get("feature_id"))
                 if bn_id:

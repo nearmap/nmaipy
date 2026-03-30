@@ -13,7 +13,7 @@ from nmaipy.constants import (
     ROOF_ID,
 )
 from nmaipy.parcels import (
-    _extract_rsi_from_feature,
+    extract_rsi_from_feature,
     build_parent_lookup,
     resolve_footprint_rsi,
 )
@@ -23,28 +23,28 @@ class TestExtractRsiFromFeature:
     def test_rsi_dict_from_real_roof_row(self, features_rsi_gdf):
         """RSI dict on a real roof row is extracted correctly."""
         roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
-        result = _extract_rsi_from_feature(roof)
+        result = extract_rsi_from_feature(roof)
         assert result["roof_spotlight_index"] == roof["roof_spotlight_index"]["value"]
         assert result["roof_spotlight_index_confidence"] == roof["roof_spotlight_index"]["confidence"]
 
     def test_no_rsi_from_real_bn_row(self, features_rsi_gdf):
         """Building(New) rows have no RSI — returns empty dict."""
         bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
-        assert _extract_rsi_from_feature(bn) == {}
+        assert extract_rsi_from_feature(bn) == {}
 
     def test_nan_rsi(self, features_rsi_gdf):
         """NaN RSI value (e.g. after DataFrame merge) — returns empty dict."""
         bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
         feature = bn.copy()
         feature["roof_spotlight_index"] = float("nan")
-        assert _extract_rsi_from_feature(feature) == {}
+        assert extract_rsi_from_feature(feature) == {}
 
     def test_none_rsi(self, features_rsi_gdf):
         """None RSI value — returns empty dict."""
         bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
         feature = bn.copy()
         feature["roof_spotlight_index"] = None
-        assert _extract_rsi_from_feature(feature) == {}
+        assert extract_rsi_from_feature(feature) == {}
 
     def test_json_string_rsi(self, features_rsi_gdf):
         """RSI as JSON string (Parquet roundtrip) — parsed and extracted correctly."""
@@ -52,7 +52,7 @@ class TestExtractRsiFromFeature:
         feature = roof.copy()
         expected_value = roof["roof_spotlight_index"]["value"]
         feature["roof_spotlight_index"] = json.dumps({"value": expected_value, "confidence": 0.6})
-        result = _extract_rsi_from_feature(feature)
+        result = extract_rsi_from_feature(feature)
         assert result["roof_spotlight_index"] == expected_value
 
     def test_model_version_propagated(self, features_rsi_gdf):
@@ -60,7 +60,7 @@ class TestExtractRsiFromFeature:
         roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
         feature = roof.copy()
         feature["roof_spotlight_index"] = {"value": 85, "confidence": 0.7, "modelVersion": "v2"}
-        result = _extract_rsi_from_feature(feature)
+        result = extract_rsi_from_feature(feature)
         assert result["roof_spotlight_index"] == 85, "value not extracted"
         assert result["roof_spotlight_index_confidence"] == 0.7, "confidence not extracted"
         assert result["roof_spotlight_index_model_version"] == "v2", "modelVersion not propagated"
@@ -68,7 +68,7 @@ class TestExtractRsiFromFeature:
     def test_model_version_absent(self, features_rsi_gdf):
         """modelVersion absent from RSI dict — key not present in result."""
         roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
-        result = _extract_rsi_from_feature(roof)
+        result = extract_rsi_from_feature(roof)
         assert "roof_spotlight_index_model_version" not in result, "key should not be present when modelVersion absent"
 
 
