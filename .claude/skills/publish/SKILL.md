@@ -32,8 +32,9 @@ Execute these steps in order, stopping if any step fails:
    - If any files were reformatted, stage them and present a suggested commit message for user review
    - This ensures consistent formatting before release
 
-4. **Run test suite**
-   - Run `pytest` and verify all tests pass
+4. **Run test suite (including live API)**
+   - Run `pytest` (all tests, including live API — requires `API_KEY` env var) and verify all tests pass
+   - A release must pass the full test suite, not just the non-live subset
    - If tests fail, attempt to fix failures where appropriate (obvious bugs, missing imports, etc.)
    - Stage any fixes and present a suggested commit message for user review
    - If fixes require user decision or failures are unclear, report and ask how to proceed

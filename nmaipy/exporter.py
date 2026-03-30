@@ -609,29 +609,27 @@ def _compute_all_per_class_data(
     aoi_input_columns: list,
     whitelisted_classes: list = None,
     logger_instance=None,
-    all_features_gdf: gpd.GeoDataFrame = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
-    Handles cross-class data preparation (roof linkage, roof attrs cache) once,
+    Handles cross-class data preparation (roof linkage, roof attrs cache, IoU linkage) once,
     then calls _compute_feature_class_data() for each class. Returns a dict of
     {class_id: {"tabular": pa.Table, "geo": pa.Table}}.
 
     This is the shared core used by both process_chunk() (in-memory path) and
     _merge_per_class_chunks() (fallback recomputation path).
-
-    Args:
-        all_features_gdf: Optional GeoDataFrame including deprecated features for
-            parent_id chain traversal (e.g. Roof → Deprecated Building → Building Lifecycle).
-            If None, chunk_gdf is used.
     """
     if whitelisted_classes is None:
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
     _log = logger_instance or logger
-    # Use all_features_gdf (includes deprecated) for cross-class lookups if provided
-    cross_class_gdf = all_features_gdf if all_features_gdf is not None else chunk_gdf
+    cross_class_gdf = chunk_gdf
 
     chunk_class_ids = set(chunk_gdf["class_id"].dropna().unique()) if "class_id" in chunk_gdf.columns else set()
+
+    # Build parent lookup once for all classes in this chunk
+    shared_parent_lookup = (
+        build_parent_lookup(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
+    )
 
     # Build class_descriptions from chunk data
     chunk_class_descriptions = {}
@@ -650,6 +648,7 @@ def _compute_all_per_class_data(
     non_roof_chunk = None
     roof_attrs_cache_chunk = None
 
+    roof_to_building_lookup = {}
     has_dependent = any(c in chunk_class_ids for c in dependent_class_ids)
     if has_dependent:
         if ROOF_ID in chunk_class_ids:
@@ -661,6 +660,22 @@ def _compute_all_per_class_data(
         else:
             roof_instance_chunk = gpd.GeoDataFrame()
         non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
+
+        # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
+        # Roof's API parent_id points to Building(Deprecated) which is filtered out;
+        # the correct path to BL is Roof →(IoU)→ Building(New) →(parent_id)→ BL.
+        if len(roof_features_chunk) > 0 and BUILDING_NEW_ID in chunk_class_ids:
+            building_new_chunk = chunk_gdf[chunk_gdf["class_id"] == BUILDING_NEW_ID]
+            if len(building_new_chunk) > 0:
+                roofs_linked_chunk, _ = link_roofs_to_buildings(roof_features_chunk, building_new_chunk)
+                roof_to_building_lookup = {
+                    fid: bid
+                    for fid, bid in zip(
+                        roofs_linked_chunk["feature_id"].values,
+                        roofs_linked_chunk["parent_building_id"].values,
+                    )
+                    if pd.notna(bid)
+                }
 
         # Compute roof attrs cache
         if ROOF_ID in whitelisted_classes and roof_features_chunk is not None and len(roof_features_chunk) > 0:
@@ -710,6 +725,8 @@ def _compute_all_per_class_data(
                 non_roof_features=non_roof_chunk,
                 roof_instance_features=roof_instance_chunk,
                 roof_attrs_cache=roof_attrs_cache_chunk,
+                parent_lookup=shared_parent_lookup,
+                roof_to_building_lookup=roof_to_building_lookup,
             )
         except Exception as e:
             _log.error(f"Per-class export failed for {desc}: {e}")
@@ -740,6 +757,8 @@ def _compute_feature_class_data(
     non_roof_features: gpd.GeoDataFrame = None,
     roof_instance_features: gpd.GeoDataFrame = None,
     roof_attrs_cache: dict = None,
+    parent_lookup: dict = None,
+    roof_to_building_lookup: dict = None,
 ) -> tuple:
     """
     Compute the flat attribute DataFrame and GeoDataFrame for a single feature class.
@@ -771,8 +790,13 @@ def _compute_feature_class_data(
     if len(class_features) == 0:
         return (None, None)
 
-    # Build parent lookup once for all RSI resolution in this function
-    p_lookup = build_parent_lookup(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {}
+    # Use pre-built parent lookup if provided (avoids rebuilding per class)
+    p_lookup = (
+        parent_lookup
+        if parent_lookup is not None
+        else (build_parent_lookup(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
+    )
+    _roof_to_building = roof_to_building_lookup or {}
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
     # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
@@ -1012,10 +1036,16 @@ def _compute_feature_class_data(
                 rsi_conf = np.full(n_rows, None, dtype=object)
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
                 for i, row in enumerate(roof_records_for_fp):
-                    fp = resolve_footprint_rsi(row, parent_lookup=p_lookup)
-                    if fp:
-                        rsi_vals[i] = fp.get("roof_spotlight_index")
-                        rsi_conf[i] = fp.get("roof_spotlight_index_confidence")
+                    resolved_rsi = _extract_rsi_from_feature(row)
+                    if not resolved_rsi:
+                        bn_id = _roof_to_building.get(row.get("feature_id"))
+                        if bn_id:
+                            bn_row = p_lookup.get(bn_id)
+                            if bn_row is not None:
+                                resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                    if resolved_rsi:
+                        rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
+                        rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
 
                 if any(v is not None for v in rsi_vals):
                     # Overwrite roof_spotlight_index in existing df_parts
@@ -1176,12 +1206,14 @@ def _compute_feature_class_data(
                         if "roof_spotlight_index" in attrs:
                             rsi_lookup[fid] = attrs["roof_spotlight_index"]
                         else:
-                            # Try BL fallback for this roof
-                            roof_row = p_lookup.get(fid)
-                            if roof_row is not None:
-                                fp = resolve_footprint_rsi(roof_row, parent_lookup=p_lookup)
-                                if fp and "roof_spotlight_index" in fp:
-                                    rsi_lookup[fid] = fp["roof_spotlight_index"]
+                            # Try BL fallback via IoU-linked Building(New) → BL
+                            bn_id = _roof_to_building.get(fid)
+                            if bn_id:
+                                bn_row = p_lookup.get(bn_id)
+                                if bn_row is not None:
+                                    resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                                    if resolved_rsi and "roof_spotlight_index" in resolved_rsi:
+                                        rsi_lookup[fid] = resolved_rsi["roof_spotlight_index"]
 
                     if rsi_lookup:
                         n_buildings = len(buildings_linked)
@@ -1214,7 +1246,7 @@ def _compute_feature_class_data(
 
                 # Resolve best RSI per building.
                 # For each building: resolve via primary child roof (roof's own RSI first,
-                # then BL fallback via parent chain), same logic as the per-roof resolution.
+                # then BL fallback via Building(New) → BL parent_id), same logic as per-roof.
                 if roof_attrs:
                     rsi_vals = np.full(n_rows, None, dtype=object)
                     rsi_conf = np.full(n_rows, None, dtype=object)
@@ -1223,13 +1255,16 @@ def _compute_feature_class_data(
                     for i, pcr_id in enumerate(pcr_ids):
                         roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
                         if roof_row is not None:
-                            fp = resolve_footprint_rsi(roof_row, parent_lookup=p_lookup)
+                            resolved_rsi = _extract_rsi_from_feature(roof_row)
+                            if not resolved_rsi:
+                                # Roof lacks RSI — use Building(New) → BL path (1-hop)
+                                resolved_rsi = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
                         else:
-                            # No child roof — try building's own parent chain to BL
-                            fp = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
-                        if fp:
-                            rsi_vals[i] = fp.get("roof_spotlight_index")
-                            rsi_conf[i] = fp.get("roof_spotlight_index_confidence")
+                            # No child roof — traverse Building(New) → BL directly
+                            resolved_rsi = resolve_footprint_rsi(buildings_linked.iloc[i], parent_lookup=p_lookup)
+                        if resolved_rsi:
+                            rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
+                            rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
 
                     if any(v is not None for v in rsi_vals):
                         rsi_batch = {}
@@ -1306,31 +1341,25 @@ def _compute_feature_class_data(
             if damage_batch:
                 df_parts.append(pd.DataFrame(damage_batch, index=range(n_rows)))
 
-        # Link child roofs to building lifecycles via parent_id chain.
-        # Chain: Roof → Building (Deprecated) → BL (via parent_id at each hop).
-        # For each BL, find the largest roof whose parent chain leads to it.
+        # Link child roofs to building lifecycles via IoU-based Roof→BN→BL chain.
+        # Chain: Roof →(IoU)→ Building(New) →(parent_id)→ BL.
+        # For each BL, find the largest roof whose IoU-linked BN leads to it.
         try:
             roofs = (
                 roof_features.copy()
                 if roof_features is not None
                 else features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
             )
-            if len(roofs) > 0 and "parent_id" in roofs.columns:
-                # Map each roof to its ancestor BL via parent_id chain
+            if len(roofs) > 0:
+                # Map each roof to its ancestor BL via IoU-linked Building(New)
                 roof_to_bl = {}
-                for _, roof_row in roofs.iterrows():
-                    visited = set()
-                    pid = roof_row.get("parent_id")
-                    while pd.notna(pid) and pid not in visited:
-                        visited.add(pid)
-                        parent = p_lookup.get(pid)
-                        if parent is None:
-                            break
-                        if parent.get("class_id") == BUILDING_LIFECYCLE_ID:
-                            bl_fid = parent.get("feature_id")
-                            roof_to_bl[roof_row["feature_id"]] = bl_fid
-                            break
-                        pid = parent.get("parent_id") if hasattr(parent, "get") else getattr(parent, "parent_id", None)
+                for roof_fid, bn_id in _roof_to_building.items():
+                    if bn_id:
+                        bn_row = p_lookup.get(bn_id)
+                        if bn_row is not None:
+                            bl_fid = bn_row.get("parent_id") if hasattr(bn_row, "get") else getattr(bn_row, "parent_id", None)
+                            if bl_fid:
+                                roof_to_bl[roof_fid] = bl_fid
 
                 # Group roofs by their BL and pick the largest as primary
                 bl_to_roofs = {}
@@ -1397,30 +1426,38 @@ def _compute_feature_class_data(
                     if roof_attr_batch:
                         df_parts.append(pd.DataFrame(roof_attr_batch, index=range(n_rows)))
 
-                    # Resolve footprint RSI: primary child roof first, then BL's own
-                    fp_rsi_vals = np.full(n_rows, None, dtype=object)
-                    fp_rsi_conf = np.full(n_rows, None, dtype=object)
+                    # Resolve footprint RSI: primary child roof first (IoU-linked via BN),
+                    # then fall back to BL's own RSI.
+                    rsi_vals = np.full(n_rows, None, dtype=object)
+                    rsi_conf = np.full(n_rows, None, dtype=object)
                     for i, pcr_id in enumerate(primary_ids):
                         roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
                         if roof_row is not None:
-                            fp = resolve_footprint_rsi(roof_row, parent_lookup=p_lookup)
+                            resolved_rsi = _extract_rsi_from_feature(roof_row)
+                            if not resolved_rsi:
+                                # Roof lacks RSI — traverse BN → BL via parent_id
+                                bn_id = _roof_to_building.get(pcr_id)
+                                if bn_id:
+                                    bn_row = p_lookup.get(bn_id)
+                                    if bn_row is not None:
+                                        resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
                         else:
                             # No child roof — use BL's own RSI
-                            fp = _extract_rsi_from_feature(class_features.iloc[i])
-                        if fp:
-                            fp_rsi_vals[i] = fp.get("roof_spotlight_index")
-                            fp_rsi_conf[i] = fp.get("roof_spotlight_index_confidence")
+                            resolved_rsi = _extract_rsi_from_feature(class_features.iloc[i])
+                        if resolved_rsi:
+                            rsi_vals[i] = resolved_rsi.get("roof_spotlight_index")
+                            rsi_conf[i] = resolved_rsi.get("roof_spotlight_index_confidence")
 
-                    if any(v is not None for v in fp_rsi_vals):
-                        fp_batch = {}
+                    if any(v is not None for v in rsi_vals):
+                        rsi_batch = {}
                         if "roof_spotlight_index" not in added_cols:
-                            fp_batch["roof_spotlight_index"] = fp_rsi_vals
+                            rsi_batch["roof_spotlight_index"] = rsi_vals
                             added_cols.add("roof_spotlight_index")
                         if "roof_spotlight_index_confidence" not in added_cols:
-                            fp_batch["roof_spotlight_index_confidence"] = fp_rsi_conf
+                            rsi_batch["roof_spotlight_index_confidence"] = rsi_conf
                             added_cols.add("roof_spotlight_index_confidence")
-                        if fp_batch:
-                            df_parts.append(pd.DataFrame(fp_batch, index=range(n_rows)))
+                        if rsi_batch:
+                            df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
         except Exception:
             logger.error("Could not link roofs to building lifecycles", exc_info=True)
 
@@ -2597,10 +2634,9 @@ class NearmapAIExporter(BaseExporter):
                     max_allowed_error_pct=100,
                 )
 
-                # Filter out deprecated feature classes early.
-                # Keep unfiltered reference for parent_id chain traversal
-                # Roof -> Building Deprecated -> Building Lifecycle).
-                features_gdf_with_deprecated = features_gdf
+                # Filter out deprecated feature classes. RSI resolution now uses IoU-based
+                # Roof → Building(New) → BL linkage rather than the API's parent_id chain
+                # through Building(Deprecated), so no unfiltered reference is needed.
                 if len(features_gdf) > 0 and "class_id" in features_gdf.columns:
                     pre_filter_count = len(features_gdf)
                     features_gdf = features_gdf[~features_gdf["class_id"].isin(DEPRECATED_CLASS_IDS)]
@@ -2608,6 +2644,13 @@ class NearmapAIExporter(BaseExporter):
                         logger.debug(
                             f"Chunk {chunk_id}: Filtered {pre_filter_count - len(features_gdf)} deprecated features"
                         )
+                # Null Roof parent_id — it previously pointed to Building(Deprecated) which
+                # is now filtered out. Prevents accidental traversal to non-existent features.
+                if len(features_gdf) > 0 and "class_id" in features_gdf.columns and "parent_id" in features_gdf.columns:
+                    roof_mask = features_gdf["class_id"] == ROOF_ID
+                    if roof_mask.any():
+                        features_gdf = features_gdf.copy()
+                        features_gdf.loc[roof_mask, "parent_id"] = None
 
                 used_gb, total_gb = get_memory_info_cgroup_aware()
                 mem_pct = (used_gb / total_gb * 100) if total_gb > 0 else 0.0
@@ -2807,27 +2850,8 @@ class NearmapAIExporter(BaseExporter):
                                         f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
                                     )
 
-                # Rebuild features_gdf_with_deprecated to include roof instances and
-                # linked roof data (primary_child_roof_age_* columns on roofs).
-                # The original reference was captured before roof age processing, so it
-                # lacks roof instance rows and IoU-linked columns that parcel_rollup needs
-                # to generate rollup roof age columns.
-                if self.roof_age and len(features_gdf) > 0:
-                    deprecated_features = features_gdf_with_deprecated[
-                        features_gdf_with_deprecated["class_id"].isin(DEPRECATED_CLASS_IDS)
-                    ]
-                    if len(deprecated_features) > 0:
-                        with warnings.catch_warnings():
-                            warnings.filterwarnings(
-                                "ignore",
-                                message=".*concatenation with empty or all-NA.*",
-                            )
-                            features_gdf_with_deprecated = gpd.GeoDataFrame(
-                                pd.concat([features_gdf, deprecated_features], ignore_index=False),
-                                crs=API_CRS,
-                            )
-                    else:
-                        features_gdf_with_deprecated = features_gdf
+                # features_gdf now includes roof instances (and IoU-linked columns on roofs)
+                # from roof age processing — no rebuild needed.
 
                 # Build API metadata pairs for parcel_rollup: each pair tells
                 # the rollup which classes an API covers and which AOIs it succeeded for.
@@ -2837,13 +2861,11 @@ class NearmapAIExporter(BaseExporter):
                     roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
                     api_metadata.append((roof_age_metadata_df, roof_age_classes))
 
-                # Create rollup — pass features_gdf_with_deprecated so
-                # build_parent_lookup can still traverse legacy parent_id chains
-                # (e.g. Roof → Deprecated Building → BL) alongside the newer
-                # Building New → BL path
+                # RSI resolution uses IoU-based Roof→Building(New)→BL linkage;
+                # Building(Deprecated) has been filtered from features_gdf.
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
-                    features_gdf_with_deprecated,
+                    features_gdf,
                     classes_df,
                     country=self.country,
                     primary_decision=self.primary_decision,
@@ -3118,7 +3140,6 @@ class NearmapAIExporter(BaseExporter):
                         country=self.country,
                         aoi_input_columns=aoi_input_columns,
                         logger_instance=self.logger,
-                        all_features_gdf=features_gdf_with_deprecated,
                     )
 
                     for cid, tables in per_class_results.items():

@@ -195,10 +195,12 @@ BUILDING_NEW_ID = "1878ccf6-46ec-55a7-a20b-0cf658afb755"  # Current semantic bui
 ROOF_ID = "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
 BUILDING_LIFECYCLE_ID = "91987430-6739-5e16-b92f-b830dd7d52a6"  # damage scores are attached to this class
 BUILDING_UNDER_CONSTRUCTION_ID = "4794d3ec-0ee7-5def-ad56-f82ff7639bce"
+FLAT_DEPRECATED_ROOF_ID = "224f98d3-b853-542a-8b18-e1e46e3a8200"  # DEPRECATED: Replaced by CLASS_1191_FLAT
 
-# Deprecated class IDs - filtered out early in processing
+# Deprecated class IDs - filtered out early in processing, before any saved chunk files
 DEPRECATED_CLASS_IDS = [
     BUILDING_ID,  # Replaced by BUILDING_NEW_ID
+    FLAT_DEPRECATED_ROOF_ID,  # Replaced by CLASS_1191_FLAT
 ]
 
 # Roof Instance - a temporal slice of a roof from the Roof Age API
@@ -256,7 +258,6 @@ METAL_ROOF_ID = "4424186a-0b42-5608-a5a0-d4432695c260"
 TILE_ROOF_ID = "516fdfd5-0be9-59fe-b849-92faef8ef26e"
 SHINGLE_ROOF_ID = "4bbf8dbd-cc81-5773-961f-0121101422be"
 
-FLAT_DEPRECATED_ROOF_ID = "224f98d3-b853-542a-8b18-e1e46e3a8200"
 HIP_ROOF_ID = "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9"
 GABLE_ROOF_ID = "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2"
 DUTCH_GABLE_ROOF_ID = "3719eb40-d6d1-5071-bbe6-379a551bb65f"

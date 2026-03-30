@@ -5,10 +5,8 @@ import json
 import geopandas as gpd
 import pandas as pd
 import pytest
-from shapely.geometry import box
 
 from nmaipy.constants import (
-    AOI_ID_COLUMN_NAME,
     BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
@@ -21,210 +19,117 @@ from nmaipy.parcels import (
 )
 
 
-def _make_features_gdf(features: list) -> gpd.GeoDataFrame:
-    """Helper to create a GeoDataFrame from a list of feature dicts."""
-    df = gpd.GeoDataFrame(features, geometry="geometry", crs="EPSG:4326")
-    if AOI_ID_COLUMN_NAME in df.columns:
-        df = df.set_index(AOI_ID_COLUMN_NAME)
-    return df
-
-
-def _make_roof(feature_id="roof-1", parent_id="bldg-dep-1", rsi=None, aoi_id="aoi-1"):
-    """Create a roof feature dict."""
-    f = {
-        AOI_ID_COLUMN_NAME: aoi_id,
-        "feature_id": feature_id,
-        "class_id": ROOF_ID,
-        "description": "Roof",
-        "parent_id": parent_id,
-        "confidence": 0.9,
-        "fidelity": 0.8,
-        "area_sqm": 100.0,
-        "clipped_area_sqm": 100.0,
-        "unclipped_area_sqm": 100.0,
-        "area_sqft": 1076.0,
-        "clipped_area_sqft": 1076.0,
-        "unclipped_area_sqft": 1076.0,
-        "geometry": box(-74.275, 40.642, -74.274, 40.643),
-        "roof_spotlight_index": rsi,
-    }
-    return f
-
-
-def _make_building_deprecated(feature_id="bldg-dep-1", parent_id="bl-1", aoi_id="aoi-1"):
-    """Create a Building (Deprecated) feature dict."""
-    return {
-        AOI_ID_COLUMN_NAME: aoi_id,
-        "feature_id": feature_id,
-        "class_id": BUILDING_ID,
-        "description": "Building (Deprecated)",
-        "parent_id": parent_id,
-        "confidence": 0.9,
-        "fidelity": 0.8,
-        "area_sqm": 100.0,
-        "clipped_area_sqm": 100.0,
-        "unclipped_area_sqm": 100.0,
-        "area_sqft": 1076.0,
-        "clipped_area_sqft": 1076.0,
-        "unclipped_area_sqft": 1076.0,
-        "geometry": box(-74.275, 40.642, -74.274, 40.643),
-        "roof_spotlight_index": None,
-    }
-
-
-def _make_building_lifecycle(feature_id="bl-1", rsi=None, aoi_id="aoi-1"):
-    """Create a Building Lifecycle feature dict."""
-    return {
-        AOI_ID_COLUMN_NAME: aoi_id,
-        "feature_id": feature_id,
-        "class_id": BUILDING_LIFECYCLE_ID,
-        "description": "Building lifecycle",
-        "parent_id": None,
-        "confidence": 0.9,
-        "fidelity": 0.8,
-        "area_sqm": 110.0,
-        "clipped_area_sqm": 110.0,
-        "unclipped_area_sqm": 110.0,
-        "area_sqft": 1184.0,
-        "clipped_area_sqft": 1184.0,
-        "unclipped_area_sqft": 1184.0,
-        "geometry": box(-74.2755, 40.6415, -74.2735, 40.6435),
-        "roof_spotlight_index": rsi,
-    }
-
-
-def _make_building_new(feature_id="bldg-new-1", parent_id="bl-1", aoi_id="aoi-1"):
-    """Create a Building (New) feature dict."""
-    return {
-        AOI_ID_COLUMN_NAME: aoi_id,
-        "feature_id": feature_id,
-        "class_id": BUILDING_NEW_ID,
-        "description": "Building",
-        "parent_id": parent_id,
-        "confidence": 0.9,
-        "fidelity": 0.8,
-        "area_sqm": 100.0,
-        "clipped_area_sqm": 100.0,
-        "unclipped_area_sqm": 100.0,
-        "area_sqft": 1076.0,
-        "clipped_area_sqft": 1076.0,
-        "unclipped_area_sqft": 1076.0,
-        "geometry": box(-74.275, 40.642, -74.274, 40.643),
-        "roof_spotlight_index": None,
-    }
-
-
-# --- Unit tests for _extract_rsi_from_feature ---
-
-
 class TestExtractRsiFromFeature:
-    def test_dict_format(self):
-        """RSI as a dict (fresh from API)."""
-        feature = {"roof_spotlight_index": {"value": 85, "confidence": 0.7}}
-        result = _extract_rsi_from_feature(feature)
-        assert result["roof_spotlight_index"] == 85
-        assert result["roof_spotlight_index_confidence"] == 0.7
+    def test_rsi_dict_from_real_roof_row(self, features_rsi_gdf):
+        """RSI dict on a real roof row is extracted correctly."""
+        roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
+        result = _extract_rsi_from_feature(roof)
+        assert result["roof_spotlight_index"] == roof["roof_spotlight_index"]["value"]
+        assert result["roof_spotlight_index_confidence"] == roof["roof_spotlight_index"]["confidence"]
 
-    def test_none(self):
-        """No RSI on feature."""
-        feature = {"roof_spotlight_index": None}
+    def test_no_rsi_from_real_bn_row(self, features_rsi_gdf):
+        """Building(New) rows have no RSI — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        assert _extract_rsi_from_feature(bn) == {}
+
+    def test_nan_rsi(self, features_rsi_gdf):
+        """NaN RSI value (e.g. after DataFrame merge) — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        feature = bn.copy()
+        feature["roof_spotlight_index"] = float("nan")
         assert _extract_rsi_from_feature(feature) == {}
 
-    def test_nan(self):
-        """NaN RSI (from DataFrame)."""
-        feature = {"roof_spotlight_index": float("nan")}
+    def test_none_rsi(self, features_rsi_gdf):
+        """None RSI value — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        feature = bn.copy()
+        feature["roof_spotlight_index"] = None
         assert _extract_rsi_from_feature(feature) == {}
 
-    def test_json_string(self):
-        """RSI as JSON string (from Parquet roundtrip)."""
-        feature = {"roof_spotlight_index": json.dumps({"value": 90, "confidence": 0.6})}
+    def test_json_string_rsi(self, features_rsi_gdf):
+        """RSI as JSON string (Parquet roundtrip) — parsed and extracted correctly."""
+        roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
+        feature = roof.copy()
+        expected_value = roof["roof_spotlight_index"]["value"]
+        feature["roof_spotlight_index"] = json.dumps({"value": expected_value, "confidence": 0.6})
         result = _extract_rsi_from_feature(feature)
-        assert result["roof_spotlight_index"] == 90
+        assert result["roof_spotlight_index"] == expected_value
 
-    def test_series(self):
-        """RSI from a pandas Series (as in GeoDataFrame row)."""
-        s = pd.Series({"roof_spotlight_index": {"value": 75, "confidence": 0.5}})
-        result = _extract_rsi_from_feature(s)
-        assert result["roof_spotlight_index"] == 75
+    def test_model_version_propagated(self, features_rsi_gdf):
+        """modelVersion in RSI dict is propagated to roof_spotlight_index_model_version."""
+        roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
+        feature = roof.copy()
+        feature["roof_spotlight_index"] = {"value": 85, "confidence": 0.7, "modelVersion": "v2"}
+        result = _extract_rsi_from_feature(feature)
+        assert result["roof_spotlight_index"] == 85, "value not extracted"
+        assert result["roof_spotlight_index_confidence"] == 0.7, "confidence not extracted"
+        assert result["roof_spotlight_index_model_version"] == "v2", "modelVersion not propagated"
 
-
-# --- Unit tests for resolve_footprint_rsi ---
+    def test_model_version_absent(self, features_rsi_gdf):
+        """modelVersion absent from RSI dict — key not present in result."""
+        roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
+        result = _extract_rsi_from_feature(roof)
+        assert "roof_spotlight_index_model_version" not in result, "key should not be present when modelVersion absent"
 
 
 class TestResolveFootprintRsi:
-    def test_roof_has_rsi(self):
-        """Roof has RSI directly — returns it without traversing."""
-        rsi = {"value": 88, "confidence": 0.6}
-        roof = _make_roof(rsi=rsi)
-        features = _make_features_gdf([roof])
-        result = resolve_footprint_rsi(pd.Series(roof), features)
-        assert result["roof_spotlight_index"] == 88
-        assert result["roof_spotlight_index_confidence"] == 0.6
+    def test_roof_has_rsi_returns_directly(self, features_rsi_gdf):
+        """Roof row with RSI — returned without any parent traversal."""
+        roof = features_rsi_gdf[features_rsi_gdf["class_id"] == ROOF_ID].iloc[0]
+        expected = roof["roof_spotlight_index"]["value"]
+        result = resolve_footprint_rsi(roof, parent_lookup={})
+        assert result["roof_spotlight_index"] == expected, "roof's own RSI should be returned"
 
-    def test_rsi_on_building_lifecycle(self):
-        """Roof has no RSI, BL grandparent does — returns BL's RSI."""
-        rsi = {"value": 42, "confidence": 0.8}
-        roof = _make_roof(rsi=None)
-        bldg_dep = _make_building_deprecated()
-        bl = _make_building_lifecycle(rsi=rsi)
-        features = _make_features_gdf([roof, bldg_dep, bl])
-        result = resolve_footprint_rsi(pd.Series(roof), features)
-        assert result["roof_spotlight_index"] == 42
+    def test_bn_to_bl_one_hop(self, features_rsi_gdf):
+        """Building(New) with no RSI resolves 1-hop to Building Lifecycle."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        bdep = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_ID].iloc[0]
+        # Use BDep row as BL template: real column structure, correct class_id/feature_id
+        bl = bdep.copy()
+        bl["class_id"] = BUILDING_LIFECYCLE_ID
+        bl["feature_id"] = bn["parent_id"]  # BN's parent_id points to BL
+        bl["parent_id"] = None
+        bl["roof_spotlight_index"] = {"value": 42, "confidence": 0.8}
+        parent_lookup = {bl["feature_id"]: bl}
+        result = resolve_footprint_rsi(bn, parent_lookup=parent_lookup)
+        assert result["roof_spotlight_index"] == 42, "BL RSI should be returned via 1-hop"
         assert result["roof_spotlight_index_confidence"] == 0.8
 
-    def test_neither_has_rsi(self):
-        """Neither roof nor BL has RSI."""
-        roof = _make_roof(rsi=None)
-        bldg_dep = _make_building_deprecated()
-        bl = _make_building_lifecycle(rsi=None)
-        features = _make_features_gdf([roof, bldg_dep, bl])
-        result = resolve_footprint_rsi(pd.Series(roof), features)
+    def test_bn_no_bl_in_lookup(self, features_rsi_gdf):
+        """Building(New) with no RSI and no BL in lookup — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        result = resolve_footprint_rsi(bn, parent_lookup={})
+        assert result == {}, "no BL in lookup should yield empty dict"
+
+    def test_broken_parent_chain(self, features_rsi_gdf):
+        """parent_id references a feature not in lookup — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        feature = bn.copy()
+        feature["parent_id"] = "nonexistent-feature-id"
+        result = resolve_footprint_rsi(feature, parent_lookup={})
+        assert result == {}, "missing parent_id target should yield empty dict"
+
+    def test_empty_features_gdf(self, features_rsi_gdf):
+        """Empty features GDF — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        result = resolve_footprint_rsi(bn, gpd.GeoDataFrame())
         assert result == {}
 
-    def test_no_bl_in_features(self):
-        """Only roof, no BL features — returns empty."""
-        roof = _make_roof(rsi=None)
-        features = _make_features_gdf([roof])
-        result = resolve_footprint_rsi(pd.Series(roof), features)
+    def test_none_features_gdf(self, features_rsi_gdf):
+        """None features GDF — returns empty dict."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        result = resolve_footprint_rsi(bn, None)
         assert result == {}
 
-    def test_broken_parent_chain(self):
-        """Parent_id points to feature not in GDF — returns empty."""
-        roof = _make_roof(rsi=None, parent_id="missing-id")
-        bl = _make_building_lifecycle(rsi={"value": 50, "confidence": 0.9})
-        features = _make_features_gdf([roof, bl])
-        result = resolve_footprint_rsi(pd.Series(roof), features)
-        assert result == {}
-
-    def test_building_new_one_hop(self):
-        """Building (New) → parent_id → BL (1 hop)."""
-        rsi = {"value": 60, "confidence": 0.7}
-        bldg = _make_building_new(parent_id="bl-1")
-        bl = _make_building_lifecycle(rsi=rsi)
-        features = _make_features_gdf([bldg, bl])
-        result = resolve_footprint_rsi(pd.Series(bldg), features)
-        assert result["roof_spotlight_index"] == 60
-
-    def test_with_parent_lookup(self):
-        """Using pre-built parent_lookup for performance."""
-        rsi = {"value": 77, "confidence": 0.55}
-        roof = _make_roof(rsi=None)
-        bldg_dep = _make_building_deprecated()
-        bl = _make_building_lifecycle(rsi=rsi)
-        features = _make_features_gdf([roof, bldg_dep, bl])
-        lookup = build_parent_lookup(features)
-        result = resolve_footprint_rsi(pd.Series(roof), parent_lookup=lookup)
+    def test_prebuilt_lookup_used_for_bl_fallback(self, features_rsi_gdf):
+        """Pre-built parent_lookup reused across calls — correct BL RSI resolved."""
+        bn = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_NEW_ID].iloc[0]
+        bdep = features_rsi_gdf[features_rsi_gdf["class_id"] == BUILDING_ID].iloc[0]
+        bl = bdep.copy()
+        bl["class_id"] = BUILDING_LIFECYCLE_ID
+        bl["feature_id"] = bn["parent_id"]
+        bl["parent_id"] = None
+        bl["roof_spotlight_index"] = {"value": 77, "confidence": 0.55}
+        lookup = {bl["feature_id"]: bl}
+        result = resolve_footprint_rsi(bn, parent_lookup=lookup)
         assert result["roof_spotlight_index"] == 77
-
-    def test_empty_features_gdf(self):
-        """Empty features GDF — returns empty."""
-        roof = _make_roof(rsi=None)
-        features = gpd.GeoDataFrame()
-        result = resolve_footprint_rsi(pd.Series(roof), features)
-        assert result == {}
-
-    def test_none_features_gdf(self):
-        """None features GDF — returns empty."""
-        roof = _make_roof(rsi=None)
-        result = resolve_footprint_rsi(pd.Series(roof), None)
-        assert result == {}
