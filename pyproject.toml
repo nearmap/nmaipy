@@ -28,6 +28,7 @@ classifiers = [
 keywords = ["nearmap", "ai", "geospatial", "gis", "aerial", "imagery", "buildings", "vegetation"]
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.40.0",
     "fsspec>=2025.3.0",
     "geopandas>=1.1.1",
     "numpy>=2.3.5",
