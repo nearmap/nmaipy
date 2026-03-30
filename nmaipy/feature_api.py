@@ -21,7 +21,6 @@ import pandas as pd
 import requests
 import shapely.geometry
 import stringcase
-from requests.adapters import HTTPAdapter
 from shapely.geometry import MultiPolygon, Polygon, shape
 
 from nmaipy import geometry_utils, log, storage
@@ -43,7 +42,6 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     AREA_CRS,
-    BACKOFF_FACTOR,
     BACKOFF_MAX,
     CHUNKED_ENCODING_RETRY_DELAY,
     CONNECTED_CLASS_IDS,
@@ -211,46 +209,14 @@ class FeatureApi(GriddedApiClient):
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
-        """Context manager for session lifecycle - creates fresh session each time to prevent accumulation"""
-        # Always create a fresh session to prevent resource accumulation
-        session = requests.Session()
+        """Context manager for session lifecycle — delegates to base class with appropriate retry config.
 
-        # Configure retries based on context: skip 504 retries initially, retry within gridding
+        Outside gridding: don't retry on 504 (let it trigger gridding instead).
+        Inside gridding: retry on 504 (grid cells should persist through timeouts).
+        """
         status_forcelist = self.RETRY_STATUS_CODES_WITH_TIMEOUT if in_gridding_mode else self.RETRY_STATUS_CODES_BASE
-
-        retries = RetryRequest(
-            total=self.maxretry,
-            backoff_factor=BACKOFF_FACTOR,
-            status_forcelist=status_forcelist,
-            allowed_methods=["GET", "POST"],
-            raise_on_status=False,
-            connect=self.maxretry,
-            read=self.maxretry,
-            redirect=self.maxretry,
-        )
-        # Dynamic pool sizing: match pool size to thread count to prevent blocking
-        # Min 10 for basic concurrency, max 50 to prevent file handle exhaustion
-        pool_size = min(max(self.threads, 10), 50)
-        adapter = HTTPAdapter(
-            max_retries=retries,
-            pool_maxsize=pool_size,
-            pool_connections=pool_size,
-            pool_block=True,
-        )
-        session.mount("https://", adapter)
-
-        # Store timeout for use in requests (connect timeout, read timeout)
-        # Note: session.timeout is not a real attribute - we need to pass timeout to each request
-        session._timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
-
-        try:
+        with super()._session_scope(status_forcelist=status_forcelist) as session:
             yield session
-        finally:
-            # Always close the session to prevent resource leaks
-            try:
-                session.close()
-            except Exception:
-                pass
 
     def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
         """
@@ -1462,22 +1428,30 @@ class FeatureApi(GriddedApiClient):
             df_gridded = df_gridded.set_index(AOI_ID_COLUMN_NAME)
 
             try:
-                # If we are already in a 'gridded' call, then when we call get_features_gdf_bulk
-                # we need to pass in fail_hard_regrid=True so we don't get stuck in an endless loop
-                features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
-                    gdf=df_gridded,
-                    region=region,
-                    packs=packs,
-                    classes=classes,
-                    include=include,
-                    since_bulk=since,
-                    until_bulk=until,
-                    survey_resource_id_bulk=survey_resource_id,
-                    max_allowed_error_pct=100 - self.aoi_grid_min_pct,
-                    fail_hard_regrid=True,
-                    in_gridding_mode=True,
-                    disable_parcel_mode=disable_parcel_mode,
-                )
+                # Detach parent executor so grid cells get their own dedicated executor
+                # and execute immediately. Without this, grid cells queue behind remaining
+                # parcels in the parent executor's FIFO queue, blocking this thread until
+                # the entire parent queue drains — or deadlocking if enough threads are
+                # gridding simultaneously (all threads blocked, no one to process grid cells).
+                saved_executor = getattr(self._thread_local, "executor", None)
+                self._thread_local.executor = None
+                try:
+                    features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
+                        gdf=df_gridded,
+                        region=region,
+                        packs=packs,
+                        classes=classes,
+                        include=include,
+                        since_bulk=since,
+                        until_bulk=until,
+                        survey_resource_id_bulk=survey_resource_id,
+                        max_allowed_error_pct=100 - self.aoi_grid_min_pct,
+                        fail_hard_regrid=True,
+                        in_gridding_mode=True,
+                        disable_parcel_mode=disable_parcel_mode,
+                    )
+                finally:
+                    self._thread_local.executor = saved_executor
             except AIFeatureAPIError as e:
                 logger.debug(
                     f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
