@@ -3,8 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  # Python version - 3.12 or 3.13 (3.14 not yet released)
-  - python >=3.12,<3.14
+  - python >=3.12
 
   # Core geo dependencies with version pins
   - numpy >=2.3.5
@@ -25,7 +24,7 @@ dependencies:
   - stringcase >=1.2.0
 
   # Development tools
-  - ruff >=0.11.13,<0.11.14
+  - ruff >=0.11.13
   - pytest >=9.0.2
   - ipykernel >=7.1.0
   - matplotlib >=3.10.8
