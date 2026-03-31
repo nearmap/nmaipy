@@ -14,6 +14,7 @@ import json
 from typing import Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
@@ -1057,16 +1058,18 @@ def feature_attributes(
     # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
     if len(roof_features) > 0:
         rsi_vals = []
-        rsi_areas = []
         area_col = (
             "clipped_area_sqft"
             if "clipped_area_sqft" in roof_features.columns
             else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
         )
-        for rf in roof_features.to_dict("records"):
+        area_vals = []
+        areas = roof_features[area_col].values if area_col else None
+        for i, feature_id in enumerate(roof_features["feature_id"]):
+            rf = _parent_lookup.get(feature_id) or {}
             resolved_rsi = extract_rsi_from_feature(rf)
             if not resolved_rsi:
-                bn_id = _roof_to_building.get(rf.get("feature_id"))
+                bn_id = _roof_to_building.get(feature_id)
                 if bn_id:
                     bn_row = _parent_lookup.get(bn_id)
                     if bn_row is not None:
@@ -1074,16 +1077,17 @@ def feature_attributes(
             rsi = resolved_rsi.get("roof_spotlight_index") if resolved_rsi else None
             if rsi is not None:
                 rsi_vals.append(rsi)
-                area = rf.get(area_col) if area_col else None
-                area = area if area is not None and pd.notna(area) else 0
-                rsi_areas.append((rsi, area))
+                area = areas[i] if areas is not None else 0
+                area_vals.append(0 if area is None or pd.isna(area) else area)
         if rsi_vals:
-            parcel["roof_spotlight_index_min"] = min(rsi_vals)
-            parcel["roof_spotlight_index_max"] = max(rsi_vals)
-            total_area = sum(a for _, a in rsi_areas)
+            rsi_arr = np.array(rsi_vals)
+            area_arr = np.array(area_vals)
+            parcel["roof_spotlight_index_min"] = float(rsi_arr.min())
+            parcel["roof_spotlight_index_max"] = float(rsi_arr.max())
+            total_area = float(area_arr.sum())
             if total_area > 0:
                 parcel["roof_spotlight_index_area_weighted_mean"] = round(
-                    sum(r * a for r, a in rsi_areas) / total_area, 1
+                    float(np.dot(rsi_arr, area_arr) / total_area), 1
                 )
 
     return parcel

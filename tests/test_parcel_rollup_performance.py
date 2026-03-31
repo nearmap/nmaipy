@@ -78,7 +78,7 @@ def test_gen_perf_fixture(parcels_2_gdf: gpd.GeoDataFrame, cache_directory: Path
 
     roof_age_gdf, _, _ = RoofAgeApi(cache_dir=cache_directory).get_roof_age_bulk(parcels_2_gdf)
 
-    combined = pd.concat([features_gdf, roof_age_gdf], ignore_index=True)
+    combined = pd.concat([features_gdf.reset_index(), roof_age_gdf], ignore_index=True)
     combined.to_csv(PERF_FIXTURE, index=False)
     print(f"\nWrote {len(combined)} feature rows to {PERF_FIXTURE}")
 
