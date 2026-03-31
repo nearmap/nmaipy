@@ -84,6 +84,7 @@ def test_gen_perf_fixture(parcels_2_gdf: gpd.GeoDataFrame, cache_directory: Path
     print(f"\nWrote {len(combined)} feature rows to {PERF_FIXTURE}")
 
 
+@pytest.mark.live_api
 def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
     """
     Full pipeline performance test: API pull (15 threads) → parcel_rollup().
@@ -177,6 +178,7 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
     ), f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
 
 
+@pytest.mark.live_api
 def test_parcel_rollup_performance_au(parcels_gdf: gpd.GeoDataFrame):
     """
     Performance test for AU data — Sydney grid tiles clip many roofs at parcel boundaries,
