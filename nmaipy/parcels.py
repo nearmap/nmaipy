@@ -191,16 +191,16 @@ def calculate_child_feature_attributes(
         else:
             matching_projected = gpd.GeoSeries(matching_features.geometry.values, crs=API_CRS).to_crs(projected_crs)
 
+        mask = matching_projected.notna() & matching_projected.intersects(parent_projected)
         total_intersection_area = 0.0
         max_confidence = None
-        for idx, projected_geom in enumerate(matching_projected):
-            if projected_geom is not None and projected_geom.intersects(parent_projected):
-                intersection = projected_geom.intersection(parent_projected)
-                total_intersection_area += intersection.area
-                feat = matching_features.iloc[idx]
-                if hasattr(feat, "confidence") and feat.confidence is not None:
-                    if max_confidence is None or feat.confidence > max_confidence:
-                        max_confidence = feat.confidence
+        if mask.any():
+            total_intersection_area = matching_projected[mask].intersection(parent_projected).area.sum()
+            if "confidence" in matching_features.columns:
+                conf = matching_features["confidence"].values[mask.values]
+                valid = conf[pd.notna(conf)]
+                if len(valid) > 0:
+                    max_confidence = float(valid.max())
 
         if total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
