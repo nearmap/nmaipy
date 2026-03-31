@@ -243,9 +243,11 @@ class TestUploadFile:
 
         storage.upload_file(str(src), "s3://bucket/key.parquet")
         mock_client.upload_file.assert_called_once_with(
-            str(src), "bucket", "key.parquet", Config=None,
+            str(src),
+            "bucket",
+            "key.parquet",
+            Config=None,
         )
-
 
 
 # ---------------------------------------------------------------------------

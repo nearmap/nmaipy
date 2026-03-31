@@ -97,8 +97,8 @@ from nmaipy.feature_attributes import (
     flatten_roof_attributes,
 )
 from nmaipy.parcels import (
-    extract_rsi_from_feature,
     build_parent_lookup,
+    extract_rsi_from_feature,
     link_roofs_to_buildings,
     resolve_footprint_rsi,
 )

@@ -7,6 +7,7 @@ Run the fixture generator first (remove the skip decorator), then run the perfor
 
 cProfile output (if env var is set) is written to /tmp/nmaipy_profile_parcel_rollup.txt.
 """
+
 import ast
 import cProfile
 import os
@@ -99,8 +100,9 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
         pytest.skip(f"Perf fixture not generated yet — run test_gen_perf_fixture first: {PERF_FIXTURE}")
 
     # --- Load fixture (pre-saved API responses) ---
-    from shapely.wkt import loads as wkt_loads
     import ast
+
+    from shapely.wkt import loads as wkt_loads
 
     raw_df = pd.read_csv(PERF_FIXTURE)
 
@@ -165,12 +167,14 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
     t_rollup_end = time.monotonic()
 
     rollup_s = t_rollup_end - t_rollup_start
-    print(f"parcel_rollup: {rollup_s:.1f}s for {len(parcels_2_gdf)} AOIs  ({rollup_s / len(parcels_2_gdf) * 1000:.1f}ms/AOI)")
+    print(
+        f"parcel_rollup: {rollup_s:.1f}s for {len(parcels_2_gdf)} AOIs  ({rollup_s / len(parcels_2_gdf) * 1000:.1f}ms/AOI)"
+    )
     print(f"rollup_df shape: {rollup_df.shape}")
 
-    assert len(rollup_df) == len(parcels_2_gdf), (
-        f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
-    )
+    assert len(rollup_df) == len(
+        parcels_2_gdf
+    ), f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
 
 
 def test_parcel_rollup_performance_au(parcels_gdf: gpd.GeoDataFrame):

@@ -749,8 +749,10 @@ def feature_attributes(
             _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
 
     # Use pre-built lookup if provided (hoisted by parcel_rollup), else build from per-parcel features
-    _parent_lookup = parent_lookup if parent_lookup is not None else (
-        build_parent_lookup(features_gdf) if len(features_gdf) > 0 else {}
+    _parent_lookup = (
+        parent_lookup
+        if parent_lookup is not None
+        else (build_parent_lookup(features_gdf) if len(features_gdf) > 0 else {})
     )
 
     # Pre-compute IoU-based Roof → Building(New) linkage for BL RSI fallback.
@@ -764,12 +766,16 @@ def feature_attributes(
             # link_roofs_to_buildings accesses row.geometry via iterrows which requires a
             # column named "geometry". Rename geometry_feature → geometry before passing.
             if "geometry_feature" in roof_features.columns:
-                roofs_for_link = roof_features.drop(columns=["geometry_aoi"], errors="ignore").rename(
-                    columns={"geometry_feature": "geometry"}
-                ).set_geometry("geometry")
-                bns_for_link = bn_features.drop(columns=["geometry_aoi"], errors="ignore").rename(
-                    columns={"geometry_feature": "geometry"}
-                ).set_geometry("geometry")
+                roofs_for_link = (
+                    roof_features.drop(columns=["geometry_aoi"], errors="ignore")
+                    .rename(columns={"geometry_feature": "geometry"})
+                    .set_geometry("geometry")
+                )
+                bns_for_link = (
+                    bn_features.drop(columns=["geometry_aoi"], errors="ignore")
+                    .rename(columns={"geometry_feature": "geometry"})
+                    .set_geometry("geometry")
+                )
             else:
                 roofs_for_link = roof_features
                 bns_for_link = bn_features
@@ -1047,7 +1053,9 @@ def feature_attributes(
             _fp_rsi["primary_roof_spotlight_index"] = resolved_rsi.get("roof_spotlight_index")
             _fp_rsi["primary_roof_spotlight_index_confidence"] = resolved_rsi.get("roof_spotlight_index_confidence")
             if "roof_spotlight_index_model_version" in resolved_rsi:
-                _fp_rsi["primary_roof_spotlight_index_model_version"] = resolved_rsi["roof_spotlight_index_model_version"]
+                _fp_rsi["primary_roof_spotlight_index_model_version"] = resolved_rsi[
+                    "roof_spotlight_index_model_version"
+                ]
     parcel.update(_fp_rsi)
     # Remove the raw flattened RSI columns — primary_roof_spotlight_index supersedes them
     parcel.pop("primary_roof_roof_spotlight_index", None)

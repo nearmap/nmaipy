@@ -205,7 +205,7 @@ def file_size(path: str) -> int:
 
 def _parse_s3_uri(uri: str) -> tuple:
     """Split 's3://bucket/key' into (bucket, key)."""
-    without_scheme = uri[len("s3://"):]
+    without_scheme = uri[len("s3://") :]
     bucket, _, key = without_scheme.partition("/")
     return bucket, key
 
@@ -228,7 +228,10 @@ def upload_file(local_path: str, remote_path: str) -> None:
         local_size = Path(local_path).stat().st_size
         config = _LARGE_FILE_TRANSFER_CONFIG if local_size >= _LARGE_FILE_THRESHOLD else None
         _get_s3_boto3_client().upload_file(
-            str(local_path), bucket, key, Config=config,
+            str(local_path),
+            bucket,
+            key,
+            Config=config,
         )
     else:
         if str(local_path) != str(remote_path):

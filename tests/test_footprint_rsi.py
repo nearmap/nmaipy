@@ -13,8 +13,8 @@ from nmaipy.constants import (
     ROOF_ID,
 )
 from nmaipy.parcels import (
-    extract_rsi_from_feature,
     build_parent_lookup,
+    extract_rsi_from_feature,
     resolve_footprint_rsi,
 )
 
