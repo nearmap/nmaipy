@@ -34,9 +34,9 @@ PERF_UNTIL = "2022-06-29"
 PERF_FIXTURE = data_directory / "test_features_perf_nj_building_roof.csv"
 PERF_THREADS = 15
 
-PERF_AU_PACKS = ["building", "building_structures", "roof_char"]
+PERF_AU_PACKS = None  # None = all packs
 PERF_AU_REGION = "au"
-PERF_AU_FIXTURE = data_directory / "test_features_perf_au_building_roof.csv"
+PERF_AU_FIXTURE = data_directory / "test_features_perf_au_all_packs.csv"
 
 
 @pytest.mark.skip("Comment out this line if you wish to regen the AU perf fixture")
