@@ -7,10 +7,12 @@ os.environ.setdefault("PROJ_DEBUG", "OFF")
 import argparse
 import collections
 import concurrent.futures
+import cProfile
 import gc
 import json
 import logging
 import multiprocessing
+import pstats
 import re
 import resource
 import sys
@@ -2560,6 +2562,15 @@ class NearmapAIExporter(BaseExporter):
 
         feature_api = None
         roof_age_api = None
+        final_features_df = None
+        _t_rollup_start = None
+        _t_rollup_end = None
+        _t_post_merge = None
+        _t_features_prep = None
+        _t_features_write = None
+        _t_per_class_start = None
+        _t_per_class_compute = None
+        _t_per_class_writes = None
 
         chunk_start_time = datetime.now(timezone.utc).isoformat()
         chunk_start_monotonic = time.monotonic()
@@ -2896,6 +2907,11 @@ class NearmapAIExporter(BaseExporter):
 
                 # RSI resolution uses IoU-based Roof→Building(New)→BL linkage;
                 # Building(Deprecated) has been filtered from features_gdf.
+                _t_rollup_start = time.monotonic()
+                _profile_chunk = int(os.environ.get("NMAIPY_PROFILE_CHUNK", "-1"))
+                if chunk_id == _profile_chunk:
+                    _pr = cProfile.Profile()
+                    _pr.enable()
                 rollup_df = parcels.parcel_rollup(
                     aoi_gdf,
                     features_gdf,
@@ -2904,6 +2920,13 @@ class NearmapAIExporter(BaseExporter):
                     primary_decision=self.primary_decision,
                     api_metadata=api_metadata,
                 )
+                if chunk_id == _profile_chunk:
+                    _pr.disable()
+                    _profile_path = f"/tmp/nmaipy_profile_chunk_{chunk_id}.txt"
+                    with open(_profile_path, "w") as _pf:
+                        pstats.Stats(_pr, stream=_pf).sort_stats("cumulative").print_stats(40)
+                    self.logger.info(f"CHUNK_PROFILE parcel_rollup stats saved to {_profile_path}")
+                _t_rollup_end = time.monotonic()
 
                 # Add API success columns (Y/N)
                 rollup_df["feature_api_success"] = rollup_df.index.map(
@@ -2970,6 +2993,7 @@ class NearmapAIExporter(BaseExporter):
                 if "query_aoi_lat" in final_df.columns and "query_aoi_lon" in final_df.columns:
                     final_df["link"] = final_df.apply(make_link, axis=1)
                 final_df = final_df.drop(columns=["system_version", "survey_date"])
+            _t_post_merge = time.monotonic()
             self.logger.debug(
                 f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
             )
@@ -3115,6 +3139,7 @@ class NearmapAIExporter(BaseExporter):
 
                         # Save with explicit schema version for better QGIS compatibility
                         # Requires geopandas >= 1.1.0
+                        _t_features_prep = time.monotonic()
                         try:
                             storage.write_parquet(
                                 final_features_df,
@@ -3126,6 +3151,7 @@ class NearmapAIExporter(BaseExporter):
                             # Fallback for older geopandas or pyarrow versions
                             self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
                             storage.write_parquet(final_features_df, outfile_features, index=False)
+                        _t_features_write = time.monotonic()
                     except Exception as e:
                         self.logger.error(
                             f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}."
@@ -3138,7 +3164,6 @@ class NearmapAIExporter(BaseExporter):
             if (
                 self.class_level_files
                 and self.endpoint != Endpoint.ROLLUP.value
-                and "final_features_df" in locals()
                 and final_features_df is not None
                 and len(final_features_df) > 0
             ):
@@ -3168,12 +3193,14 @@ class NearmapAIExporter(BaseExporter):
                         c for c in aoi_gdf.columns if c not in system_columns and c not in ADDRESS_FIELDS
                     ]
 
+                    _t_per_class_start = time.monotonic()
                     per_class_results = _compute_all_per_class_data(
                         chunk_gdf=chunk_gdf,
                         country=self.country,
                         aoi_input_columns=aoi_input_columns,
                         logger_instance=self.logger,
                     )
+                    _t_per_class_compute = time.monotonic()
 
                     for cid, tables in per_class_results.items():
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
@@ -3191,6 +3218,7 @@ class NearmapAIExporter(BaseExporter):
                                     f"{cname}_features_{chunk_id}.parquet",
                                 ),
                             )
+                    _t_per_class_writes = time.monotonic()
                     del chunk_gdf, per_class_results
                 except Exception as e:
                     self.logger.error(f"Per-class chunk export failed for chunk {chunk_id}: {e}")
@@ -3231,6 +3259,34 @@ class NearmapAIExporter(BaseExporter):
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
 
+            _t_rollup_write = time.monotonic()
+
+            # Emit structured timing breakdown for profiling the closeout stage.
+            # Grep for CHUNK_TIMING in the export log to analyse the dead-zone split.
+            # Phases that didn't run (e.g. ROLLUP endpoint skips features; class_level_files=False
+            # skips per-class) report 0.0s because start==end for that segment.
+            if _t_rollup_start is not None:
+                # Build a linear chain: each timer falls back to the previous one so
+                # skipped phases contribute 0s rather than corrupting later deltas.
+                _tp0 = _t_rollup_start
+                _tp1 = _t_rollup_end if _t_rollup_end is not None else _tp0
+                _tp2 = _t_post_merge if _t_post_merge is not None else _tp1
+                _tp3 = _t_features_prep if _t_features_prep is not None else _tp2
+                _tp4 = _t_features_write if _t_features_write is not None else _tp3
+                _tp5 = _t_per_class_start if _t_per_class_start is not None else _tp4
+                _tp6 = _t_per_class_compute if _t_per_class_compute is not None else _tp5
+                _tp7 = _t_per_class_writes if _t_per_class_writes is not None else _tp6
+                self.logger.info(
+                    f"CHUNK_TIMING chunk_id={chunk_id} "
+                    f"parcel_rollup={_tp1 - _tp0:.1f}s "
+                    f"post_rollup_merge={_tp2 - _tp1:.1f}s "
+                    f"features_prep={_tp3 - _tp2:.1f}s "
+                    f"features_write={_tp4 - _tp3:.1f}s "
+                    f"per_class_compute={_tp6 - _tp5:.1f}s "
+                    f"per_class_writes={_tp7 - _tp6:.1f}s "
+                    f"rollup_write={_t_rollup_write - _tp7:.1f}s"
+                )
+
             chunk_end_time = datetime.now(timezone.utc).isoformat()
             total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
             latency_stats = collect_latency_stats_from_apis(
@@ -3251,14 +3307,14 @@ class NearmapAIExporter(BaseExporter):
             raise
         finally:
             # Clean up API clients to close network connections
-            if "feature_api" in locals() and feature_api is not None:
+            if feature_api is not None:
                 try:
                     feature_api.cleanup()
                     del feature_api
                 except Exception:
                     pass
 
-            if "roof_age_api" in locals() and roof_age_api is not None:
+            if roof_age_api is not None:
                 try:
                     roof_age_api.cleanup()
                     del roof_age_api
