@@ -2562,6 +2562,15 @@ class NearmapAIExporter(BaseExporter):
 
         feature_api = None
         roof_age_api = None
+        final_features_df = None
+        _t_rollup_start = None
+        _t_rollup_end = None
+        _t_post_merge = None
+        _t_features_prep = None
+        _t_features_write = None
+        _t_per_class_start = None
+        _t_per_class_compute = None
+        _t_per_class_writes = None
 
         chunk_start_time = datetime.now(timezone.utc).isoformat()
         chunk_start_monotonic = time.monotonic()
@@ -3155,7 +3164,6 @@ class NearmapAIExporter(BaseExporter):
             if (
                 self.class_level_files
                 and self.endpoint != Endpoint.ROLLUP.value
-                and "final_features_df" in locals()
                 and final_features_df is not None
                 and len(final_features_df) > 0
             ):
@@ -3257,18 +3265,17 @@ class NearmapAIExporter(BaseExporter):
             # Grep for CHUNK_TIMING in the export log to analyse the dead-zone split.
             # Phases that didn't run (e.g. ROLLUP endpoint skips features; class_level_files=False
             # skips per-class) report 0.0s because start==end for that segment.
-            if "_t_rollup_start" in locals():
-                _loc = locals()
+            if _t_rollup_start is not None:
                 # Build a linear chain: each timer falls back to the previous one so
                 # skipped phases contribute 0s rather than corrupting later deltas.
                 _tp0 = _t_rollup_start
-                _tp1 = _loc.get("_t_rollup_end", _tp0)
-                _tp2 = _loc.get("_t_post_merge", _tp1)
-                _tp3 = _loc.get("_t_features_prep", _tp2)
-                _tp4 = _loc.get("_t_features_write", _tp3)
-                _tp5 = _loc.get("_t_per_class_start", _tp4)
-                _tp6 = _loc.get("_t_per_class_compute", _tp5)
-                _tp7 = _loc.get("_t_per_class_writes", _tp6)
+                _tp1 = _t_rollup_end if _t_rollup_end is not None else _tp0
+                _tp2 = _t_post_merge if _t_post_merge is not None else _tp1
+                _tp3 = _t_features_prep if _t_features_prep is not None else _tp2
+                _tp4 = _t_features_write if _t_features_write is not None else _tp3
+                _tp5 = _t_per_class_start if _t_per_class_start is not None else _tp4
+                _tp6 = _t_per_class_compute if _t_per_class_compute is not None else _tp5
+                _tp7 = _t_per_class_writes if _t_per_class_writes is not None else _tp6
                 self.logger.info(
                     f"CHUNK_TIMING chunk_id={chunk_id} "
                     f"parcel_rollup={_tp1 - _tp0:.1f}s "
@@ -3300,14 +3307,14 @@ class NearmapAIExporter(BaseExporter):
             raise
         finally:
             # Clean up API clients to close network connections
-            if "feature_api" in locals() and feature_api is not None:
+            if feature_api is not None:
                 try:
                     feature_api.cleanup()
                     del feature_api
                 except Exception:
                     pass
 
-            if "roof_age_api" in locals() and roof_age_api is not None:
+            if roof_age_api is not None:
                 try:
                     roof_age_api.cleanup()
                     del roof_age_api
