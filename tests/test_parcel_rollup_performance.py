@@ -131,7 +131,10 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
         pr.disable()
         profile_path = "/tmp/nmaipy_profile_parcel_rollup.txt"
         with open(profile_path, "w") as pf:
+            pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
+            pf.write("\n=== Top 40 by self (tottime) ===\n")
+            pstats.Stats(pr, stream=pf).sort_stats("tottime").print_stats(40)
         print(f"cProfile output written to {profile_path}")
 
     t_rollup_end = time.monotonic()

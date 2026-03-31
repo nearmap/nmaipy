@@ -693,6 +693,7 @@ def feature_attributes(
     primary_lon: float = None,
     geometry_projected_col: str = None,
     projected_crs: str = None,
+    parent_lookup: dict = None,
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -746,8 +747,10 @@ def feature_attributes(
         ):
             _primary_roof_child_ri_id = _primary_roof.primary_child_roof_age_feature_id
 
-    # Build parent lookup once for all RSI resolution in this parcel
-    _parent_lookup = build_parent_lookup(features_gdf) if len(features_gdf) > 0 else {}
+    # Use pre-built lookup if provided (hoisted by parcel_rollup), else build from per-parcel features
+    _parent_lookup = parent_lookup if parent_lookup is not None else (
+        build_parent_lookup(features_gdf) if len(features_gdf) > 0 else {}
+    )
 
     # Pre-compute IoU-based Roof → Building(New) linkage for BL RSI fallback.
     # Roof's API parent_id points to Building(Deprecated) which is filtered out;
@@ -797,9 +800,13 @@ def feature_attributes(
             projected_crs=projected_crs,
         )
 
+    # Pre-group by class_id to replace O(n) boolean scan per class with O(1) dict lookup
+    features_by_class = dict(iter(features_gdf.groupby("class_id", observed=True))) if len(features_gdf) > 0 else {}
+    _empty_features = features_gdf.iloc[0:0]
+
     for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
-        class_features_gdf = features_gdf[features_gdf.class_id == class_id]
+        class_features_gdf = features_by_class.get(class_id, _empty_features)
 
         # For roof instances, filter to only "roof" kind for count/area aggregations
         # "parcel" kind features are property boundaries, not actual roof instances
@@ -864,7 +871,7 @@ def feature_attributes(
         if class_id in BUILDING_STYLE_CLASS_IDS:
             col = "multiparcel_feature"
             if col in class_features_gdf.columns:
-                parcel[f"{name}_{col}_count"] = len(class_features_gdf.query(f"{col} == True"))
+                parcel[f"{name}_{col}_count"] = int(class_features_gdf[col].sum())
 
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:
@@ -1316,6 +1323,9 @@ def parcel_rollup(
             df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.values
             geometry_projected_col = "_geometry_projected"
 
+    # Build parent lookup once for the whole chunk; feature_ids are globally unique across AOIs
+    chunk_parent_lookup = build_parent_lookup(features_gdf)
+
     rollups = []
     # Loop over parcels with features in them
     for aoi_id, group in df.reset_index().groupby(AOI_ID_COLUMN_NAME):
@@ -1351,6 +1361,7 @@ def parcel_rollup(
             primary_lon=primary_lon,
             geometry_projected_col=geometry_projected_col,
             projected_crs=projected_crs,
+            parent_lookup=chunk_parent_lookup,
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         if "mesh_date" in group.columns:
@@ -1380,6 +1391,7 @@ def parcel_rollup(
             country=country,
             parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
+            parent_lookup=chunk_parent_lookup,
         )
         aoi_id = row._asdict()["Index"]
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
