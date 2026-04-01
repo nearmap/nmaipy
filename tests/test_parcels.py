@@ -645,6 +645,7 @@ class TestParcels:
                     "primary_pool_clipped_area_sqft": 543.5,
                     "primary_pool_unclipped_area_sqft": 543.5,
                     "primary_pool_confidence": 0.85,
+                    "primary_pool_feature_id": 2,
                     AOI_ID_COLUMN_NAME: 0,
                     "mesh_date": "2021-10-10",
                 }
