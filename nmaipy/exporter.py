@@ -201,9 +201,8 @@ def _add_is_primary_column(
     """
     Add is_primary column to features based on primary feature IDs in rollup.
 
-    Matches on (aoi_id, feature_id, class_id) to ensure class-specific primary:
-    - Roofs are marked primary based on primary_roof_feature_id
-    - Buildings are marked primary based on primary_building_feature_id
+    Matches on (aoi_id, feature_id, class_id) using the PRIMARY_FEATURE_COLUMN_TO_CLASS
+    mapping in constants.py to find primary feature IDs per class in the rollup.
 
     Args:
         features_gdf: GeoDataFrame with features to mark
