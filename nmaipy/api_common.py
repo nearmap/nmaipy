@@ -481,6 +481,14 @@ class BaseApiClient:
                 self._sessions.clear()
         # Clear thread-local adapter cache (only affects calling thread,
         # but other threads' adapters are already closed via self._sessions above)
+        self.cleanup_thread_local()
+
+    def cleanup_thread_local(self):
+        """Clear thread-local adapter caches without touching shared sessions.
+
+        Safe to call in gridding mode where cleanup() would break connection
+        reuse by closing adapters shared across parent executor threads.
+        """
         if hasattr(self, "_thread_local") and hasattr(self._thread_local, "adapters"):
             self._thread_local.adapters.clear()
 

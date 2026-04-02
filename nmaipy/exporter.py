@@ -3340,6 +3340,11 @@ class NearmapAIExporter(BaseExporter):
             except Exception:
                 pass
 
+            # Force garbage collection to reclaim memory from chunk processing.
+            # Without this, large intermediate DataFrames and API response data
+            # accumulate across chunks within long-lived worker processes.
+            gc.collect()
+
     def run(self):
         try:
             self._run_inner()

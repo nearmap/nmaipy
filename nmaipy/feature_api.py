@@ -1651,10 +1651,11 @@ class FeatureApi(GriddedApiClient):
             if not external_executor:
                 executor.shutdown(wait=True)
                 self._thread_local.executor = None
-                # Skip cleanup in gridding mode — gridding runs inside a parent
-                # executor thread, and cleanup() would close all threads' cached
-                # adapters (shared via self._sessions), breaking connection reuse.
-                if not in_gridding_mode:
+                if in_gridding_mode:
+                    # In gridding mode, full cleanup() would close adapters shared
+                    # across parent executor threads. Only clear thread-local state.
+                    self.cleanup_thread_local()
+                else:
                     self.cleanup()
 
         non_empty_data = [df for df in data if len(df) > 0]
