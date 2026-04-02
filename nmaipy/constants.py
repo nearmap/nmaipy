@@ -298,6 +298,9 @@ PRIMARY_FEATURE_COLUMN_TO_CLASS = {
     "primary_roof_feature_id": ROOF_ID,
     "primary_building_feature_id": BUILDING_NEW_ID,
     "primary_building_(deprecated)_feature_id": BUILDING_ID,
+    "primary_building_lifecycle_feature_id": BUILDING_LIFECYCLE_ID,
+    "primary_building_under_construction_feature_id": BUILDING_UNDER_CONSTRUCTION_ID,
+    "primary_swimming_pool_feature_id": POOL_ID,
     "primary_roof_instance_feature_id": ROOF_INSTANCE_CLASS_ID,
 }
 

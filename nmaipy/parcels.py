@@ -984,6 +984,9 @@ def feature_attributes(
                 if class_id in BUILDING_STYLE_CLASS_IDS:
                     parcel[f"primary_{name}_fidelity"] = primary_feature.fidelity
 
+            # Always record the primary feature_id for is_primary matching in exports
+            parcel[f"primary_{name}_feature_id"] = primary_feature.feature_id
+
             # Add roof and building attributes
             if class_id in BUILDING_STYLE_CLASS_IDS:
                 col = "multiparcel_feature"
@@ -1010,13 +1013,11 @@ def feature_attributes(
                         country=country,
                         child_features=child_feats,
                     )
-                    primary_attributes["feature_id"] = primary_feature.feature_id
                 elif class_id == BUILDING_NEW_ID:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
                 elif class_id == ROOF_INSTANCE_CLASS_ID:
                     # Roof instances have different attributes than Feature API classes
                     primary_attributes = flatten_roof_instance_attributes(primary_feature, country=country, prefix="")
-                    primary_attributes["feature_id"] = primary_feature.feature_id
                 else:
                     primary_attributes = {}
 

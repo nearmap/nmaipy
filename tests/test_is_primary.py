@@ -12,7 +12,10 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     BUILDING_ID,
+    BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
+    BUILDING_UNDER_CONSTRUCTION_ID,
+    POOL_ID,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
 )
@@ -282,6 +285,41 @@ class TestAddIsPrimaryColumn:
         # Feature 12345 should match "12345" after string conversion
         assert result[result["feature_id"] == "12345"]["is_primary"].iloc[0] == True
         assert result[result["feature_id"] == "67890"]["is_primary"].iloc[0] == False
+
+    def test_building_lifecycle_pool_and_construction_classes(self):
+        """Verify building_lifecycle, swimming_pool, and building_under_construction are marked primary."""
+        features_gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: ["aoi-1", "aoi-1", "aoi-1", "aoi-1", "aoi-1", "aoi-1"],
+                "feature_id": ["bl-1", "bl-2", "pool-1", "pool-2", "buc-1", "buc-2"],
+                "class_id": [
+                    BUILDING_LIFECYCLE_ID,
+                    BUILDING_LIFECYCLE_ID,
+                    POOL_ID,
+                    POOL_ID,
+                    BUILDING_UNDER_CONSTRUCTION_ID,
+                    BUILDING_UNDER_CONSTRUCTION_ID,
+                ],
+                "geometry": [Point(i, i) for i in range(6)],
+            },
+            crs=API_CRS,
+        )
+
+        rollup_df = pd.DataFrame(
+            {
+                "primary_building_lifecycle_feature_id": ["bl-1"],
+                "primary_swimming_pool_feature_id": ["pool-1"],
+                "primary_building_under_construction_feature_id": ["buc-1"],
+            },
+            index=pd.Index(["aoi-1"], name=AOI_ID_COLUMN_NAME),
+        )
+
+        result = _add_is_primary_column(features_gdf, rollup_df)
+
+        primary_ids = set(result[result["is_primary"]]["feature_id"])
+        assert primary_ids == {"bl-1", "pool-1", "buc-1"}
+        non_primary_ids = set(result[~result["is_primary"]]["feature_id"])
+        assert non_primary_ids == {"bl-2", "pool-2", "buc-2"}
 
     def test_null_primary_ids_in_rollup(self):
         """Null/NaN values in rollup primary columns are handled gracefully."""
