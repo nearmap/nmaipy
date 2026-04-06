@@ -34,6 +34,7 @@ import shapely.geometry
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
+warnings.filterwarnings("ignore", message=".*invalid value encountered in area.*")
 
 import atexit
 import signal

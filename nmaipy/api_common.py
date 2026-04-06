@@ -254,7 +254,7 @@ class RetryRequest(Retry):
                 if url and "apikey=" in url:
                     clean_url = url.split("apikey=")[0] + "apikey=***"
 
-                logger.info(f"{reason} causing retry of request {clean_url}")
+                logger.debug(f"{reason} causing retry of request {clean_url}")
 
         return result
 
