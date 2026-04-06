@@ -82,6 +82,9 @@ class TestWindScore:
         assert result["wind_risk_score"] == 3
         assert result["wind_risk_rate_factor"] == 0.83
         assert result["wind_fema_annual_frequency"] == 5.125
+        # modelInputFeatures
+        assert result["wind_vulnerability_model_input_pitched_roof_present"] == 1
+        assert result["wind_vulnerability_model_input_metal_present"] == 0
 
     def test_wind_score_snake_case(self):
         """Test that snake_case field name works."""
@@ -124,6 +127,9 @@ class TestHailScore:
         assert result["hail_risk_score"] == 4
         assert result["hail_risk_rate_factor"] == 0.53
         assert result["hail_fema_annual_frequency"] == 4.125
+        # modelInputFeatures
+        assert result["hail_vulnerability_model_input_flat_present"] == 0
+        assert result["hail_vulnerability_model_input_shingle_present"] == 1
 
     def test_hail_score_snake_case(self):
         """Test that snake_case field name works."""
@@ -164,6 +170,9 @@ class TestWildfireScore:
         assert result["wildfire_vulnerability_probability"] == 0.919
         assert result["wildfire_vulnerability_rate_factor"] == 1.06
         assert result["wildfire_fema_annual_frequency"] == 0
+        # modelInputFeatures
+        assert result["wildfire_vulnerability_model_input_fire_resistant_material_present"] == 0
+        assert result["wildfire_vulnerability_model_input_roof_debris_ratio"] == 0
 
     def test_wildfire_score_snake_case(self):
         """Test that snake_case field name works."""
@@ -201,6 +210,9 @@ class TestWindHailRiskScore:
 
         assert result["wind_hail_risk_score"] == 4
         assert result["wind_hail_risk_rate_factor"] == 0.58
+        # modelInputFeatures
+        assert result["wind_hail_risk_model_input_wind_risk_score"] == 3
+        assert result["wind_hail_risk_model_input_hail_risk_score"] == 4
 
     def test_wind_hail_risk_score_snake_case(self):
         """Test that snake_case field name works."""
