@@ -1096,10 +1096,13 @@ def feature_attributes(
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
-                # Provide the confidence values for each damage rating class for the primary building lifecycle feature
+                # Provide the confidence values for each damage rating class for the primary building lifecycle feature.
+                # Exclude score/DS columns — those are resolved separately as primary_* (no class infix).
+                _RESOLVED_PREFIXES = ("hurricane_", "wind_", "hail_", "wildfire_", "wind_hail_risk_", "defensible_space_zone_", "roof_spotlight_index")
                 primary_attributes = flatten_building_lifecycle_damage_attributes([primary_feature])
                 for key, val in primary_attributes.items():
-                    parcel[f"primary_{name}_" + str(key)] = val
+                    if not any(key.startswith(p) for p in _RESOLVED_PREFIXES):
+                        parcel[f"primary_{name}_" + str(key)] = val
 
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Add aggregated damage across whole parcel, weighted by building lifecycle area
