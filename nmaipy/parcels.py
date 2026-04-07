@@ -1420,6 +1420,62 @@ def parcel_rollup(
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 
+    # Flatten aggregate defensible space from API metadata into rollup columns.
+    # The API returns parcel-level aggregate defensible space data (zone metrics +
+    # per-class risk objects) in the response's "aggregate" section.
+    if api_metadata:
+        meta_df = api_metadata[0][0]
+        if "aggregate" in meta_df.columns:
+            agg_rows = {}
+            for aoi_id_val in rollup_df.index:
+                if aoi_id_val not in meta_df.index:
+                    continue
+                agg = meta_df.loc[aoi_id_val, "aggregate"]
+                if not isinstance(agg, dict):
+                    continue
+                ds = agg.get("defensibleSpace")
+                if not isinstance(ds, dict):
+                    continue
+                row = {}
+                for zone in sorted(ds.get("zones", []), key=lambda z: z.get("zoneId", 0)):
+                    zone_id = zone.get("zoneId")
+                    if not zone_id:
+                        continue
+                    prefix = f"aggregate_defensible_space_zone_{zone_id}"
+                    if country in IMPERIAL_COUNTRIES:
+                        if "zoneAreaSqft" in zone:
+                            row[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+                        if "defensibleSpaceAreaSqft" in zone:
+                            row[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+                        if "totalRiskObjectAreaSqft" in zone:
+                            row[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+                    else:
+                        if "zoneAreaSqm" in zone:
+                            row[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+                        if "defensibleSpaceAreaSqm" in zone:
+                            row[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+                        if "totalRiskObjectAreaSqm" in zone:
+                            row[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+                    if "defensibleSpaceCoverageRatio" in zone:
+                        row[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                    for risk_obj in zone.get("riskObjects", []):
+                        desc = risk_obj.get("description")
+                        if desc is None:
+                            continue
+                        desc_snake = desc.lower().replace(" ", "_")
+                        ro_prefix = f"{prefix}_{desc_snake}"
+                        if country in IMPERIAL_COUNTRIES:
+                            row[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
+                        else:
+                            row[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
+                        row[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+                if row:
+                    agg_rows[aoi_id_val] = row
+            if agg_rows:
+                agg_df = pd.DataFrame.from_dict(agg_rows, orient="index")
+                agg_df.index.name = AOI_ID_COLUMN_NAME
+                rollup_df = rollup_df.join(agg_df, how="left")
+
     # Round any columns ending in _confidence to two decimal places (nearest percent)
     for col in rollup_df.columns:
         if col.endswith("_confidence"):

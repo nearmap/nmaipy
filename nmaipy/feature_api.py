@@ -893,6 +893,7 @@ class FeatureApi(GriddedApiClient):
             "survey_resource_id": payload["resourceId"],
             "perspective": payload["perspective"],
             "postcat": payload["postcat"],
+            "aggregate": payload.get("aggregate"),
         }
 
         columns = [
