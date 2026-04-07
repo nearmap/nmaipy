@@ -81,7 +81,7 @@ DEFENSIBLE_SPACE_ZONE_COLUMNS = {
     "coverage_ratio": "Fraction of zone that is defensible (0.0-1.0)",
     "risk_object_area_{unit}": "Total area of all risk objects within the zone",
     "medium_and_high_vegetation_with_woody_vegetation_area_{unit}": "Area of medium/high woody vegetation in the zone",
-    "medium_and_high_vegetation_with_woody_vegetation_ratio": "Ratio of woody vegetation to zone area",
+    "medium_and_high_vegetation_with_woody_vegetation_ratio": "Ratio of medium/high woody vegetation to zone area",
     "roof_area_{unit}": "Area of neighbouring roof structures in the zone",
     "roof_ratio": "Ratio of neighbouring roof area to zone area",
     "yard_debris_area_{unit}": "Area of yard debris in the zone",
