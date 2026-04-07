@@ -488,10 +488,11 @@ class TestRiskObjects:
         }
         result = flatten_roof_attributes([self._make_roof(ds)], country="us")
 
-        # Zone-level columns present, no per-class columns
+        # Zone-level columns present, per-class columns default to 0.0
         assert "defensible_space_zone_1_zone_area_sqft" in result
-        ro_cols = [k for k in result if "vegetation" in k or "roof_area" in k]
-        assert ro_cols == []
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 0.0
+        assert result["defensible_space_zone_1_roof_area_sqft"] == 0.0
+        assert result["defensible_space_zone_1_yard_debris_area_sqft"] == 0.0
 
     def test_missing_risk_objects_key(self):
         """Zones without riskObjects key at all are handled gracefully."""

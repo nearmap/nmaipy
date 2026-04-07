@@ -42,6 +42,14 @@ logger = log.get_logger()
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
 
+# Known risk object classes in defensible space zones (snake_case).
+# Always emitted as columns (defaulting to 0.0) even if absent from API response.
+DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES = [
+    "medium_and_high_vegetation_with_woody_vegetation",
+    "roof",
+    "yard_debris",
+]
+
 # Declarative mapping from API include parameters to flattened output columns.
 # Each entry: camelCase API key → {snake_key for lookup/modelVersion, fields: {api_field: output_col}}.
 # modelVersion is handled uniformly: output is always "{snake_key}_model_version".
@@ -601,7 +609,13 @@ def flatten_roof_attributes(
 
                     if "defensibleSpaceCoverageRatio" in zone:
                         flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    # Per-class risk object breakdown within zone
+                    # Per-class risk object breakdown within zone.
+                    # Initialize all known classes to 0.0 so columns are always present.
+                    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+                        ro_prefix = f"{prefix}_{ro_desc}"
+                        area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
+                        flattened[f"{ro_prefix}_{area_suffix}"] = 0.0
+                        flattened[f"{ro_prefix}_ratio"] = 0.0
                     for risk_obj in zone.get("riskObjects", []):
                         desc = risk_obj.get("description")
                         if desc is None:

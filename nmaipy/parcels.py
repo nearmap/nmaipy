@@ -40,6 +40,7 @@ from nmaipy.constants import (
     MeasurementUnits,
 )
 from nmaipy.feature_attributes import (
+    DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
     TRUE_STRING,
     _parse_include_param,
@@ -1458,6 +1459,11 @@ def parcel_rollup(
                             row[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
                     if "defensibleSpaceCoverageRatio" in zone:
                         row[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+                        ro_prefix = f"{prefix}_{ro_desc}"
+                        area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
+                        row[f"{ro_prefix}_{area_suffix}"] = 0.0
+                        row[f"{ro_prefix}_ratio"] = 0.0
                     for risk_obj in zone.get("riskObjects", []):
                         desc = risk_obj.get("description")
                         if desc is None:
