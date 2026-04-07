@@ -16,6 +16,7 @@ from typing import Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely import make_valid
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
 
@@ -196,7 +197,16 @@ def calculate_child_feature_attributes(
         total_intersection_area = 0.0
         max_confidence = None
         if mask.any():
-            total_intersection_area = matching_projected[mask].intersection(parent_projected).area.sum()
+            try:
+                total_intersection_area = matching_projected[mask].intersection(parent_projected).area.sum()
+            except Exception:
+                # Invalid geometry — try make_valid on both sides
+                try:
+                    valid_children = gpd.GeoSeries(make_valid(matching_projected[mask].values), crs=matching_projected.crs)
+                    valid_parent = make_valid(parent_projected)
+                    total_intersection_area = valid_children.intersection(valid_parent).area.sum()
+                except Exception:
+                    total_intersection_area = 0.0
             if "confidence" in matching_features.columns:
                 conf = matching_features["confidence"].values[mask.values]
                 valid = conf[pd.notna(conf)]
