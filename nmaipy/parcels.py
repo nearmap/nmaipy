@@ -1486,5 +1486,25 @@ def parcel_rollup(
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
+    # Reorder defensible space columns so they group by zone (zone 1, zone 2, zone 3)
+    # rather than appearing in first-seen order (which scatters rare riskObject classes).
+    import re
+
+    ds_pattern = re.compile(r"(.*defensible_space_zone_)(\d+)(.*)")
+    ds_cols = []
+    non_ds_cols = []
+    for col in rollup_df.columns:
+        m = ds_pattern.match(col)
+        if m:
+            ds_cols.append((m.group(1), int(m.group(2)), m.group(3), col))
+        else:
+            non_ds_cols.append(col)
+    if ds_cols:
+        ds_cols.sort(key=lambda t: (t[0], t[1], t[2]))
+        # Reinsert sorted DS columns at the position of the first DS column
+        first_ds_idx = next(i for i, c in enumerate(rollup_df.columns) if ds_pattern.match(c))
+        ordered = non_ds_cols[:first_ds_idx] + [t[3] for t in ds_cols] + non_ds_cols[first_ds_idx:]
+        rollup_df = rollup_df[ordered]
+
     # Defragment DataFrame to avoid PerformanceWarning when callers add columns
     return rollup_df.copy()
