@@ -74,6 +74,20 @@ DOMINANT_ROOF_TYPES_COLUMNS = {
     "dominant_roof_types_confidence": "Confidence in the dominant shape classification (0.0-1.0)",
 }
 
+# Defensible Space columns (per zone, on primary roof and aggregate)
+DEFENSIBLE_SPACE_ZONE_COLUMNS = {
+    "zone_area_{unit}": "Total area of the zone around the structure",
+    "defensible_space_area_{unit}": "Clear/defensible area within the zone",
+    "coverage_ratio": "Fraction of zone that is defensible (0.0-1.0)",
+    "risk_object_area_{unit}": "Total area of all risk objects within the zone",
+    "medium_and_high_vegetation_with_woody_vegetation_area_{unit}": "Area of medium/high woody vegetation in the zone",
+    "medium_and_high_vegetation_with_woody_vegetation_ratio": "Ratio of woody vegetation to zone area",
+    "roof_area_{unit}": "Area of neighbouring roof structures in the zone",
+    "roof_ratio": "Ratio of neighbouring roof area to zone area",
+    "yard_debris_area_{unit}": "Area of yard debris in the zone",
+    "yard_debris_ratio": "Ratio of yard debris to zone area",
+}
+
 ROOF_AGE_COLUMNS = {
     "roof_age_installation_date": "Estimated roof installation date (YYYY-MM-DD)",
     "roof_age_as_of_date": "Reference date for age calculation",
@@ -160,6 +174,7 @@ class ReadmeGenerator:
         has_dominant = self._has_dominant_columns(rollup_columns)
         has_rsi = self._has_rsi_columns(rollup_columns)
         has_roof_age = self._has_roof_age_columns(rollup_columns)
+        has_defensible_space = self._has_defensible_space_columns(rollup_columns)
         area_unit = self._detect_area_unit()
 
         sections = []
@@ -177,6 +192,8 @@ class ReadmeGenerator:
             sections.append(self._generate_rsi_section())
         if has_roof_age:
             sections.append(self._generate_roof_age_section())
+        if has_defensible_space:
+            sections.append(self._generate_defensible_space_section(area_unit))
 
         sections.append(self._generate_data_notes(area_unit))
         sections.append(self._generate_footer())
@@ -315,6 +332,10 @@ class ReadmeGenerator:
     def _has_roof_age_columns(self, columns: set[str]) -> bool:
         """Check if roof age columns are present."""
         return any("roof_age_" in c for c in columns)
+
+    def _has_defensible_space_columns(self, columns: set[str]) -> bool:
+        """Check if defensible space columns are present."""
+        return any("defensible_space_zone_" in c for c in columns)
 
     def _generate_header(self) -> str:
         """Generate the README header."""
@@ -587,6 +608,54 @@ Higher evidence types indicate more robust information sources.
 For more details, see:
 - https://help.nearmap.com/kb/articles/1810-nearmap-roof-age
 - https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score
+"""
+        )
+
+        return "\n".join(lines)
+
+    def _generate_defensible_space_section(self, area_unit: str) -> str:
+        """Generate the Defensible Space columns section."""
+        u = area_unit
+        lines = [
+            "## Defensible Space Columns",
+            "",
+            "Defensible space data describes the area around structures in three concentric zones,",
+            "measuring how much clear (defensible) space exists versus risk objects like vegetation and debris.",
+            "",
+            "### Zone Definitions",
+            "",
+            "| Zone | Inner Boundary | Outer Boundary | Description |",
+            "|------|---------------|----------------|-------------|",
+            "| Zone 1 | 0 ft (0 m) | 5 ft (1.5 m) | Immediate structure perimeter |",
+            "| Zone 2 | 5 ft (1.5 m) | 30 ft (9.1 m) | Near-structure defensible area |",
+            "| Zone 3 | 30 ft (9.1 m) | 100 ft (30.5 m) | Extended defensible perimeter |",
+            "",
+            "### Column Prefixes",
+            "",
+            "Two sets of defensible space columns are produced:",
+            "",
+            "| Prefix | Scope |",
+            "|--------|-------|",
+            f"| `primary_roof_defensible_space_zone_{{N}}_` | Defensible space for the primary roof feature only |",
+            f"| `aggregate_defensible_space_zone_{{N}}_` | Defensible space aggregated across the entire parcel (all structures) |",
+            "",
+            "### Columns Per Zone",
+            "",
+            "| Column Suffix | Description |",
+            "|---------------|-------------|",
+        ]
+
+        for col, desc in DEFENSIBLE_SPACE_ZONE_COLUMNS.items():
+            col_name = col.replace("{unit}", u)
+            lines.append(f"| `{col_name}` | {desc.replace('{unit}', u)} |")
+
+        lines.append(
+            """
+**Risk object classes** (vegetation, roof, yard debris) are always present with 0.0 defaults
+when a class is not detected in a given zone. This ensures consistent column presence across all rows.
+
+**Coverage ratio** indicates what fraction of the zone is clear/defensible space.
+A ratio of 1.0 means the entire zone is defensible; 0.0 means it is fully occupied by risk objects.
 """
         )
 
