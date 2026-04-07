@@ -1486,22 +1486,49 @@ def parcel_rollup(
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
-    # Reorder defensible space columns so they group by zone (zone 1, zone 2, zone 3)
-    # rather than appearing in first-seen order (which scatters rare riskObject classes).
+    # Reorder defensible space columns: primary_roof zones 1-3, then aggregate zones 1-3.
+    # Within each zone: zone_area, defensible_space_area, coverage_ratio, risk_object_area,
+    # then per-class columns (vegetation, roof, yard_debris) with area before ratio.
     import re
 
-    ds_pattern = re.compile(r"(.*defensible_space_zone_)(\d+)(.*)")
+    ds_pattern = re.compile(r"(.*defensible_space_zone_)(\d+)_(.*)")
+
+    # Priority order for within-zone column suffixes
+    _DS_SUFFIX_ORDER = [
+        "zone_area_",
+        "defensible_space_area_",
+        "coverage_ratio",
+        "risk_object_area_",
+        "medium_and_high_vegetation_with_woody_vegetation_area_",
+        "medium_and_high_vegetation_with_woody_vegetation_ratio",
+        "roof_area_",
+        "roof_ratio",
+        "yard_debris_area_",
+        "yard_debris_ratio",
+    ]
+
+    def _ds_suffix_rank(suffix):
+        for i, pattern in enumerate(_DS_SUFFIX_ORDER):
+            if suffix.startswith(pattern):
+                return i
+        return len(_DS_SUFFIX_ORDER)
+
+    # primary_roof before aggregate
+    def _ds_prefix_rank(prefix):
+        if "primary_" in prefix:
+            return 0
+        return 1  # aggregate
+
     ds_cols = []
     non_ds_cols = []
     for col in rollup_df.columns:
         m = ds_pattern.match(col)
         if m:
-            ds_cols.append((m.group(1), int(m.group(2)), m.group(3), col))
+            ds_cols.append((_ds_prefix_rank(m.group(1)), int(m.group(2)), _ds_suffix_rank(m.group(3)), col))
         else:
             non_ds_cols.append(col)
     if ds_cols:
-        ds_cols.sort(key=lambda t: (t[0], t[1], t[2]))
-        # Reinsert sorted DS columns at the position of the first DS column
+        ds_cols.sort()
         first_ds_idx = next(i for i, c in enumerate(rollup_df.columns) if ds_pattern.match(c))
         ordered = non_ds_cols[:first_ds_idx] + [t[3] for t in ds_cols] + non_ds_cols[first_ds_idx:]
         rollup_df = rollup_df[ordered]
