@@ -601,7 +601,19 @@ def flatten_roof_attributes(
 
                     if "defensibleSpaceCoverageRatio" in zone:
                         flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
+                    # Per-class risk object breakdown within zone
+                    for risk_obj in zone.get("riskObjects", []):
+                        desc = risk_obj.get("description")
+                        if desc is None:
+                            continue
+                        desc_snake = desc.lower().replace(" ", "_")
+                        ro_prefix = f"{prefix}_{desc_snake}"
+                        if country in IMPERIAL_COUNTRIES:
+                            flattened[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
+                        else:
+                            flattened[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
+                        flattened[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+                    # Note: zoneGeometry is not flattened (too verbose for tabular output)
             if "modelVersion" in defensible_space_data:
                 key = "modelVersion"
                 flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
