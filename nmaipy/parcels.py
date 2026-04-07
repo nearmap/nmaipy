@@ -41,6 +41,7 @@ from nmaipy.constants import (
     MeasurementUnits,
 )
 from nmaipy.feature_attributes import (
+    DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
     TRUE_STRING,
     _parse_include_param,
@@ -1430,6 +1431,67 @@ def parcel_rollup(
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 
+    # Flatten aggregate defensible space from API metadata into rollup columns.
+    # The API returns parcel-level aggregate defensible space data (zone metrics +
+    # per-class risk objects) in the response's "aggregate" section.
+    if api_metadata:
+        meta_df = api_metadata[0][0]
+        if "aggregate" in meta_df.columns:
+            agg_rows = {}
+            for aoi_id_val in rollup_df.index:
+                if aoi_id_val not in meta_df.index:
+                    continue
+                agg = meta_df.loc[aoi_id_val, "aggregate"]
+                if not isinstance(agg, dict):
+                    continue
+                ds = agg.get("defensibleSpace")
+                if not isinstance(ds, dict):
+                    continue
+                row = {}
+                for zone in sorted(ds.get("zones", []), key=lambda z: z.get("zoneId", 0)):
+                    zone_id = zone.get("zoneId")
+                    if not zone_id:
+                        continue
+                    prefix = f"aggregate_defensible_space_zone_{zone_id}"
+                    if country in IMPERIAL_COUNTRIES:
+                        if "zoneAreaSqft" in zone:
+                            row[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+                        if "defensibleSpaceAreaSqft" in zone:
+                            row[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+                        if "totalRiskObjectAreaSqft" in zone:
+                            row[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+                    else:
+                        if "zoneAreaSqm" in zone:
+                            row[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+                        if "defensibleSpaceAreaSqm" in zone:
+                            row[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+                        if "totalRiskObjectAreaSqm" in zone:
+                            row[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+                    if "defensibleSpaceCoverageRatio" in zone:
+                        row[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+                        ro_prefix = f"{prefix}_{ro_desc}"
+                        area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
+                        row[f"{ro_prefix}_{area_suffix}"] = 0.0
+                        row[f"{ro_prefix}_ratio"] = 0.0
+                    for risk_obj in zone.get("riskObjects", []):
+                        desc = risk_obj.get("description")
+                        if desc is None:
+                            continue
+                        desc_snake = desc.lower().replace(" ", "_")
+                        ro_prefix = f"{prefix}_{desc_snake}"
+                        if country in IMPERIAL_COUNTRIES:
+                            row[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
+                        else:
+                            row[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
+                        row[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+                if row:
+                    agg_rows[aoi_id_val] = row
+            if agg_rows:
+                agg_df = pd.DataFrame.from_dict(agg_rows, orient="index")
+                agg_df.index.name = AOI_ID_COLUMN_NAME
+                rollup_df = rollup_df.join(agg_df, how="left")
+
     # Round any columns ending in _confidence to two decimal places (nearest percent)
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
@@ -1440,5 +1502,52 @@ def parcel_rollup(
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
+    # Reorder defensible space columns: primary_roof zones 1-3, then aggregate zones 1-3.
+    # Within each zone: zone_area, defensible_space_area, coverage_ratio, risk_object_area,
+    # then per-class columns (vegetation, roof, yard_debris) with area before ratio.
+    import re
+
+    ds_pattern = re.compile(r"(.*defensible_space_zone_)(\d+)_(.*)")
+
+    # Priority order for within-zone column suffixes
+    _DS_SUFFIX_ORDER = [
+        "zone_area_",
+        "defensible_space_area_",
+        "coverage_ratio",
+        "risk_object_area_",
+        "medium_and_high_vegetation_with_woody_vegetation_area_",
+        "medium_and_high_vegetation_with_woody_vegetation_ratio",
+        "roof_area_",
+        "roof_ratio",
+        "yard_debris_area_",
+        "yard_debris_ratio",
+    ]
+
+    def _ds_suffix_rank(suffix):
+        for i, pattern in enumerate(_DS_SUFFIX_ORDER):
+            if suffix.startswith(pattern):
+                return i
+        return len(_DS_SUFFIX_ORDER)
+
+    # primary_roof before aggregate
+    def _ds_prefix_rank(prefix):
+        if "primary_" in prefix:
+            return 0
+        return 1  # aggregate
+
+    ds_cols = []
+    non_ds_cols = []
+    for col in rollup_df.columns:
+        m = ds_pattern.match(col)
+        if m:
+            ds_cols.append((_ds_prefix_rank(m.group(1)), int(m.group(2)), _ds_suffix_rank(m.group(3)), col))
+        else:
+            non_ds_cols.append(col)
+    if ds_cols:
+        ds_cols.sort()
+        first_ds_idx = next(i for i, c in enumerate(rollup_df.columns) if ds_pattern.match(c))
+        ordered = non_ds_cols[:first_ds_idx] + [t[3] for t in ds_cols] + non_ds_cols[first_ds_idx:]
+        rollup_df = rollup_df[ordered]
+
     # Defragment DataFrame to avoid PerformanceWarning when callers add columns
     return rollup_df.copy()

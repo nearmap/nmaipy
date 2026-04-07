@@ -2964,6 +2964,11 @@ class NearmapAIExporter(BaseExporter):
                 metadata_df = metadata_df.rename(columns={meta_data_column: f"nmaipy_{meta_data_column}"})
                 meta_data_columns.remove(meta_data_column)
 
+            # Drop non-scalar metadata columns (e.g. aggregate dicts) before merge
+            metadata_df = metadata_df.drop(
+                columns=[c for c in metadata_df.columns if c not in meta_data_columns + [AOI_ID_COLUMN_NAME]],
+                errors="ignore",
+            )
             # Use rollup_df as base to preserve all AOIs (including those where Feature API
             # failed but Roof Age API succeeded). Left-merge with metadata_df to add
             # survey metadata where available.
