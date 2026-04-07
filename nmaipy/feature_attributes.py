@@ -195,6 +195,55 @@ def _flatten_include_params(feature: dict, flattened: dict) -> None:
                     flattened[f"{model_input_prefix}_{stringcase.snakecase(mif_key)}"] = mif_value
 
 
+def _flatten_defensible_space(feature: dict, flattened: dict, country: str) -> None:
+    """Extract defensible space zone metrics and risk objects from a feature into flattened dict."""
+    defensible_raw = feature.get("defensibleSpace") or feature.get("defensible_space")
+    defensible_space_data = _parse_include_param(defensible_raw)
+    if not defensible_space_data:
+        return
+    zones = defensible_space_data.get("zones", [])
+    zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
+    for zone in zones_sorted:
+        zone_id = zone.get("zoneId")
+        if not zone_id:
+            continue
+        prefix = f"defensible_space_zone_{zone_id}"
+        if country in IMPERIAL_COUNTRIES:
+            if "zoneAreaSqft" in zone:
+                flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+            if "defensibleSpaceAreaSqft" in zone:
+                flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+            if "totalRiskObjectAreaSqft" in zone:
+                flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+        else:
+            if "zoneAreaSqm" in zone:
+                flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+            if "defensibleSpaceAreaSqm" in zone:
+                flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+            if "totalRiskObjectAreaSqm" in zone:
+                flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+        if "defensibleSpaceCoverageRatio" in zone:
+            flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+        for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+            ro_prefix = f"{prefix}_{ro_desc}"
+            area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
+            flattened[f"{ro_prefix}_{area_suffix}"] = 0.0
+            flattened[f"{ro_prefix}_ratio"] = 0.0
+        for risk_obj in zone.get("riskObjects", []):
+            desc = risk_obj.get("description")
+            if desc is None:
+                continue
+            desc_snake = desc.lower().replace(" ", "_")
+            ro_prefix = f"{prefix}_{desc_snake}"
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
+            else:
+                flattened[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
+            flattened[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+    if "modelVersion" in defensible_space_data:
+        flattened[f"defensible_space_{stringcase.snakecase('modelVersion')}"] = defensible_space_data["modelVersion"]
+
+
 def _get_feature_value(feature, key):
     """
     Get a value from a feature, handling both dict and pandas Series.
@@ -580,57 +629,7 @@ def flatten_roof_attributes(
         _flatten_include_params(roof, flattened)
 
         # Defensible space has zone-based nesting — handle separately
-        defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
-        defensible_space_data = _parse_include_param(defensible_raw)
-        if defensible_space_data:
-            zones = defensible_space_data.get("zones", [])
-            # Sort zones by zoneId to ensure consistent column ordering (zone 1, 2, 3, ...)
-            zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
-            for zone in zones_sorted:
-                zone_id = zone.get("zoneId")
-                if zone_id:
-                    # Flatten key metrics for each zone in a specific order:
-                    # 1. zone_area, 2. defensible_space_area, 3. risk_object_area, 4. coverage_ratio
-                    prefix = f"defensible_space_zone_{zone_id}"
-                    if country in IMPERIAL_COUNTRIES:
-                        if "zoneAreaSqft" in zone:
-                            flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
-                        if "defensibleSpaceAreaSqft" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
-                        if "totalRiskObjectAreaSqft" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
-                    else:
-                        if "zoneAreaSqm" in zone:
-                            flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
-                        if "defensibleSpaceAreaSqm" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
-                        if "totalRiskObjectAreaSqm" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
-
-                    if "defensibleSpaceCoverageRatio" in zone:
-                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    # Per-class risk object breakdown within zone.
-                    # Initialize all known classes to 0.0 so columns are always present.
-                    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
-                        ro_prefix = f"{prefix}_{ro_desc}"
-                        area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
-                        flattened[f"{ro_prefix}_{area_suffix}"] = 0.0
-                        flattened[f"{ro_prefix}_ratio"] = 0.0
-                    for risk_obj in zone.get("riskObjects", []):
-                        desc = risk_obj.get("description")
-                        if desc is None:
-                            continue
-                        desc_snake = desc.lower().replace(" ", "_")
-                        ro_prefix = f"{prefix}_{desc_snake}"
-                        if country in IMPERIAL_COUNTRIES:
-                            flattened[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
-                        else:
-                            flattened[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
-                        flattened[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
-                    # Note: zoneGeometry is not flattened (too verbose for tabular output)
-            if "modelVersion" in defensible_space_data:
-                key = "modelVersion"
-                flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
+        _flatten_defensible_space(roof, flattened, country)
 
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns
