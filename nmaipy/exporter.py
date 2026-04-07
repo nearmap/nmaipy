@@ -3742,6 +3742,7 @@ class NearmapAIExporter(BaseExporter):
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
+            data = data.sort_index()
             self.logger.info(f"Writing rollup {self.tabular_file_format} ({len(data)} rows)...")
             if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)
