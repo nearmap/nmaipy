@@ -406,21 +406,21 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
     output_file = data_directory / "test_parcels_rollup_hurricane_score.csv"
     rollup_df.to_csv(output_file)
 
-    # Verify hurricaneScore columns are present in primary roof
-    assert "primary_roof_hurricane_vulnerability_score" in rollup_df.columns
-    assert "primary_roof_hurricane_vulnerability_probability" in rollup_df.columns
-    assert "primary_roof_hurricane_vulnerability_rate_factor" in rollup_df.columns
+    # Verify resolved hurricaneScore columns use primary_ prefix (no roof_ infix)
+    assert "primary_hurricane_vulnerability_score" in rollup_df.columns
+    assert "primary_hurricane_vulnerability_probability" in rollup_df.columns
+    assert "primary_hurricane_vulnerability_rate_factor" in rollup_df.columns
 
     # Verify the hurricaneScore values (use whatever roof was selected as primary)
-    primary_score = rollup_df["primary_roof_hurricane_vulnerability_score"].iloc[0]
+    primary_score = rollup_df["primary_hurricane_vulnerability_score"].iloc[0]
     assert primary_score in [4, 5], f"Expected hurricaneScore 4 or 5, got {primary_score}"
 
     # Probability should be present and reasonable
-    primary_prob = rollup_df["primary_roof_hurricane_vulnerability_probability"].iloc[0]
+    primary_prob = rollup_df["primary_hurricane_vulnerability_probability"].iloc[0]
     assert 0 < primary_prob < 1, f"Expected probability between 0 and 1, got {primary_prob}"
 
     # Rate factor should be present
-    assert "primary_roof_hurricane_vulnerability_rate_factor" in rollup_df.columns
+    assert "primary_hurricane_vulnerability_rate_factor" in rollup_df.columns
 
     # Resolved RSI should be present (roof-first, BL-fallback)
     assert "primary_roof_spotlight_index" in rollup_df.columns
