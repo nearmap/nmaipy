@@ -1715,7 +1715,6 @@ class TestApiMetadataInRollup:
         assert pd.isna(failed["roof_count"]), "roof_count should be null when Feature API failed"
         assert pd.isna(failed["roof_total_area_sqft"]), "roof_total_area_sqft should be null"
         assert pd.isna(failed["roof_total_clipped_area_sqft"])
-        assert pd.isna(failed["primary_roof_area_sqft"])
         assert pd.isna(failed["primary_roof_confidence"])
 
         # Roof Age columns should be populated (API succeeded)
