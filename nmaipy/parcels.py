@@ -963,7 +963,6 @@ def feature_attributes(
                 if is_roof_instance:
                     parcel[f"primary_{name}_area_{area_units}"] = 0.0
                 else:
-                    parcel[f"primary_{name}_area_{area_units}"] = 0.0
                     parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
                     parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
                     parcel[f"primary_{name}_confidence"] = None
