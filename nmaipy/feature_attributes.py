@@ -245,6 +245,28 @@ def _flatten_include_params(feature: dict, flattened: dict) -> None:
                 )
 
 
+def _flatten_defensible_space(feature: dict, flattened: dict, country: str) -> None:
+    """Extract defensible space zone metrics and risk objects from a feature into flattened dict.
+
+    Outer wrapper: reads the `defensibleSpace` include off the feature, iterates
+    zones in ascending `zoneId` order, and delegates each zone to
+    ``_flatten_defensible_space_zone``. Also flattens the top-level `modelVersion`.
+    """
+    defensible_raw = feature.get("defensibleSpace") or feature.get("defensible_space")
+    defensible_space_data = _parse_include_param(defensible_raw)
+    if not defensible_space_data:
+        return
+    zones = defensible_space_data.get("zones", [])
+    for zone in sorted(zones, key=lambda z: z.get("zoneId", 0)):
+        zone_id = zone.get("zoneId")
+        if zone_id is None:
+            continue
+        prefix = f"defensible_space_zone_{zone_id}"
+        _flatten_defensible_space_zone(zone, prefix, country, flattened)
+    if "modelVersion" in defensible_space_data:
+        flattened["defensible_space_model_version"] = defensible_space_data["modelVersion"]
+
+
 def _get_feature_value(feature, key):
     """
     Get a value from a feature, handling both dict and pandas Series.
@@ -630,22 +652,7 @@ def flatten_roof_attributes(
         _flatten_include_params(roof, flattened)
 
         # Defensible space has zone-based nesting — handle separately
-        defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
-        defensible_space_data = _parse_include_param(defensible_raw)
-        if defensible_space_data:
-            zones = defensible_space_data.get("zones", [])
-            # Sort zones by ascending zoneId for consistent column ordering.
-            zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
-            for zone in zones_sorted:
-                zone_id = zone.get("zoneId")
-                if zone_id is None:
-                    continue
-                prefix = f"defensible_space_zone_{zone_id}"
-                _flatten_defensible_space_zone(zone, prefix, country, flattened)
-                # Note: zoneGeometry is not flattened (too verbose for tabular output)
-            if "modelVersion" in defensible_space_data:
-                key = "modelVersion"
-                flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
+        _flatten_defensible_space(roof, flattened, country)
 
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns

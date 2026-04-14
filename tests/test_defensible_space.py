@@ -366,19 +366,19 @@ def test_rollup_with_defensible_space(defensible_space_payload):
     output_file = data_directory / "test_parcels_rollup_defensible_space.csv"
     rollup_df.to_csv(output_file)
 
-    # Verify defensibleSpace columns are present in primary roof
+    # Verify resolved defensibleSpace columns use primary_ prefix (no roof_ infix)
     # Should have data for all 3 zones
     for zone_id in [1, 2, 3]:
-        assert f"primary_roof_defensible_space_zone_{zone_id}_zone_area_sqft" in rollup_df.columns
-        assert f"primary_roof_defensible_space_zone_{zone_id}_defensible_space_area_sqft" in rollup_df.columns
-        assert f"primary_roof_defensible_space_zone_{zone_id}_risk_object_area_sqft" in rollup_df.columns
-        assert f"primary_roof_defensible_space_zone_{zone_id}_coverage_ratio" in rollup_df.columns
+        assert f"primary_defensible_space_zone_{zone_id}_zone_area_sqft" in rollup_df.columns
+        assert f"primary_defensible_space_zone_{zone_id}_defensible_space_area_sqft" in rollup_df.columns
+        assert f"primary_defensible_space_zone_{zone_id}_risk_object_area_sqft" in rollup_df.columns
+        assert f"primary_defensible_space_zone_{zone_id}_coverage_ratio" in rollup_df.columns
 
     # Verify the values are present and reasonable
-    zone_1_area = rollup_df["primary_roof_defensible_space_zone_1_zone_area_sqft"].iloc[0]
+    zone_1_area = rollup_df["primary_defensible_space_zone_1_zone_area_sqft"].iloc[0]
     assert zone_1_area > 0, f"Expected positive zone area, got {zone_1_area}"
 
-    coverage_ratio = rollup_df["primary_roof_defensible_space_zone_1_coverage_ratio"].iloc[0]
+    coverage_ratio = rollup_df["primary_defensible_space_zone_1_coverage_ratio"].iloc[0]
     assert 0 <= coverage_ratio <= 1, f"Expected coverage ratio between 0 and 1, got {coverage_ratio}"
 
 
