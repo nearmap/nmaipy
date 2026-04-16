@@ -35,6 +35,7 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MIN_ROOF_INSTANCE_IOU_THRESHOLD,
+    POOL_ID,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -49,6 +50,7 @@ from nmaipy.feature_attributes import (
     _parse_include_param,
     flatten_building_attributes,
     flatten_building_lifecycle_damage_attributes,
+    flatten_pool_attributes,
     flatten_roof_attributes,
     flatten_roof_instance_attributes,
 )
@@ -1102,6 +1104,10 @@ def feature_attributes(
                 for key, val in primary_attributes.items():
                     if not any(key.startswith(p) for p in _RESOLVED_PREFIXES):
                         parcel[f"primary_{name}_" + str(key)] = val
+            if class_id == POOL_ID:
+                primary_attributes = flatten_pool_attributes([primary_feature], country=country)
+                for key, val in primary_attributes.items():
+                    parcel[f"primary_{name}_" + str(key)] = val
 
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Add aggregated damage across whole parcel, weighted by building lifecycle area

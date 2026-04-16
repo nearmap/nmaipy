@@ -77,6 +77,7 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PER_CLASS_FILE_CLASS_IDS,
+    POOL_ID,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
@@ -95,6 +96,7 @@ from nmaipy.feature_attributes import (
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
     flatten_building_attributes,
+    flatten_pool_attributes,
     flatten_roof_attributes,
 )
 from nmaipy.parcels import (
@@ -746,6 +748,8 @@ def _compute_all_per_class_data(
     roof_attrs_cache_chunk = None
 
     roof_to_building_lookup = {}
+    roofs_linked_chunk = None
+    buildings_linked_chunk = None
     has_dependent = any(c in chunk_class_ids for c in dependent_class_ids)
     if has_dependent:
         if ROOF_ID in chunk_class_ids:
@@ -762,8 +766,6 @@ def _compute_all_per_class_data(
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
         # the correct path to BL is Roof →(IoU)→ Building(New) →(parent_id)→ BL.
         # Results are reused in _compute_feature_class_data for Building(New) class output.
-        roofs_linked_chunk = None
-        buildings_linked_chunk = None
         if len(roof_features_chunk) > 0 and BUILDING_NEW_ID in chunk_class_ids:
             building_new_chunk = chunk_gdf[chunk_gdf["class_id"] == BUILDING_NEW_ID]
             if len(building_new_chunk) > 0:
@@ -1626,6 +1628,15 @@ def _compute_feature_class_data(
                         df_parts.append(pd.DataFrame(score_batch, index=range(n_rows)))
         except Exception:
             logger.error("Could not link roofs to building lifecycles", exc_info=True)
+
+    # --- Section E2: Pool condition attributes ---
+    if class_id == POOL_ID:
+        pool_batch = []
+        for _, row in class_features.iterrows():
+            attrs = flatten_pool_attributes([row], country=country)
+            pool_batch.append(attrs)
+        if pool_batch:
+            df_parts.append(pd.DataFrame(pool_batch, index=range(n_rows)))
 
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
