@@ -71,6 +71,48 @@ AIFeatureAPIGridError = APIGridError
 AIFeatureAPIRequestSizeError = APIRequestSizeError
 
 
+def class_returnable_status(
+    availability,
+    system_version_prefix: Optional[str],
+    alpha: bool = False,
+    beta: bool = False,
+) -> str:
+    """Determine whether a class will return features under the active system version.
+
+    Interprets the `availability` field from classes.json (a list of
+    {systemVersion, perspective, status} entries) and returns one of:
+      - "returnable"  : class has a returnable entry under the active prefix
+      - "alpha_gated" : only alpha entries match the prefix, alpha flag off
+      - "beta_gated"  : only beta entries (no prod/alpha) match the prefix, beta flag off
+      - "absent"      : no entries match the prefix at all
+      - "unknown"     : availability shape unrecognized or no prefix supplied — fail-open
+
+    An entry counts as returnable when its status is:
+      - "prod" (always)
+      - "alpha" if alpha=True
+      - "beta"  if beta=True
+    """
+    if not system_version_prefix or not isinstance(availability, list):
+        return "unknown"
+
+    matching = [
+        e for e in availability
+        if isinstance(e, dict) and isinstance(e.get("systemVersion"), str)
+        and e["systemVersion"].startswith(system_version_prefix)
+    ]
+    if not matching:
+        return "absent"
+
+    statuses = {e.get("status") for e in matching}
+    if "prod" in statuses:
+        return "returnable"
+    if "beta" in statuses:
+        return "returnable" if beta else "beta_gated"
+    if "alpha" in statuses:
+        return "returnable" if alpha else "alpha_gated"
+    return "unknown"
+
+
 class FeatureApi(GriddedApiClient):
     """
     Client for the Nearmap AI Feature API.

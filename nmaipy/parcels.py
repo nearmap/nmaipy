@@ -897,7 +897,6 @@ def feature_attributes(
             roof_kind_features = class_features_gdf
 
         # Add attributes that apply to all feature classes
-        # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
         # For roof instances, use filtered features (roof kind only) for count
         features_for_count = roof_kind_features if class_id == ROOF_INSTANCE_CLASS_ID else class_features_gdf
         parcel[f"{name}_present"] = TRUE_STRING if len(features_for_count) > 0 else FALSE_STRING
