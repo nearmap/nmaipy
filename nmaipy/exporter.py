@@ -89,7 +89,7 @@ from nmaipy.constants import (
     UNTIL_COL_NAME,
     _write_class_descriptions,
 )
-from nmaipy.feature_api import FeatureApi
+from nmaipy.feature_api import FeatureApi, class_returnable_status
 from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
@@ -3517,7 +3517,7 @@ class NearmapAIExporter(BaseExporter):
         # Note: chunk_path and final_path created by BaseExporter
 
         # Get classes
-        feature_api = FeatureApi(
+        feature_api_kwargs = dict(
             api_key=self.api_key(),
             alpha=self.alpha,
             beta=self.beta,
@@ -3525,6 +3525,10 @@ class NearmapAIExporter(BaseExporter):
             only3d=self.only3d,
             parcel_mode=self.parcel_mode,
         )
+        if self.system_version_prefix is not None:
+            feature_api_kwargs["system_version_prefix"] = self.system_version_prefix
+        feature_api = FeatureApi(**feature_api_kwargs)
+        effective_sv_prefix = feature_api.system_version_prefix
         try:
             if self.packs is not None:
                 classes_df = feature_api.get_feature_classes(self.packs)
@@ -3550,6 +3554,41 @@ class NearmapAIExporter(BaseExporter):
 
         # Filter out deprecated classes from rollups
         classes_df = classes_df[~classes_df.index.isin(DEPRECATED_CLASS_IDS)]
+
+        # Filter classes unreturnable under the active system version — prevents
+        # zero-filled rollup columns for classes the API silently excludes
+        # (alpha/beta-gated without the corresponding flag, or absent entirely
+        # from the active system version).
+        if "availability" in classes_df.columns:
+            statuses = classes_df["availability"].apply(
+                lambda av: class_returnable_status(av, effective_sv_prefix, self.alpha, self.beta)
+            )
+            drop_alpha = statuses == "alpha_gated"
+            drop_beta = statuses == "beta_gated"
+            drop_absent = statuses == "absent"
+            to_drop = drop_alpha | drop_beta | drop_absent
+
+            sv = effective_sv_prefix or "default"
+            if drop_alpha.any():
+                names = sorted(classes_df.loc[drop_alpha, "description"].tolist())
+                self.logger.warning(
+                    f"Dropping {len(names)} alpha-gated class(es) from rollup (system version "
+                    f"{sv}, pass --alpha to include): {names}"
+                )
+            if drop_beta.any():
+                names = sorted(classes_df.loc[drop_beta, "description"].tolist())
+                self.logger.warning(
+                    f"Dropping {len(names)} beta-gated class(es) from rollup (system version "
+                    f"{sv}, pass --beta to include): {names}"
+                )
+            if drop_absent.any():
+                names = sorted(classes_df.loc[drop_absent, "description"].tolist())
+                self.logger.warning(
+                    f"Dropping {len(names)} class(es) with no availability under system version "
+                    f"{sv} (--alpha/--beta will not help; remove from --packs/--classes or change "
+                    f"--system-version-prefix): {names}"
+                )
+            classes_df = classes_df.loc[~to_drop]
 
         # Add Roof Instance class to classes_df when roof_age is enabled
         # This allows parcel_rollup to generate rollup columns for roof instances
