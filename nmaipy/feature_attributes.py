@@ -945,3 +945,29 @@ def flatten_roof_instance_attributes(
     if age_years is not None:
         flattened[f"{prefix}roof_age_years_as_of_date"] = age_years
     return flattened
+
+
+def flatten_pool_attributes(pools: List[dict], country: str) -> dict:
+    """Flatten pool condition attributes from Feature API into per-component columns."""
+    flattened = {}
+    for pool in pools:
+        attributes = pool.get("attributes")
+        if attributes and isinstance(attributes, str):
+            try:
+                attributes = json.loads(attributes)
+            except (json.JSONDecodeError, TypeError):
+                attributes = []
+        for attribute in attributes or []:
+            if "components" not in attribute:
+                continue
+            for component in attribute["components"]:
+                name = component["description"].lower().replace(" ", "_")
+                flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                else:
+                    flattened[f"{name}_area_sqm"] = component["areaSqm"]
+                flattened[f"{name}_confidence"] = component["confidence"]
+                if "ratio" in component:
+                    flattened[f"{name}_ratio"] = component["ratio"]
+    return flattened
