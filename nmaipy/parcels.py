@@ -16,6 +16,7 @@ from typing import Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely import make_valid
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
 
@@ -34,17 +35,22 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MIN_ROOF_INSTANCE_IOU_THRESHOLD,
+    POOL_ID,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     MeasurementUnits,
 )
 from nmaipy.feature_attributes import (
+    DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
     TRUE_STRING,
+    _flatten_defensible_space,
+    _flatten_include_params,
     _parse_include_param,
     flatten_building_attributes,
     flatten_building_lifecycle_damage_attributes,
+    flatten_pool_attributes,
     flatten_roof_attributes,
     flatten_roof_instance_attributes,
 )
@@ -196,7 +202,16 @@ def calculate_child_feature_attributes(
         total_intersection_area = 0.0
         max_confidence = None
         if mask.any():
-            total_intersection_area = matching_projected[mask].intersection(parent_projected).area.sum()
+            try:
+                total_intersection_area = matching_projected[mask].intersection(parent_projected).area.sum()
+            except Exception:
+                # Invalid geometry — try make_valid on both sides
+                try:
+                    valid_children = gpd.GeoSeries(make_valid(matching_projected[mask].values), crs=matching_projected.crs)
+                    valid_parent = make_valid(parent_projected)
+                    total_intersection_area = valid_children.intersection(valid_parent).area.sum()
+                except Exception:
+                    total_intersection_area = 0.0
             if "confidence" in matching_features.columns:
                 conf = matching_features["confidence"].values[mask.values]
                 valid = conf[pd.notna(conf)]
@@ -610,6 +625,23 @@ def extract_rsi_from_feature(feature) -> dict:
     return result
 
 
+def extract_include_scores_from_feature(feature, country: str = "us") -> dict:
+    """Extract all include parameter scores (RSI, peril scores, defensible space) from a feature.
+
+    Works with both dict and pd.Series feature rows. Returns a flat dict with
+    all score columns, or empty dict if no scores found.
+    """
+    if feature is None:
+        return {}
+    feat_dict = feature if isinstance(feature, dict) else feature.to_dict() if hasattr(feature, "to_dict") else {}
+    if not feat_dict:
+        return {}
+    result = {}
+    _flatten_include_params(feat_dict, result)
+    _flatten_defensible_space(feat_dict, result, country)
+    return result
+
+
 def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     """Build a feature_id → row dict for fast parent_id chain traversal.
 
@@ -681,6 +713,48 @@ def resolve_footprint_rsi(
             return extract_rsi_from_feature(parent)
         pid = parent.get("parent_id") if hasattr(parent, "get") else getattr(parent, "parent_id", None)
 
+    return {}
+
+
+def _traverse_to_bl(feature, parent_lookup: dict) -> dict:
+    """Traverse parent_id chain from feature to find the Building Lifecycle row.
+
+    Returns the BL row dict, or empty dict if no BL found.
+    """
+    if not parent_lookup:
+        return {}
+    visited = set()
+    pid = feature.get("parent_id") if hasattr(feature, "get") else getattr(feature, "parent_id", None)
+    while pd.notna(pid) and pid not in visited:
+        visited.add(pid)
+        parent = parent_lookup.get(pid)
+        if parent is None:
+            break
+        if parent.get("class_id") == BUILDING_LIFECYCLE_ID:
+            return parent
+        pid = parent.get("parent_id") if hasattr(parent, "get") else getattr(parent, "parent_id", None)
+    return {}
+
+
+def resolve_footprint_includes(
+    feature,
+    parent_lookup: dict = None,
+    country: str = "us",
+) -> dict:
+    """Resolve the 'best' include scores for a feature (roof first, then BL fallback).
+
+    Same logic as resolve_footprint_rsi but for ALL include parameters (scores,
+    defensible space, RSI). The API scores the roof normally, but switches to BL
+    when structural damage is present.
+
+    Returns flat dict with all resolved score columns, or empty dict.
+    """
+    scores = extract_include_scores_from_feature(feature, country=country)
+    if scores:
+        return scores
+    bl = _traverse_to_bl(feature, parent_lookup or {})
+    if bl:
+        return extract_include_scores_from_feature(bl, country=country)
     return {}
 
 
@@ -891,7 +965,6 @@ def feature_attributes(
                 if is_roof_instance:
                     parcel[f"primary_{name}_area_{area_units}"] = 0.0
                 else:
-                    parcel[f"primary_{name}_area_{area_units}"] = 0.0
                     parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
                     parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
                     parcel[f"primary_{name}_confidence"] = None
@@ -1024,8 +1097,15 @@ def feature_attributes(
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
-                # Provide the confidence values for each damage rating class for the primary building lifecycle feature
+                # Provide the confidence values for each damage rating class for the primary building lifecycle feature.
+                # Exclude score/DS columns — those are resolved separately as primary_* (no class infix).
+                _RESOLVED_PREFIXES = ("hurricane_", "wind_", "hail_", "wildfire_", "wind_hail_risk_", "defensible_space_zone_", "roof_spotlight_index")
                 primary_attributes = flatten_building_lifecycle_damage_attributes([primary_feature])
+                for key, val in primary_attributes.items():
+                    if not any(key.startswith(p) for p in _RESOLVED_PREFIXES):
+                        parcel[f"primary_{name}_" + str(key)] = val
+            if class_id == POOL_ID:
+                primary_attributes = flatten_pool_attributes([primary_feature], country=country)
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
 
@@ -1063,6 +1143,34 @@ def feature_attributes(
     parcel.pop("primary_roof_roof_spotlight_index_confidence", None)
     parcel.pop("primary_roof_roof_spotlight_index_model_version", None)
 
+    # Resolve best include scores (peril scores, defensible space) for the primary roof.
+    # Same logic as RSI: check roof first, fall back to BL via IoU-linked BN.
+    if _primary_roof is not None:
+        roof_fid = (
+            _primary_roof.get("feature_id")
+            if hasattr(_primary_roof, "get")
+            else getattr(_primary_roof, "feature_id", None)
+        )
+        resolved_scores = extract_include_scores_from_feature(_primary_roof, country=country)
+        if not resolved_scores:
+            bn_id = _roof_to_building.get(roof_fid)
+            if bn_id:
+                bn_row = _parent_lookup.get(bn_id)
+                if bn_row is not None:
+                    bl = _traverse_to_bl(bn_row, _parent_lookup)
+                    if bl:
+                        resolved_scores = extract_include_scores_from_feature(bl, country=country)
+        # Remove RSI from resolved_scores — handled separately above
+        for rsi_key in ("roof_spotlight_index", "roof_spotlight_index_confidence", "roof_spotlight_index_model_version"):
+            resolved_scores.pop(rsi_key, None)
+        # Write resolved scores with primary_ prefix (no "roof_" infix)
+        for key, val in resolved_scores.items():
+            parcel[f"primary_{key}"] = val
+        # Remove raw primary_roof_ prefixed score columns that are now superseded
+        raw_prefix = "primary_roof_"
+        for key in resolved_scores:
+            parcel.pop(f"{raw_prefix}{key}", None)
+
     # Min/max/area-weighted-mean RSI across all roofs in the parcel.
     # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
     if len(roof_features) > 0:
@@ -1098,6 +1206,63 @@ def feature_attributes(
                 parcel["roof_spotlight_index_area_weighted_mean"] = round(
                     float(np.dot(rsi_arr, area_arr) / total_area), 1
                 )
+
+    # Min/max/area-weighted-mean for peril vulnerability and risk scores.
+    # Same resolve logic as RSI: check roof first, fall back to BL.
+    _SCORE_AGG_FIELDS = [
+        "hurricane_vulnerability_score",
+        "wind_vulnerability_score",
+        "wind_risk_score",
+        "hail_vulnerability_score",
+        "hail_risk_score",
+        "wildfire_vulnerability_score",
+        "wind_hail_risk_score",
+    ]
+    if len(roof_features) > 0:
+        area_col = (
+            "clipped_area_sqft"
+            if "clipped_area_sqft" in roof_features.columns
+            else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
+        )
+        areas = roof_features[area_col].values if area_col else None
+
+        # Resolve all scores for each roof once
+        per_roof_scores = []
+        per_roof_areas = []
+        for i, feature_id in enumerate(roof_features["feature_id"]):
+            rf = _parent_lookup.get(feature_id) or {}
+            scores = extract_include_scores_from_feature(rf, country=country)
+            if not scores:
+                bn_id = _roof_to_building.get(feature_id)
+                if bn_id:
+                    bn_row = _parent_lookup.get(bn_id)
+                    if bn_row is not None:
+                        bl = _traverse_to_bl(bn_row, _parent_lookup)
+                        if bl:
+                            scores = extract_include_scores_from_feature(bl, country=country)
+            per_roof_scores.append(scores)
+            area = areas[i] if areas is not None else 0
+            per_roof_areas.append(0 if area is None or pd.isna(area) else area)
+
+        area_arr = np.array(per_roof_areas)
+        total_area = float(area_arr.sum())
+
+        for field in _SCORE_AGG_FIELDS:
+            vals = []
+            val_areas = []
+            for j, scores in enumerate(per_roof_scores):
+                v = scores.get(field) if scores else None
+                if v is not None:
+                    vals.append(v)
+                    val_areas.append(per_roof_areas[j])
+            if vals:
+                arr = np.array(vals, dtype=float)
+                parcel[f"{field}_min"] = float(arr.min())
+                parcel[f"{field}_max"] = float(arr.max())
+                a = np.array(val_areas, dtype=float)
+                t = float(a.sum())
+                if t > 0:
+                    parcel[f"{field}_area_weighted_mean"] = float(np.dot(arr, a) / t)
 
     return parcel
 
@@ -1420,6 +1585,67 @@ def parcel_rollup(
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 
+    # Flatten aggregate defensible space from API metadata into rollup columns.
+    # The API returns parcel-level aggregate defensible space data (zone metrics +
+    # per-class risk objects) in the response's "aggregate" section.
+    if api_metadata:
+        meta_df = api_metadata[0][0]
+        if "aggregate" in meta_df.columns:
+            agg_rows = {}
+            for aoi_id_val in rollup_df.index:
+                if aoi_id_val not in meta_df.index:
+                    continue
+                agg = meta_df.loc[aoi_id_val, "aggregate"]
+                if not isinstance(agg, dict):
+                    continue
+                ds = agg.get("defensibleSpace")
+                if not isinstance(ds, dict):
+                    continue
+                row = {}
+                for zone in sorted(ds.get("zones", []), key=lambda z: z.get("zoneId", 0)):
+                    zone_id = zone.get("zoneId")
+                    if not zone_id:
+                        continue
+                    prefix = f"aggregate_defensible_space_zone_{zone_id}"
+                    if country in IMPERIAL_COUNTRIES:
+                        if "zoneAreaSqft" in zone:
+                            row[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+                        if "defensibleSpaceAreaSqft" in zone:
+                            row[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+                        if "totalRiskObjectAreaSqft" in zone:
+                            row[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+                    else:
+                        if "zoneAreaSqm" in zone:
+                            row[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+                        if "defensibleSpaceAreaSqm" in zone:
+                            row[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+                        if "totalRiskObjectAreaSqm" in zone:
+                            row[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+                    if "defensibleSpaceCoverageRatio" in zone:
+                        row[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+                    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+                        ro_prefix = f"{prefix}_{ro_desc}"
+                        area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
+                        row[f"{ro_prefix}_{area_suffix}"] = 0.0
+                        row[f"{ro_prefix}_ratio"] = 0.0
+                    for risk_obj in zone.get("riskObjects", []):
+                        desc = risk_obj.get("description")
+                        if desc is None:
+                            continue
+                        desc_snake = desc.lower().replace(" ", "_")
+                        ro_prefix = f"{prefix}_{desc_snake}"
+                        if country in IMPERIAL_COUNTRIES:
+                            row[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
+                        else:
+                            row[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
+                        row[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+                if row:
+                    agg_rows[aoi_id_val] = row
+            if agg_rows:
+                agg_df = pd.DataFrame.from_dict(agg_rows, orient="index")
+                agg_df.index.name = AOI_ID_COLUMN_NAME
+                rollup_df = rollup_df.join(agg_df, how="left")
+
     # Round any columns ending in _confidence to two decimal places (nearest percent)
     for col in rollup_df.columns:
         if col.endswith("_confidence"):
@@ -1430,5 +1656,52 @@ def parcel_rollup(
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
+    # Reorder defensible space columns: primary_roof zones 1-3, then aggregate zones 1-3.
+    # Within each zone: zone_area, defensible_space_area, coverage_ratio, risk_object_area,
+    # then per-class columns (vegetation, roof, yard_debris) with area before ratio.
+    import re
+
+    ds_pattern = re.compile(r"(.*defensible_space_zone_)(\d+)_(.*)")
+
+    # Priority order for within-zone column suffixes
+    _DS_SUFFIX_ORDER = [
+        "zone_area_",
+        "defensible_space_area_",
+        "coverage_ratio",
+        "risk_object_area_",
+        "medium_and_high_vegetation_with_woody_vegetation_area_",
+        "medium_and_high_vegetation_with_woody_vegetation_ratio",
+        "roof_area_",
+        "roof_ratio",
+        "yard_debris_area_",
+        "yard_debris_ratio",
+    ]
+
+    def _ds_suffix_rank(suffix):
+        for i, pattern in enumerate(_DS_SUFFIX_ORDER):
+            if suffix.startswith(pattern):
+                return i
+        return len(_DS_SUFFIX_ORDER)
+
+    # primary_roof before aggregate
+    def _ds_prefix_rank(prefix):
+        if "primary_" in prefix:
+            return 0
+        return 1  # aggregate
+
+    ds_cols = []
+    non_ds_cols = []
+    for col in rollup_df.columns:
+        m = ds_pattern.match(col)
+        if m:
+            ds_cols.append((_ds_prefix_rank(m.group(1)), int(m.group(2)), _ds_suffix_rank(m.group(3)), col))
+        else:
+            non_ds_cols.append(col)
+    if ds_cols:
+        ds_cols.sort()
+        first_ds_idx = next(i for i, c in enumerate(rollup_df.columns) if ds_pattern.match(c))
+        ordered = non_ds_cols[:first_ds_idx] + [t[3] for t in ds_cols] + non_ds_cols[first_ds_idx:]
+        rollup_df = rollup_df[ordered]
+
     # Defragment DataFrame to avoid PerformanceWarning when callers add columns
     return rollup_df.copy()

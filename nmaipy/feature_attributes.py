@@ -42,6 +42,14 @@ logger = log.get_logger()
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
 
+# Known risk object classes in defensible space zones (snake_case).
+# Always emitted as columns (defaulting to 0.0) even if absent from API response.
+DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES = [
+    "medium_and_high_vegetation_with_woody_vegetation",
+    "roof",
+    "yard_debris",
+]
+
 # Declarative mapping from API include parameters to flattened output columns.
 # Each entry: camelCase API key → {snake_key for lookup/modelVersion, fields: {api_field: output_col}}.
 # modelVersion is handled uniformly: output is always "{snake_key}_model_version".
@@ -56,6 +64,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "hurricaneScore": {
         "snake_key": "hurricane_score",
+        "model_input_prefix": "hurricane_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "hurricane_vulnerability_score",
             "vulnerabilityProbability": "hurricane_vulnerability_probability",
@@ -64,6 +73,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "windScore": {
         "snake_key": "wind_score",
+        "model_input_prefix": "wind_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "wind_vulnerability_score",
             "vulnerabilityProbability": "wind_vulnerability_probability",
@@ -75,6 +85,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "hailScore": {
         "snake_key": "hail_score",
+        "model_input_prefix": "hail_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "hail_vulnerability_score",
             "vulnerabilityProbability": "hail_vulnerability_probability",
@@ -86,6 +97,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "wildfireScore": {
         "snake_key": "wildfire_score",
+        "model_input_prefix": "wildfire_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "wildfire_vulnerability_score",
             "vulnerabilityProbability": "wildfire_vulnerability_probability",
@@ -95,6 +107,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "windHailRiskScore": {
         "snake_key": "wind_hail_risk_score",
+        "model_input_prefix": "wind_hail_risk_model_input",
         "fields": {
             "riskScore": "wind_hail_risk_score",
             "riskRateFactor": "wind_hail_risk_rate_factor",
@@ -159,6 +172,76 @@ def _parse_include_param(val):
         except (json.JSONDecodeError, TypeError):
             return None
     return None
+
+
+def _flatten_include_params(feature: dict, flattened: dict) -> None:
+    """Extract include parameters (scores, RSI) and their modelInputFeatures into flattened dict."""
+    for camel_key, config in INCLUDE_FIELD_MAPPINGS.items():
+        raw = feature.get(camel_key) or feature.get(config["snake_key"])
+        data = _parse_include_param(raw)
+        if not data:
+            continue
+        for api_field, output_col in config["fields"].items():
+            if api_field in data:
+                flattened[output_col] = data[api_field]
+        for key in ("modelVersion",):
+            if key in data:
+                flattened[f"{config['snake_key']}_{stringcase.snakecase(key)}"] = data[key]
+        model_input_prefix = config.get("model_input_prefix")
+        if model_input_prefix is not None:
+            model_input = data.get("modelInputFeatures")
+            if isinstance(model_input, dict):
+                for mif_key, mif_value in model_input.items():
+                    flattened[f"{model_input_prefix}_{stringcase.snakecase(mif_key)}"] = mif_value
+
+
+def _flatten_defensible_space(feature: dict, flattened: dict, country: str) -> None:
+    """Extract defensible space zone metrics and risk objects from a feature into flattened dict."""
+    defensible_raw = feature.get("defensibleSpace") or feature.get("defensible_space")
+    defensible_space_data = _parse_include_param(defensible_raw)
+    if not defensible_space_data:
+        return
+    zones = defensible_space_data.get("zones", [])
+    zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
+    for zone in zones_sorted:
+        zone_id = zone.get("zoneId")
+        if not zone_id:
+            continue
+        prefix = f"defensible_space_zone_{zone_id}"
+        if country in IMPERIAL_COUNTRIES:
+            if "zoneAreaSqft" in zone:
+                flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
+            if "defensibleSpaceAreaSqft" in zone:
+                flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
+            if "totalRiskObjectAreaSqft" in zone:
+                flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
+        else:
+            if "zoneAreaSqm" in zone:
+                flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
+            if "defensibleSpaceAreaSqm" in zone:
+                flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
+            if "totalRiskObjectAreaSqm" in zone:
+                flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
+        if "defensibleSpaceCoverageRatio" in zone:
+            flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+        for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+            ro_prefix = f"{prefix}_{ro_desc}"
+            area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
+            flattened[f"{ro_prefix}_{area_suffix}"] = 0.0
+            flattened[f"{ro_prefix}_ratio"] = 0.0
+        for risk_obj in zone.get("riskObjects", []):
+            desc = risk_obj.get("description")
+            if desc is None:
+                continue
+            desc_snake = desc.lower().replace(" ", "_")
+            ro_prefix = f"{prefix}_{desc_snake}"
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
+            else:
+                flattened[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
+            flattened[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+    if "modelVersion" in defensible_space_data:
+        flattened[f"defensible_space_{stringcase.snakecase('modelVersion')}"] = defensible_space_data["modelVersion"]
 
 
 def _get_feature_value(feature, key):
@@ -543,53 +626,10 @@ def flatten_roof_attributes(
 
     # Handle components and other attributes
     for roof in roofs:
-        # Flatten include parameters (RSI, scores) via INCLUDE_FIELD_MAPPINGS table
-        for camel_key, config in INCLUDE_FIELD_MAPPINGS.items():
-            raw = roof.get(camel_key) or roof.get(config["snake_key"])
-            data = _parse_include_param(raw)
-            if not data:
-                continue
-            for api_field, output_col in config["fields"].items():
-                if api_field in data:
-                    flattened[output_col] = data[api_field]
-            for key in ("modelVersion",):
-                if key in data:
-                    flattened[f"{config['snake_key']}_{stringcase.snakecase(key)}"] = data[key]
+        _flatten_include_params(roof, flattened)
 
         # Defensible space has zone-based nesting — handle separately
-        defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
-        defensible_space_data = _parse_include_param(defensible_raw)
-        if defensible_space_data:
-            zones = defensible_space_data.get("zones", [])
-            # Sort zones by zoneId to ensure consistent column ordering (zone 1, 2, 3, ...)
-            zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
-            for zone in zones_sorted:
-                zone_id = zone.get("zoneId")
-                if zone_id:
-                    # Flatten key metrics for each zone in a specific order:
-                    # 1. zone_area, 2. defensible_space_area, 3. risk_object_area, 4. coverage_ratio
-                    prefix = f"defensible_space_zone_{zone_id}"
-                    if country in IMPERIAL_COUNTRIES:
-                        if "zoneAreaSqft" in zone:
-                            flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
-                        if "defensibleSpaceAreaSqft" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
-                        if "totalRiskObjectAreaSqft" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
-                    else:
-                        if "zoneAreaSqm" in zone:
-                            flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
-                        if "defensibleSpaceAreaSqm" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
-                        if "totalRiskObjectAreaSqm" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
-
-                    if "defensibleSpaceCoverageRatio" in zone:
-                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
-            if "modelVersion" in defensible_space_data:
-                key = "modelVersion"
-                flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
+        _flatten_defensible_space(roof, flattened, country)
 
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns
@@ -713,6 +753,8 @@ def flatten_building_lifecycle_damage_attributes(
     flattened = {}
 
     for building_lifecycle in building_lifecycles:
+        _flatten_include_params(building_lifecycle, flattened)
+
         # Get damage data from top-level damage field
         damage_data = building_lifecycle.get("damage")
 
@@ -828,4 +870,30 @@ def flatten_roof_instance_attributes(
     age_years = calculate_roof_age_years(installation_date, as_of_date)
     if age_years is not None:
         flattened[f"{prefix}roof_age_years_as_of_date"] = age_years
+    return flattened
+
+
+def flatten_pool_attributes(pools: List[dict], country: str) -> dict:
+    """Flatten pool condition attributes from Feature API into per-component columns."""
+    flattened = {}
+    for pool in pools:
+        attributes = pool.get("attributes")
+        if attributes and isinstance(attributes, str):
+            try:
+                attributes = json.loads(attributes)
+            except (json.JSONDecodeError, TypeError):
+                attributes = []
+        for attribute in attributes or []:
+            if "components" not in attribute:
+                continue
+            for component in attribute["components"]:
+                name = component["description"].lower().replace(" ", "_")
+                flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+                if country in IMPERIAL_COUNTRIES:
+                    flattened[f"{name}_area_sqft"] = component["areaSqft"]
+                else:
+                    flattened[f"{name}_area_sqm"] = component["areaSqm"]
+                flattened[f"{name}_confidence"] = component["confidence"]
+                if "ratio" in component:
+                    flattened[f"{name}_ratio"] = component["ratio"]
     return flattened

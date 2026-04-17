@@ -893,6 +893,7 @@ class FeatureApi(GriddedApiClient):
             "survey_resource_id": payload["resourceId"],
             "perspective": payload["perspective"],
             "postcat": payload["postcat"],
+            "aggregate": payload.get("aggregate"),
         }
 
         columns = [
@@ -1586,6 +1587,7 @@ class FeatureApi(GriddedApiClient):
 
             # Submit jobs to executor
             jobs = []
+            job_to_aoi_id = {}
             for aoi_id, row in gdf.iterrows():
                 # Overwrite blanket since/until dates with per request since/until if columns are present
                 since = since_bulk
@@ -1600,26 +1602,26 @@ class FeatureApi(GriddedApiClient):
                 if SURVEY_RESOURCE_ID_COL_NAME in row:
                     if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
                         survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-                jobs.append(
-                    executor.submit(
-                        self.get_features_gdf,
-                        geometry=row.geometry if has_geom else None,
-                        region=region,
-                        packs=packs,
-                        classes=classes,
-                        include=include,
-                        aoi_id=aoi_id,
-                        since=since,
-                        until=until,
-                        address_fields=(
-                            {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields and not has_geom else None
-                        ),
-                        survey_resource_id=survey_resource_id,
-                        fail_hard_regrid=fail_hard_regrid,
-                        in_gridding_mode=in_gridding_mode,
-                        disable_parcel_mode=disable_parcel_mode,
-                    )
+                job = executor.submit(
+                    self.get_features_gdf,
+                    geometry=row.geometry if has_geom else None,
+                    region=region,
+                    packs=packs,
+                    classes=classes,
+                    include=include,
+                    aoi_id=aoi_id,
+                    since=since,
+                    until=until,
+                    address_fields=(
+                        {f: row[f] for f in ADDRESS_FIELDS} if has_address_fields and not has_geom else None
+                    ),
+                    survey_resource_id=survey_resource_id,
+                    fail_hard_regrid=fail_hard_regrid,
+                    in_gridding_mode=in_gridding_mode,
+                    disable_parcel_mode=disable_parcel_mode,
                 )
+                jobs.append(job)
+                job_to_aoi_id[job] = aoi_id
 
             data = []
             metadata = []
@@ -1627,7 +1629,20 @@ class FeatureApi(GriddedApiClient):
             grid_errors = []  # Accumulate grid cell errors (DataFrames with geometry)
             # Use as_completed to process results as they finish, preventing blocking on slow requests
             for job in concurrent.futures.as_completed(jobs):
-                aoi_data, aoi_metadata, aoi_error, aoi_grid_errors = job.result()
+                try:
+                    aoi_data, aoi_metadata, aoi_error, aoi_grid_errors = job.result()
+                except Exception as e:
+                    failed_aoi_id = job_to_aoi_id.get(job, "unknown")
+                    logger.error(f"Unexpected error for AOI {failed_aoi_id}: {e}")
+                    aoi_data, aoi_metadata, aoi_grid_errors = None, None, None
+                    aoi_error = {
+                        AOI_ID_COLUMN_NAME: failed_aoi_id,
+                        "status_code": None,
+                        "message": f"{type(e).__name__}: {str(e)[:200]}",
+                        "text": str(e)[:200],
+                        "request": "Unexpected error",
+                        "failure_type": "geometry",
+                    }
                 if aoi_data is not None:
                     if len(aoi_data) > 0:
                         data.append(aoi_data)
@@ -1651,10 +1666,11 @@ class FeatureApi(GriddedApiClient):
             if not external_executor:
                 executor.shutdown(wait=True)
                 self._thread_local.executor = None
-                # Skip cleanup in gridding mode — gridding runs inside a parent
-                # executor thread, and cleanup() would close all threads' cached
-                # adapters (shared via self._sessions), breaking connection reuse.
-                if not in_gridding_mode:
+                if in_gridding_mode:
+                    # In gridding mode, full cleanup() would close adapters shared
+                    # across parent executor threads. Only clear thread-local state.
+                    self.cleanup_thread_local()
+                else:
                     self.cleanup()
 
         non_empty_data = [df for df in data if len(df) > 0]

@@ -34,6 +34,7 @@ import shapely.geometry
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
+warnings.filterwarnings("ignore", message=".*invalid value encountered in area.*")
 
 import atexit
 import signal
@@ -76,6 +77,7 @@ from nmaipy.constants import (
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
     PER_CLASS_FILE_CLASS_IDS,
+    POOL_ID,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
@@ -94,12 +96,16 @@ from nmaipy.feature_attributes import (
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
     flatten_building_attributes,
+    flatten_pool_attributes,
     flatten_roof_attributes,
 )
 from nmaipy.parcels import (
+    _traverse_to_bl,
     build_parent_lookup,
+    extract_include_scores_from_feature,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
+    resolve_footprint_includes,
     resolve_footprint_rsi,
 )
 from nmaipy.readme_generator import ReadmeGenerator
@@ -582,6 +588,18 @@ _EXCLUDE_RSI = {
     "primary_child_roof_roof_spotlight_index_model_version",
 }
 
+# Score column prefixes that are resolved per-feature (roof→BL fallback).
+# When propagating child roof attributes to building/BL, exclude these raw
+# columns — resolved values are added separately.
+_RESOLVED_SCORE_PREFIXES = (
+    "hurricane_",
+    "wind_",
+    "hail_",
+    "wildfire_",
+    "wind_hail_risk_",
+    "defensible_space_zone_",
+)
+
 # RSI column names emitted by _resolve_rsi_batch.
 _RSI_COLUMNS = (
     "roof_spotlight_index",
@@ -613,6 +631,45 @@ def _resolve_rsi_batch(n_rows, resolve_fn):
     if not np.any(pd.notna(vals)):
         return None
     return vals, conf, mver
+
+
+def _resolve_scores_batch(n_rows, resolve_fn, added_cols):
+    """Resolve all include scores for *n_rows* rows, returning a dict of {col: array}.
+
+    *resolve_fn(i)* returns a flat dict of score columns (from extract_include_scores_from_feature)
+    or empty dict/None. RSI columns are excluded (handled separately by _resolve_rsi_batch).
+
+    Returns dict ready to be appended as a DataFrame to df_parts, or empty dict.
+    """
+    all_resolved = [resolve_fn(i) for i in range(n_rows)]
+
+    # Collect all column names across all rows
+    all_cols = set()
+    for r in all_resolved:
+        if r:
+            all_cols.update(r.keys())
+    # Exclude RSI columns — handled separately
+    all_cols -= {"roof_spotlight_index", "roof_spotlight_index_confidence", "roof_spotlight_index_model_version"}
+    if not all_cols:
+        return {}
+
+    batch = {}
+    for col in sorted(all_cols):
+        if col in added_cols:
+            continue
+        arr = np.full(n_rows, None, dtype=object)
+        for i, r in enumerate(all_resolved):
+            if r and col in r:
+                arr[i] = r[col]
+        if np.any(pd.notna(arr)):
+            batch[col] = arr
+            added_cols.add(col)
+    return batch
+
+
+def _is_resolved_score_col(col_name: str) -> bool:
+    """Check if a column name is a score column that gets resolved per-feature."""
+    return any(col_name.startswith(f"primary_child_roof_{p}") for p in _RESOLVED_SCORE_PREFIXES)
 
 
 def _dataframe_to_records_with_index(df):
@@ -691,6 +748,8 @@ def _compute_all_per_class_data(
     roof_attrs_cache_chunk = None
 
     roof_to_building_lookup = {}
+    roofs_linked_chunk = None
+    buildings_linked_chunk = None
     has_dependent = any(c in chunk_class_ids for c in dependent_class_ids)
     if has_dependent:
         if ROOF_ID in chunk_class_ids:
@@ -707,8 +766,6 @@ def _compute_all_per_class_data(
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
         # the correct path to BL is Roof →(IoU)→ Building(New) →(parent_id)→ BL.
         # Results are reused in _compute_feature_class_data for Building(New) class output.
-        roofs_linked_chunk = None
-        buildings_linked_chunk = None
         if len(roof_features_chunk) > 0 and BUILDING_NEW_ID in chunk_class_ids:
             building_new_chunk = chunk_gdf[chunk_gdf["class_id"] == BUILDING_NEW_ID]
             if len(building_new_chunk) > 0:
@@ -1107,6 +1164,43 @@ def _compute_feature_class_data(
         except Exception:
             logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 
+        # Resolve best scores (peril scores, defensible space) per roof via BL fallback.
+        try:
+            bl_in_features = (
+                BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values if features_gdf is not None else False
+            )
+            if bl_in_features:
+                roof_records_for_scores = _dataframe_to_records_with_index(class_features)
+
+                def _resolve_roof_scores(i):
+                    row = roof_records_for_scores[i]
+                    scores = extract_include_scores_from_feature(row, country=country)
+                    if not scores:
+                        bn_id = _roof_to_building.get(row.get("feature_id"))
+                        if bn_id:
+                            bn_row = p_lookup.get(bn_id)
+                            if bn_row is not None:
+                                bl = _traverse_to_bl(bn_row, p_lookup)
+                                if bl:
+                                    scores = extract_include_scores_from_feature(bl, country=country)
+                    return scores
+
+                score_batch = _resolve_scores_batch(n_rows, _resolve_roof_scores, added_cols)
+                if score_batch:
+                    # Overwrite existing score columns in df_parts where they exist
+                    overwritten = set()
+                    for part in df_parts:
+                        for col, arr in score_batch.items():
+                            if col in part.columns:
+                                part[col] = arr
+                                overwritten.add(col)
+                    # Append any new columns not in existing parts
+                    new_cols = {k: v for k, v in score_batch.items() if k not in overwritten}
+                    if new_cols:
+                        df_parts.append(pd.DataFrame(new_cols, index=range(n_rows)))
+        except Exception:
+            logger.error("Could not resolve footprint scores for roofs", exc_info=True)
+
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
         # Flatten building's own 3D attributes (height, pitch, ground_height, numStories)
@@ -1235,7 +1329,10 @@ def _compute_feature_class_data(
                         "primary_child_roof_dominant_roof_types_",
                     )
                     dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
-                    other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM) and c not in _EXCLUDE_RSI)
+                    other_cols = sorted(
+                        c for c in mapped.columns
+                        if not c.startswith(_DOM) and c not in _EXCLUDE_RSI and not _is_resolved_score_col(c)
+                    )
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
@@ -1315,6 +1412,26 @@ def _compute_feature_class_data(
                                 added_cols.add(col)
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
+
+                # Resolve best scores per building (same pattern as RSI).
+                if roof_attrs:
+                    pcr_ids_for_scores = buildings_linked["primary_child_roof_id"].values
+                    bn_records_for_scores = _dataframe_to_records_with_index(buildings_linked)
+
+                    def _resolve_bn_scores(i):
+                        pcr_id = pcr_ids_for_scores[i]
+                        roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
+                        if roof_row is not None:
+                            scores = extract_include_scores_from_feature(roof_row, country=country)
+                            if scores:
+                                return scores
+                        return resolve_footprint_includes(
+                            bn_records_for_scores[i], parent_lookup=p_lookup, country=country
+                        )
+
+                    score_batch = _resolve_scores_batch(n_rows, _resolve_bn_scores, added_cols)
+                    if score_batch:
+                        df_parts.append(pd.DataFrame(score_batch, index=range(n_rows)))
 
                 # Link roof age data from primary child roof's roof instance
                 # Chain: building → primary_child_roof → primary_child_roof_age (roof instance) → roof_age_*
@@ -1457,7 +1574,7 @@ def _compute_feature_class_data(
 
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
-                        if col not in added_cols and col not in _EXCLUDE_RSI:
+                        if col not in added_cols and col not in _EXCLUDE_RSI and not _is_resolved_score_col(col):
                             roof_attr_batch[col] = mapped[col].values
                             added_cols.add(col)
                     if roof_attr_batch:
@@ -1492,8 +1609,34 @@ def _compute_feature_class_data(
                                 added_cols.add(col)
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
+
+                    # Resolve best scores per BL (same pattern as RSI).
+                    bl_records_for_scores = _dataframe_to_records_with_index(class_features)
+
+                    def _resolve_bl_scores(i):
+                        pcr_id = primary_ids[i]
+                        roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
+                        if roof_row is not None:
+                            scores = extract_include_scores_from_feature(roof_row, country=country)
+                            if scores:
+                                return scores
+                        # No child roof or roof lacks scores — use BL's own
+                        return extract_include_scores_from_feature(bl_records_for_scores[i], country=country)
+
+                    score_batch = _resolve_scores_batch(n_rows, _resolve_bl_scores, added_cols)
+                    if score_batch:
+                        df_parts.append(pd.DataFrame(score_batch, index=range(n_rows)))
         except Exception:
             logger.error("Could not link roofs to building lifecycles", exc_info=True)
+
+    # --- Section E2: Pool condition attributes ---
+    if class_id == POOL_ID:
+        pool_batch = []
+        for _, row in class_features.iterrows():
+            attrs = flatten_pool_attributes([row], country=country)
+            pool_batch.append(attrs)
+        if pool_batch:
+            df_parts.append(pd.DataFrame(pool_batch, index=range(n_rows)))
 
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
@@ -2963,6 +3106,11 @@ class NearmapAIExporter(BaseExporter):
                 metadata_df = metadata_df.rename(columns={meta_data_column: f"nmaipy_{meta_data_column}"})
                 meta_data_columns.remove(meta_data_column)
 
+            # Drop non-scalar metadata columns (e.g. aggregate dicts) before merge
+            metadata_df = metadata_df.drop(
+                columns=[c for c in metadata_df.columns if c not in meta_data_columns + [AOI_ID_COLUMN_NAME]],
+                errors="ignore",
+            )
             # Use rollup_df as base to preserve all AOIs (including those where Feature API
             # failed but Roof Age API succeeded). Left-merge with metadata_df to add
             # survey metadata where available.
@@ -3340,6 +3488,11 @@ class NearmapAIExporter(BaseExporter):
             except Exception:
                 pass
 
+            # Force garbage collection to reclaim memory from chunk processing.
+            # Without this, large intermediate DataFrames and API response data
+            # accumulate across chunks within long-lived worker processes.
+            gc.collect()
+
     def run(self):
         try:
             self._run_inner()
@@ -3600,6 +3753,7 @@ class NearmapAIExporter(BaseExporter):
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
+            data = data.sort_index()
             self.logger.info(f"Writing rollup {self.tabular_file_format} ({len(data)} rows)...")
             if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)
