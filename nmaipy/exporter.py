@@ -3614,10 +3614,7 @@ class NearmapAIExporter(BaseExporter):
             if len(data) > 0:
                 class_cols_by_id = class_column_names(classes_df, self.country, self.primary_decision)
                 candidate_cols = set().union(*class_cols_by_id.values()) if class_cols_by_id else set()
-                all_nan_class_cols = [
-                    c for c in data.columns
-                    if c in candidate_cols and data[c].isna().all()
-                ]
+                all_nan_class_cols = [c for c in data.columns if c in candidate_cols and data[c].isna().all()]
                 if all_nan_class_cols:
                     data = data.drop(columns=all_nan_class_cols)
 

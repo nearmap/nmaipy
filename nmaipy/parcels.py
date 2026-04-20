@@ -77,9 +77,7 @@ __all__ = [
 ]
 
 
-def class_column_names(
-    classes_df: pd.DataFrame, country: str, primary_decision: str = "largest_intersection"
-) -> dict:
+def class_column_names(classes_df: pd.DataFrame, country: str, primary_decision: str = "largest_intersection") -> dict:
     """Authoritative mapping from class_id to the set of rollup column names
     emitted by `feature_attributes()` for that class.
 
@@ -1305,16 +1303,13 @@ def parcel_rollup(
             # other synthetic class subsets may not have either — fail-open then.
             # Typical chunks have 1-2 distinct system_versions across AOIs, so we
             # compute the unreturnable class set per unique version and then fan out.
-            if (
-                len(meta_df) > 0
-                and "system_version" in meta_df.columns
-                and "availability" in meta_classes.columns
-            ):
+            if len(meta_df) > 0 and "system_version" in meta_df.columns and "availability" in meta_classes.columns:
                 avail_by_class = meta_classes["availability"].to_dict()
                 unique_svs = set(meta_df["system_version"].dropna().unique())
                 unreturnable_by_sv = {
                     sv: {
-                        cid for cid, avail in avail_by_class.items()
+                        cid
+                        for cid, avail in avail_by_class.items()
                         if not is_class_returnable_at_version(avail, sv, alpha=alpha, beta=beta)
                     }
                     for sv in unique_svs

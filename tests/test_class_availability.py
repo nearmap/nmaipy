@@ -10,6 +10,7 @@ A few synthetic fixtures remain only for cases not currently observed in real
 data — e.g. a class with both alpha and beta statuses at the same
 systemVersion. Those are marked as hypothetical.
 """
+
 import json
 from pathlib import Path
 

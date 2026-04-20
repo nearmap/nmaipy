@@ -383,7 +383,9 @@ class BaseExporter(ABC):
         try:
             for attempt in range(max_retries):
                 try:
-                    with ProcessPoolExecutor(max_workers=self.processes, mp_context=mp_context, max_tasks_per_child=1) as executor:
+                    with ProcessPoolExecutor(
+                        max_workers=self.processes, mp_context=mp_context, max_tasks_per_child=1
+                    ) as executor:
                         try:
                             # Submit all chunks
                             # Track warmup start time to gradually ramp up concurrency

@@ -2040,9 +2040,7 @@ class TestClassColumnNames:
                 "mesh_date": ["2024-01-01", "2024-02-01"],
             }
         )
-        all_nan_class_cols = [
-            c for c in df.columns if c in candidate_cols and df[c].isna().all()
-        ]
+        all_nan_class_cols = [c for c in df.columns if c in candidate_cols and df[c].isna().all()]
         pruned = df.drop(columns=all_nan_class_cols)
 
         assert "swimming_pool_present" not in pruned.columns
