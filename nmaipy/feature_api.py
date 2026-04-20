@@ -89,7 +89,7 @@ def is_class_returnable_at_version(
     availability shape is unrecognized — preferring phantom columns over
     silent drops.
     """
-    if not system_version or not isinstance(availability, list):
+    if not isinstance(system_version, str) or not system_version or not isinstance(availability, list):
         return True
     for entry in availability:
         if not isinstance(entry, dict):

@@ -98,7 +98,7 @@ from nmaipy.feature_attributes import (
 )
 from nmaipy.parcels import (
     build_parent_lookup,
-    class_scoped_column_prefixes,
+    class_column_names,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
     resolve_footprint_rsi,
@@ -3607,17 +3607,19 @@ class NearmapAIExporter(BaseExporter):
 
             # Drop class-scoped columns that are 100% NaN. These correspond to
             # classes that were unreturnable at every AOI's system_version (via
-            # per-AOI null-out in parcel_rollup). Guarded by class-name prefix
-            # match so user input columns and metadata aren't affected.
+            # per-AOI null-out in parcel_rollup). The candidate set is the
+            # authoritative class_id → columns mapping from feature_attributes()
+            # with empty input — not a prefix heuristic — so user input columns
+            # and metadata are never considered for pruning even if all-NaN.
             if len(data) > 0:
-                class_prefixes = class_scoped_column_prefixes(classes_df)
-                if class_prefixes:
-                    all_nan_class_cols = [
-                        c for c in data.columns
-                        if c.startswith(class_prefixes) and data[c].isna().all()
-                    ]
-                    if all_nan_class_cols:
-                        data = data.drop(columns=all_nan_class_cols)
+                class_cols_by_id = class_column_names(classes_df, self.country, self.primary_decision)
+                candidate_cols = set().union(*class_cols_by_id.values()) if class_cols_by_id else set()
+                all_nan_class_cols = [
+                    c for c in data.columns
+                    if c in candidate_cols and data[c].isna().all()
+                ]
+                if all_nan_class_cols:
+                    data = data.drop(columns=all_nan_class_cols)
 
             if "geometry" in data.columns:
                 if not isinstance(data.geometry, gpd.GeoSeries):

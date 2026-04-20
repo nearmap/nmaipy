@@ -1987,54 +1987,67 @@ class TestPerVersionAvailabilityNullOut:
         assert rollup.loc["aoi_lantern", "swimming_pool_present"] == "N"
 
 
-class TestClassScopedColumnPrefixes:
-    """Helper used by the final-stage column prune in exporter.py."""
+class TestClassColumnNames:
+    """Helper used by both parcel_rollup null-out and the final-stage column
+    prune in exporter.py to map class_id → rollup column names authoritatively."""
 
-    def test_basic_prefixes(self):
+    def test_expected_baseline_columns_emitted(self):
+        # Use a real class whose column names we know (pool).
         classes_df = pd.DataFrame(
-            {"description": ["Swimming Pool", "HVAC"]},
-            index=["id1", "id2"],
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
         )
-        prefixes = parcels.class_scoped_column_prefixes(classes_df)
-        assert "swimming_pool_" in prefixes
-        assert "primary_swimming_pool_" in prefixes
-        assert "hvac_" in prefixes
-        assert "primary_hvac_" in prefixes
+        cols_by_id = parcels.class_column_names(classes_df, country="us")
+        pool_cols = cols_by_id[POOL_ID]
+        # Every class gets baseline present/count/area/confidence columns.
+        assert "swimming_pool_present" in pool_cols
+        assert "swimming_pool_count" in pool_cols
+        assert "swimming_pool_total_area_sqft" in pool_cols
+        assert "swimming_pool_confidence" in pool_cols
+
+    def test_user_input_column_never_marked_class_scoped(self):
+        # A user input column named e.g. "swimming_pool_owner" must NOT be in the
+        # authoritative set just because its name shares a prefix with a class.
+        classes_df = pd.DataFrame(
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
+        )
+        cols_by_id = parcels.class_column_names(classes_df, country="us")
+        all_class_cols = set().union(*cols_by_id.values())
+        assert "swimming_pool_owner" not in all_class_cols
+        assert "my_arbitrary_column" not in all_class_cols
 
     def test_column_prune_behavior(self):
-        """Simulate the exporter.py prune step on a rollup DataFrame."""
+        """Simulate the exporter.py prune step on a rollup DataFrame — verifies
+        that a user input column with a class-prefix name is not pruned even
+        if all-NaN, because the candidate set is class-id-authoritative."""
         classes_df = pd.DataFrame(
-            {"description": ["Swimming Pool", "HVAC"]},
-            index=["id1", "id2"],
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
         )
-        prefixes = parcels.class_scoped_column_prefixes(classes_df)
+        cols_by_id = parcels.class_column_names(classes_df, country="us")
+        candidate_cols = set().union(*cols_by_id.values())
 
         df = pd.DataFrame(
             {
-                # Class-scoped, all NaN → should be pruned
-                "hvac_present": [None, None],
-                "hvac_count": [None, None],
-                "primary_hvac_area_sqm": [None, None],
-                # Class-scoped, populated → should stay
-                "swimming_pool_present": ["N", "Y"],
-                "swimming_pool_count": [0, 1],
-                # User input column that happens to be NaN → must stay (not class-scoped)
-                "my_user_col": [None, None],
+                # Authoritative class-scoped column, all NaN → should be pruned
+                "swimming_pool_present": [None, None],
+                "swimming_pool_count": [None, None],
+                # User input column that happens to start with a class name AND
+                # is all NaN → must stay, because it's not in the authoritative set.
+                "swimming_pool_owner": [None, None],
                 # Metadata → stays
                 "mesh_date": ["2024-01-01", "2024-02-01"],
             }
         )
-        # Mimic the prune logic from exporter.py
         all_nan_class_cols = [
-            c for c in df.columns if c.startswith(prefixes) and df[c].isna().all()
+            c for c in df.columns if c in candidate_cols and df[c].isna().all()
         ]
         pruned = df.drop(columns=all_nan_class_cols)
 
-        assert "hvac_present" not in pruned.columns
-        assert "hvac_count" not in pruned.columns
-        assert "primary_hvac_area_sqm" not in pruned.columns
-        assert "swimming_pool_present" in pruned.columns
-        assert "my_user_col" in pruned.columns
+        assert "swimming_pool_present" not in pruned.columns
+        assert "swimming_pool_count" not in pruned.columns
+        assert "swimming_pool_owner" in pruned.columns  # user input preserved
         assert "mesh_date" in pruned.columns
 
 

@@ -68,7 +68,7 @@ __all__ = [
     "extract_rsi_from_feature",
     "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
-    "class_scoped_column_prefixes",
+    "class_column_names",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
@@ -77,20 +77,38 @@ __all__ = [
 ]
 
 
-def class_scoped_column_prefixes(classes_df: pd.DataFrame) -> tuple:
-    """Column-name prefixes that identify rollup columns scoped to a specific class.
+def class_column_names(
+    classes_df: pd.DataFrame, country: str, primary_decision: str = "largest_intersection"
+) -> dict:
+    """Authoritative mapping from class_id to the set of rollup column names
+    emitted by `feature_attributes()` for that class.
 
-    Derived from each class's programmatic name (`description.lower().replace(" ", "_")`) —
-    matches the naming convention used throughout `feature_attributes()` for baseline
-    and attribute-flattened columns. Consumers use this to safely distinguish
-    class-scoped columns from user input / metadata columns.
+    Built by running `feature_attributes()` once per class with an empty
+    features GeoDataFrame. Captures baseline columns (present/count/area/
+    confidence/primary_*) per class_id without relying on name-prefix heuristics.
+    Attribute-flattened columns (e.g. `roof_material_tile_*`) are intentionally
+    not captured — they're only emitted when features exist for the class, so
+    they're absent from the rollup entirely when a class is unqueryable.
     """
-    prefixes = []
-    for desc in classes_df["description"]:
-        name = desc.lower().replace(" ", "_")
-        prefixes.append(f"{name}_")
-        prefixes.append(f"primary_{name}_")
-    return tuple(prefixes)
+    mu = MeasurementUnits(country)
+    area_units = mu.area_units()
+    area_name = f"area_{area_units}"
+    empty_gdf = gpd.GeoDataFrame(
+        [],
+        columns=["class_id", area_name, f"clipped_{area_name}", f"unclipped_{area_name}"],
+    )
+    result = {}
+    for class_id in classes_df.index:
+        single_class = classes_df.loc[[class_id]]
+        baseline = feature_attributes(
+            empty_gdf,
+            single_class,
+            country=country,
+            parcel_geom=None,
+            primary_decision=primary_decision,
+        )
+        result[class_id] = set(baseline.keys())
+    return result
 
 
 def _compute_iou(geom_a, geom_b) -> float:
@@ -1285,41 +1303,29 @@ def parcel_rollup(
             # Per-AOI per-version returnability: only applies when metadata carries
             # the system_version column and classes carry availability. Roof age and
             # other synthetic class subsets may not have either — fail-open then.
+            # Typical chunks have 1-2 distinct system_versions across AOIs, so we
+            # compute the unreturnable class set per unique version and then fan out.
             if (
                 len(meta_df) > 0
                 and "system_version" in meta_df.columns
                 and "availability" in meta_classes.columns
             ):
                 avail_by_class = meta_classes["availability"].to_dict()
+                unique_svs = set(meta_df["system_version"].dropna().unique())
+                unreturnable_by_sv = {
+                    sv: {
+                        cid for cid, avail in avail_by_class.items()
+                        if not is_class_returnable_at_version(avail, sv, alpha=alpha, beta=beta)
+                    }
+                    for sv in unique_svs
+                }
                 for aoi_id, sv in meta_df["system_version"].items():
-                    for class_id, avail in avail_by_class.items():
-                        if not is_class_returnable_at_version(avail, sv, alpha=alpha, beta=beta):
-                            null_classes_by_aoi.setdefault(aoi_id, set()).add(class_id)
+                    unreturnable = unreturnable_by_sv.get(sv)
+                    if unreturnable:
+                        null_classes_by_aoi.setdefault(aoi_id, set()).update(unreturnable)
         # Only compute baseline columns if at least one AOI needs nullification
         if null_classes_by_aoi:
-            # Discover exact baseline column names per class by running
-            # feature_attributes() with empty data. This avoids prefix matching
-            # and uses feature_attributes() itself as the source of truth.
-            area_name = f"area_{area_units}"
-            empty_gdf = gpd.GeoDataFrame(
-                [],
-                columns=[
-                    "class_id",
-                    area_name,
-                    f"clipped_{area_name}",
-                    f"unclipped_{area_name}",
-                ],
-            )
-            for class_id in classes_df.index:
-                single_class = classes_df.loc[[class_id]]
-                baseline = feature_attributes(
-                    empty_gdf,
-                    single_class,
-                    country=country,
-                    parcel_geom=None,
-                    primary_decision=primary_decision,
-                )
-                _class_baseline_columns[class_id] = set(baseline.keys())
+            _class_baseline_columns = class_column_names(classes_df, country, primary_decision)
 
     assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
 
