@@ -39,6 +39,7 @@ from nmaipy.constants import (
     SQUARED_METERS_TO_SQUARED_FEET,
     MeasurementUnits,
 )
+from nmaipy.feature_api import is_class_returnable_at_version
 from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
@@ -67,12 +68,29 @@ __all__ = [
     "extract_rsi_from_feature",
     "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
+    "class_scoped_column_prefixes",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
     "flatten_roof_attributes",
     "flatten_roof_instance_attributes",
 ]
+
+
+def class_scoped_column_prefixes(classes_df: pd.DataFrame) -> tuple:
+    """Column-name prefixes that identify rollup columns scoped to a specific class.
+
+    Derived from each class's programmatic name (`description.lower().replace(" ", "_")`) —
+    matches the naming convention used throughout `feature_attributes()` for baseline
+    and attribute-flattened columns. Consumers use this to safely distinguish
+    class-scoped columns from user input / metadata columns.
+    """
+    prefixes = []
+    for desc in classes_df["description"]:
+        name = desc.lower().replace(" ", "_")
+        prefixes.append(f"{name}_")
+        prefixes.append(f"primary_{name}_")
+    return tuple(prefixes)
 
 
 def _compute_iou(geom_a, geom_b) -> float:
@@ -822,8 +840,9 @@ def feature_attributes(
         else:
             roof_kind_features = class_features_gdf
 
-        # Add attributes that apply to all feature classes
-        # TODO: This sets a column to "N" even if it's not possible to return it with the query (e.g. alpha/beta attribute permissions, or version issues). Need to filter out columns that pertain to this. Need to parse "availability" column in classes_df and determine what system version this row is.
+        # Add attributes that apply to all feature classes.
+        # Per-AOI null-out for classes unreturnable at the AOI's actual system_version
+        # is handled in parcel_rollup() via null_classes_by_aoi after this dict is built.
         # For roof instances, use filtered features (roof kind only) for count
         features_for_count = roof_kind_features if class_id == ROOF_INSTANCE_CLASS_ID else class_features_gdf
         parcel[f"{name}_present"] = TRUE_STRING if len(features_for_count) > 0 else FALSE_STRING
@@ -1213,6 +1232,8 @@ def parcel_rollup(
     country: str,
     primary_decision: str,
     api_metadata: list = None,
+    alpha: bool = False,
+    beta: bool = False,
 ):
     """
     Summarize feature data to parcel attributes.
@@ -1228,7 +1249,13 @@ def parcel_rollup(
             for successful AOIs) with the classes_df subset that API covers.
             For AOIs missing from a metadata_df, columns for those classes are set
             to null — indicating "no observational data" rather than "checked and
-            found nothing."
+            found nothing." For AOIs present in metadata_df, the same null-out is
+            applied per-class when the class isn't returnable at that AOI's actual
+            `system_version` under the active alpha/beta flags — distinguishing
+            "not queryable here" from "queried and found zero."
+        alpha: Whether the query was made with --alpha. Passed to
+            is_class_returnable_at_version() for per-AOI class null-out.
+        beta: Whether the query was made with --beta. Same usage as `alpha`.
 
     Returns:
         Parcel rollup DataFrame
@@ -1237,8 +1264,12 @@ def parcel_rollup(
     area_units = mu.area_units()
 
     # Pre-compute which classes should be nulled per AOI based on API metadata.
-    # For each (metadata_df, classes_subset) pair, AOIs missing from metadata_df
-    # had that API fail — their columns for those classes should be null.
+    # Two sources of null-out, both emitting NaN (not "N") to mean "no observational data":
+    #   1. Failed AOIs: AOIs missing from metadata_df had that API fail —
+    #      null out all classes the API covers.
+    #   2. Successful AOIs: for each AOI's actual resolved system_version,
+    #      null out classes whose availability shows they aren't returnable
+    #      under the active alpha/beta flags at that exact version.
     null_classes_by_aoi = {}
     _class_baseline_columns = {}
     if api_metadata:
@@ -1250,6 +1281,20 @@ def parcel_rollup(
                 class_ids = set(meta_classes.index)
                 for aoi_id in failed_aois:
                     null_classes_by_aoi.setdefault(aoi_id, set()).update(class_ids)
+
+            # Per-AOI per-version returnability: only applies when metadata carries
+            # the system_version column and classes carry availability. Roof age and
+            # other synthetic class subsets may not have either — fail-open then.
+            if (
+                len(meta_df) > 0
+                and "system_version" in meta_df.columns
+                and "availability" in meta_classes.columns
+            ):
+                avail_by_class = meta_classes["availability"].to_dict()
+                for aoi_id, sv in meta_df["system_version"].items():
+                    for class_id, avail in avail_by_class.items():
+                        if not is_class_returnable_at_version(avail, sv, alpha=alpha, beta=beta):
+                            null_classes_by_aoi.setdefault(aoi_id, set()).add(class_id)
         # Only compute baseline columns if at least one AOI needs nullification
         if null_classes_by_aoi:
             # Discover exact baseline column names per class by running

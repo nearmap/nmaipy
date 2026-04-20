@@ -98,6 +98,7 @@ from nmaipy.feature_attributes import (
 )
 from nmaipy.parcels import (
     build_parent_lookup,
+    class_scoped_column_prefixes,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
     resolve_footprint_rsi,
@@ -2918,6 +2919,8 @@ class NearmapAIExporter(BaseExporter):
                     country=self.country,
                     primary_decision=self.primary_decision,
                     api_metadata=api_metadata,
+                    alpha=self.alpha,
+                    beta=self.beta,
                 )
                 if chunk_id == _profile_chunk:
                     _pr.disable()
@@ -3398,6 +3401,15 @@ class NearmapAIExporter(BaseExporter):
         # Filter out deprecated classes from rollups
         classes_df = classes_df[~classes_df.index.isin(DEPRECATED_CLASS_IDS)]
 
+        # Snapshot the classes (incl. availability) used for this export, as a
+        # reproducibility record. Downstream per-AOI null-out is derived from this.
+        storage.write_json(
+            storage.join_path(self.final_path, "classes_availability.json"),
+            classes_df.to_dict(orient="index"),
+            indent=2,
+            default=str,
+        )
+
         # Add Roof Instance class to classes_df when roof_age is enabled
         # This allows parcel_rollup to generate rollup columns for roof instances
         if self.roof_age:
@@ -3592,6 +3604,21 @@ class NearmapAIExporter(BaseExporter):
                     message=".*concatenation with empty or all-NA.*",
                 )
                 data = pd.concat(data) if data else pd.DataFrame()
+
+            # Drop class-scoped columns that are 100% NaN. These correspond to
+            # classes that were unreturnable at every AOI's system_version (via
+            # per-AOI null-out in parcel_rollup). Guarded by class-name prefix
+            # match so user input columns and metadata aren't affected.
+            if len(data) > 0:
+                class_prefixes = class_scoped_column_prefixes(classes_df)
+                if class_prefixes:
+                    all_nan_class_cols = [
+                        c for c in data.columns
+                        if c.startswith(class_prefixes) and data[c].isna().all()
+                    ]
+                    if all_nan_class_cols:
+                        data = data.drop(columns=all_nan_class_cols)
+
             if "geometry" in data.columns:
                 if not isinstance(data.geometry, gpd.GeoSeries):
                     data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
