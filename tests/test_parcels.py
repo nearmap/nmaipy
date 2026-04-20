@@ -1837,6 +1837,220 @@ class TestApiMetadataInRollup:
             assert row["roof_instance_count"] == 1, f"{aoi}: roof_instance_count should be 1"
 
 
+class TestPerVersionAvailabilityNullOut:
+    """Rollup null-out driven by per-AOI system_version + class availability."""
+
+    # Two realistic system versions used across tests
+    SV_MOON = "gen6-glowing_moon-1.0"
+    SV_LANTERN = "gen6-glowing_lantern-1.0"
+
+    @pytest.fixture
+    def parcels_gdf(self):
+        return gpd.GeoDataFrame(
+            {AOI_ID_COLUMN_NAME: ["aoi_moon", "aoi_lantern"]},
+            geometry=[box(0, 0, 0.001, 0.001), box(0.01, 0.01, 0.011, 0.011)],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    @pytest.fixture
+    def classes_df_prod_moon_alpha_lantern(self):
+        """Pool class is prod under glowing_moon but alpha under glowing_lantern."""
+        return pd.DataFrame(
+            {
+                "description": ["Swimming Pool"],
+                "availability": [
+                    [
+                        {"systemVersion": self.SV_MOON, "perspective": "Vert", "status": "prod"},
+                        {"systemVersion": self.SV_LANTERN, "perspective": "Vert", "status": "alpha"},
+                    ]
+                ],
+            },
+            index=[POOL_ID],
+        )
+
+    @pytest.fixture
+    def empty_features(self):
+        """Empty features GeoDataFrame with required schema."""
+        gdf = gpd.GeoDataFrame(
+            {"class_id": pd.Series(dtype=str)},
+            geometry=[],
+            crs=API_CRS,
+        )
+        gdf.index.name = AOI_ID_COLUMN_NAME
+        return gdf
+
+    def test_alpha_gated_aoi_has_null_columns(self, parcels_gdf, classes_df_prod_moon_alpha_lantern, empty_features):
+        """AOI that resolves to an alpha-gated version (alpha flag off) → class columns null."""
+        meta = pd.DataFrame(
+            {"system_version": [self.SV_MOON, self.SV_LANTERN]},
+            index=pd.Index(["aoi_moon", "aoi_lantern"], name=AOI_ID_COLUMN_NAME),
+        )
+        api_metadata = [(meta, classes_df_prod_moon_alpha_lantern)]
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf,
+            empty_features,
+            classes_df_prod_moon_alpha_lantern,
+            country="us",
+            primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+            alpha=False,
+            beta=False,
+        )
+
+        # AOI on glowing_moon: class is prod → vacant-lot defaults (N / 0)
+        assert rollup.loc["aoi_moon", "swimming_pool_present"] == "N"
+        assert rollup.loc["aoi_moon", "swimming_pool_count"] == 0
+
+        # AOI on glowing_lantern: class is alpha, alpha=False → null (not queryable)
+        assert pd.isna(rollup.loc["aoi_lantern", "swimming_pool_present"])
+        assert pd.isna(rollup.loc["aoi_lantern", "swimming_pool_count"])
+
+    def test_alpha_flag_on_makes_both_aois_visible(
+        self, parcels_gdf, classes_df_prod_moon_alpha_lantern, empty_features
+    ):
+        """With --alpha set, both AOIs see the class (one prod, one alpha-with-flag)."""
+        meta = pd.DataFrame(
+            {"system_version": [self.SV_MOON, self.SV_LANTERN]},
+            index=pd.Index(["aoi_moon", "aoi_lantern"], name=AOI_ID_COLUMN_NAME),
+        )
+        api_metadata = [(meta, classes_df_prod_moon_alpha_lantern)]
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf,
+            empty_features,
+            classes_df_prod_moon_alpha_lantern,
+            country="us",
+            primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+            alpha=True,
+            beta=False,
+        )
+
+        # Both AOIs: returnable → vacant-lot defaults, not null
+        assert rollup.loc["aoi_moon", "swimming_pool_present"] == "N"
+        assert rollup.loc["aoi_lantern", "swimming_pool_present"] == "N"
+
+    def test_class_absent_from_version_is_nulled(self, parcels_gdf, empty_features):
+        """Class only in gen4 → AOIs on gen6 get null (no flag will help)."""
+        classes_df = pd.DataFrame(
+            {
+                "description": ["Power Pole"],
+                "availability": [
+                    [{"systemVersion": "gen4-building_storm-2.3", "perspective": "Vert", "status": "alpha"}]
+                ],
+            },
+            index=[POOL_ID],  # reusing POOL_ID as placeholder; class_id is opaque here
+        )
+        meta = pd.DataFrame(
+            {"system_version": [self.SV_MOON, self.SV_LANTERN]},
+            index=pd.Index(["aoi_moon", "aoi_lantern"], name=AOI_ID_COLUMN_NAME),
+        )
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf,
+            empty_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
+            api_metadata=[(meta, classes_df)],
+            alpha=True,
+            beta=True,
+        )
+        # Availability absent at both system versions — both nulled out regardless of flags
+        assert pd.isna(rollup.loc["aoi_moon", "power_pole_present"])
+        assert pd.isna(rollup.loc["aoi_lantern", "power_pole_present"])
+
+    def test_missing_availability_fails_open(self, parcels_gdf, empty_features):
+        """classes_df without 'availability' column → no per-version null-out applied."""
+        classes_df = pd.DataFrame(
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
+        )
+        meta = pd.DataFrame(
+            {"system_version": [self.SV_MOON, self.SV_LANTERN]},
+            index=pd.Index(["aoi_moon", "aoi_lantern"], name=AOI_ID_COLUMN_NAME),
+        )
+
+        rollup = parcels.parcel_rollup(
+            parcels_gdf,
+            empty_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
+            api_metadata=[(meta, classes_df)],
+            alpha=False,
+            beta=False,
+        )
+        # No availability data → no null-out → vacant-lot defaults
+        assert rollup.loc["aoi_moon", "swimming_pool_present"] == "N"
+        assert rollup.loc["aoi_lantern", "swimming_pool_present"] == "N"
+
+
+class TestClassColumnNames:
+    """Helper used by both parcel_rollup null-out and the final-stage column
+    prune in exporter.py to map class_id → rollup column names authoritatively."""
+
+    def test_expected_baseline_columns_emitted(self):
+        # Use a real class whose column names we know (pool).
+        classes_df = pd.DataFrame(
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
+        )
+        cols_by_id = parcels.class_column_names(classes_df, country="us")
+        pool_cols = cols_by_id[POOL_ID]
+        # Every class gets baseline present/count/area/confidence columns.
+        assert "swimming_pool_present" in pool_cols
+        assert "swimming_pool_count" in pool_cols
+        assert "swimming_pool_total_area_sqft" in pool_cols
+        assert "swimming_pool_confidence" in pool_cols
+
+    def test_user_input_column_never_marked_class_scoped(self):
+        # A user input column named e.g. "swimming_pool_owner" must NOT be in the
+        # authoritative set just because its name shares a prefix with a class.
+        classes_df = pd.DataFrame(
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
+        )
+        cols_by_id = parcels.class_column_names(classes_df, country="us")
+        all_class_cols = set().union(*cols_by_id.values())
+        assert "swimming_pool_owner" not in all_class_cols
+        assert "my_arbitrary_column" not in all_class_cols
+
+    def test_column_prune_behavior(self):
+        """Simulate the exporter.py prune step on a rollup DataFrame — verifies
+        that a user input column with a class-prefix name is not pruned even
+        if all-NaN, because the candidate set is class-id-authoritative."""
+        classes_df = pd.DataFrame(
+            {"description": ["Swimming Pool"]},
+            index=[POOL_ID],
+        )
+        cols_by_id = parcels.class_column_names(classes_df, country="us")
+        candidate_cols = set().union(*cols_by_id.values())
+
+        df = pd.DataFrame(
+            {
+                # Authoritative class-scoped column, all NaN → should be pruned
+                "swimming_pool_present": [None, None],
+                "swimming_pool_count": [None, None],
+                # User input column that happens to start with a class name AND
+                # is all NaN → must stay, because it's not in the authoritative set.
+                "swimming_pool_owner": [None, None],
+                # Metadata → stays
+                "mesh_date": ["2024-01-01", "2024-02-01"],
+            }
+        )
+        all_nan_class_cols = [
+            c for c in df.columns if c in candidate_cols and df[c].isna().all()
+        ]
+        pruned = df.drop(columns=all_nan_class_cols)
+
+        assert "swimming_pool_present" not in pruned.columns
+        assert "swimming_pool_count" not in pruned.columns
+        assert "swimming_pool_owner" in pruned.columns  # user input preserved
+        assert "mesh_date" in pruned.columns
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
