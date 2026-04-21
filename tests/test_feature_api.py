@@ -1001,7 +1001,6 @@ class TestFeatureAPI:
                 result = api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 # Should not reach here
@@ -1068,7 +1067,6 @@ class TestFeatureAPI:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
@@ -1091,7 +1089,6 @@ class TestFeatureAPI:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
@@ -1113,7 +1110,6 @@ class TestFeatureAPI:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
