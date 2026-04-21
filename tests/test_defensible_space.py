@@ -474,17 +474,19 @@ class TestRiskObjects:
     def test_empty_risk_objects(self):
         """Zones with no riskObjects produce no per-class columns."""
         ds = {
-            "zones": [{
-                "zoneId": 1,
-                "zoneAreaSqft": 100,
-                "zoneAreaSqm": 9.3,
-                "defensibleSpaceAreaSqft": 100,
-                "defensibleSpaceAreaSqm": 9.3,
-                "totalRiskObjectAreaSqft": 0,
-                "totalRiskObjectAreaSqm": 0,
-                "defensibleSpaceCoverageRatio": 1.0,
-                "riskObjects": [],
-            }],
+            "zones": [
+                {
+                    "zoneId": 1,
+                    "zoneAreaSqft": 100,
+                    "zoneAreaSqm": 9.3,
+                    "defensibleSpaceAreaSqft": 100,
+                    "defensibleSpaceAreaSqm": 9.3,
+                    "totalRiskObjectAreaSqft": 0,
+                    "totalRiskObjectAreaSqm": 0,
+                    "defensibleSpaceCoverageRatio": 1.0,
+                    "riskObjects": [],
+                }
+            ],
         }
         result = flatten_roof_attributes([self._make_roof(ds)], country="us")
 
@@ -497,16 +499,18 @@ class TestRiskObjects:
     def test_missing_risk_objects_key(self):
         """Zones without riskObjects key at all are handled gracefully."""
         ds = {
-            "zones": [{
-                "zoneId": 1,
-                "zoneAreaSqft": 100,
-                "zoneAreaSqm": 9.3,
-                "defensibleSpaceAreaSqft": 100,
-                "defensibleSpaceAreaSqm": 9.3,
-                "totalRiskObjectAreaSqft": 0,
-                "totalRiskObjectAreaSqm": 0,
-                "defensibleSpaceCoverageRatio": 1.0,
-            }],
+            "zones": [
+                {
+                    "zoneId": 1,
+                    "zoneAreaSqft": 100,
+                    "zoneAreaSqm": 9.3,
+                    "defensibleSpaceAreaSqft": 100,
+                    "defensibleSpaceAreaSqm": 9.3,
+                    "totalRiskObjectAreaSqft": 0,
+                    "totalRiskObjectAreaSqm": 0,
+                    "defensibleSpaceCoverageRatio": 1.0,
+                }
+            ],
         }
         result = flatten_roof_attributes([self._make_roof(ds)], country="us")
         assert "defensible_space_zone_1_zone_area_sqft" in result
