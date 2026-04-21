@@ -97,6 +97,9 @@ INCLUDE_FIELD_MAPPINGS = {
             "femaAnnualWildfireFrequency": "wildfire_fema_annual_frequency",
         },
     },
+    # windHailRisk is a composed risk score (not a vulnerability score like the four perils above),
+    # so its prefix intentionally lacks `vulnerability_`. Its modelInputFeatures are the constituent
+    # wind_risk_score and hail_risk_score, not physical roof features.
     "windHailRiskScore": {
         "snake_key": "wind_hail_risk_score",
         "model_input_prefix": "wind_hail_risk_model_input",
@@ -176,15 +179,18 @@ def _flatten_include_params(feature: dict, flattened: dict) -> None:
         for api_field, output_col in config["fields"].items():
             if api_field in data:
                 flattened[output_col] = data[api_field]
-        for key in ("modelVersion",):
-            if key in data:
-                flattened[f"{config['snake_key']}_{stringcase.snakecase(key)}"] = data[key]
+        if "modelVersion" in data:
+            flattened[f"{config['snake_key']}_model_version"] = data["modelVersion"]
         model_input_prefix = config.get("model_input_prefix")
-        if model_input_prefix is not None:
-            model_input = data.get("modelInputFeatures")
+        if model_input_prefix is not None and "modelInputFeatures" in data:
+            model_input = data["modelInputFeatures"]
             if isinstance(model_input, dict):
                 for mif_key, mif_value in model_input.items():
                     flattened[f"{model_input_prefix}_{stringcase.snakecase(mif_key)}"] = mif_value
+            else:
+                logger.debug(
+                    f"Skipping modelInputFeatures for {camel_key}: expected dict, got {type(model_input).__name__}"
+                )
 
 
 def _get_feature_value(feature, key):
