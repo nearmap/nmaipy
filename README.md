@@ -185,6 +185,23 @@ This is valuable for:
 - Maintenance planning and capital budgeting
 - Real estate due diligence
 
+### Wildfire Risk & Defensible Space
+Assess wildfire vulnerability with defensible space analysis around structures, including per-class risk object breakdowns (vegetation, neighbouring roofs, yard debris) across three concentric zones:
+
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='wildfire_risk',
+    country='us',
+    packs=['building'],
+    include=['defensibleSpace', 'wildfireScore'],
+    save_features=True
+)
+exporter.run()
+```
+
+Output includes per-zone metrics (zone area, defensible space area, coverage ratio) and per-class risk object breakdowns for both the primary roof and the aggregate parcel level.
+
 ### Roof Condition (RSI) with Structural Damage Fallback
 Extract Roof Spotlight Index scores that automatically resolve the best RSI per roof — using the roof's own score when available, or falling back to the building lifecycle score when structural damage is present:
 

@@ -380,3 +380,137 @@ def test_rollup_with_defensible_space(defensible_space_payload):
 
     coverage_ratio = rollup_df["primary_roof_defensible_space_zone_1_coverage_ratio"].iloc[0]
     assert 0 <= coverage_ratio <= 1, f"Expected coverage ratio between 0 and 1, got {coverage_ratio}"
+
+
+class TestRiskObjects:
+    """Tests for per-class risk object breakdown within defensible space zones."""
+
+    SAMPLE_DEFENSIBLE_SPACE = {
+        "zones": [
+            {
+                "zoneId": 1,
+                "zoneAreaSqft": 100,
+                "zoneAreaSqm": 9.3,
+                "defensibleSpaceAreaSqft": 85,
+                "defensibleSpaceAreaSqm": 7.9,
+                "totalRiskObjectAreaSqft": 15,
+                "totalRiskObjectAreaSqm": 1.4,
+                "defensibleSpaceCoverageRatio": 0.85,
+                "riskObjects": [
+                    {
+                        "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                        "description": "Medium and High Vegetation with Woody Vegetation",
+                        "areaSqm": 1.4,
+                        "areaSqft": 15,
+                        "ratio": 0.012,
+                    },
+                ],
+            },
+            {
+                "zoneId": 2,
+                "zoneAreaSqft": 500,
+                "zoneAreaSqm": 46.5,
+                "defensibleSpaceAreaSqft": 300,
+                "defensibleSpaceAreaSqm": 27.9,
+                "totalRiskObjectAreaSqft": 200,
+                "totalRiskObjectAreaSqm": 18.6,
+                "defensibleSpaceCoverageRatio": 0.6,
+                "riskObjects": [
+                    {
+                        "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                        "description": "Medium and High Vegetation with Woody Vegetation",
+                        "areaSqm": 12.0,
+                        "areaSqft": 129,
+                        "ratio": 0.252,
+                    },
+                    {
+                        "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+                        "description": "Roof",
+                        "areaSqm": 6.6,
+                        "areaSqft": 71,
+                        "ratio": 0.136,
+                    },
+                ],
+            },
+        ],
+        "modelVersion": "1.0.0",
+    }
+
+    def _make_roof(self, ds=None):
+        roof = {"feature_id": "test_roof", "class_id": ROOF_ID, "attributes": []}
+        if ds is not None:
+            roof["defensible_space"] = ds
+        return roof
+
+    def test_risk_object_columns_imperial(self):
+        """Per-class risk object area and ratio appear with correct values (US)."""
+        result = flatten_roof_attributes([self._make_roof(self.SAMPLE_DEFENSIBLE_SPACE)], country="us")
+
+        # Zone 1: vegetation only
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 15
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_ratio"] == 0.012
+
+        # Zone 2: vegetation + roof
+        assert result["defensible_space_zone_2_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 129
+        assert result["defensible_space_zone_2_medium_and_high_vegetation_with_woody_vegetation_ratio"] == 0.252
+        assert result["defensible_space_zone_2_roof_area_sqft"] == 71
+        assert result["defensible_space_zone_2_roof_ratio"] == 0.136
+
+    def test_risk_object_columns_metric(self):
+        """Metric area units used for non-imperial countries."""
+        result = flatten_roof_attributes([self._make_roof(self.SAMPLE_DEFENSIBLE_SPACE)], country="au")
+
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqm"] == 1.4
+        assert "defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft" not in result
+
+    def test_zone_level_columns_still_present(self):
+        """Existing zone-level aggregate columns are unaffected."""
+        result = flatten_roof_attributes([self._make_roof(self.SAMPLE_DEFENSIBLE_SPACE)], country="us")
+
+        assert result["defensible_space_zone_1_zone_area_sqft"] == 100
+        assert result["defensible_space_zone_1_coverage_ratio"] == 0.85
+        assert result["defensible_space_zone_2_risk_object_area_sqft"] == 200
+
+    def test_empty_risk_objects(self):
+        """Zones with no riskObjects produce no per-class columns."""
+        ds = {
+            "zones": [
+                {
+                    "zoneId": 1,
+                    "zoneAreaSqft": 100,
+                    "zoneAreaSqm": 9.3,
+                    "defensibleSpaceAreaSqft": 100,
+                    "defensibleSpaceAreaSqm": 9.3,
+                    "totalRiskObjectAreaSqft": 0,
+                    "totalRiskObjectAreaSqm": 0,
+                    "defensibleSpaceCoverageRatio": 1.0,
+                    "riskObjects": [],
+                }
+            ],
+        }
+        result = flatten_roof_attributes([self._make_roof(ds)], country="us")
+
+        # Zone-level columns present, per-class columns default to 0.0
+        assert "defensible_space_zone_1_zone_area_sqft" in result
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 0.0
+        assert result["defensible_space_zone_1_roof_area_sqft"] == 0.0
+        assert result["defensible_space_zone_1_yard_debris_area_sqft"] == 0.0
+
+    def test_missing_risk_objects_key(self):
+        """Zones without riskObjects key at all are handled gracefully."""
+        ds = {
+            "zones": [
+                {
+                    "zoneId": 1,
+                    "zoneAreaSqft": 100,
+                    "zoneAreaSqm": 9.3,
+                    "defensibleSpaceAreaSqft": 100,
+                    "defensibleSpaceAreaSqm": 9.3,
+                    "totalRiskObjectAreaSqft": 0,
+                    "totalRiskObjectAreaSqm": 0,
+                    "defensibleSpaceCoverageRatio": 1.0,
+                }
+            ],
+        }
+        result = flatten_roof_attributes([self._make_roof(ds)], country="us")
+        assert "defensible_space_zone_1_zone_area_sqft" in result

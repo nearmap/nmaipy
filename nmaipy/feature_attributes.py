@@ -42,6 +42,58 @@ logger = log.get_logger()
 TRUE_STRING = "Y"
 FALSE_STRING = "N"
 
+# Known risk object classes in defensible space zones (snake_case).
+# Always emitted as columns (defaulting to 0.0) even if absent from API response.
+DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES = [
+    "medium_and_high_vegetation_with_woody_vegetation",
+    "roof",
+    "yard_debris",
+]
+
+# Declarative imperial/metric pairs for defensible space zone metrics.
+# (api_key_imperial, api_key_metric, output_column_stub) — output suffix is
+# resolved to _sqft or _sqm from the country at runtime.
+_DS_ZONE_AREA_FIELDS = [
+    ("zoneAreaSqft", "zoneAreaSqm", "zone_area"),
+    ("defensibleSpaceAreaSqft", "defensibleSpaceAreaSqm", "defensible_space_area"),
+    ("totalRiskObjectAreaSqft", "totalRiskObjectAreaSqm", "risk_object_area"),
+]
+
+
+def _flatten_defensible_space_zone(zone: dict, prefix: str, country: str, target: dict) -> None:
+    """Flatten one defensible space zone (zone metrics + per-class risk objects) into ``target``.
+
+    Shared by per-roof flattening in ``flatten_roof_attributes`` and aggregate
+    parcel-level flattening in ``parcels.parcel_rollup``.
+    """
+    imperial = country in IMPERIAL_COUNTRIES
+    area_suffix = "sqft" if imperial else "sqm"
+    area_key = "areaSqft" if imperial else "areaSqm"
+
+    # Zone-level metrics (imperial/metric pair per field)
+    for imp_field, met_field, stub in _DS_ZONE_AREA_FIELDS:
+        api_field = imp_field if imperial else met_field
+        if api_field in zone:
+            target[f"{prefix}_{stub}_{area_suffix}"] = zone[api_field]
+    if "defensibleSpaceCoverageRatio" in zone:
+        target[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
+
+    # Per-class risk object breakdown: always-emit 0.0 defaults for known classes,
+    # then overlay actual values from the API response. Unknown classes returned
+    # by the API are emitted too (without a 0.0 default row).
+    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+        ro_prefix = f"{prefix}_{ro_desc}"
+        target[f"{ro_prefix}_area_{area_suffix}"] = 0.0
+        target[f"{ro_prefix}_ratio"] = 0.0
+    for risk_obj in zone.get("riskObjects", []):
+        desc = risk_obj.get("description")
+        if desc is None:
+            continue
+        ro_prefix = f"{prefix}_{desc.lower().replace(' ', '_')}"
+        target[f"{ro_prefix}_area_{area_suffix}"] = risk_obj.get(area_key, 0.0)
+        target[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+
+
 # Declarative mapping from API include parameters to flattened output columns.
 # Each entry: camelCase API key → {snake_key for lookup/modelVersion, fields: {api_field: output_col}}.
 # modelVersion is handled uniformly: output is always "{snake_key}_model_version".
@@ -582,32 +634,15 @@ def flatten_roof_attributes(
         defensible_space_data = _parse_include_param(defensible_raw)
         if defensible_space_data:
             zones = defensible_space_data.get("zones", [])
-            # Sort zones by zoneId to ensure consistent column ordering (zone 1, 2, 3, ...)
+            # Sort zones by ascending zoneId for consistent column ordering.
             zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
             for zone in zones_sorted:
                 zone_id = zone.get("zoneId")
-                if zone_id:
-                    # Flatten key metrics for each zone in a specific order:
-                    # 1. zone_area, 2. defensible_space_area, 3. risk_object_area, 4. coverage_ratio
-                    prefix = f"defensible_space_zone_{zone_id}"
-                    if country in IMPERIAL_COUNTRIES:
-                        if "zoneAreaSqft" in zone:
-                            flattened[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
-                        if "defensibleSpaceAreaSqft" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
-                        if "totalRiskObjectAreaSqft" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
-                    else:
-                        if "zoneAreaSqm" in zone:
-                            flattened[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
-                        if "defensibleSpaceAreaSqm" in zone:
-                            flattened[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
-                        if "totalRiskObjectAreaSqm" in zone:
-                            flattened[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
-
-                    if "defensibleSpaceCoverageRatio" in zone:
-                        flattened[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    # Note: zoneGeometry and individual riskObjects are not flattened as they are too detailed
+                if zone_id is None:
+                    continue
+                prefix = f"defensible_space_zone_{zone_id}"
+                _flatten_defensible_space_zone(zone, prefix, country, flattened)
+                # Note: zoneGeometry is not flattened (too verbose for tabular output)
             if "modelVersion" in defensible_space_data:
                 key = "modelVersion"
                 flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
