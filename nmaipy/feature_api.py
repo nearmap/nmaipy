@@ -1575,7 +1575,7 @@ class FeatureApi(GriddedApiClient):
                         "message": f"{type(e).__name__}: {str(e)[:200]}",
                         "text": str(e)[:200],
                         "request": "Unexpected error",
-                        "failure_type": "geometry",
+                        "failure_type": "unexpected",
                     }
                 if aoi_data is not None:
                     if len(aoi_data) > 0:

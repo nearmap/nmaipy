@@ -1203,6 +1203,59 @@ class TestFeatureAPI:
         assert error["failure_type"] == "grid", "Error should be marked as grid failure"
 
 
+class TestBulkUnexpectedErrorHandling:
+    def test_unexpected_per_aoi_exception_does_not_kill_chunk(self, monkeypatch):
+        """
+        An unexpected exception raised by get_features_gdf for a single AOI
+        must be converted into an error dict so the rest of the chunk completes.
+        Regression guard for the real-world IllegalArgumentException case where
+        one invalid-geometry AOI took out the whole ProcessPoolExecutor chunk.
+        """
+        feature_api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+
+        aoi_good = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+        aoi_bad = Polygon([(1, 1), (1.001, 1), (1.001, 1.001), (1, 1.001), (1, 1)])
+        aoi_gdf = gpd.GeoDataFrame(
+            [
+                {AOI_ID_COLUMN_NAME: "good", "geometry": aoi_good},
+                {AOI_ID_COLUMN_NAME: "bad", "geometry": aoi_bad},
+            ],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+        good_features = gpd.GeoDataFrame(
+            [{AOI_ID_COLUMN_NAME: "good", "geometry": aoi_good, "class_id": "x"}],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+        good_metadata = {AOI_ID_COLUMN_NAME: "good", "survey_date": "2025-01-01"}
+
+        def fake_get_features_gdf(self, *args, **kwargs):
+            if kwargs.get("aoi_id") == "bad":
+                raise RuntimeError("simulated unexpected failure")
+            return good_features, good_metadata, None, None
+
+        monkeypatch.setattr(FeatureApi, "get_features_gdf", fake_get_features_gdf)
+
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+            aoi_gdf,
+            region="au",
+            packs=["building"],
+            max_allowed_error_pct=100,
+        )
+
+        # Surviving AOI returned data
+        assert features_gdf is not None
+        assert "good" in features_gdf.index
+
+        # Failed AOI recorded as an "unexpected" error
+        assert len(errors_df) == 1
+        failed = errors_df.iloc[0]
+        assert errors_df.index[0] == "bad"
+        assert failed["failure_type"] == "unexpected"
+        assert "RuntimeError" in failed["message"]
+        assert "simulated unexpected failure" in failed["message"]
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
