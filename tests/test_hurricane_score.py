@@ -8,6 +8,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import pytest
+import stringcase
 from shapely.geometry import Polygon, box, shape
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
@@ -180,9 +181,12 @@ def test_hurricane_score_with_real_data(roof_with_hurricane_score):
         == roof_with_hurricane_score["hurricaneScore"]["vulnerabilityRateFactor"]
     )
 
-    # Verify modelInputFeatures are NOT flattened
-    assert "hurricane_model_flat_present" not in result
-    assert "hurricane_model_shingle_present" not in result
+    # Verify modelInputFeatures ARE flattened
+    mif = roof_with_hurricane_score["hurricaneScore"].get("modelInputFeatures", {})
+    for camel_key, expected_value in mif.items():
+        col = f"hurricane_vulnerability_model_input_{stringcase.snakecase(camel_key)}"
+        assert col in result, f"Expected column {col} not found"
+        assert result[col] == expected_value
 
 
 def test_hurricane_score_different_values(all_roofs_with_hurricane_score):

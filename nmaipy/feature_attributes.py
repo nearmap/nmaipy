@@ -56,6 +56,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "hurricaneScore": {
         "snake_key": "hurricane_score",
+        "model_input_prefix": "hurricane_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "hurricane_vulnerability_score",
             "vulnerabilityProbability": "hurricane_vulnerability_probability",
@@ -64,6 +65,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "windScore": {
         "snake_key": "wind_score",
+        "model_input_prefix": "wind_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "wind_vulnerability_score",
             "vulnerabilityProbability": "wind_vulnerability_probability",
@@ -75,6 +77,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "hailScore": {
         "snake_key": "hail_score",
+        "model_input_prefix": "hail_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "hail_vulnerability_score",
             "vulnerabilityProbability": "hail_vulnerability_probability",
@@ -86,6 +89,7 @@ INCLUDE_FIELD_MAPPINGS = {
     },
     "wildfireScore": {
         "snake_key": "wildfire_score",
+        "model_input_prefix": "wildfire_vulnerability_model_input",
         "fields": {
             "vulnerabilityScore": "wildfire_vulnerability_score",
             "vulnerabilityProbability": "wildfire_vulnerability_probability",
@@ -93,8 +97,12 @@ INCLUDE_FIELD_MAPPINGS = {
             "femaAnnualWildfireFrequency": "wildfire_fema_annual_frequency",
         },
     },
+    # windHailRisk is a composed risk score (not a vulnerability score like the four perils above),
+    # so its prefix intentionally lacks `vulnerability_`. Its modelInputFeatures are the constituent
+    # wind_risk_score and hail_risk_score, not physical roof features.
     "windHailRiskScore": {
         "snake_key": "wind_hail_risk_score",
+        "model_input_prefix": "wind_hail_risk_model_input",
         "fields": {
             "riskScore": "wind_hail_risk_score",
             "riskRateFactor": "wind_hail_risk_rate_factor",
@@ -159,6 +167,30 @@ def _parse_include_param(val):
         except (json.JSONDecodeError, TypeError):
             return None
     return None
+
+
+def _flatten_include_params(feature: dict, flattened: dict) -> None:
+    """Extract include parameters (scores, RSI) and their modelInputFeatures into flattened dict."""
+    for camel_key, config in INCLUDE_FIELD_MAPPINGS.items():
+        raw = feature.get(camel_key) or feature.get(config["snake_key"])
+        data = _parse_include_param(raw)
+        if not data:
+            continue
+        for api_field, output_col in config["fields"].items():
+            if api_field in data:
+                flattened[output_col] = data[api_field]
+        if "modelVersion" in data:
+            flattened[f"{config['snake_key']}_model_version"] = data["modelVersion"]
+        model_input_prefix = config.get("model_input_prefix")
+        if model_input_prefix is not None and "modelInputFeatures" in data:
+            model_input = data["modelInputFeatures"]
+            if isinstance(model_input, dict):
+                for mif_key, mif_value in model_input.items():
+                    flattened[f"{model_input_prefix}_{stringcase.snakecase(mif_key)}"] = mif_value
+            else:
+                logger.debug(
+                    f"Skipping modelInputFeatures for {camel_key}: expected dict, got {type(model_input).__name__}"
+                )
 
 
 def _get_feature_value(feature, key):
@@ -543,18 +575,7 @@ def flatten_roof_attributes(
 
     # Handle components and other attributes
     for roof in roofs:
-        # Flatten include parameters (RSI, scores) via INCLUDE_FIELD_MAPPINGS table
-        for camel_key, config in INCLUDE_FIELD_MAPPINGS.items():
-            raw = roof.get(camel_key) or roof.get(config["snake_key"])
-            data = _parse_include_param(raw)
-            if not data:
-                continue
-            for api_field, output_col in config["fields"].items():
-                if api_field in data:
-                    flattened[output_col] = data[api_field]
-            for key in ("modelVersion",):
-                if key in data:
-                    flattened[f"{config['snake_key']}_{stringcase.snakecase(key)}"] = data[key]
+        _flatten_include_params(roof, flattened)
 
         # Defensible space has zone-based nesting — handle separately
         defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
@@ -713,6 +734,8 @@ def flatten_building_lifecycle_damage_attributes(
     flattened = {}
 
     for building_lifecycle in building_lifecycles:
+        _flatten_include_params(building_lifecycle, flattened)
+
         # Get damage data from top-level damage field
         damage_data = building_lifecycle.get("damage")
 
