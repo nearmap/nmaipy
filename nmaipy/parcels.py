@@ -1125,7 +1125,15 @@ def feature_attributes(
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Provide the confidence values for each damage rating class for the primary building lifecycle feature.
                 # Exclude score/DS columns — those are resolved separately as primary_* (no class infix).
-                _RESOLVED_PREFIXES = ("hurricane_", "wind_", "hail_", "wildfire_", "wind_hail_risk_", "defensible_space_zone_", "roof_spotlight_index")
+                _RESOLVED_PREFIXES = (
+                    "hurricane_",
+                    "wind_",
+                    "hail_",
+                    "wildfire_",
+                    "wind_hail_risk_",
+                    "defensible_space_zone_",
+                    "roof_spotlight_index",
+                )
                 primary_attributes = flatten_building_lifecycle_damage_attributes([primary_feature])
                 for key, val in primary_attributes.items():
                     if not any(key.startswith(p) for p in _RESOLVED_PREFIXES):
@@ -1183,7 +1191,11 @@ def feature_attributes(
                     if bl:
                         resolved_scores = extract_include_scores_from_feature(bl, country=country)
         # Remove RSI from resolved_scores — handled separately above
-        for rsi_key in ("roof_spotlight_index", "roof_spotlight_index_confidence", "roof_spotlight_index_model_version"):
+        for rsi_key in (
+            "roof_spotlight_index",
+            "roof_spotlight_index_confidence",
+            "roof_spotlight_index_model_version",
+        ):
             resolved_scores.pop(rsi_key, None)
         # Write resolved scores with primary_ prefix (no "roof_" infix)
         for key, val in resolved_scores.items():

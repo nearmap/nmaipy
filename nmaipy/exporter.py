@@ -1327,7 +1327,8 @@ def _compute_feature_class_data(
                     )
                     dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
                     other_cols = sorted(
-                        c for c in mapped.columns
+                        c
+                        for c in mapped.columns
                         if not c.startswith(_DOM) and c not in _EXCLUDE_RSI and not _is_resolved_score_col(c)
                     )
                     for col in dominant_cols + other_cols:
