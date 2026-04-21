@@ -94,16 +94,16 @@ from nmaipy.feature_attributes import (
     convert_bool_columns_to_yn,
     flatten_building_attributes,
     flatten_roof_attributes,
+    is_resolved_score_column,
 )
 from nmaipy.parcels import (
     _traverse_to_bl,
     build_parent_lookup,
     class_column_names,
-    extract_include_scores_from_feature,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
-    resolve_footprint_includes,
     resolve_footprint_rsi,
+    resolve_scores_with_bl_fallback,
 )
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
@@ -585,18 +585,6 @@ _EXCLUDE_RSI = {
     "primary_child_roof_roof_spotlight_index_model_version",
 }
 
-# Score column prefixes that are resolved per-feature (roof→BL fallback).
-# When propagating child roof attributes to building/BL, exclude these raw
-# columns — resolved values are added separately.
-_RESOLVED_SCORE_PREFIXES = (
-    "hurricane_",
-    "wind_",
-    "hail_",
-    "wildfire_",
-    "wind_hail_risk_",
-    "defensible_space_zone_",
-)
-
 # RSI column names emitted by _resolve_rsi_batch.
 _RSI_COLUMNS = (
     "roof_spotlight_index",
@@ -664,9 +652,17 @@ def _resolve_scores_batch(n_rows, resolve_fn, added_cols):
     return batch
 
 
+_PRIMARY_CHILD_ROOF_PREFIX = "primary_child_roof_"
+
+
 def _is_resolved_score_col(col_name: str) -> bool:
-    """Check if a column name is a score column that gets resolved per-feature."""
-    return any(col_name.startswith(f"primary_child_roof_{p}") for p in _RESOLVED_SCORE_PREFIXES)
+    """True iff *col_name* is a `primary_child_roof_*` column whose underlying key
+    is resolved per-feature via roof→BL fallback. Propagation of raw child-roof
+    values for these keys is suppressed — resolved values are written separately.
+    """
+    if not col_name.startswith(_PRIMARY_CHILD_ROOF_PREFIX):
+        return False
+    return is_resolved_score_column(col_name[len(_PRIMARY_CHILD_ROOF_PREFIX) :])
 
 
 def _dataframe_to_records_with_index(df):
@@ -1171,16 +1167,10 @@ def _compute_feature_class_data(
 
                 def _resolve_roof_scores(i):
                     row = roof_records_for_scores[i]
-                    scores = extract_include_scores_from_feature(row, country=country)
-                    if not scores:
-                        bn_id = _roof_to_building.get(row.get("feature_id"))
-                        if bn_id:
-                            bn_row = p_lookup.get(bn_id)
-                            if bn_row is not None:
-                                bl = _traverse_to_bl(bn_row, p_lookup)
-                                if bl:
-                                    scores = extract_include_scores_from_feature(bl, country=country)
-                    return scores
+                    bn_id = _roof_to_building.get(row.get("feature_id"))
+                    bn_row = p_lookup.get(bn_id) if bn_id else None
+                    bl_row = _traverse_to_bl(bn_row, p_lookup) if bn_row is not None else None
+                    return resolve_scores_with_bl_fallback(row, bl_row, country=country)
 
                 score_batch = _resolve_scores_batch(n_rows, _resolve_roof_scores, added_cols)
                 if score_batch:
@@ -1419,13 +1409,8 @@ def _compute_feature_class_data(
                     def _resolve_bn_scores(i):
                         pcr_id = pcr_ids_for_scores[i]
                         roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
-                        if roof_row is not None:
-                            scores = extract_include_scores_from_feature(roof_row, country=country)
-                            if scores:
-                                return scores
-                        return resolve_footprint_includes(
-                            bn_records_for_scores[i], parent_lookup=p_lookup, country=country
-                        )
+                        bl_row = _traverse_to_bl(bn_records_for_scores[i], p_lookup)
+                        return resolve_scores_with_bl_fallback(roof_row, bl_row, country=country)
 
                     score_batch = _resolve_scores_batch(n_rows, _resolve_bn_scores, added_cols)
                     if score_batch:
@@ -1614,12 +1599,7 @@ def _compute_feature_class_data(
                     def _resolve_bl_scores(i):
                         pcr_id = primary_ids[i]
                         roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
-                        if roof_row is not None:
-                            scores = extract_include_scores_from_feature(roof_row, country=country)
-                            if scores:
-                                return scores
-                        # No child roof or roof lacks scores — use BL's own
-                        return extract_include_scores_from_feature(bl_records_for_scores[i], country=country)
+                        return resolve_scores_with_bl_fallback(roof_row, bl_records_for_scores[i], country=country)
 
                     score_batch = _resolve_scores_batch(n_rows, _resolve_bl_scores, added_cols)
                     if score_batch:
@@ -3687,7 +3667,6 @@ class NearmapAIExporter(BaseExporter):
         else:
             data = pd.DataFrame(data)
         if len(data) > 0:
-            data = data.sort_index()
             self.logger.info(f"Writing rollup {self.tabular_file_format} ({len(data)} rows)...")
             if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)

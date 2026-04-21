@@ -2049,6 +2049,114 @@ class TestClassColumnNames:
         assert "mesh_date" in pruned.columns
 
 
+class TestTraverseToBL:
+    """Unit tests for parcels._traverse_to_bl."""
+
+    def test_roof_to_bn_to_bl_chain(self):
+        bl = {"feature_id": "bl1", "class_id": "91987430-6739-5e16-b92f-b830dd7d52a6", "parent_id": None}
+        bn = {"feature_id": "bn1", "class_id": BUILDING_NEW_ID, "parent_id": "bl1"}
+        roof = {"feature_id": "r1", "class_id": ROOF_ID, "parent_id": "bn1"}
+        parent_lookup = {"bl1": bl, "bn1": bn}
+        assert parcels._traverse_to_bl(roof, parent_lookup) == bl
+
+    def test_chain_without_bl_returns_empty(self):
+        bn = {"feature_id": "bn1", "class_id": BUILDING_NEW_ID, "parent_id": None}
+        roof = {"feature_id": "r1", "class_id": ROOF_ID, "parent_id": "bn1"}
+        parent_lookup = {"bn1": bn}
+        assert parcels._traverse_to_bl(roof, parent_lookup) == {}
+
+    def test_cycle_is_broken(self):
+        # Two nodes pointing at each other, no BL in the cycle.
+        a = {"feature_id": "a", "class_id": BUILDING_NEW_ID, "parent_id": "b"}
+        b = {"feature_id": "b", "class_id": BUILDING_NEW_ID, "parent_id": "a"}
+        parent_lookup = {"a": a, "b": b}
+        roof = {"feature_id": "r1", "class_id": ROOF_ID, "parent_id": "a"}
+        # Must terminate (not infinite loop) and return empty.
+        assert parcels._traverse_to_bl(roof, parent_lookup) == {}
+
+    def test_feature_without_parent_id_returns_empty(self):
+        roof = {"feature_id": "r1", "class_id": ROOF_ID, "parent_id": None}
+        assert parcels._traverse_to_bl(roof, {}) == {}
+
+
+class TestExtractIncludeScoresFromFeature:
+    """Unit tests for parcels.extract_include_scores_from_feature."""
+
+    def test_dict_with_hurricane_score(self):
+        feature = {
+            "hurricaneScore": {
+                "vulnerabilityScore": 4,
+                "vulnerabilityProbability": 0.75,
+                "vulnerabilityRateFactor": 0.83,
+            }
+        }
+        result = parcels.extract_include_scores_from_feature(feature, country="us")
+        assert result["hurricane_vulnerability_score"] == 4
+        assert result["hurricane_vulnerability_probability"] == 0.75
+        assert result["hurricane_vulnerability_rate_factor"] == 0.83
+
+    def test_dict_with_defensible_space(self):
+        feature = {
+            "defensibleSpace": {
+                "zones": [
+                    {
+                        "zoneId": 1,
+                        "zoneAreaSqft": 100.0,
+                        "defensibleSpaceAreaSqft": 80.0,
+                        "defensibleSpaceCoverageRatio": 0.8,
+                        "riskObjects": [],
+                    }
+                ]
+            }
+        }
+        result = parcels.extract_include_scores_from_feature(feature, country="us")
+        assert result["defensible_space_zone_1_zone_area_sqft"] == 100.0
+        assert result["defensible_space_zone_1_defensible_space_area_sqft"] == 80.0
+        assert result["defensible_space_zone_1_coverage_ratio"] == 0.8
+
+    def test_pandas_series_input(self):
+        series = pd.Series({"hurricaneScore": {"vulnerabilityScore": 3}})
+        result = parcels.extract_include_scores_from_feature(series, country="us")
+        assert result["hurricane_vulnerability_score"] == 3
+
+    def test_none_input_returns_empty(self):
+        assert parcels.extract_include_scores_from_feature(None, country="us") == {}
+
+    def test_feature_without_scores_returns_empty(self):
+        feature = {"feature_id": "r1", "class_id": ROOF_ID}
+        assert parcels.extract_include_scores_from_feature(feature, country="us") == {}
+
+
+class TestResolveScoresWithBLFallback:
+    """Unit tests for parcels.resolve_scores_with_bl_fallback."""
+
+    def _roof_with_scores(self):
+        return {"hurricaneScore": {"vulnerabilityScore": 5}}
+
+    def _bl_with_scores(self):
+        return {"hurricaneScore": {"vulnerabilityScore": 2}}
+
+    def test_primary_has_scores_returns_primary(self):
+        result = parcels.resolve_scores_with_bl_fallback(self._roof_with_scores(), self._bl_with_scores(), country="us")
+        assert result["hurricane_vulnerability_score"] == 5  # roof, not BL
+
+    def test_primary_empty_falls_back_to_bl(self):
+        roof = {"feature_id": "r1"}  # no scores
+        result = parcels.resolve_scores_with_bl_fallback(roof, self._bl_with_scores(), country="us")
+        assert result["hurricane_vulnerability_score"] == 2  # from BL
+
+    def test_both_empty_returns_empty(self):
+        result = parcels.resolve_scores_with_bl_fallback({"feature_id": "r1"}, {"feature_id": "bl1"}, country="us")
+        assert result == {}
+
+    def test_both_none_returns_empty(self):
+        assert parcels.resolve_scores_with_bl_fallback(None, None, country="us") == {}
+
+    def test_primary_none_falls_back_to_bl(self):
+        result = parcels.resolve_scores_with_bl_fallback(None, self._bl_with_scores(), country="us")
+        assert result["hurricane_vulnerability_score"] == 2
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))

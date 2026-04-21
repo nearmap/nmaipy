@@ -162,6 +162,57 @@ INCLUDE_FIELD_MAPPINGS = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Derived column-name sets for peril scores and defensible space.
+# All driven off INCLUDE_FIELD_MAPPINGS so adding a new peril auto-propagates
+# to parcel aggregation, rollup resolution, and child-roof propagation.
+# ---------------------------------------------------------------------------
+
+# Peril vulnerability/risk *score* output columns — used for parcel-level
+# min/max/area_weighted_mean aggregation.
+PERIL_SCORE_OUTPUT_COLUMNS = tuple(
+    output_col
+    for config in INCLUDE_FIELD_MAPPINGS.values()
+    if "model_input_prefix" in config  # peril configs only (excludes RSI)
+    for output_col in config.get("fields", {}).values()
+    if output_col.endswith("_score")
+)
+
+# Every output column produced by flattening a peril include — these are the
+# columns that get resolved per-feature (roof → BL fallback) and so must be
+# excluded from raw child-roof column propagation.
+RESOLVED_SCORE_OUTPUT_COLUMNS = frozenset(
+    output_col
+    for config in INCLUDE_FIELD_MAPPINGS.values()
+    if "model_input_prefix" in config
+    for output_col in config.get("fields", {}).values()
+)
+
+# Narrow prefixes for columns whose full names are dynamic (not in
+# INCLUDE_FIELD_MAPPINGS): modelInputFeatures columns (one prefix per peril)
+# and defensible-space per-zone columns.
+RESOLVED_DYNAMIC_PREFIXES = tuple(
+    f"{config['model_input_prefix']}_" for config in INCLUDE_FIELD_MAPPINGS.values() if "model_input_prefix" in config
+) + ("defensible_space_zone_",)
+
+# RSI output columns — resolved via its own roof→BL fallback path that
+# predates the generalised score resolution. Exported separately for use
+# in consumers that want to exclude RSI raw columns from propagation.
+RSI_OUTPUT_COLUMNS = frozenset(
+    list(INCLUDE_FIELD_MAPPINGS["roofSpotlightIndex"]["fields"].values())
+    + [f"{INCLUDE_FIELD_MAPPINGS['roofSpotlightIndex']['snake_key']}_model_version"]
+)
+
+
+def is_resolved_score_column(col: str) -> bool:
+    """True iff *col* is a column that gets resolved per-feature via roof→BL fallback.
+
+    Exact match against known peril score/probability/rate-factor columns, plus
+    narrow prefix match for dynamic modelInputFeatures and defensible-space
+    zone columns.
+    """
+    return col in RESOLVED_SCORE_OUTPUT_COLUMNS or col.startswith(RESOLVED_DYNAMIC_PREFIXES)
+
 
 def convert_bool_columns_to_yn(batch):
     """Convert any boolean numpy arrays in a dict to Y/N string arrays in-place.

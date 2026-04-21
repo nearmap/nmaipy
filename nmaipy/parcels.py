@@ -44,6 +44,10 @@ from nmaipy.feature_api import is_class_returnable_at_version
 from nmaipy.feature_attributes import (
     DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
+    PERIL_SCORE_OUTPUT_COLUMNS,
+    RESOLVED_DYNAMIC_PREFIXES,
+    RESOLVED_SCORE_OUTPUT_COLUMNS,
+    RSI_OUTPUT_COLUMNS,
     TRUE_STRING,
     _flatten_defensible_space,
     _flatten_defensible_space_zone,
@@ -53,6 +57,7 @@ from nmaipy.feature_attributes import (
     flatten_building_lifecycle_damage_attributes,
     flatten_roof_attributes,
     flatten_roof_instance_attributes,
+    is_resolved_score_column,
 )
 from nmaipy.primary_feature_selection import DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH
 from nmaipy.primary_feature_selection import (
@@ -666,6 +671,23 @@ def extract_include_scores_from_feature(feature, country: str = "us") -> dict:
     return result
 
 
+def resolve_scores_with_bl_fallback(primary_row, bl_row, country: str = "us") -> dict:
+    """Resolve include scores: try *primary_row* first, then *bl_row* as fallback.
+
+    Returns the flattened scores dict from whichever row produced a non-empty result,
+    or an empty dict if neither did. Shared by all four roof→BL resolution sites:
+    parcel_rollup's primary-roof block, and the per-class roof/building/BL batches
+    in `exporter._compute_feature_class_data`.
+    """
+    if primary_row is not None:
+        scores = extract_include_scores_from_feature(primary_row, country=country)
+        if scores:
+            return scores
+    if bl_row is not None:
+        return extract_include_scores_from_feature(bl_row, country=country)
+    return {}
+
+
 def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     """Build a feature_id → row dict for fast parent_id chain traversal.
 
@@ -757,28 +779,6 @@ def _traverse_to_bl(feature, parent_lookup: dict) -> dict:
         if parent.get("class_id") == BUILDING_LIFECYCLE_ID:
             return parent
         pid = parent.get("parent_id") if hasattr(parent, "get") else getattr(parent, "parent_id", None)
-    return {}
-
-
-def resolve_footprint_includes(
-    feature,
-    parent_lookup: dict = None,
-    country: str = "us",
-) -> dict:
-    """Resolve the 'best' include scores for a feature (roof first, then BL fallback).
-
-    Same logic as resolve_footprint_rsi but for ALL include parameters (scores,
-    defensible space, RSI). The API scores the roof normally, but switches to BL
-    when structural damage is present.
-
-    Returns flat dict with all resolved score columns, or empty dict.
-    """
-    scores = extract_include_scores_from_feature(feature, country=country)
-    if scores:
-        return scores
-    bl = _traverse_to_bl(feature, parent_lookup or {})
-    if bl:
-        return extract_include_scores_from_feature(bl, country=country)
     return {}
 
 
@@ -1124,20 +1124,12 @@ def feature_attributes(
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Provide the confidence values for each damage rating class for the primary building lifecycle feature.
-                # Exclude score/DS columns — those are resolved separately as primary_* (no class infix).
-                _RESOLVED_PREFIXES = (
-                    "hurricane_",
-                    "wind_",
-                    "hail_",
-                    "wildfire_",
-                    "wind_hail_risk_",
-                    "defensible_space_zone_",
-                    "roof_spotlight_index",
-                )
+                # Exclude score/DS/RSI columns — those are resolved separately as primary_* (no class infix).
                 primary_attributes = flatten_building_lifecycle_damage_attributes([primary_feature])
                 for key, val in primary_attributes.items():
-                    if not any(key.startswith(p) for p in _RESOLVED_PREFIXES):
-                        parcel[f"primary_{name}_" + str(key)] = val
+                    if is_resolved_score_column(key) or key in RSI_OUTPUT_COLUMNS:
+                        continue
+                    parcel[f"primary_{name}_" + str(key)] = val
 
             if class_id == BUILDING_LIFECYCLE_ID:
                 # Add aggregated damage across whole parcel, weighted by building lifecycle area
@@ -1181,29 +1173,18 @@ def feature_attributes(
             if hasattr(_primary_roof, "get")
             else getattr(_primary_roof, "feature_id", None)
         )
-        resolved_scores = extract_include_scores_from_feature(_primary_roof, country=country)
-        if not resolved_scores:
-            bn_id = _roof_to_building.get(roof_fid)
-            if bn_id:
-                bn_row = _parent_lookup.get(bn_id)
-                if bn_row is not None:
-                    bl = _traverse_to_bl(bn_row, _parent_lookup)
-                    if bl:
-                        resolved_scores = extract_include_scores_from_feature(bl, country=country)
-        # Remove RSI from resolved_scores — handled separately above
-        for rsi_key in (
-            "roof_spotlight_index",
-            "roof_spotlight_index_confidence",
-            "roof_spotlight_index_model_version",
-        ):
+        bn_id = _roof_to_building.get(roof_fid)
+        bn_row = _parent_lookup.get(bn_id) if bn_id else None
+        bl_row = _traverse_to_bl(bn_row, _parent_lookup) if bn_row is not None else None
+        resolved_scores = resolve_scores_with_bl_fallback(_primary_roof, bl_row, country=country)
+        # Drop RSI keys — RSI is resolved separately above.
+        for rsi_key in RSI_OUTPUT_COLUMNS:
             resolved_scores.pop(rsi_key, None)
-        # Write resolved scores with primary_ prefix (no "roof_" infix)
+        # Write resolved scores with primary_ prefix (no "roof_" infix), and
+        # remove the raw primary_roof_* columns they supersede.
         for key, val in resolved_scores.items():
             parcel[f"primary_{key}"] = val
-        # Remove raw primary_roof_ prefixed score columns that are now superseded
-        raw_prefix = "primary_roof_"
-        for key in resolved_scores:
-            parcel.pop(f"{raw_prefix}{key}", None)
+            parcel.pop(f"primary_roof_{key}", None)
 
     # Min/max/area-weighted-mean RSI across all roofs in the parcel.
     # Uses resolved "best" RSI per roof (roof's own first, BL fallback).
@@ -1242,16 +1223,8 @@ def feature_attributes(
                 )
 
     # Min/max/area-weighted-mean for peril vulnerability and risk scores.
-    # Same resolve logic as RSI: check roof first, fall back to BL.
-    _SCORE_AGG_FIELDS = [
-        "hurricane_vulnerability_score",
-        "wind_vulnerability_score",
-        "wind_risk_score",
-        "hail_vulnerability_score",
-        "hail_risk_score",
-        "wildfire_vulnerability_score",
-        "wind_hail_risk_score",
-    ]
+    # Same resolve logic as RSI: check roof first, fall back to BL. Field list
+    # derived from INCLUDE_FIELD_MAPPINGS so new perils auto-propagate.
     if len(roof_features) > 0:
         area_col = (
             "clipped_area_sqft"
@@ -1260,20 +1233,15 @@ def feature_attributes(
         )
         areas = roof_features[area_col].values if area_col else None
 
-        # Resolve all scores for each roof once
+        # Resolve all scores for each roof once (roof first, BL fallback via linked BN).
         per_roof_scores = []
         per_roof_areas = []
         for i, feature_id in enumerate(roof_features["feature_id"]):
             rf = _parent_lookup.get(feature_id) or {}
-            scores = extract_include_scores_from_feature(rf, country=country)
-            if not scores:
-                bn_id = _roof_to_building.get(feature_id)
-                if bn_id:
-                    bn_row = _parent_lookup.get(bn_id)
-                    if bn_row is not None:
-                        bl = _traverse_to_bl(bn_row, _parent_lookup)
-                        if bl:
-                            scores = extract_include_scores_from_feature(bl, country=country)
+            bn_id = _roof_to_building.get(feature_id)
+            bn_row = _parent_lookup.get(bn_id) if bn_id else None
+            bl_row = _traverse_to_bl(bn_row, _parent_lookup) if bn_row is not None else None
+            scores = resolve_scores_with_bl_fallback(rf or None, bl_row, country=country)
             per_roof_scores.append(scores)
             area = areas[i] if areas is not None else 0
             per_roof_areas.append(0 if area is None or pd.isna(area) else area)
@@ -1281,7 +1249,7 @@ def feature_attributes(
         area_arr = np.array(per_roof_areas)
         total_area = float(area_arr.sum())
 
-        for field in _SCORE_AGG_FIELDS:
+        for field in PERIL_SCORE_OUTPUT_COLUMNS:
             vals = []
             val_areas = []
             for j, scores in enumerate(per_roof_scores):
