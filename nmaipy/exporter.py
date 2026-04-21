@@ -94,13 +94,16 @@ from nmaipy.feature_attributes import (
     convert_bool_columns_to_yn,
     flatten_building_attributes,
     flatten_roof_attributes,
+    is_resolved_score_column,
 )
 from nmaipy.parcels import (
+    _traverse_to_bl,
     build_parent_lookup,
     class_column_names,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
     resolve_footprint_rsi,
+    resolve_scores_with_bl_fallback,
 )
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
@@ -615,6 +618,53 @@ def _resolve_rsi_batch(n_rows, resolve_fn):
     return vals, conf, mver
 
 
+def _resolve_scores_batch(n_rows, resolve_fn, added_cols):
+    """Resolve all include scores for *n_rows* rows, returning a dict of {col: array}.
+
+    *resolve_fn(i)* returns a flat dict of score columns (from extract_include_scores_from_feature)
+    or empty dict/None. RSI columns are excluded (handled separately by _resolve_rsi_batch).
+
+    Returns dict ready to be appended as a DataFrame to df_parts, or empty dict.
+    """
+    all_resolved = [resolve_fn(i) for i in range(n_rows)]
+
+    # Collect all column names across all rows
+    all_cols = set()
+    for r in all_resolved:
+        if r:
+            all_cols.update(r.keys())
+    # Exclude RSI columns — handled separately
+    all_cols -= {"roof_spotlight_index", "roof_spotlight_index_confidence", "roof_spotlight_index_model_version"}
+    if not all_cols:
+        return {}
+
+    batch = {}
+    for col in sorted(all_cols):
+        if col in added_cols:
+            continue
+        arr = np.full(n_rows, None, dtype=object)
+        for i, r in enumerate(all_resolved):
+            if r and col in r:
+                arr[i] = r[col]
+        if np.any(pd.notna(arr)):
+            batch[col] = arr
+            added_cols.add(col)
+    return batch
+
+
+_PRIMARY_CHILD_ROOF_PREFIX = "primary_child_roof_"
+
+
+def _is_resolved_score_col(col_name: str) -> bool:
+    """True iff *col_name* is a `primary_child_roof_*` column whose underlying key
+    is resolved per-feature via roof→BL fallback. Propagation of raw child-roof
+    values for these keys is suppressed — resolved values are written separately.
+    """
+    if not col_name.startswith(_PRIMARY_CHILD_ROOF_PREFIX):
+        return False
+    return is_resolved_score_column(col_name[len(_PRIMARY_CHILD_ROOF_PREFIX) :])
+
+
 def _dataframe_to_records_with_index(df):
     """Convert DataFrame to list of dicts, re-injecting the index if it is AOI_ID_COLUMN_NAME.
 
@@ -1107,6 +1157,37 @@ def _compute_feature_class_data(
         except Exception:
             logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 
+        # Resolve best scores (peril scores, defensible space) per roof via BL fallback.
+        try:
+            bl_in_features = (
+                BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values if features_gdf is not None else False
+            )
+            if bl_in_features:
+                roof_records_for_scores = _dataframe_to_records_with_index(class_features)
+
+                def _resolve_roof_scores(i):
+                    row = roof_records_for_scores[i]
+                    bn_id = _roof_to_building.get(row.get("feature_id"))
+                    bn_row = p_lookup.get(bn_id) if bn_id else None
+                    bl_row = _traverse_to_bl(bn_row, p_lookup) if bn_row is not None else None
+                    return resolve_scores_with_bl_fallback(row, bl_row, country=country)
+
+                score_batch = _resolve_scores_batch(n_rows, _resolve_roof_scores, added_cols)
+                if score_batch:
+                    # Overwrite existing score columns in df_parts where they exist
+                    overwritten = set()
+                    for part in df_parts:
+                        for col, arr in score_batch.items():
+                            if col in part.columns:
+                                part[col] = arr
+                                overwritten.add(col)
+                    # Append any new columns not in existing parts
+                    new_cols = {k: v for k, v in score_batch.items() if k not in overwritten}
+                    if new_cols:
+                        df_parts.append(pd.DataFrame(new_cols, index=range(n_rows)))
+        except Exception:
+            logger.error("Could not resolve footprint scores for roofs", exc_info=True)
+
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
         # Flatten building's own 3D attributes (height, pitch, ground_height, numStories)
@@ -1235,7 +1316,11 @@ def _compute_feature_class_data(
                         "primary_child_roof_dominant_roof_types_",
                     )
                     dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
-                    other_cols = sorted(c for c in mapped.columns if not c.startswith(_DOM) and c not in _EXCLUDE_RSI)
+                    other_cols = sorted(
+                        c
+                        for c in mapped.columns
+                        if not c.startswith(_DOM) and c not in _EXCLUDE_RSI and not _is_resolved_score_col(c)
+                    )
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
                             roof_attr_batch[col] = mapped[col].values
@@ -1315,6 +1400,21 @@ def _compute_feature_class_data(
                                 added_cols.add(col)
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
+
+                # Resolve best scores per building (same pattern as RSI).
+                if roof_attrs:
+                    pcr_ids_for_scores = buildings_linked["primary_child_roof_id"].values
+                    bn_records_for_scores = _dataframe_to_records_with_index(buildings_linked)
+
+                    def _resolve_bn_scores(i):
+                        pcr_id = pcr_ids_for_scores[i]
+                        roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
+                        bl_row = _traverse_to_bl(bn_records_for_scores[i], p_lookup)
+                        return resolve_scores_with_bl_fallback(roof_row, bl_row, country=country)
+
+                    score_batch = _resolve_scores_batch(n_rows, _resolve_bn_scores, added_cols)
+                    if score_batch:
+                        df_parts.append(pd.DataFrame(score_batch, index=range(n_rows)))
 
                 # Link roof age data from primary child roof's roof instance
                 # Chain: building → primary_child_roof → primary_child_roof_age (roof instance) → roof_age_*
@@ -1457,7 +1557,7 @@ def _compute_feature_class_data(
 
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
-                        if col not in added_cols and col not in _EXCLUDE_RSI:
+                        if col not in added_cols and col not in _EXCLUDE_RSI and not _is_resolved_score_col(col):
                             roof_attr_batch[col] = mapped[col].values
                             added_cols.add(col)
                     if roof_attr_batch:
@@ -1492,6 +1592,18 @@ def _compute_feature_class_data(
                                 added_cols.add(col)
                         if rsi_batch:
                             df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
+
+                    # Resolve best scores per BL (same pattern as RSI).
+                    bl_records_for_scores = _dataframe_to_records_with_index(class_features)
+
+                    def _resolve_bl_scores(i):
+                        pcr_id = primary_ids[i]
+                        roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
+                        return resolve_scores_with_bl_fallback(roof_row, bl_records_for_scores[i], country=country)
+
+                    score_batch = _resolve_scores_batch(n_rows, _resolve_bl_scores, added_cols)
+                    if score_batch:
+                        df_parts.append(pd.DataFrame(score_batch, index=range(n_rows)))
         except Exception:
             logger.error("Could not link roofs to building lifecycles", exc_info=True)
 

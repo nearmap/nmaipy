@@ -162,6 +162,57 @@ INCLUDE_FIELD_MAPPINGS = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Derived column-name sets for peril scores and defensible space.
+# All driven off INCLUDE_FIELD_MAPPINGS so adding a new peril auto-propagates
+# to parcel aggregation, rollup resolution, and child-roof propagation.
+# ---------------------------------------------------------------------------
+
+# Peril vulnerability/risk *score* output columns — used for parcel-level
+# min/max/area_weighted_mean aggregation.
+PERIL_SCORE_OUTPUT_COLUMNS = tuple(
+    output_col
+    for config in INCLUDE_FIELD_MAPPINGS.values()
+    if "model_input_prefix" in config  # peril configs only (excludes RSI)
+    for output_col in config.get("fields", {}).values()
+    if output_col.endswith("_score")
+)
+
+# Every output column produced by flattening a peril include — these are the
+# columns that get resolved per-feature (roof → BL fallback) and so must be
+# excluded from raw child-roof column propagation.
+RESOLVED_SCORE_OUTPUT_COLUMNS = frozenset(
+    output_col
+    for config in INCLUDE_FIELD_MAPPINGS.values()
+    if "model_input_prefix" in config
+    for output_col in config.get("fields", {}).values()
+)
+
+# Narrow prefixes for columns whose full names are dynamic (not in
+# INCLUDE_FIELD_MAPPINGS): modelInputFeatures columns (one prefix per peril)
+# and defensible-space per-zone columns.
+RESOLVED_DYNAMIC_PREFIXES = tuple(
+    f"{config['model_input_prefix']}_" for config in INCLUDE_FIELD_MAPPINGS.values() if "model_input_prefix" in config
+) + ("defensible_space_zone_",)
+
+# RSI output columns — resolved via its own roof→BL fallback path that
+# predates the generalised score resolution. Exported separately for use
+# in consumers that want to exclude RSI raw columns from propagation.
+RSI_OUTPUT_COLUMNS = frozenset(
+    list(INCLUDE_FIELD_MAPPINGS["roofSpotlightIndex"]["fields"].values())
+    + [f"{INCLUDE_FIELD_MAPPINGS['roofSpotlightIndex']['snake_key']}_model_version"]
+)
+
+
+def is_resolved_score_column(col: str) -> bool:
+    """True iff *col* is a column that gets resolved per-feature via roof→BL fallback.
+
+    Exact match against known peril score/probability/rate-factor columns, plus
+    narrow prefix match for dynamic modelInputFeatures and defensible-space
+    zone columns.
+    """
+    return col in RESOLVED_SCORE_OUTPUT_COLUMNS or col.startswith(RESOLVED_DYNAMIC_PREFIXES)
+
 
 def convert_bool_columns_to_yn(batch):
     """Convert any boolean numpy arrays in a dict to Y/N string arrays in-place.
@@ -243,6 +294,28 @@ def _flatten_include_params(feature: dict, flattened: dict) -> None:
                 logger.debug(
                     f"Skipping modelInputFeatures for {camel_key}: expected dict, got {type(model_input).__name__}"
                 )
+
+
+def _flatten_defensible_space(feature: dict, flattened: dict, country: str) -> None:
+    """Extract defensible space zone metrics and risk objects from a feature into flattened dict.
+
+    Outer wrapper: reads the `defensibleSpace` include off the feature, iterates
+    zones in ascending `zoneId` order, and delegates each zone to
+    ``_flatten_defensible_space_zone``. Also flattens the top-level `modelVersion`.
+    """
+    defensible_raw = feature.get("defensibleSpace") or feature.get("defensible_space")
+    defensible_space_data = _parse_include_param(defensible_raw)
+    if not defensible_space_data:
+        return
+    zones = defensible_space_data.get("zones", [])
+    for zone in sorted(zones, key=lambda z: z.get("zoneId", 0)):
+        zone_id = zone.get("zoneId")
+        if zone_id is None:
+            continue
+        prefix = f"defensible_space_zone_{zone_id}"
+        _flatten_defensible_space_zone(zone, prefix, country, flattened)
+    if "modelVersion" in defensible_space_data:
+        flattened["defensible_space_model_version"] = defensible_space_data["modelVersion"]
 
 
 def _get_feature_value(feature, key):
@@ -630,22 +703,7 @@ def flatten_roof_attributes(
         _flatten_include_params(roof, flattened)
 
         # Defensible space has zone-based nesting — handle separately
-        defensible_raw = roof.get("defensibleSpace") or roof.get("defensible_space")
-        defensible_space_data = _parse_include_param(defensible_raw)
-        if defensible_space_data:
-            zones = defensible_space_data.get("zones", [])
-            # Sort zones by ascending zoneId for consistent column ordering.
-            zones_sorted = sorted(zones, key=lambda z: z.get("zoneId", 0))
-            for zone in zones_sorted:
-                zone_id = zone.get("zoneId")
-                if zone_id is None:
-                    continue
-                prefix = f"defensible_space_zone_{zone_id}"
-                _flatten_defensible_space_zone(zone, prefix, country, flattened)
-                # Note: zoneGeometry is not flattened (too verbose for tabular output)
-            if "modelVersion" in defensible_space_data:
-                key = "modelVersion"
-                flattened[f"defensible_space_{stringcase.snakecase(key)}"] = defensible_space_data[key]
+        _flatten_defensible_space(roof, flattened, country)
 
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns
