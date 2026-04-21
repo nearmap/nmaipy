@@ -25,8 +25,6 @@ from nmaipy.constants import (
     BUILDING_NEW_ID,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     READ_TIMEOUT_SECONDS,
-    ROLLUP_BUILDING_COUNT_ID,
-    ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID,
     ROOF_ID,
     SOLAR_HW_ID,
     SOLAR_ID,
@@ -37,32 +35,6 @@ from nmaipy.feature_api import FeatureApi
 
 @pytest.mark.live_api
 class TestFeatureAPI:
-    def test_get_rollup_df(self, sydney_aoi: Polygon, cache_directory: Path):
-        date_1 = "2025-01-20"
-        date_2 = "2025-01-20"
-        region = "au"
-        packs = ["building"]
-        aoi_id = "123"
-
-        feature_api = FeatureApi(cache_dir=cache_directory)
-        rollup_df, metadata, error = feature_api.get_rollup_df(
-            sydney_aoi, region, packs, aoi_id=aoi_id, since=date_1, until=date_2
-        )
-
-        # No error
-        assert error is None
-        # Date is in range
-        assert date_1 <= metadata["survey_date"] <= date_2
-        # We get 1 building
-        building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].iloc[0, 0]
-        assert (
-            building_count == 1
-        )  # Expect a single, joined building kept after filter, from two touching residential homes.
-        # The AOI ID has been assigned
-        assert len(rollup_df.loc[[aoi_id]]) == 1
-        # Unclipped area should be about 450 sqm
-        assert rollup_df[ROLLUP_BUILDING_PRIMARY_UNCLIPPED_AREA_SQM_ID].iloc[0, 0] == pytest.approx(450, rel=0.1)
-
     def test_get_features_gdf(self, sydney_aoi: Polygon, cache_directory: Path):
         date_1 = "2025-01-20"
         date_2 = "2025-01-20"
@@ -445,20 +417,6 @@ class TestFeatureAPI:
         # We get only roofs
         assert len(features_gdf) == 53  # Updated after testing
         assert len(features_gdf[features_gdf.class_id == ROOF_ID]) == 53
-
-        rollup_df, metadata_df, errors_df = feature_api.get_rollup_df_bulk(
-            aoi_gdf, country, packs, since_bulk=date_1, until_bulk=date_2
-        )
-        # Check metadata
-        assert len(metadata_df) == 16
-        assert len(metadata_df.merge(aoi_gdf, on="aoi_id", how="inner")) == 16
-        # Check error
-        assert len(errors_df) == 0
-
-        # We get about the right number of buildings
-        assert len(rollup_df) == 16
-        total_building_count = rollup_df[ROLLUP_BUILDING_COUNT_ID].values.sum()
-        assert total_building_count == pytest.approx(53, rel=0.1)
 
     def test_get_bulk_with_data_dates(self, cache_directory: Path, sydney_aoi: Polygon):
         aois = []
@@ -1043,7 +1001,6 @@ class TestFeatureAPI:
                 result = api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 # Should not reach here
@@ -1110,7 +1067,6 @@ class TestFeatureAPI:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
@@ -1133,7 +1089,6 @@ class TestFeatureAPI:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
@@ -1155,7 +1110,6 @@ class TestFeatureAPI:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
-                    result_type="features",
                     in_gridding_mode=False,
                 )
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"

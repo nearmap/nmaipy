@@ -192,9 +192,9 @@ When adding new columns derived from API descriptions, always use the programmat
 5. **feature_api.py**: `FeatureApi(GriddedApiClient)` — client for Nearmap AI Feature API
    - Pack and class enumeration (`get_packs()`, `get_feature_classes()`)
    - Bulk feature requests with auto-gridding on oversized AOIs
-   - Rollup calculations (`get_rollup_df()`, `get_rollup_df_bulk()`)
    - Feature geometry requests (`get_features_gdf()`, `get_features_gdf_bulk()`)
    - Date range and survey resource queries
+   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses; there is no HTTP rollup endpoint.
 
 6. **roof_age_api.py**: `RoofAgeApi(BaseApiClient)` — client for Nearmap Roof Age API
    - AOI-based queries (`get_roof_age_by_aoi()`) with pagination

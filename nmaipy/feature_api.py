@@ -10,7 +10,6 @@ import random
 import time
 import uuid
 from http import HTTPStatus
-from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunparse
@@ -52,8 +51,6 @@ from nmaipy.constants import (
     MAX_RETRIES,
     POLYGON_TOO_COMPLEX,
     READ_TIMEOUT_SECONDS,
-    ROLLUP_SURVEY_DATE_ID,
-    ROLLUP_SYSTEM_VERSION_ID,
     SINCE_COL_NAME,
     SLOW_REQUEST_THRESHOLD_SECONDS,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -124,9 +121,6 @@ class FeatureApi(GriddedApiClient):
         "clippedAreaSqft",
         "unclippedAreaSqft",
     ]
-    API_TYPE_FEATURES = "features"
-    API_TYPE_ROLLUPS = "rollups"
-
     # HTTP status codes for retry logic
     RETRY_STATUS_CODES_BASE = [
         HTTPStatus.TOO_MANY_REQUESTS,  # 429
@@ -211,7 +205,6 @@ class FeatureApi(GriddedApiClient):
 
         URL_ROOT = f"https://{url_root}"
         self.FEATURES_URL = URL_ROOT + "/features.json"
-        self.ROLLUPS_CSV_URL = URL_ROOT + "/rollups.csv"
         self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
         self.CLASSES_URL = URL_ROOT + "/classes.json"
         self.PACKS_URL = URL_ROOT + "/packs.json"
@@ -475,7 +468,7 @@ class FeatureApi(GriddedApiClient):
     ) -> Tuple[str, dict, bool]:
         """
         Create parameters for a POST request with given parameters
-        base_url: Need to choose one of: self.FEATURES_URL, self.ROLLUPS_CSV_URL
+        base_url: Typically self.FEATURES_URL
 
         Args:
             disable_parcel_mode: If True, disables parcel_mode for this request regardless of self.parcel_mode.
@@ -624,53 +617,9 @@ class FeatureApi(GriddedApiClient):
             until=until,
             address_fields=address_fields,
             survey_resource_id=survey_resource_id,
-            result_type=self.API_TYPE_FEATURES,
             in_gridding_mode=in_gridding_mode,
             param_dic=param_dic,
             disable_parcel_mode=disable_parcel_mode,
-        )
-        return data
-
-    def get_rollup(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
-        param_dic: Optional[Dict[str, str]] = None,
-    ):
-        """
-        Get rollup data for the provided geometry.
-
-        Args:
-            geometry: The polygon or multipolygon to query
-            region: Country code
-            packs: List of AI packs to include
-            classes: List of feature classes to include
-            since: Start date for the query
-            until: End date for the query
-            address_fields: Address fields for address-based queries
-            survey_resource_id: ID of the specific survey to query
-            param_dic: Optional dictionary of custom parameters to add to the API request
-
-        Returns:
-            API response as CSV text
-        """
-        data = self._get_results(
-            geometry=geometry,
-            region=region,
-            packs=packs,
-            classes=classes,
-            since=since,
-            until=until,
-            address_fields=address_fields,
-            survey_resource_id=survey_resource_id,
-            result_type=self.API_TYPE_ROLLUPS,
-            param_dic=param_dic,
         )
         return data
 
@@ -685,7 +634,6 @@ class FeatureApi(GriddedApiClient):
         until: Optional[str] = None,
         address_fields: Optional[Dict[str, str]] = None,
         survey_resource_id: Optional[str] = None,
-        result_type: str = API_TYPE_FEATURES,
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
         disable_parcel_mode: bool = False,
@@ -702,22 +650,15 @@ class FeatureApi(GriddedApiClient):
             address_fields: Fields for an address based query (rather than query AOI based query).
             survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull.
                                NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
-            result_type: Type of API endpoint (features or rollups)
             param_dic: Optional dictionary of custom parameters to add to the API request
 
         Returns:
             API response as a Dictionary
         """
         with self._session_scope(in_gridding_mode) as session:
-            # Determine the base URL based on the result type and packs
-            if result_type == self.API_TYPE_FEATURES:
-                base_url = self.FEATURES_URL
-            elif result_type == self.API_TYPE_ROLLUPS:
-                base_url = self.ROLLUPS_CSV_URL
-
             # Use POST request with JSON body for better geometry handling
             url, body, exact = self._create_post_request(
-                base_url=base_url,
+                base_url=self.FEATURES_URL,
                 geometry=geometry,
                 packs=packs,
                 classes=classes,
@@ -839,17 +780,12 @@ class FeatureApi(GriddedApiClient):
                 logger.info(f"Slow request: {response_time_seconds:.1f}s response time for {sanitized_url}{geom_info}")
 
             if response.ok:
-                if result_type == self.API_TYPE_ROLLUPS:
-                    data = response.text
-                elif result_type == self.API_TYPE_FEATURES:
-                    try:
-                        data = response.json()
-                    except Exception as e:
-                        # Treat JSON parsing errors as size errors to trigger gridding
-                        logger.debug(
-                            f"JSON parsing error - treat as size error to try again with a gridded approach: {e}"
-                        )
-                        raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
+                try:
+                    data = response.json()
+                except Exception as e:
+                    # Treat JSON parsing errors as size errors to trigger gridding
+                    logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")
+                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
 
                 # Save to cache if configured
                 if self.cache_dir is not None:
@@ -1025,42 +961,6 @@ class FeatureApi(GriddedApiClient):
             gdf["belongs_to_parcel"] = True
 
         return gdf, metadata
-
-    @classmethod
-    def payload_rollup_df(cls, payload: dict, aoi_id: Optional[str] = None) -> Tuple[gpd.GeoDataFrame, dict]:
-        """
-        Create a dataframe from a rollup API response dictionary.
-
-        Args:
-            payload: API response dictionary
-            aoi_id: Optional ID for the AOI to add to the data
-
-        Returns:
-            Features GeoDataFrame
-            Metadata dictionary
-        """
-
-        # Create metadata
-        payload_io = StringIO(payload)
-        df = pd.read_csv(payload_io, header=[0, 1])  # Accounts for first header row as uuids, second as descriptions
-        metadata = {
-            "system_version": df.filter(regex=ROLLUP_SYSTEM_VERSION_ID).iloc[0, 0],
-            "link": "",  # TODO: Once link is returned in payloads, add in here.
-            "survey_date": df.filter(regex=ROLLUP_SURVEY_DATE_ID).iloc[0, 0],
-        }
-
-        # Add AOI ID if specified
-        if aoi_id is not None:
-            try:
-                df[AOI_ID_COLUMN_NAME] = aoi_id
-                df = df.set_index(AOI_ID_COLUMN_NAME)
-            except Exception as e:
-                logger.error(
-                    f"Problem setting aoi_id in col {AOI_ID_COLUMN_NAME} as {aoi_id} (dataframe has {len(df)} rows)."
-                )
-                raise ValueError(f"Failed to set aoi_id '{aoi_id}' on rollup DataFrame with {len(df)} rows") from e
-            metadata[AOI_ID_COLUMN_NAME] = aoi_id
-        return df, metadata
 
     def _attempt_gridding(
         self,
@@ -1725,205 +1625,3 @@ class FeatureApi(GriddedApiClient):
             errors_df = pd.DataFrame([])
             errors_df.index.name = AOI_ID_COLUMN_NAME
         return features_gdf, metadata_df, errors_df
-
-    def get_rollup_df(
-        self,
-        geometry: Union[Polygon, MultiPolygon],
-        region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
-        """
-        Get rollup data for an AOI. If a cache is configured, the cache will be checked before using the API.
-        Data is returned as a dataframe with response metadata and error information (if any occurred).
-
-        Args:
-            geometry: AOI in EPSG4326
-            region: The country code, used as a key to AREA_CRS.
-            packs: List of AI
-            classes: List of classes
-            aoi_id: ID of the AOI to add to the data
-            since: Earliest date to pull data for
-            until: Latest date to pull data for
-            address_fields: dictionary with values for the address fields, if available, or else None
-            survey_resource_id: Alternative query mechanism to retrieve precise survey's results from coverage.
-        Returns:
-            API response rollup DataFrame, metadata dictionary, and an error dictionary
-        """
-        if geometry is None and address_fields is None:
-            raise ValueError(
-                f"Internal Error: get_rollup_df was called with NEITHER a geometry NOR address fields specified. This should be impossible"
-            )
-
-        try:
-            rollup_df, metadata, error = None, None, None
-            payload = self.get_rollup(
-                geometry,
-                region,
-                packs,
-                classes,
-                since,
-                until,
-                address_fields,
-                survey_resource_id,
-            )
-            rollup_df, metadata = self.payload_rollup_df(payload, aoi_id)
-        except AIFeatureAPIError as e:
-            # Catch acceptable errors
-            rollup_df = None
-            metadata = None
-            error = {
-                AOI_ID_COLUMN_NAME: aoi_id,
-                "status_code": e.status_code,
-                "message": e.message,
-                "text": e.text,
-                "request": e.request_string,
-                "failure_type": "standard",
-            }
-
-        except requests.exceptions.RetryError as e:
-            logger.debug(f"Retry Exception - gave up retrying on aoi_id: {aoi_id}")
-            rollup_df = None
-            metadata = None
-            error = {
-                AOI_ID_COLUMN_NAME: aoi_id,
-                "status_code": DUMMY_STATUS_CODE,
-                "message": "RETRY_ERROR",
-                "failure_type": "standard",
-                "text": str(e),
-                "request": "No request info",
-            }
-        return rollup_df, metadata, error
-
-    @classmethod
-    def _single_to_multi_index(cls, columns: pd.Index):
-        """
-        Take the columns from a rollup dataframe (which had the id and description collapsed with a pipe), and separate
-        them out again - first level as the id (empty for added columns with no GUID attached). Second level as the
-        description.
-        """
-        out_cols = columns.str.split("|")
-        out_cols = pd.MultiIndex.from_tuples([[""] + d if len(d) == 1 else d for d in out_cols])
-        out_cols.names = ["id", "description"]
-        return out_cols
-
-    @classmethod
-    def _multi_to_single_index(cls, columns: pd.MultiIndex):
-        """
-        Inverse of _single_to_multi_index: flatten the columns from multi_index to flat, by joining levels with a pipe
-        character. For use in rollup headings which have "id" and a "description" as two separate levels (from the
-        two header rows in the returned csv file).
-        This operation is important when merging with single level dataframes.
-        """
-        out_cols = columns.map("|".join).str.strip("|")
-        return out_cols
-
-    def get_rollup_df_bulk(
-        self,
-        gdf: gpd.GeoDataFrame,
-        region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        since_bulk: Optional[str] = None,
-        until_bulk: Optional[str] = None,
-        survey_resource_id_bulk: Optional[str] = None,
-        max_allowed_error_pct: Optional[int] = 100,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
-        """
-        Get features data for many AOIs.
-
-        Args:
-            gdf: GeoDataFrame with AOIs
-            region: Country code
-            packs: List of AI packs
-            classes: List of classes
-            since_bulk: Earliest date to pull data for, applied across all Query AOIs.
-            until_bulk: Latest date to pull data for, applied across all Query AOIs.
-            survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create a dataframe of errors and
-            return all good data available.
-            fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
-                              getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
-                                                                   get_features_gdf_bulk -> get_features_gdf
-
-        Returns:
-            API responses as rollup csv GeoDataFrames, metadata DataFrame, and an error DataFrame
-        """
-        # Use floor to ensure we don't allow more errors than intended due to rounding.
-        # E.g., with 50 AOIs and 99% allowed errors, round(49.5)=50 would allow 100% failure,
-        # but floor(49.5)=49 correctly requires at least 1 success.
-        max_allowed_error_count = math.floor(len(gdf) * max_allowed_error_pct / 100)
-
-        # are address fields present?
-        has_address_fields = set(gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)
-        # is a geometry field present?
-        has_geom = "geometry" in gdf.columns
-
-        # Run in thread pool
-        with concurrent.futures.ThreadPoolExecutor(self.threads) as executor:
-            try:
-                jobs = []
-                for aoi_id, row in gdf.iterrows():
-                    # Overwrite blanket since/until dates with per request since/until if columns are present
-                    since = since_bulk
-                    if SINCE_COL_NAME in row:
-                        if isinstance(row[SINCE_COL_NAME], str):
-                            since = row[SINCE_COL_NAME]
-                    until = until_bulk
-                    if UNTIL_COL_NAME in row:
-                        if isinstance(row[UNTIL_COL_NAME], str):
-                            until = row[UNTIL_COL_NAME]
-                    survey_resource_id = survey_resource_id_bulk
-                    if SURVEY_RESOURCE_ID_COL_NAME in row:
-                        if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                            survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
-
-                    jobs.append(
-                        executor.submit(
-                            self.get_rollup_df,
-                            row.geometry if has_geom else None,
-                            region,
-                            packs,
-                            classes,
-                            aoi_id,
-                            since,
-                            until,
-                            ({f: row[f] for f in ADDRESS_FIELDS} if has_address_fields and not has_geom else None),
-                            survey_resource_id,
-                        )
-                    )
-                data = []
-                metadata = []
-                errors = []
-                # Use as_completed to process results as they finish, preventing blocking on slow requests
-                for job in concurrent.futures.as_completed(jobs):
-                    aoi_data, aoi_metadata, aoi_error = job.result()
-                    if aoi_data is not None:
-                        data.append(aoi_data)
-                    if aoi_metadata is not None:
-                        metadata.append(aoi_metadata)
-                    if aoi_error is not None:
-                        if len(errors) > max_allowed_error_count:
-                            raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                        else:
-                            errors.append(aoi_error)
-            finally:
-                executor.shutdown(wait=True)  # Ensure cleanup
-                self.cleanup()  # Clean up sessions
-        # Combine results
-        # RANT: there can be some... unpleasantness... with multipolygons, missing primary roofs and dtypes.
-        # Presence can be boolean, or converted to float if some parts of a multipolygon AOI request are NaN.
-        # This causes problems later with mixed data types, and e.g. writing chunks to parquet.
-        # Using "convert_dtypes" fixes it by auto-converting the booleans which pandas decided should be floats due
-        # to the NaNs, to an integer dtype, which then combines properly with the boolean dtype.
-        rollup_df = pd.concat(data) if len(data) > 0 else None
-        metadata_df = pd.DataFrame(metadata) if len(metadata) > 0 else None
-        errors_df = pd.DataFrame(errors).set_index(AOI_ID_COLUMN_NAME) if len(errors) > 0 else pd.DataFrame([])
-        if len(errors) == 0:
-            errors_df.index.name = AOI_ID_COLUMN_NAME
-        return rollup_df, metadata_df, errors_df
