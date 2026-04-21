@@ -11,6 +11,7 @@ and select "primary" features for detailed attribute extraction.
 """
 
 import json
+import re
 from typing import Union
 
 import geopandas as gpd
@@ -44,6 +45,7 @@ from nmaipy.feature_attributes import (
     DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
     TRUE_STRING,
+    _flatten_defensible_space_zone,
     _parse_include_param,
     flatten_building_attributes,
     flatten_building_lifecycle_damage_attributes,
@@ -1486,41 +1488,10 @@ def parcel_rollup(
                 row = {}
                 for zone in sorted(ds.get("zones", []), key=lambda z: z.get("zoneId", 0)):
                     zone_id = zone.get("zoneId")
-                    if not zone_id:
+                    if zone_id is None:
                         continue
                     prefix = f"aggregate_defensible_space_zone_{zone_id}"
-                    if country in IMPERIAL_COUNTRIES:
-                        if "zoneAreaSqft" in zone:
-                            row[f"{prefix}_zone_area_sqft"] = zone["zoneAreaSqft"]
-                        if "defensibleSpaceAreaSqft" in zone:
-                            row[f"{prefix}_defensible_space_area_sqft"] = zone["defensibleSpaceAreaSqft"]
-                        if "totalRiskObjectAreaSqft" in zone:
-                            row[f"{prefix}_risk_object_area_sqft"] = zone["totalRiskObjectAreaSqft"]
-                    else:
-                        if "zoneAreaSqm" in zone:
-                            row[f"{prefix}_zone_area_sqm"] = zone["zoneAreaSqm"]
-                        if "defensibleSpaceAreaSqm" in zone:
-                            row[f"{prefix}_defensible_space_area_sqm"] = zone["defensibleSpaceAreaSqm"]
-                        if "totalRiskObjectAreaSqm" in zone:
-                            row[f"{prefix}_risk_object_area_sqm"] = zone["totalRiskObjectAreaSqm"]
-                    if "defensibleSpaceCoverageRatio" in zone:
-                        row[f"{prefix}_coverage_ratio"] = zone["defensibleSpaceCoverageRatio"]
-                    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
-                        ro_prefix = f"{prefix}_{ro_desc}"
-                        area_suffix = "area_sqft" if country in IMPERIAL_COUNTRIES else "area_sqm"
-                        row[f"{ro_prefix}_{area_suffix}"] = 0.0
-                        row[f"{ro_prefix}_ratio"] = 0.0
-                    for risk_obj in zone.get("riskObjects", []):
-                        desc = risk_obj.get("description")
-                        if desc is None:
-                            continue
-                        desc_snake = desc.lower().replace(" ", "_")
-                        ro_prefix = f"{prefix}_{desc_snake}"
-                        if country in IMPERIAL_COUNTRIES:
-                            row[f"{ro_prefix}_area_sqft"] = risk_obj.get("areaSqft", 0.0)
-                        else:
-                            row[f"{ro_prefix}_area_sqm"] = risk_obj.get("areaSqm", 0.0)
-                        row[f"{ro_prefix}_ratio"] = risk_obj.get("ratio", 0.0)
+                    _flatten_defensible_space_zone(zone, prefix, country, row)
                 if row:
                     agg_rows[aoi_id_val] = row
             if agg_rows:
@@ -1538,32 +1509,27 @@ def parcel_rollup(
                 logger.error(f"Failed to round column '{col}' - column description:")
                 logger.error(rollup_df[col].describe())
                 raise
-    # Reorder defensible space columns: primary_roof zones 1-3, then aggregate zones 1-3.
-    # Within each zone: zone_area, defensible_space_area, coverage_ratio, risk_object_area,
-    # then per-class columns (vegetation, roof, yard_debris) with area before ratio.
-    import re
-
+    # Reorder defensible space columns so each zone groups together in a predictable order:
+    # primary_roof zones (ascending zoneId) first, then aggregate zones.
+    # Within each zone: zone-level metrics (zone_area → defensible_space_area → coverage_ratio
+    # → risk_object_area), then per-class columns (area before ratio) in the order declared
+    # by DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES.
     ds_pattern = re.compile(r"(.*defensible_space_zone_)(\d+)_(.*)")
-
-    # Priority order for within-zone column suffixes
-    _DS_SUFFIX_ORDER = [
+    _ds_suffix_order = [
         "zone_area_",
         "defensible_space_area_",
         "coverage_ratio",
         "risk_object_area_",
-        "medium_and_high_vegetation_with_woody_vegetation_area_",
-        "medium_and_high_vegetation_with_woody_vegetation_ratio",
-        "roof_area_",
-        "roof_ratio",
-        "yard_debris_area_",
-        "yard_debris_ratio",
     ]
+    for ro_desc in DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES:
+        _ds_suffix_order.append(f"{ro_desc}_area_")
+        _ds_suffix_order.append(f"{ro_desc}_ratio")
 
     def _ds_suffix_rank(suffix):
-        for i, pattern in enumerate(_DS_SUFFIX_ORDER):
+        for i, pattern in enumerate(_ds_suffix_order):
             if suffix.startswith(pattern):
                 return i
-        return len(_DS_SUFFIX_ORDER)
+        return len(_ds_suffix_order)
 
     # primary_roof before aggregate
     def _ds_prefix_rank(prefix):
