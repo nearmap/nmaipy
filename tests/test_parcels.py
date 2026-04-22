@@ -642,6 +642,7 @@ class TestParcels:
                     "pool_total_unclipped_area_sqft": 6883.7,
                     "pool_confidence": 0.99928,
                     # Feature 2 is selected (boundary touches target, within 1m tolerance)
+                    "primary_pool_area_sqft": 543.5,
                     "primary_pool_clipped_area_sqft": 543.5,
                     "primary_pool_unclipped_area_sqft": 543.5,
                     "primary_pool_confidence": 0.85,

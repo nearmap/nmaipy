@@ -1074,9 +1074,11 @@ def feature_attributes(
                         projected_crs=projected_crs,
                     )
                 if country in IMPERIAL_COUNTRIES:
+                    parcel[f"primary_{name}_area_sqft"] = round(primary_feature.area_sqft, 1)
                     parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
                     parcel[f"primary_{name}_unclipped_area_sqft"] = round(primary_feature.unclipped_area_sqft, 1)
                 else:
+                    parcel[f"primary_{name}_area_sqm"] = round(primary_feature.area_sqm, 1)
                     parcel[f"primary_{name}_clipped_area_sqm"] = round(primary_feature.clipped_area_sqm, 1)
                     parcel[f"primary_{name}_unclipped_area_sqm"] = round(primary_feature.unclipped_area_sqm, 1)
                 parcel[f"primary_{name}_confidence"] = primary_feature.confidence
