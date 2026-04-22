@@ -1135,7 +1135,7 @@ def feature_attributes(
                         continue
                     parcel[f"primary_{name}_" + str(key)] = val
             if class_id == POOL_ID:
-                primary_attributes = flatten_pool_attributes([primary_feature], country=country)
+                primary_attributes = flatten_pool_attributes(primary_feature, country=country)
                 for key, val in primary_attributes.items():
                     parcel[f"primary_{name}_" + str(key)] = val
 

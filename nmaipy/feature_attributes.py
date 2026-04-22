@@ -947,27 +947,30 @@ def flatten_roof_instance_attributes(
     return flattened
 
 
-def flatten_pool_attributes(pools: List[dict], country: str) -> dict:
-    """Flatten pool condition attributes from Feature API into per-component columns."""
+def flatten_pool_attributes(pool, country: str) -> dict:
+    """Flatten pool condition attributes from a single pool feature into per-component columns.
+
+    Accepts a dict or pd.Series feature row. The per-class swimming_pool export iterates
+    pool features one-at-a-time; the rollup passes the primary pool only.
+    """
     flattened = {}
-    for pool in pools:
-        attributes = pool.get("attributes")
-        if attributes and isinstance(attributes, str):
-            try:
-                attributes = json.loads(attributes)
-            except (json.JSONDecodeError, TypeError):
-                attributes = []
-        for attribute in attributes or []:
-            if "components" not in attribute:
-                continue
-            for component in attribute["components"]:
-                name = component["description"].lower().replace(" ", "_")
-                flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
-                if country in IMPERIAL_COUNTRIES:
-                    flattened[f"{name}_area_sqft"] = component["areaSqft"]
-                else:
-                    flattened[f"{name}_area_sqm"] = component["areaSqm"]
-                flattened[f"{name}_confidence"] = component["confidence"]
-                if "ratio" in component:
-                    flattened[f"{name}_ratio"] = component["ratio"]
+    attributes = pool.get("attributes")
+    if attributes and isinstance(attributes, str):
+        try:
+            attributes = json.loads(attributes)
+        except (json.JSONDecodeError, TypeError):
+            attributes = []
+    for attribute in attributes or []:
+        if "components" not in attribute:
+            continue
+        for component in attribute["components"]:
+            name = component["description"].lower().replace(" ", "_")
+            flattened[f"{name}_present"] = TRUE_STRING if component["areaSqm"] > 0 else FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = component["areaSqft"]
+            else:
+                flattened[f"{name}_area_sqm"] = component["areaSqm"]
+            flattened[f"{name}_confidence"] = component["confidence"]
+            if "ratio" in component:
+                flattened[f"{name}_ratio"] = component["ratio"]
     return flattened

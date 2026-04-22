@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import sys
@@ -2156,6 +2157,84 @@ class TestResolveScoresWithBLFallback:
     def test_primary_none_falls_back_to_bl(self):
         result = parcels.resolve_scores_with_bl_fallback(None, self._bl_with_scores(), country="us")
         assert result["hurricane_vulnerability_score"] == 2
+
+
+@pytest.fixture(scope="module")
+def pool_feature_with_components(data_directory: Path):
+    """Real pool feature row from test_features_2_all_packs.csv with 5 Pool Condition components.
+
+    The fixture has one detected component (Above Ground Swimming Pool, areaSqm=18.1)
+    and four non-detected ones (Unmaintained, In lanai, Covered, Empty) with areaSqm=0.
+    """
+    filepath = data_directory / "test_features_2_all_packs.csv"
+    if not filepath.exists():
+        pytest.skip("test_features_2_all_packs.csv not generated yet")
+    df = pd.read_csv(filepath)
+    df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d) if isinstance(d, str) else d)
+    pools = df[df["class_id"] == POOL_ID]
+    return pools.iloc[0].to_dict()
+
+
+class TestFlattenPoolAttributes:
+    """Unit tests for feature_attributes.flatten_pool_attributes — real-fixture-driven."""
+
+    def test_emits_all_five_component_columns(self, pool_feature_with_components):
+        result = parcels.flatten_pool_attributes(pool_feature_with_components, country="us")
+        expected_components = [
+            "unmaintained_swimming_pool",
+            "in_lanai_swimming_pool",
+            "covered_swimming_pool",
+            "empty_swimming_pool",
+            "above_ground_swimming_pool",
+        ]
+        for comp in expected_components:
+            assert f"{comp}_present" in result, f"missing {comp}_present"
+            assert f"{comp}_area_sqft" in result, f"missing {comp}_area_sqft"
+            assert f"{comp}_confidence" in result, f"missing {comp}_confidence"
+            assert f"{comp}_ratio" in result, f"missing {comp}_ratio"
+
+    def test_detected_component_has_real_values(self, pool_feature_with_components):
+        """Above-ground pool is the only detected component in this fixture."""
+        result = parcels.flatten_pool_attributes(pool_feature_with_components, country="us")
+        assert result["above_ground_swimming_pool_present"] == "Y"
+        assert result["above_ground_swimming_pool_area_sqft"] == 195
+        assert result["above_ground_swimming_pool_confidence"] == pytest.approx(0.854, abs=1e-3)
+        assert result["above_ground_swimming_pool_ratio"] == pytest.approx(0.823, abs=1e-3)
+
+    def test_zero_area_components_marked_absent(self, pool_feature_with_components):
+        result = parcels.flatten_pool_attributes(pool_feature_with_components, country="us")
+        for comp in [
+            "unmaintained_swimming_pool",
+            "in_lanai_swimming_pool",
+            "covered_swimming_pool",
+            "empty_swimming_pool",
+        ]:
+            assert result[f"{comp}_present"] == "N"
+            assert result[f"{comp}_area_sqft"] == 0
+
+    def test_metric_country_uses_sqm(self, pool_feature_with_components):
+        result = parcels.flatten_pool_attributes(pool_feature_with_components, country="au")
+        assert "above_ground_swimming_pool_area_sqm" in result
+        assert "above_ground_swimming_pool_area_sqft" not in result
+        assert result["above_ground_swimming_pool_area_sqm"] == pytest.approx(18.1, abs=0.1)
+
+    def test_attributes_as_json_string(self, pool_feature_with_components):
+        """Exporter sometimes serialises attributes to JSON; the helper must round-trip."""
+        pool_with_str_attrs = dict(pool_feature_with_components)
+        pool_with_str_attrs["attributes"] = json.dumps(pool_feature_with_components["attributes"])
+        result = parcels.flatten_pool_attributes(pool_with_str_attrs, country="us")
+        assert result["above_ground_swimming_pool_present"] == "Y"
+
+    def test_pandas_series_input(self, pool_feature_with_components):
+        series = pd.Series(pool_feature_with_components)
+        result = parcels.flatten_pool_attributes(series, country="us")
+        assert result["above_ground_swimming_pool_present"] == "Y"
+
+    def test_feature_without_attributes_returns_empty(self):
+        assert parcels.flatten_pool_attributes({"feature_id": "x"}, country="us") == {}
+
+    def test_feature_with_empty_attributes_list_returns_empty(self):
+        assert parcels.flatten_pool_attributes({"attributes": []}, country="us") == {}
 
 
 if __name__ == "__main__":

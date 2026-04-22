@@ -1611,12 +1611,13 @@ def _compute_feature_class_data(
 
     # --- Section E2: Pool condition attributes ---
     if class_id == POOL_ID:
-        pool_batch = []
-        for _, row in class_features.iterrows():
-            attrs = flatten_pool_attributes([row], country=country)
-            pool_batch.append(attrs)
-        if pool_batch:
-            df_parts.append(pd.DataFrame(pool_batch, index=range(n_rows)))
+        try:
+            pool_records = _dataframe_to_records_with_index(class_features)
+            pool_batch = [flatten_pool_attributes(row, country=country) for row in pool_records]
+            if pool_batch:
+                df_parts.append(pd.DataFrame(pool_batch, index=range(n_rows)))
+        except Exception:
+            logger.error("Could not flatten pool attributes", exc_info=True)
 
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
