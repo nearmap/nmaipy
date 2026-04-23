@@ -199,6 +199,20 @@ def _read_parquet_chunks_parallel(
     return results
 
 
+def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
+    """
+    Write an errors dataframe to parquet, promoting to GeoDataFrame when a geometry column is present.
+
+    Gridding attaches grid-cell geometry to error rows (see FeatureApi._attempt_gridding), so
+    errors_df may contain raw shapely geometries that pandas to_parquet cannot serialize.
+    """
+    if "geometry" in errors_df.columns and len(errors_df) > 0:
+        errors_gdf = gpd.GeoDataFrame(errors_df, geometry="geometry", crs=API_CRS)
+        storage.write_parquet(errors_gdf, outfile)
+    else:
+        storage.write_parquet(errors_df, outfile)
+
+
 def _add_is_primary_column(
     features_gdf: gpd.GeoDataFrame,
     rollup_df: pd.DataFrame,
@@ -2831,7 +2845,7 @@ class NearmapAIExporter(BaseExporter):
 
             # If all Feature API requests failed and no roof age data, save errors and return
             if len(feature_api_errors_df) == len(aoi_gdf) and len(roof_age_gdf) == 0:
-                storage.write_parquet(feature_api_errors_df, outfile_errors)
+                _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
                 chunk_end_time = datetime.now(timezone.utc).isoformat()
@@ -3061,13 +3075,7 @@ class NearmapAIExporter(BaseExporter):
                 f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
             )
             try:
-                # Convert errors_df to GeoDataFrame if it has geometry (from failed grid squares)
-                # This ensures proper geoparquet output that can be read in GIS software
-                if "geometry" in errors_df.columns and len(errors_df) > 0:
-                    errors_gdf = gpd.GeoDataFrame(errors_df, geometry="geometry", crs=API_CRS)
-                    storage.write_parquet(errors_gdf, outfile_errors)
-                else:
-                    storage.write_parquet(errors_df, outfile_errors)
+                _write_errors_parquet(errors_df, outfile_errors)
             except Exception as e:
                 self.logger.error(
                     f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."

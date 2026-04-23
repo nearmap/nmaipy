@@ -13,6 +13,7 @@ import pytest
 
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
+    API_CRS,
     BUILDING_NEW_ID,
     FEATURE_CLASS_DESCRIPTIONS,
     PER_CLASS_FILE_CLASS_IDS,
@@ -25,6 +26,7 @@ from nmaipy.exporter import (
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
     _unify_and_concat_tables,
+    _write_errors_parquet,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -612,6 +614,72 @@ class TestReadParquetChunksParallel:
         assert len(summary) == 1, f"Expected one summary message, got: {info_messages}"
         assert "1 failed" in summary[0]
         assert "1 empty" in summary[0]
+
+
+class TestWriteErrorsParquet:
+    """Tests for _write_errors_parquet.
+
+    Regression for a crash seen in production: gridding attaches shapely Polygons to the
+    errors dataframe, and the early-return "all AOIs errored" path in process_chunk wrote
+    that dataframe via plain pandas to_parquet, which fails with ArrowInvalid on shapely types.
+    """
+
+    def test_plain_errors_roundtrip(self, tmp_path):
+        errors_df = pd.DataFrame(
+            {
+                AOI_ID_COLUMN_NAME: ["a", "b"],
+                "status_code": [404, 500],
+                "message": ["not found", "internal"],
+            }
+        ).set_index(AOI_ID_COLUMN_NAME)
+        outfile = tmp_path / "feature_api_errors.parquet"
+
+        _write_errors_parquet(errors_df, str(outfile))
+
+        assert outfile.exists()
+        read_back = pd.read_parquet(outfile)
+        assert len(read_back) == 2
+        assert set(read_back["status_code"]) == {404, 500}
+
+    def test_errors_with_geometry_roundtrip(self, tmp_path):
+        from shapely.geometry import Polygon
+
+        poly1 = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        poly2 = Polygon([(2, 2), (3, 2), (3, 3), (2, 3)])
+        errors_df = pd.DataFrame(
+            {
+                AOI_ID_COLUMN_NAME: ["a", "b"],
+                "status_code": [500, 504],
+                "message": ["grid cell failed", "grid cell timeout"],
+                "geometry": [poly1, poly2],
+            }
+        ).set_index(AOI_ID_COLUMN_NAME)
+        outfile = tmp_path / "feature_api_errors.parquet"
+
+        _write_errors_parquet(errors_df, str(outfile))
+
+        assert outfile.exists()
+        read_back = gpd.read_parquet(outfile)
+        assert isinstance(read_back, gpd.GeoDataFrame)
+        assert len(read_back) == 2
+        assert read_back.crs == API_CRS
+        assert read_back.geometry.iloc[0].equals(poly1)
+        assert read_back.geometry.iloc[1].equals(poly2)
+
+    def test_empty_errors_with_geometry_column(self, tmp_path):
+        errors_df = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: pd.Series([], dtype="object"),
+                "status_code": pd.Series([], dtype="int64"),
+                "message": pd.Series([], dtype="object"),
+            },
+            geometry=gpd.GeoSeries([], crs=API_CRS),
+        ).set_index(AOI_ID_COLUMN_NAME)
+        outfile = tmp_path / "feature_api_errors.parquet"
+
+        _write_errors_parquet(errors_df, str(outfile))
+
+        assert outfile.exists()
 
 
 class TestPerClassFileWhitelist:
