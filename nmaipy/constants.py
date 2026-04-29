@@ -16,7 +16,22 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 # Roof Age API Configuration
 # ============================================================================
 ROOF_AGE_URL_ROOT = "api.nearmap.com/ai/roofage/v1"
-ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
+ROOF_AGE_RESOURCE_PATH = "resources"
+ROOF_AGE_DEFAULT_RESOURCE_ID = "latest"
+
+# Friendly aliases for known datasets. Unknown values pass through and are
+# treated as raw resource UUIDs.
+ROOF_AGE_DATASET_ALIASES: dict[str, str] = {
+    "latest": "latest",
+    "A.0": "latest",
+    "A.1": "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc",
+}
+
+
+def resolve_roof_age_dataset(value: str) -> str:
+    """Resolve a dataset alias (e.g. ``A.1``) to its resource id; pass unknown values through."""
+    return ROOF_AGE_DATASET_ALIASES.get(value, value)
+
 
 # Roof Age API pagination settings
 ROOF_AGE_DEFAULT_PAGE_LIMIT = 1000  # Default max features per page (API default)

@@ -77,6 +77,7 @@ from nmaipy.constants import (
     PER_CLASS_FILE_CLASS_IDS,
     POOL_ID,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
+    ROOF_AGE_DEFAULT_RESOURCE_ID,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
@@ -86,6 +87,7 @@ from nmaipy.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
     _write_class_descriptions,
+    resolve_roof_age_dataset,
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
@@ -1829,6 +1831,15 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--roof-age-dataset",
+        help=(
+            "Roof Age dataset to query when --roof-age is set. Known aliases: 'latest' (default, "
+            "returns A.0), 'A.0', 'A.1'. Any other value is sent to the API as a literal resource UUID."
+        ),
+        type=str,
+        default="latest",
+    )
+    parser.add_argument(
         "--classes",
         help="List of Feature Class IDs (UUIDs)",
         type=str,
@@ -2039,7 +2050,18 @@ def parse_arguments():
         default="INFO",
         type=str,
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.until is not None and args.roof_age:
+        resolved = resolve_roof_age_dataset(args.roof_age_dataset)
+        if resolved == ROOF_AGE_DEFAULT_RESOURCE_ID:
+            parser.error(
+                "--until with --roof-age requires --roof-age-dataset A.1 (or a resource UUID). "
+                "The 'latest' dataset does not support the 'untilAsOfDate' Roof Age parameter in production. "
+                "If you only need --until for the Feature API, drop --roof-age."
+            )
+
+    return args
 
 
 def cleanup_process_resources():
@@ -2114,6 +2136,7 @@ class NearmapAIExporter(BaseExporter):
         order=None,
         exclude_tiles_with_occlusion=False,
         roof_age=False,  # Include Roof Age API data
+        roof_age_dataset="latest",  # Roof Age dataset alias or resource UUID
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
     ):
@@ -2160,6 +2183,8 @@ class NearmapAIExporter(BaseExporter):
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
         self.roof_age = roof_age
+        self.roof_age_dataset = roof_age_dataset
+        self.roof_age_resource_id = resolve_roof_age_dataset(roof_age_dataset)
         self.class_level_files = class_level_files
         self.max_retries = max_retries
 
@@ -2170,6 +2195,15 @@ class NearmapAIExporter(BaseExporter):
                 f"Got country='{self.country}'. Roof age data will not be retrieved."
             )
             self.roof_age = False
+
+        # Belt-and-braces: --until with --roof-age requires an A.1+ dataset (the 'latest' resource
+        # returns HTTP 500 for the untilAsOfDate parameter in prod). The CLI parser also enforces
+        # this, but a programmatic caller could bypass it.
+        if self.roof_age and self.until is not None and self.roof_age_resource_id == ROOF_AGE_DEFAULT_RESOURCE_ID:
+            raise ValueError(
+                "until with roof_age=True requires roof_age_dataset='A.1' (or a resource UUID). "
+                "The 'latest' dataset does not support 'untilAsOfDate' on the Roof Age API in production."
+            )
 
         # Note: logger already configured by BaseExporter
 
@@ -2210,6 +2244,8 @@ class NearmapAIExporter(BaseExporter):
                 "order": order,
                 "exclude_tiles_with_occlusion": exclude_tiles_with_occlusion,
                 "roof_age": self.roof_age,  # Use validated value
+                "roof_age_dataset": self.roof_age_dataset,
+                "roof_age_resource_id": self.roof_age_resource_id,
                 "class_level_files": class_level_files,
                 "max_retries": max_retries,
             }
@@ -2817,6 +2853,8 @@ class NearmapAIExporter(BaseExporter):
                         threads=self.threads,
                         country=self.country,
                         progress_counters=progress_counters,
+                        resource_id=self.roof_age_resource_id,
+                        until_as_of_date=self.until,
                     )
                     roof_age_gdf, roof_age_metadata_df, roof_age_errors_df = roof_age_api.get_roof_age_bulk(
                         aoi_gdf,
@@ -3545,6 +3583,18 @@ class NearmapAIExporter(BaseExporter):
                 logger.info(
                     f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
+                if (
+                    self.roof_age
+                    and self.roof_age_resource_id == ROOF_AGE_DEFAULT_RESOURCE_ID
+                    and aoi_gdf[UNTIL_COL_NAME].notna().any()
+                ):
+                    raise ValueError(
+                        f"AOI file contains an '{UNTIL_COL_NAME}' column with values, but "
+                        f"--roof-age is enabled with --roof-age-dataset latest, which does not support "
+                        "the 'untilAsOfDate' Roof Age parameter in production. "
+                        "Pass --roof-age-dataset A.1 (or a resource UUID) to use per-AOI cutoffs, "
+                        f"or remove --roof-age if you only need '{UNTIL_COL_NAME}' for the Feature API."
+                    )
             elif self.until is not None:
                 logger.debug(f"The until date of {self.until} will limit the latest returned date for all Query AOIs")
             else:
@@ -3989,6 +4039,7 @@ def main():
         order=args.order,
         exclude_tiles_with_occlusion=args.exclude_tiles_with_occlusion,
         roof_age=args.roof_age,
+        roof_age_dataset=args.roof_age_dataset,
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
         max_retries=args.max_retries,

@@ -51,15 +51,17 @@ from nmaipy.constants import (
     FEATURE_CLASS_DESCRIPTIONS,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_DEFAULT_PAGE_LIMIT,
+    ROOF_AGE_DEFAULT_RESOURCE_ID,
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MODEL_VERSION_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
-    ROOF_AGE_RESOURCE_ENDPOINT,
     ROOF_AGE_RESOURCE_ID_FIELD,
+    ROOF_AGE_RESOURCE_PATH,
     ROOF_AGE_TIMELINE_FIELD,
     ROOF_AGE_URL_ROOT,
     ROOF_INSTANCE_CLASS_ID,
+    UNTIL_COL_NAME,
 )
 
 logger = log.get_logger()
@@ -84,6 +86,8 @@ class RoofAgeApi(BaseApiClient):
         country: str = "us",
         progress_counters: Optional[dict] = None,
         bulk_mode: bool = True,
+        resource_id: str = ROOF_AGE_DEFAULT_RESOURCE_ID,
+        until_as_of_date: Optional[str] = None,
     ):
         """
         Initialize Roof Age API client.
@@ -98,6 +102,11 @@ class RoofAgeApi(BaseApiClient):
             country: Country code for address queries (e.g., 'us', 'au')
             progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
             bulk_mode: When True, uses bulk API mode with higher rate limits (1000 rps vs 20 rps)
+            resource_id: Roof Age dataset resource id (e.g. ``"latest"`` for A.0 or a UUID for A.1+)
+            until_as_of_date: Optional ``YYYY-MM-DD`` cutoff. When set, the API returns roof state as of
+                that date. Only supported on A.1+ resources in prod (sending against ``"latest"`` returns
+                HTTP 500). The API itself enforces the dataset constraint; callers are expected to validate
+                the combination upstream.
         """
         super().__init__(
             api_key=api_key,
@@ -116,13 +125,18 @@ class RoofAgeApi(BaseApiClient):
         # Store bulk mode setting
         self.bulk_mode = bulk_mode
 
+        # Store dataset selection
+        self.resource_id = resource_id
+        self.until_as_of_date = until_as_of_date
+
         # Configure API endpoints
         if url_root is None:
             url_root = ROOF_AGE_URL_ROOT
-        self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_ENDPOINT}"
+        self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_PATH}/{resource_id}"
 
         logger.debug(
-            f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, bulk_mode: {bulk_mode}"
+            f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, "
+            f"resource_id: {resource_id}, until_as_of_date: {until_as_of_date}, bulk_mode: {bulk_mode}"
         )
 
     def _increment_progress(self):
@@ -137,10 +151,11 @@ class RoofAgeApi(BaseApiClient):
         """
         Get the cache file path for a given key.
 
-        For address-based queries, uses nested directories:
-        cache_dir/country/state/city/zip/<hash>.json (shared with Feature API)
+        Address-based cache keys use the format
+        ``roofage_address__<resource_id>__<until_or_none>__<country>/<state>/<city>/<zip>/<street>``
+        and are stored under nested directories so they can be inspected by location.
 
-        For AOI-based queries, uses flat structure with hash.
+        AOI-based cache keys use a flat hashed structure.
 
         Args:
             cache_key: Unique identifier for the cached item
@@ -153,13 +168,16 @@ class RoofAgeApi(BaseApiClient):
 
         extension = ".json.gz" if self.compress_cache else ".json"
 
-        # Check if this is an address-based cache key
-        if cache_key.startswith("roofage_address_"):
-            # Parse the address parts from cache key format: roofage_address_<country>/<state>/<city>/<zip>/<street>
-            parts = cache_key.replace("roofage_address_", "").split("/")
+        if cache_key.startswith("roofage_address__"):
+            # Strip prefix, then split off the dataset qualifier (resource_id, until) from the address path.
+            qualifier_and_path = cache_key[len("roofage_address__") :]
+            try:
+                _resource_id, _until, address_path = qualifier_and_path.split("__", 2)
+            except ValueError:
+                address_path = qualifier_and_path
+            parts = address_path.split("/")
             if len(parts) >= 4:
                 country, state, city, zipcode = parts[0], parts[1], parts[2], parts[3]
-                # Use shared address cache path method from BaseApiClient
                 return self._get_address_cache_path(
                     country=country,
                     state=state,
@@ -168,7 +186,7 @@ class RoofAgeApi(BaseApiClient):
                     cache_key=cache_key,
                 )
 
-        # Default: use hash-based flat structure (for AOI queries or fallback)
+        # AOI queries (and any fallback): hash-based flat structure
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
         return storage.join_path(self.cache_dir, f"{key_hash}{extension}")
 
@@ -178,6 +196,7 @@ class RoofAgeApi(BaseApiClient):
         address: Optional[Dict[str, str]] = None,
         cursor: Optional[str] = None,
         limit: Optional[int] = None,
+        until_as_of_date: Optional[str] = None,
     ) -> Dict:
         """
         Build the request payload for the Roof Age API.
@@ -187,6 +206,7 @@ class RoofAgeApi(BaseApiClient):
             address: Address dict with keys: streetAddress, city, state, zip
             cursor: Pagination cursor from previous response (omit for first request)
             limit: Maximum number of features per page (default: API default of 1000)
+            until_as_of_date: Optional ``YYYY-MM-DD`` cutoff. When None, no cutoff is sent.
 
         Returns:
             Request payload dict
@@ -220,33 +240,45 @@ class RoofAgeApi(BaseApiClient):
         if limit is not None:
             payload["limit"] = limit
 
+        if until_as_of_date is not None:
+            payload["untilAsOfDate"] = until_as_of_date
+
         return payload
 
-    def _build_cache_key(self, aoi: Optional[Polygon] = None, address: Optional[Dict[str, str]] = None) -> str:
+    def _build_cache_key(
+        self,
+        aoi: Optional[Polygon] = None,
+        address: Optional[Dict[str, str]] = None,
+        until_as_of_date: Optional[str] = None,
+    ) -> str:
         """
         Build a cache key for a roof age request.
+
+        The key embeds ``resource_id`` and ``until_as_of_date`` so that switching dataset or cutoff
+        produces a fresh cache file rather than reusing stale results from a different dataset.
 
         Args:
             aoi: Polygon geometry
             address: Address dict
+            until_as_of_date: The effective per-call cutoff for this request. When None, "none" is
+                used as the qualifier so cutoff vs no-cutoff cache to different files.
 
         Returns:
             Cache key string
         """
+        qualifier = f"{self.resource_id}__{until_as_of_date or 'none'}"
         if aoi is not None:
-            # Use WKT representation for cache key
-            return f"roofage_aoi_{aoi.wkt}"
-        else:
-            # Build key with slash-separated parts for nested directory structure
-            # Format: roofage_address_<country>/<state>/<city>/<zip>/<street>
-            # This allows _get_cache_path to create nested directories
-            return (
-                f"roofage_address_{self.country}/"
-                f"{address.get('state', '_')}/"
-                f"{address.get('city', '_')}/"
-                f"{address.get('zip', '_')}/"
-                f"{address.get('streetAddress', '_')}"
-            )
+            return f"roofage_aoi__{qualifier}__{aoi.wkt}"
+        # Address keys keep a slash-separated <country>/<state>/<city>/<zip>/<street> tail so
+        # _get_cache_path can build a nested directory layout from them.
+        address_path = (
+            f"{self.country}/"
+            f"{address.get('state', '_')}/"
+            f"{address.get('city', '_')}/"
+            f"{address.get('zip', '_')}/"
+            f"{address.get('streetAddress', '_')}"
+        )
+        return f"roofage_address__{qualifier}__{address_path}"
 
     def _parse_response(self, response_data: Dict, aoi_id: str) -> gpd.GeoDataFrame:
         """
@@ -346,6 +378,7 @@ class RoofAgeApi(BaseApiClient):
         aoi: Optional[Polygon] = None,
         address: Optional[Dict[str, str]] = None,
         limit: Optional[int] = None,
+        until_as_of_date: Optional[str] = None,
     ) -> Dict:
         """
         Fetch all pages of results from the Roof Age API, handling pagination.
@@ -370,7 +403,9 @@ class RoofAgeApi(BaseApiClient):
 
         while True:
             page_count += 1
-            payload = self._build_request_payload(aoi=aoi, address=address, cursor=cursor, limit=limit)
+            payload = self._build_request_payload(
+                aoi=aoi, address=address, cursor=cursor, limit=limit, until_as_of_date=until_as_of_date
+            )
 
             with self._session_scope() as session:
                 t1 = time.monotonic()
@@ -424,6 +459,7 @@ class RoofAgeApi(BaseApiClient):
         aoi_id: str,
         file_format: str = "json",
         limit: Optional[int] = None,
+        until_as_of_date: Optional[str] = None,
     ) -> gpd.GeoDataFrame:
         """
         Get roof age data for an area of interest.
@@ -435,6 +471,8 @@ class RoofAgeApi(BaseApiClient):
             aoi_id: Unique identifier for this AOI
             file_format: Response format ("json" or "geojson")
             limit: Maximum features per page (default: API default of 1000)
+            until_as_of_date: Per-call ``YYYY-MM-DD`` cutoff override. Falls back to
+                ``self.until_as_of_date`` if not given.
 
         Returns:
             GeoDataFrame with roof features, installation dates, and metadata
@@ -442,7 +480,8 @@ class RoofAgeApi(BaseApiClient):
         Raises:
             RoofAgeAPIError: If the API request fails
         """
-        cache_key = self._build_cache_key(aoi=aoi)
+        effective_until = until_as_of_date if until_as_of_date is not None else self.until_as_of_date
+        cache_key = self._build_cache_key(aoi=aoi, until_as_of_date=effective_until)
 
         # Check cache first (caches the full merged result)
         cached_response = self._load_from_cache(cache_key)
@@ -459,7 +498,9 @@ class RoofAgeApi(BaseApiClient):
             params["bulk"] = "true"
 
         logger.debug(f"Requesting roof age data for {aoi_id}")
-        response_data = self._fetch_all_pages(url=url, params=params, aoi=aoi, limit=limit)
+        response_data = self._fetch_all_pages(
+            url=url, params=params, aoi=aoi, limit=limit, until_as_of_date=effective_until
+        )
 
         # Cache the merged response
         self._save_to_cache(cache_key, response_data)
@@ -472,6 +513,7 @@ class RoofAgeApi(BaseApiClient):
         aoi_id: str,
         file_format: str = "json",
         limit: Optional[int] = None,
+        until_as_of_date: Optional[str] = None,
     ) -> gpd.GeoDataFrame:
         """
         Get roof age data for a property address.
@@ -485,6 +527,8 @@ class RoofAgeApi(BaseApiClient):
             aoi_id: Unique identifier for this property
             file_format: Response format ("json" or "geojson")
             limit: Maximum features per page (default: API default of 1000)
+            until_as_of_date: Per-call ``YYYY-MM-DD`` cutoff override. Falls back to
+                ``self.until_as_of_date`` if not given.
 
         Returns:
             GeoDataFrame with roof features, installation dates, and metadata
@@ -492,7 +536,8 @@ class RoofAgeApi(BaseApiClient):
         Raises:
             RoofAgeAPIError: If the API request fails
         """
-        cache_key = self._build_cache_key(address=address)
+        effective_until = until_as_of_date if until_as_of_date is not None else self.until_as_of_date
+        cache_key = self._build_cache_key(address=address, until_as_of_date=effective_until)
 
         # Check cache first (caches the full merged result)
         cached_response = self._load_from_cache(cache_key)
@@ -509,7 +554,9 @@ class RoofAgeApi(BaseApiClient):
             params["bulk"] = "true"
 
         logger.debug(f"Requesting roof age data for {aoi_id} at {address.get('streetAddress', 'unknown')}")
-        response_data = self._fetch_all_pages(url=url, params=params, address=address, limit=limit)
+        response_data = self._fetch_all_pages(
+            url=url, params=params, address=address, limit=limit, until_as_of_date=effective_until
+        )
 
         # Cache the merged response
         self._save_to_cache(cache_key, response_data)
@@ -564,14 +611,20 @@ class RoofAgeApi(BaseApiClient):
             """Process a single AOI row (handles both geometry and address modes)"""
             aoi_id = row.name
 
+            # Per-AOI 'until' column overrides the bulk cutoff when present and non-empty.
+            # Mirrors Feature API behaviour in feature_api.py.
+            until_for_row = self.until_as_of_date
+            if UNTIL_COL_NAME in row and isinstance(row[UNTIL_COL_NAME], str) and row[UNTIL_COL_NAME]:
+                until_for_row = row[UNTIL_COL_NAME]
+
             try:
                 if has_geom:
                     # Geometry-based query
-                    roofs_gdf = self.get_roof_age_by_aoi(row.geometry, aoi_id)
+                    roofs_gdf = self.get_roof_age_by_aoi(row.geometry, aoi_id, until_as_of_date=until_for_row)
                 else:
                     # Address-based query - convert all values to strings for JSON serialization
                     address = {f: str(row[f]) for f in ADDRESS_FIELDS}
-                    roofs_gdf = self.get_roof_age_by_address(address, aoi_id)
+                    roofs_gdf = self.get_roof_age_by_address(address, aoi_id, until_as_of_date=until_for_row)
 
                 # Extract metadata
                 metadata = {
