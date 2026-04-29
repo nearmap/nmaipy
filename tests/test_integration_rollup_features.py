@@ -431,25 +431,41 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
 @pytest.mark.slow
 def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_features):
     """
-    Integration test to verify is_primary column in per-class feature exports.
+    Integration test for is_primary and fidelity columns in per-class exports.
 
-    This test verifies:
-    1. is_primary column exists in per-class CSV files
-    2. is_primary column exists in per-class GeoParquet files
-    3. is_primary column is boolean type
-    4. Primary features in per-class exports match primary_*_feature_id columns in rollup
+    Both columns are emitted by the per-class assembler only for classes where
+    they are meaningful:
+
+    - `is_primary` — only for classes that participate in primary feature
+      selection (PRIMARY_FEATURE_CLASS_IDS).
+    - `fidelity` — only for structural building/roof classes that the Feature
+      API populates the field on (CLASSES_WITH_FIDELITY).
+
+    The gating is verified for whichever classes happen to appear in the test
+    output (the small fixed AOI may not yield every requested class). For
+    deterministic gating coverage that doesn't depend on API feature density,
+    see the unit test in tests/test_per_class_export_gating.py.
+
+    Also cross-verifies that features marked is_primary match the
+    primary_*_feature_id IDs in the rollup. Per-class outputs use Y/N strings
+    for boolean columns (see convert_bool_columns_to_yn).
     """
-    from nmaipy.constants import PRIMARY_FEATURE_COLUMN_TO_CLASS
+    from nmaipy.constants import (
+        CLASSES_WITH_FIDELITY,
+        PRIMARY_FEATURE_CLASS_IDS,
+        PRIMARY_FEATURE_COLUMN_TO_CLASS,
+    )
 
-    # Run exporter with class_level_files=True to generate per-class exports
     exporter = AOIExporter(
         aoi_file=str(test_aoi_with_features),
         output_dir=str(integration_test_dir),
         country="us",
-        packs=["building", "roof_char"],
+        # solar is included to exercise a non-primary, non-fidelity class when
+        # the AOI happens to contain solar panels.
+        packs=["building", "roof_char", "solar"],
         save_features=True,
         save_buildings=True,
-        class_level_files=True,  # Enable per-class exports
+        class_level_files=True,
         no_cache=True,
         processes=1,
     )
@@ -458,8 +474,6 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
 
     final_dir = integration_test_dir / "final"
 
-    # 1. Check per-class CSV files have is_primary column
-    # Find all per-class CSV files (exclude rollup, buildings, and stats files)
     exclude_patterns = [
         "rollup",
         "buildings",
@@ -468,56 +482,69 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
         "roof_age_errors",
     ]
     per_class_csvs = [f for f in final_dir.glob("*.csv") if not any(pattern in f.name for pattern in exclude_patterns)]
-
     assert len(per_class_csvs) > 0, f"Should have per-class CSV files. Files in final: {list(final_dir.glob('*'))}"
 
-    for csv_path in per_class_csvs:
-        class_df = pd.read_csv(csv_path)
-        assert (
-            "is_primary" in class_df.columns
-        ), f"Per-class CSV {csv_path.name} should have is_primary column. Columns: {class_df.columns.tolist()}"
-
-    # 2. Check per-class GeoParquet files have is_primary column
     per_class_parquets = [f for f in final_dir.glob("*_features.parquet") if f.name != "features.parquet"]
-
     assert (
         len(per_class_parquets) > 0
     ), f"Should have per-class GeoParquet files. Files in final: {list(final_dir.glob('*'))}"
 
+    def _expect_columns(df, file_name: str):
+        # `class_id` is always populated by the per-class assembler, so use it
+        # as the authoritative class identifier rather than parsing the filename.
+        if "class_id" not in df.columns or len(df) == 0:
+            return
+        class_id = df["class_id"].iloc[0]
+
+        should_have_is_primary = class_id in PRIMARY_FEATURE_CLASS_IDS
+        assert ("is_primary" in df.columns) == should_have_is_primary, (
+            f"{file_name} (class_id={class_id}): expected is_primary "
+            f"{'present' if should_have_is_primary else 'absent'}, got columns {df.columns.tolist()}"
+        )
+        if should_have_is_primary:
+            assert set(df["is_primary"].dropna().unique()) <= {
+                "Y",
+                "N",
+            }, f"{file_name}: is_primary should be Y/N, got {df['is_primary'].unique()}"
+
+        should_have_fidelity = class_id in CLASSES_WITH_FIDELITY
+        assert ("fidelity" in df.columns) == should_have_fidelity, (
+            f"{file_name} (class_id={class_id}): expected fidelity "
+            f"{'present' if should_have_fidelity else 'absent'}, got columns {df.columns.tolist()}"
+        )
+
+    for csv_path in per_class_csvs:
+        class_df = pd.read_csv(csv_path)
+        _expect_columns(class_df, csv_path.name)
+
     for parquet_path in per_class_parquets:
         class_gdf = gpd.read_parquet(parquet_path)
-        assert (
-            "is_primary" in class_gdf.columns
-        ), f"Per-class parquet {parquet_path.name} should have is_primary column. Columns: {class_gdf.columns.tolist()}"
-        assert set(class_gdf["is_primary"].dropna().unique()) <= {
-            "Y",
-            "N",
-        }, f"is_primary in {parquet_path.name} should contain only Y/N, got {class_gdf['is_primary'].unique()}"
+        _expect_columns(class_gdf, parquet_path.name)
 
-    # 3. Cross-verify: primary features in per-class parquets match rollup data
+    # Cross-verify: primary features in per-class parquets match rollup IDs.
     rollup_file = final_dir / "buildings.csv"
     if rollup_file.exists():
         rollup_df = pd.read_csv(rollup_file, index_col="aoi_id")
-
-        # For each primary feature column in rollup, verify matching is_primary=True in per-class exports
         for col_name, class_id in PRIMARY_FEATURE_COLUMN_TO_CLASS.items():
-            if col_name in rollup_df.columns:
-                # Get primary feature IDs from rollup (non-null values)
-                primary_ids = rollup_df[col_name].dropna().astype(str).tolist()
-
-                if primary_ids:
-                    # Find the per-class parquet for this class
-                    for parquet_path in per_class_parquets:
-                        class_gdf = gpd.read_parquet(parquet_path)
-                        if "class_id" in class_gdf.columns:
-                            class_features = class_gdf[class_gdf["class_id"] == class_id]
-                            if len(class_features) > 0:
-                                # Check that primary features are marked correctly
-                                primary_features = class_features[class_features["is_primary"] == "Y"]
-                                primary_feature_ids = primary_features["feature_id"].astype(str).tolist()
-
-                                # Verify at least some primary IDs match
-                                matching = set(primary_ids) & set(primary_feature_ids)
+            if col_name not in rollup_df.columns:
+                continue
+            primary_ids = rollup_df[col_name].dropna().astype(str).tolist()
+            if not primary_ids:
+                continue
+            for parquet_path in per_class_parquets:
+                class_gdf = gpd.read_parquet(parquet_path)
+                if "class_id" not in class_gdf.columns:
+                    continue
+                class_features = class_gdf[class_gdf["class_id"] == class_id]
+                if len(class_features) == 0 or "is_primary" not in class_features.columns:
+                    continue
+                primary_features = class_features[class_features["is_primary"] == "Y"]
+                primary_feature_ids = primary_features["feature_id"].astype(str).tolist()
+                assert set(primary_ids) & set(primary_feature_ids), (
+                    f"{parquet_path.name} (class_id={class_id}): no rollup primary IDs "
+                    f"({primary_ids[:3]}...) matched is_primary=Y rows "
+                    f"({primary_feature_ids[:3]}...)."
+                )
 
 
 @pytest.fixture

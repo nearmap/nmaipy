@@ -63,6 +63,7 @@ from nmaipy.constants import (
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
+    CLASSES_WITH_FIDELITY,
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
@@ -76,6 +77,7 @@ from nmaipy.constants import (
     PARALLEL_READ_WORKERS,
     PER_CLASS_FILE_CLASS_IDS,
     POOL_ID,
+    PRIMARY_FEATURE_CLASS_IDS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
@@ -961,17 +963,28 @@ def _compute_feature_class_data(
     initial_batch["description"] = class_description
     added_cols.add("description")
 
-    # Add is_primary column if present (only for classes with primary selection)
-    if "is_primary" in class_features.columns and "is_primary" not in added_cols:
+    # is_primary is only meaningful for classes that participate in primary
+    # feature selection — without this gate, non-primary classes (e.g. solar)
+    # inherit an all-False column from the chunk-level GDF after pd.concat.
+    if (
+        "is_primary" in class_features.columns
+        and class_id in PRIMARY_FEATURE_CLASS_IDS
+        and "is_primary" not in added_cols
+    ):
         initial_batch["is_primary"] = class_features["is_primary"].values
         added_cols.add("is_primary")
 
-    # Roof instances don't have confidence/fidelity (they have trust_score instead)
-    # Only add confidence and fidelity for non-roof-instance classes
+    # Confidence is universal across Feature API classes; roof instances use
+    # trust_score instead.
     if class_id != ROOF_INSTANCE_CLASS_ID:
         if "confidence" in class_features.columns:
             initial_batch["confidence"] = class_features["confidence"].values
             added_cols.add("confidence")
+
+    # Fidelity is API-populated only on structural building/roof classes
+    # (see CLASSES_WITH_FIDELITY in constants.py). Other classes inherit a
+    # NaN-filled fidelity column from the chunk-level pd.concat.
+    if class_id in CLASSES_WITH_FIDELITY:
         if "fidelity" in class_features.columns:
             initial_batch["fidelity"] = class_features["fidelity"].values
             added_cols.add("fidelity")

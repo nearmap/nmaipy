@@ -304,6 +304,14 @@ PRIMARY_FEATURE_COLUMN_TO_CLASS = {
     "primary_roof_instance_feature_id": ROOF_INSTANCE_CLASS_ID,
 }
 
+# Class IDs whose per-class exports should expose `is_primary`.
+# Derived from PRIMARY_FEATURE_COLUMN_TO_CLASS so the two stay in lockstep.
+PRIMARY_FEATURE_CLASS_IDS = frozenset(PRIMARY_FEATURE_COLUMN_TO_CLASS.values())
+
+# Class IDs for which the Feature API populates a top-level `fidelity` field.
+# Roof instances (Roof Age API) use `trust_score` instead of fidelity.
+CLASSES_WITH_FIDELITY = frozenset(BUILDING_STYLE_CLASS_IDS) - {ROOF_INSTANCE_CLASS_ID}
+
 # Human-readable descriptions for feature classes, loaded from class_descriptions.json.
 # This file is auto-refreshed from the live Feature API during export runs.
 # To manually refresh: python -c "from nmaipy.constants import refresh_class_descriptions; refresh_class_descriptions()"
