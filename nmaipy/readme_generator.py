@@ -583,9 +583,45 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             "",
             "These columns are present when roof age estimation was requested:",
             "",
-            "| Column | Description |",
-            "|--------|-------------|",
         ]
+
+        # Pull dataset / cutoff selection from export_config.json so the README is
+        # self-describing about *which* roof age dataset was queried and whether
+        # a historical 'untilAsOfDate' was applied.
+        config = self._load_export_config()
+        params = config.get("parameters", {}) if isinstance(config, dict) else {}
+        dataset = params.get("roof_age_dataset")
+        resource_id = params.get("roof_age_resource_id")
+        until = params.get("until")
+        if dataset or resource_id or until:
+            lines.append("**Dataset and historical query for this export:**")
+            lines.append("")
+            if dataset is not None:
+                lines.append(f"- `roof_age_dataset`: `{dataset}`")
+            if resource_id is not None and resource_id != dataset:
+                lines.append(f"- Resolved resource id: `{resource_id}`")
+            if until is not None:
+                lines.append(
+                    f"- `untilAsOfDate` cutoff: `{until}` "
+                    "(per-AOI `until` column values, when present, override this for each row)"
+                )
+            else:
+                lines.append(
+                    "- No historical cutoff applied — responses reflect the dataset's most recent snapshot."
+                )
+            lines.append("")
+            lines.append(
+                "Note: `untilAsOfDate` is only supported on A.1+ datasets. The `latest` / `A.0` "
+                "dataset returns the most recent snapshot only."
+            )
+            lines.append("")
+
+        lines.extend(
+            [
+                "| Column | Description |",
+                "|--------|-------------|",
+            ]
+        )
 
         for col, desc in ROOF_AGE_COLUMNS.items():
             lines.append(f"| `{col}` | {desc} |")

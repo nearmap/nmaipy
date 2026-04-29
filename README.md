@@ -350,13 +350,14 @@ python nmaipy/exporter.py \
 Key options:
 - `--packs`: AI packs to extract (building, vegetation, surfaces, pools, solar, damage, etc.)
 - `--roof-age`: Include Roof Age API data (US only)
+- `--roof-age-dataset`: Roof Age dataset to query when `--roof-age` is set. Aliases `latest` (default, currently A.0), `A.0`, `A.1`; any other value is sent to the API as a literal resource UUID, so newly published datasets can be targeted without a code change
 - `--save-features`: Save per-class GeoParquet files with feature geometries
 - `--save-buildings`: Save per-building detail rows
 - `--tabular-file-format`: Format for tabular output files — rollup, buildings, and per-class attribute files (`csv` or `parquet`, default: `csv`)
 - `--cache-dir`: Directory for caching API responses
 - `--no-cache`: Disable caching entirely
 - `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)
-- `--since` / `--until`: Filter by survey date range
+- `--since` / `--until`: Filter by survey date range. When `--roof-age` is set, `--until` also drives the Roof Age API's `untilAsOfDate` parameter (returns roof state as of that date). A per-AOI `until` column in the input file overrides the bulk value per row, matching Feature API semantics. Roof Age `untilAsOfDate` is only supported on A.1+ datasets — combining `--until` with `--roof-age-dataset latest` (or `A.0`) is rejected with a friendly error
 - `--max-retries`: Maximum API retry attempts (default: 10)
 
 Run `python nmaipy/exporter.py --help` for all options.
@@ -371,6 +372,8 @@ python -m nmaipy.roof_age_exporter \
     --processes 4 \
     --output-format both
 ```
+
+The standalone exporter accepts the same `--roof-age-dataset` flag and `--until` flag (with the same `latest`/`A.0` rejection rule and per-AOI `until`-column override) as the unified exporter — useful when you only need roof age data without any Feature API calls.
 
 Run `python -m nmaipy.roof_age_exporter --help` for all options.
 

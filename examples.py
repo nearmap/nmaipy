@@ -203,6 +203,92 @@ def example_roof_age_unified():
     exporter.run()
 
 
+def example_roof_age_a1():
+    """
+    Use the A.1 Roof Age dataset instead of the default A.0.
+
+    A.1 uses a refreshed model (different installation dates and trust scores
+    vs A.0 for the same parcels) and supports the historical 'untilAsOfDate'
+    parameter, which A.0 does not. Pass either the friendly alias 'A.1' or a
+    raw resource UUID (the alias just maps to the UUID under the hood).
+    """
+    exporter = NearmapAIExporter(
+        aoi_file='data/examples/us_parcels.geojson',
+        output_dir='data/outputs/roof_age_a1',
+        country='us',
+
+        packs=['building'],
+        roof_age=True,
+
+        # Select the A.1 dataset. Use 'A.0' / 'latest' (default) for the original
+        # model, or pass a raw resource UUID to target a newly published dataset
+        # without a code change.
+        roof_age_dataset='A.1',
+
+        save_features=True,
+        processes=4
+    )
+    exporter.run()
+
+
+def example_roof_age_historical_bulk():
+    """
+    Roof age 'as of' a historical date — same cutoff applied to every AOI.
+
+    Useful for reconstructing roof state at a fixed point in the past — for
+    example, what every roof in a portfolio looked like immediately before a
+    storm event. Requires A.1+ (A.0 does not support untilAsOfDate).
+    """
+    exporter = NearmapAIExporter(
+        aoi_file='data/examples/us_parcels.geojson',
+        output_dir='data/outputs/roof_age_until_2020',
+        country='us',
+
+        packs=['building'],
+        roof_age=True,
+        roof_age_dataset='A.1',
+
+        # Roof state as of 2020-01-01. The Roof Age API receives this as the
+        # 'untilAsOfDate' parameter on every per-AOI request.
+        until='2020-01-01',
+
+        save_features=True,
+        processes=4
+    )
+    exporter.run()
+
+
+def example_roof_age_historical_per_aoi():
+    """
+    Per-AOI 'untilAsOfDate' driven by a column in the input file.
+
+    Add a string 'until' column to your AOI input (CSV, GeoJSON, etc.) with a
+    YYYY-MM-DD value per row. The exporter sends each AOI's value as that
+    AOI's untilAsOfDate, mirroring Feature API per-AOI override semantics.
+    Use this when each property in your portfolio has its own date of interest
+    (e.g. policy inception date, claim date, transaction date). Requires A.1+.
+
+    Example input file (CSV):
+        aoi_id,geometry,until
+        parcel_a,POLYGON((...)),2018-06-15
+        parcel_b,POLYGON((...)),2022-11-30
+        parcel_c,POLYGON((...)),       # blank → falls back to bulk default (no cutoff)
+    """
+    exporter = NearmapAIExporter(
+        aoi_file='data/examples/us_parcels_with_until.csv',
+        output_dir='data/outputs/roof_age_per_aoi_until',
+        country='us',
+
+        packs=['building'],
+        roof_age=True,
+        roof_age_dataset='A.1',
+
+        save_features=True,
+        processes=4
+    )
+    exporter.run()
+
+
 if __name__ == "__main__":
     print("nmaipy Examples")
     print("-" * 40)
@@ -219,5 +305,8 @@ if __name__ == "__main__":
     # example_large_area_extraction()
     # example_time_series()
     # example_roof_age_unified()
+    # example_roof_age_a1()
+    # example_roof_age_historical_bulk()
+    # example_roof_age_historical_per_aoi()
 
     print("\nEdit this file and uncomment an example to run it.")
