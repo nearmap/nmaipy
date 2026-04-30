@@ -350,13 +350,14 @@ python nmaipy/exporter.py \
 Key options:
 - `--packs`: AI packs to extract (building, vegetation, surfaces, pools, solar, damage, etc.)
 - `--roof-age`: Include Roof Age API data (US only)
+- `--roof-age-dataset`: Roof Age dataset to query when `--roof-age` is set. Aliases `latest` (default — pointer maintained by the API team, currently serving A.0), `A.0`, `A.1`; any other value is sent to the API as a literal resource UUID, so newly published datasets can be targeted without a code change. Note that the dataset alias is not the same thing as the model version: each row's `model_version` field records which model produced that record, and is the source of truth when reasoning about model behaviour
 - `--save-features`: Save per-class GeoParquet files with feature geometries
 - `--save-buildings`: Save per-building detail rows
 - `--tabular-file-format`: Format for tabular output files — rollup, buildings, and per-class attribute files (`csv` or `parquet`, default: `csv`)
 - `--cache-dir`: Directory for caching API responses
 - `--no-cache`: Disable caching entirely
 - `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)
-- `--since` / `--until`: Filter by survey date range
+- `--since` / `--until`: Filter by survey date range. When `--roof-age` is set, these also drive the Roof Age API's `sinceAsOfDate` / `untilAsOfDate` parameters (returns roof state restricted to the date range). Per-AOI `since` / `until` string columns in the input file override the bulk values per row, matching Feature API semantics. Cutoff parameters are not supported on the A.0 dataset — combining either with `--roof-age-dataset A.0` is rejected with a friendly error. Per-AOI columns must be **string-typed** `YYYY-MM-DD` (parsed-as-datetime columns are rejected loudly at AOI-load)
 - `--max-retries`: Maximum API retry attempts (default: 10)
 
 Run `python nmaipy/exporter.py --help` for all options.
@@ -371,6 +372,8 @@ python -m nmaipy.roof_age_exporter \
     --processes 4 \
     --output-format both
 ```
+
+The standalone exporter accepts the same `--roof-age-dataset`, `--until`, and `--since` flags (with the same A.0-dataset rejection rule and per-AOI string-column overrides) as the unified exporter — useful when you only need roof age data without any Feature API calls.
 
 Run `python -m nmaipy.roof_age_exporter --help` for all options.
 

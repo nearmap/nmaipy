@@ -55,6 +55,14 @@ def read_from_file(
         RuntimeError: If no valid parcels found in file
         ValueError: If duplicate IDs are found
 
+    Note on date columns:
+        Optional ``until`` and ``since`` columns must be **string-typed** ``YYYY-MM-DD`` values.
+        Pandas will sometimes infer ISO-formatted columns as ``datetime64`` from CSV/parquet input;
+        callers downstream check ``isinstance(value, str)`` and would silently skip per-AOI
+        overrides on a ``Timestamp`` value. The exporters validate dtype at AOI-load time and raise
+        a clear error when this happens — cast with
+        ``df[col] = df[col].dt.strftime('%Y-%m-%d')`` before passing.
+
     Example:
         >>> from nmaipy.aoi_io import read_from_file
         >>> aoi_gdf = read_from_file("parcels.geojson", id_column="parcel_id")

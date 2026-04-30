@@ -63,6 +63,214 @@ def test_exporter_validates_country(test_aoi_file, test_output_dir):
         )
 
 
+def test_exporter_resolves_dataset_alias(test_aoi_file, test_output_dir):
+    """A friendly alias resolves to the corresponding resource UUID."""
+    exporter = RoofAgeExporter(
+        aoi_file=str(test_aoi_file),
+        output_dir=str(test_output_dir),
+        country="us",
+        api_key="test_key",
+        roof_age_dataset="A.1",
+    )
+    assert exporter.roof_age_dataset == "A.1"
+    assert exporter.roof_age_resource_id == "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
+
+
+def test_exporter_passes_through_unknown_resource_id(test_aoi_file, test_output_dir):
+    """An unknown value is treated as a raw resource id and passed through."""
+    raw = "11111111-2222-3333-4444-555555555555"
+    exporter = RoofAgeExporter(
+        aoi_file=str(test_aoi_file),
+        output_dir=str(test_output_dir),
+        country="us",
+        api_key="test_key",
+        roof_age_dataset=raw,
+    )
+    assert exporter.roof_age_resource_id == raw
+
+
+def test_exporter_rejects_bulk_until_with_a0(test_aoi_file, test_output_dir):
+    """Bulk --until against A.0 must be rejected — A.0 doesn't support untilAsOfDate."""
+    with pytest.raises(ValueError, match="A.0 Roof Age dataset"):
+        RoofAgeExporter(
+            aoi_file=str(test_aoi_file),
+            output_dir=str(test_output_dir),
+            country="us",
+            api_key="test_key",
+            roof_age_dataset="A.0",
+            until="2020-01-01",
+        )
+
+
+def test_exporter_rejects_bulk_since_with_a0(test_aoi_file, test_output_dir):
+    """Bulk --since against A.0 must be rejected — A.0 doesn't support sinceAsOfDate either."""
+    with pytest.raises(ValueError, match="A.0 Roof Age dataset"):
+        RoofAgeExporter(
+            aoi_file=str(test_aoi_file),
+            output_dir=str(test_output_dir),
+            country="us",
+            api_key="test_key",
+            roof_age_dataset="A.0",
+            since="2020-01-01",
+        )
+
+
+def test_exporter_allows_until_with_latest(test_aoi_file, test_output_dir):
+    """`latest` is intentionally not in the rejection set: today it points at A.0 (so the API
+    will return 500), but once it's bumped to A.1+ this invocation will start working without
+    any client change. Construction must therefore succeed."""
+    exporter = RoofAgeExporter(
+        aoi_file=str(test_aoi_file),
+        output_dir=str(test_output_dir),
+        country="us",
+        api_key="test_key",
+        roof_age_dataset="latest",
+        until="2020-01-01",
+        since="2018-01-01",
+    )
+    assert exporter.until == "2020-01-01"
+    assert exporter.since == "2018-01-01"
+    assert exporter.roof_age_resource_id == "latest"
+
+
+def test_exporter_rejects_per_aoi_until_with_a0(tmp_path, parcels_2_gdf):
+    """A per-AOI 'until' column with values must be rejected when dataset is A.0."""
+    from nmaipy.constants import UNTIL_COL_NAME
+
+    aoi_path = tmp_path / "with_until.geojson"
+    gdf = parcels_2_gdf.head(2).copy()
+    gdf[UNTIL_COL_NAME] = ["2020-01-01", "2020-06-30"]
+    gdf.to_file(aoi_path, driver="GeoJSON")
+
+    exporter = RoofAgeExporter(
+        aoi_file=str(aoi_path),
+        output_dir=str(tmp_path / "out"),
+        country="us",
+        api_key="test_key",
+        roof_age_dataset="A.0",  # A.0 doesn't support untilAsOfDate
+    )
+
+    with pytest.raises(ValueError, match=f"'{UNTIL_COL_NAME}'"):
+        exporter.run()
+
+
+def test_exporter_rejects_non_string_until_column(tmp_path, parcels_2_gdf):
+    """A 'until' column with datetime64 dtype must be rejected loudly at AOI-load.
+
+    Pandas may auto-parse ISO date columns as datetime; the per-AOI override silently
+    skips non-strings at request time, so we surface that loud at AOI load.
+    """
+    from nmaipy.constants import UNTIL_COL_NAME
+
+    aoi_path = tmp_path / "with_dt_until.parquet"
+    gdf = parcels_2_gdf.head(2).copy()
+    gdf[UNTIL_COL_NAME] = pd.to_datetime(["2020-01-01", "2020-06-30"])
+    gdf.to_parquet(aoi_path)
+
+    exporter = RoofAgeExporter(
+        aoi_file=str(aoi_path),
+        output_dir=str(tmp_path / "out"),
+        country="us",
+        api_key="test_key",
+        roof_age_dataset="A.1",  # supports untilAsOfDate
+    )
+
+    with pytest.raises(ValueError, match="must contain YYYY-MM-DD strings"):
+        exporter.run()
+
+
+def test_exporter_propagates_dataset_to_api(test_aoi_file, test_output_dir):
+    """RoofAgeApi is constructed with the resolved resource_id, untilAsOfDate and sinceAsOfDate."""
+    exporter = RoofAgeExporter(
+        aoi_file=str(test_aoi_file),
+        output_dir=str(test_output_dir),
+        country="us",
+        api_key="test_key",
+        roof_age_dataset="A.1",
+        until="2020-01-01",
+        since="2018-01-01",
+    )
+
+    aois = [
+        Polygon(
+            [
+                [-74.275, 40.642],
+                [-74.274, 40.642],
+                [-74.274, 40.641],
+                [-74.275, 40.641],
+                [-74.275, 40.642],
+            ]
+        )
+    ]
+    aoi_gdf = gpd.GeoDataFrame(geometry=aois, crs=API_CRS, index=pd.Index([0], name=AOI_ID_COLUMN_NAME))
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+
+    with patch("nmaipy.roof_age_exporter.RoofAgeApi") as mock_api_class:
+        mock_api = Mock()
+        mock_api_class.return_value = mock_api
+        mock_api.get_roof_age_bulk.return_value = (
+            gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS),
+            pd.DataFrame(),
+            pd.DataFrame(),
+        )
+        mock_api.get_latency_stats.return_value = None
+
+        exporter.process_chunk("test_chunk_0000", aoi_gdf)
+
+        kwargs = mock_api_class.call_args.kwargs
+        assert kwargs["resource_id"] == "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
+        assert kwargs["until_as_of_date"] == "2020-01-01"
+        assert kwargs["since_as_of_date"] == "2018-01-01"
+
+
+def test_exporter_argparse_rejects_until_with_a0(monkeypatch):
+    """The argparse layer must reject --until when --roof-age-dataset resolves to A.0."""
+    from nmaipy.roof_age_exporter import parse_arguments
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "roof_age_exporter",
+            "--aoi-file",
+            "x.geojson",
+            "--output-dir",
+            "out",
+            "--country",
+            "us",
+            "--roof-age-dataset",
+            "A.0",
+            "--until",
+            "2020-01-01",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        parse_arguments()
+
+
+def test_exporter_argparse_rejects_since_with_a0(monkeypatch):
+    """The argparse layer must reject --since when --roof-age-dataset resolves to A.0."""
+    from nmaipy.roof_age_exporter import parse_arguments
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "roof_age_exporter",
+            "--aoi-file",
+            "x.geojson",
+            "--output-dir",
+            "out",
+            "--country",
+            "us",
+            "--roof-age-dataset",
+            "A.0",
+            "--since",
+            "2018-01-01",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        parse_arguments()
+
+
 def test_exporter_process_chunk_with_cached_data(test_aoi_file, test_output_dir, roof_age_gdf, roof_age_metadata_df):
     """Test process_chunk method with real cached API data (bypasses multiprocessing).
 
