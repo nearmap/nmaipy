@@ -90,8 +90,12 @@ def test_exporter_passes_through_unknown_resource_id(test_aoi_file, test_output_
 
 
 def test_exporter_rejects_bulk_until_with_a0(test_aoi_file, test_output_dir):
-    """Bulk --until against A.0 must be rejected — A.0 doesn't support untilAsOfDate."""
-    with pytest.raises(ValueError, match="A.0 Roof Age dataset"):
+    """Bulk --until against A.0 must be rejected — A.0 doesn't support untilAsOfDate.
+
+    Also verifies the rendered message uses the canonical `--until` form even when
+    the constructor caller passes a bare `until` (no leading dashes).
+    """
+    with pytest.raises(ValueError, match=r"^--until is not supported on the A.0 Roof Age dataset"):
         RoofAgeExporter(
             aoi_file=str(test_aoi_file),
             output_dir=str(test_output_dir),
@@ -100,6 +104,19 @@ def test_exporter_rejects_bulk_until_with_a0(test_aoi_file, test_output_dir):
             roof_age_dataset="A.0",
             until="2020-01-01",
         )
+
+
+def test_format_no_cutoff_error_canonicalises_flag():
+    """The helper renders a consistent dashed flag whether the caller passes `until` or `--until`."""
+    from nmaipy.constants import format_no_cutoff_error
+
+    bare = format_no_cutoff_error(flag="until")
+    dashed = format_no_cutoff_error(flag="--until")
+    assert bare == dashed, "Helper must render identically for `until` and `--until` callers"
+    assert "--until" in bare
+    # Body should not name a flag the caller didn't ask about (no parenthetical that confuses
+    # which flag triggered the rejection).
+    assert "(and --since)" not in bare
 
 
 def test_exporter_rejects_bulk_since_with_a0(test_aoi_file, test_output_dir):

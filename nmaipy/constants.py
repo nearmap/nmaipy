@@ -56,11 +56,17 @@ def format_no_cutoff_error(*, flag: str = "--until") -> str:
 
     Used by both exporters at all three rejection sites (argparse, constructor, AOI-load)
     so the wording stays consistent and only changes in one place if the rule shifts.
+
+    `flag` may be passed with or without a leading ``--``; we canonicalise to dashed form
+    so the rendered error reads consistently regardless of caller (argparse passes
+    ``"--until"``; constructor sites pass bare names like ``"until"``).
     """
+    canonical = flag if flag.startswith("--") else f"--{flag}"
     return (
-        f"{flag} (and --since) is not supported on the A.0 Roof Age dataset. "
+        f"{canonical} is not supported on the A.0 Roof Age dataset (which lacks "
+        "`untilAsOfDate` and `sinceAsOfDate` body parameter support). "
         "Pass --roof-age-dataset A.1 (or any A.1+ resource UUID), or drop "
-        f"{flag} if you only need it for the Feature API."
+        f"{canonical} if you only need it for the Feature API."
     )
 
 
