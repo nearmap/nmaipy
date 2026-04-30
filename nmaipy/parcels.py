@@ -40,6 +40,7 @@ from nmaipy.constants import (
     ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     MeasurementUnits,
+    country_area_suffix,
 )
 from nmaipy.feature_api import is_class_returnable_at_version
 from nmaipy.feature_attributes import (
@@ -1310,7 +1311,12 @@ def extract_building_features(
         # Get AOI ID
         aoi_id = building.name if hasattr(building, "name") else idx
 
-        # Start with basic feature info
+        # Start with basic feature info. Emit only the country-correct unit family,
+        # matching rollup behaviour.
+        suffix = country_area_suffix(country)
+        area_col = f"area_{suffix}"
+        clipped_col = f"clipped_area_{suffix}"
+        unclipped_col = f"unclipped_area_{suffix}"
         building_record = {
             AOI_ID_COLUMN_NAME: aoi_id,
             "feature_id": building.feature_id,
@@ -1318,12 +1324,9 @@ def extract_building_features(
             "description": building.description,
             "confidence": building.confidence,
             "fidelity": building.fidelity if hasattr(building, "fidelity") else None,
-            "area_sqm": building.area_sqm if hasattr(building, "area_sqm") else None,
-            "clipped_area_sqm": (building.clipped_area_sqm if hasattr(building, "clipped_area_sqm") else None),
-            "unclipped_area_sqm": (building.unclipped_area_sqm if hasattr(building, "unclipped_area_sqm") else None),
-            "area_sqft": building.area_sqft if hasattr(building, "area_sqft") else None,
-            "clipped_area_sqft": (building.clipped_area_sqft if hasattr(building, "clipped_area_sqft") else None),
-            "unclipped_area_sqft": (building.unclipped_area_sqft if hasattr(building, "unclipped_area_sqft") else None),
+            area_col: getattr(building, area_col, None),
+            clipped_col: getattr(building, clipped_col, None),
+            unclipped_col: getattr(building, unclipped_col, None),
             "survey_date": (building.survey_date if hasattr(building, "survey_date") else None),
             "mesh_date": building.mesh_date if hasattr(building, "mesh_date") else None,
             "geometry": building.geometry,

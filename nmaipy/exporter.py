@@ -89,8 +89,10 @@ from nmaipy.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
     _write_class_descriptions,
+    country_area_suffix,
     format_no_cutoff_error,
     resolve_roof_age_dataset,
+    wrong_unit_area_columns,
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
@@ -992,18 +994,17 @@ def _compute_feature_class_data(
             initial_batch["fidelity"] = class_features["fidelity"].values
             added_cols.add("fidelity")
 
-    # Add area fields (vectorized) - skip if already added
-    # Roof instances only have area_sqm (no clipped/unclipped distinction)
+    # Add area fields (vectorized) - skip if already added.
+    # Country-aware: emit only the country-correct unit family (sqft for US, sqm otherwise),
+    # matching rollup behaviour. Roof instances have a single area (no clipped/unclipped).
+    suffix = country_area_suffix(country)
     if class_id == ROOF_INSTANCE_CLASS_ID:
-        area_cols = ["area_sqm", "area_sqft"]
+        area_cols = [f"area_{suffix}"]
     else:
         area_cols = [
-            "area_sqm",
-            "clipped_area_sqm",
-            "unclipped_area_sqm",
-            "area_sqft",
-            "clipped_area_sqft",
-            "unclipped_area_sqft",
+            f"area_{suffix}",
+            f"clipped_area_{suffix}",
+            f"unclipped_area_{suffix}",
         ]
     for col in area_cols:
         if col in class_features.columns and col not in added_cols:
@@ -1542,10 +1543,13 @@ def _compute_feature_class_data(
                     bl_to_roofs.setdefault(bl_fid, []).append(roof_fid)
 
                 bl_primary_roof = {}
+                # Use the country-correct unit suffix (rather than always-metric) so this works
+                # after the export-time unit filter drops the off-country columns.
+                roof_suffix = country_area_suffix(country)
                 roof_area_col = (
-                    "clipped_area_sqm"
-                    if "clipped_area_sqm" in roofs.columns
-                    else "unclipped_area_sqm" if "unclipped_area_sqm" in roofs.columns else None
+                    f"clipped_area_{roof_suffix}"
+                    if f"clipped_area_{roof_suffix}" in roofs.columns
+                    else f"unclipped_area_{roof_suffix}" if f"unclipped_area_{roof_suffix}" in roofs.columns else None
                 )
                 roof_fid_to_idx = {fid: idx for idx, fid in enumerate(roofs["feature_id"].values)}
                 for bl_fid, roof_fids in bl_to_roofs.items():
@@ -3220,6 +3224,14 @@ class NearmapAIExporter(BaseExporter):
                     final_features_df = final_features_df[
                         ~(final_features_df.geometry.is_empty | final_features_df.geometry.isna())
                     ]
+
+                    # Drop the unit columns that don't match the country, mirroring rollup behaviour.
+                    # Done late so internal compute (attribute flattening, building-roof linking, etc.)
+                    # could still see both unit families upstream — and early enough that the per-class
+                    # assembler downstream sees only the country-correct columns.
+                    drop_cols = [c for c in wrong_unit_area_columns(self.country) if c in final_features_df.columns]
+                    if drop_cols:
+                        final_features_df = final_features_df.drop(columns=drop_cols)
 
                     # Convert dict-type include parameters to JSON strings to avoid Parquet serialization errors
                     # Include parameters like defensibleSpace, hurricaneScore, roofSpotlightIndex can be dicts
