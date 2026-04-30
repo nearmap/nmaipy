@@ -23,11 +23,11 @@ def example_basic_extraction():
     Basic example: Extract building and vegetation data for parcels.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/sydney_parcels.geojson',
-        output_dir='data/outputs/basic',
-        country='au',
-        packs=['building', 'vegetation'],
-        processes=4
+        aoi_file="data/examples/sydney_parcels.geojson",
+        output_dir="data/outputs/basic",
+        country="au",
+        packs=["building", "vegetation"],
+        processes=4,
     )
     exporter.run()
 
@@ -38,24 +38,20 @@ def example_damage_assessment():
     Perfect for insurance and emergency response analysis.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/us_parcels.geojson',
-        output_dir='data/outputs/damage',
-        country='us',
-        packs=['damage'],
-        
+        aoi_file="data/examples/us_parcels.geojson",
+        output_dir="data/outputs/damage",
+        country="us",
+        packs=["damage"],
         # Date range for the disaster
-        since='2024-07-08',  # Hurricane Beryl
-        until='2024-07-11',
-        
+        since="2024-07-08",  # Hurricane Beryl
+        until="2024-07-11",
         # Use rapid assessment mode for post-catastrophe
         rapid=True,
-        
         # Get the latest imagery
-        order='latest',
-        
+        order="latest",
         # Save all features for detailed analysis
         save_features=True,
-        processes=8
+        processes=8,
     )
     exporter.run()
 
@@ -66,24 +62,19 @@ def example_urban_planning():
     Includes buildings, vegetation, surfaces, and solar panels.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/sydney_parcels.geojson',
-        output_dir='data/outputs/urban',
-        country='au',
-        
+        aoi_file="data/examples/sydney_parcels.geojson",
+        output_dir="data/outputs/urban",
+        country="au",
         # Multiple AI packs for comprehensive analysis
-        packs=['building', 'vegetation', 'surfaces', 'solar'],
-        
+        packs=["building", "vegetation", "surfaces", "solar"],
         # Include building characteristics
-        include=['building_characteristics'],
-        
+        include=["building_characteristics"],
         # Save individual features for detailed GIS analysis
         save_features=True,
         include_parcel_geometry=True,
-        
         # Use latest generation AI
-        system_version_prefix='gen6-',
-        
-        processes=8
+        system_version_prefix="gen6-",
+        processes=8,
     )
     exporter.run()
 
@@ -93,19 +84,16 @@ def example_vegetation_analysis():
     Focused vegetation analysis for environmental studies.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/sydney_parcels.geojson',
-        output_dir='data/outputs/vegetation',
-        country='au',
-        
+        aoi_file="data/examples/sydney_parcels.geojson",
+        output_dir="data/outputs/vegetation",
+        country="au",
         # Just vegetation data
-        packs=['vegetation'],
-        
+        packs=["vegetation"],
         # Get individual tree features
         save_features=True,
-        
         # Process in smaller chunks for large areas
         chunk_size=50,
-        processes=4
+        processes=4,
     )
     exporter.run()
 
@@ -115,17 +103,14 @@ def example_pool_detection():
     Detect swimming pools for compliance or market analysis.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/sydney_parcels.geojson',
-        output_dir='data/outputs/pools',
-        country='au',
-        
+        aoi_file="data/examples/sydney_parcels.geojson",
+        output_dir="data/outputs/pools",
+        country="au",
         # Pool detection
-        packs=['pools'],
-        
+        packs=["pools"],
         # Include parcel boundaries for mapping
         include_parcel_geometry=True,
-        
-        processes=4
+        processes=4,
     )
     exporter.run()
 
@@ -135,23 +120,18 @@ def example_large_area_extraction():
     Handle large areas efficiently with gridding.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/large_area.geojson',
-        output_dir='data/outputs/large',
-        country='au',
-        
-        packs=['building', 'vegetation'],
-        
+        aoi_file="data/examples/large_area.geojson",
+        output_dir="data/outputs/large",
+        country="au",
+        packs=["building", "vegetation"],
         # Allow combining data from different survey dates
         aoi_grid_inexact=True,
-        
         # Accept partial results (0 = accept any percentage)
         aoi_grid_min_pct=0,
-        
         # Process in chunks
         chunk_size=100,
-        
         # Use more processes for speed
-        processes=16
+        processes=16,
     )
     exporter.run()
 
@@ -161,21 +141,17 @@ def example_time_series():
     Extract data for a specific time period for change detection.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/sydney_parcels.geojson',
-        output_dir='data/outputs/timeseries',
-        country='au',
-
-        packs=['building', 'vegetation'],
-
+        aoi_file="data/examples/sydney_parcels.geojson",
+        output_dir="data/outputs/timeseries",
+        country="au",
+        packs=["building", "vegetation"],
         # Specify date range
-        since='2024-01-01',
-        until='2024-06-30',
-
+        since="2024-01-01",
+        until="2024-06-30",
         # Get earliest imagery in the range
-        order='earliest',
-
+        order="earliest",
         save_features=True,
-        processes=4
+        processes=4,
     )
     exporter.run()
 
@@ -186,19 +162,15 @@ def example_roof_age_unified():
     This is the recommended approach for combining Feature API and Roof Age API data.
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/us_parcels.geojson',
-        output_dir='data/outputs/roof_age',
-        country='us',  # Roof Age API is US only
-
-        packs=['building'],
-
+        aoi_file="data/examples/us_parcels.geojson",
+        output_dir="data/outputs/roof_age",
+        country="us",  # Roof Age API is US only
+        packs=["building"],
         # Include Roof Age API data
         roof_age=True,
-
         # Save individual features as GeoParquet
         save_features=True,
-
-        processes=4
+        processes=4,
     )
     exporter.run()
 
@@ -209,24 +181,22 @@ def example_roof_age_a1():
 
     A.1 uses a refreshed model (different installation dates and trust scores
     vs A.0 for the same parcels) and supports the historical 'untilAsOfDate'
-    parameter, which A.0 does not. Pass either the friendly alias 'A.1' or a
-    raw resource UUID (the alias just maps to the UUID under the hood).
+    and 'sinceAsOfDate' parameters, which A.0 does not. Pass either the
+    friendly alias 'A.1' or a raw resource UUID (the alias just maps to the
+    UUID under the hood).
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/us_parcels.geojson',
-        output_dir='data/outputs/roof_age_a1',
-        country='us',
-
-        packs=['building'],
+        aoi_file="data/examples/us_parcels.geojson",
+        output_dir="data/outputs/roof_age_a1",
+        country="us",
+        packs=["building"],
         roof_age=True,
-
         # Select the A.1 dataset. Use 'A.0' / 'latest' (default) for the original
         # model, or pass a raw resource UUID to target a newly published dataset
         # without a code change.
-        roof_age_dataset='A.1',
-
+        roof_age_dataset="A.1",
         save_features=True,
-        processes=4
+        processes=4,
     )
     exporter.run()
 
@@ -240,20 +210,17 @@ def example_roof_age_historical_bulk():
     storm event. Requires A.1+ (A.0 does not support untilAsOfDate).
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/us_parcels.geojson',
-        output_dir='data/outputs/roof_age_until_2020',
-        country='us',
-
-        packs=['building'],
+        aoi_file="data/examples/us_parcels.geojson",
+        output_dir="data/outputs/roof_age_until_2020",
+        country="us",
+        packs=["building"],
         roof_age=True,
-        roof_age_dataset='A.1',
-
+        roof_age_dataset="A.1",
         # Roof state as of 2020-01-01. The Roof Age API receives this as the
         # 'untilAsOfDate' parameter on every per-AOI request.
-        until='2020-01-01',
-
+        until="2020-01-01",
         save_features=True,
-        processes=4
+        processes=4,
     )
     exporter.run()
 
@@ -266,7 +233,14 @@ def example_roof_age_historical_per_aoi():
     YYYY-MM-DD value per row. The exporter sends each AOI's value as that
     AOI's untilAsOfDate, mirroring Feature API per-AOI override semantics.
     Use this when each property in your portfolio has its own date of interest
-    (e.g. policy inception date, claim date, transaction date). Requires A.1+.
+    (e.g. policy inception date, claim date, transaction date). Requires a
+    non-A.0 dataset.
+
+    The 'until' column must be string-typed YYYY-MM-DD. Pandas will sometimes
+    auto-parse ISO date columns as datetime64; if that happens for your input,
+    cast back to string with df['until'] = df['until'].dt.strftime('%Y-%m-%d')
+    before exporting (the exporter raises a clear error if it sees a non-string
+    dtype).
 
     Example input file (CSV):
         aoi_id,geometry,until
@@ -275,16 +249,40 @@ def example_roof_age_historical_per_aoi():
         parcel_c,POLYGON((...)),       # blank → falls back to bulk default (no cutoff)
     """
     exporter = NearmapAIExporter(
-        aoi_file='data/examples/us_parcels_with_until.csv',
-        output_dir='data/outputs/roof_age_per_aoi_until',
-        country='us',
-
-        packs=['building'],
+        aoi_file="data/examples/us_parcels_with_until.csv",
+        output_dir="data/outputs/roof_age_per_aoi_until",
+        country="us",
+        packs=["building"],
         roof_age=True,
-        roof_age_dataset='A.1',
-
+        roof_age_dataset="A.1",
         save_features=True,
-        processes=4
+        processes=4,
+    )
+    exporter.run()
+
+
+def example_roof_age_date_range():
+    """
+    Roof age data restricted to a date range — both 'sinceAsOfDate' and 'untilAsOfDate'.
+
+    Useful for reconstructing the slice of a roof's history that overlaps a window of
+    interest — for example, the portfolio's roof state during a policy term. Requires
+    a non-A.0 dataset.
+    """
+    exporter = NearmapAIExporter(
+        aoi_file="data/examples/us_parcels.geojson",
+        output_dir="data/outputs/roof_age_2018_2020",
+        country="us",
+        packs=["building"],
+        roof_age=True,
+        roof_age_dataset="A.1",
+        # Roof state restricted to the window [2018-01-01, 2020-12-31]. The
+        # Roof Age API receives these as 'sinceAsOfDate' / 'untilAsOfDate' on
+        # every per-AOI request.
+        since="2018-01-01",
+        until="2020-12-31",
+        save_features=True,
+        processes=4,
     )
     exporter.run()
 
@@ -308,5 +306,6 @@ if __name__ == "__main__":
     # example_roof_age_a1()
     # example_roof_age_historical_bulk()
     # example_roof_age_historical_per_aoi()
+    # example_roof_age_date_range()
 
     print("\nEdit this file and uncomment an example to run it.")

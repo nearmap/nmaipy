@@ -77,7 +77,7 @@ from nmaipy.constants import (
     PER_CLASS_FILE_CLASS_IDS,
     POOL_ID,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    ROOF_AGE_DEFAULT_RESOURCE_ID,
+    ROOF_AGE_NO_CUTOFF_RESOURCE_IDS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
@@ -87,6 +87,7 @@ from nmaipy.constants import (
     SURVEY_RESOURCE_ID_COL_NAME,
     UNTIL_COL_NAME,
     _write_class_descriptions,
+    format_no_cutoff_error,
     resolve_roof_age_dataset,
 )
 from nmaipy.feature_api import FeatureApi
@@ -2052,14 +2053,13 @@ def parse_arguments():
     )
     args = parser.parse_args()
 
-    if args.until is not None and args.roof_age:
+    if args.roof_age:
         resolved = resolve_roof_age_dataset(args.roof_age_dataset)
-        if resolved == ROOF_AGE_DEFAULT_RESOURCE_ID:
-            parser.error(
-                "--until with --roof-age requires --roof-age-dataset A.1 (or a resource UUID). "
-                "The 'latest' dataset does not support the 'untilAsOfDate' Roof Age parameter in production. "
-                "If you only need --until for the Feature API, drop --roof-age."
-            )
+        if resolved in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
+            if args.until is not None:
+                parser.error(format_no_cutoff_error(flag="--until"))
+            if args.since is not None:
+                parser.error(format_no_cutoff_error(flag="--since"))
 
     return args
 
@@ -2196,14 +2196,16 @@ class NearmapAIExporter(BaseExporter):
             )
             self.roof_age = False
 
-        # Belt-and-braces: --until with --roof-age requires an A.1+ dataset (the 'latest' resource
-        # returns HTTP 500 for the untilAsOfDate parameter in prod). The CLI parser also enforces
-        # this, but a programmatic caller could bypass it.
-        if self.roof_age and self.until is not None and self.roof_age_resource_id == ROOF_AGE_DEFAULT_RESOURCE_ID:
-            raise ValueError(
-                "until with roof_age=True requires roof_age_dataset='A.1' (or a resource UUID). "
-                "The 'latest' dataset does not support 'untilAsOfDate' on the Roof Age API in production."
-            )
+        # Belt-and-braces: cutoff parameters aren't supported on the A.0 dataset (HTTP 500 from prod).
+        # The CLI parser also enforces this, but a programmatic caller could bypass it. We gate on
+        # the resolved A.0 *UUID* rather than the string "latest" so the rejection stays correct
+        # once the API team bumps `latest` to point at A.1+ — at that point `latest` requests with
+        # cutoffs will start working without any change to this validation.
+        if self.roof_age and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
+            if self.until is not None:
+                raise ValueError(format_no_cutoff_error(flag="until"))
+            if self.since is not None:
+                raise ValueError(format_no_cutoff_error(flag="since"))
 
         # Note: logger already configured by BaseExporter
 
@@ -2855,6 +2857,7 @@ class NearmapAIExporter(BaseExporter):
                         progress_counters=progress_counters,
                         resource_id=self.roof_age_resource_id,
                         until_as_of_date=self.until,
+                        since_as_of_date=self.since,
                     )
                     roof_age_gdf, roof_age_metadata_df, roof_age_errors_df = roof_age_api.get_roof_age_bulk(
                         aoi_gdf,
@@ -3583,22 +3586,35 @@ class NearmapAIExporter(BaseExporter):
                 logger.info(
                     f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
                 )
-                if (
-                    self.roof_age
-                    and self.roof_age_resource_id == ROOF_AGE_DEFAULT_RESOURCE_ID
-                    and aoi_gdf[UNTIL_COL_NAME].notna().any()
-                ):
-                    raise ValueError(
-                        f"AOI file contains an '{UNTIL_COL_NAME}' column with values, but "
-                        f"--roof-age is enabled with --roof-age-dataset latest, which does not support "
-                        "the 'untilAsOfDate' Roof Age parameter in production. "
-                        "Pass --roof-age-dataset A.1 (or a resource UUID) to use per-AOI cutoffs, "
-                        f"or remove --roof-age if you only need '{UNTIL_COL_NAME}' for the Feature API."
-                    )
             elif self.until is not None:
                 logger.debug(f"The until date of {self.until} will limit the latest returned date for all Query AOIs")
             else:
                 logger.debug("No latest date will used")
+
+            # Validate per-AOI cutoff columns. Two checks:
+            #   1) Strings only — pandas may infer datetime64 from CSV/parquet, after which the
+            #      per-AOI override is silently skipped at request time. We surface that loud here.
+            #   2) When --roof-age targets the A.0 dataset, reject any per-AOI cutoffs since the
+            #      Roof Age API will return HTTP 500.
+            for col, flag in ((UNTIL_COL_NAME, "--until"), (SINCE_COL_NAME, "--since")):
+                if col not in aoi_gdf.columns:
+                    continue
+                non_null = aoi_gdf[col].dropna()
+                if len(non_null) and not pd.api.types.is_string_dtype(non_null):
+                    raise ValueError(
+                        f"AOI file column '{col}' must contain YYYY-MM-DD strings, got dtype "
+                        f"{non_null.dtype}. If your input file is parsing the column as a date, "
+                        f"cast to string before export, e.g. df[{col!r}] = df[{col!r}].dt.strftime('%Y-%m-%d')."
+                    )
+                if (
+                    self.roof_age
+                    and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS
+                    and aoi_gdf[col].notna().any()
+                ):
+                    raise ValueError(
+                        f"AOI file column '{col}' has values, but --roof-age is targeting a dataset "
+                        f"that does not support cutoffs. {format_no_cutoff_error(flag=flag)}"
+                    )
 
         # Split into chunks and process in parallel (using BaseExporter methods)
         chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)

@@ -586,14 +586,15 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
         ]
 
         # Pull dataset / cutoff selection from export_config.json so the README is
-        # self-describing about *which* roof age dataset was queried and whether
-        # a historical 'untilAsOfDate' was applied.
+        # self-describing about *which* roof age dataset was queried and whether a
+        # historical cutoff was applied.
         config = self._load_export_config()
         params = config.get("parameters", {}) if isinstance(config, dict) else {}
         dataset = params.get("roof_age_dataset")
         resource_id = params.get("roof_age_resource_id")
         until = params.get("until")
-        if dataset or resource_id or until:
+        since = params.get("since")
+        if dataset or resource_id or until or since:
             lines.append("**Dataset and historical query for this export:**")
             lines.append("")
             if dataset is not None:
@@ -605,14 +606,19 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
                     f"- `untilAsOfDate` cutoff: `{until}` "
                     "(per-AOI `until` column values, when present, override this for each row)"
                 )
-            else:
+            if since is not None:
                 lines.append(
-                    "- No historical cutoff applied — responses reflect the dataset's most recent snapshot."
+                    f"- `sinceAsOfDate` cutoff: `{since}` "
+                    "(per-AOI `since` column values, when present, override this for each row)"
                 )
+            if until is None and since is None:
+                lines.append("- No historical cutoff applied — responses reflect the dataset's most recent snapshot.")
             lines.append("")
             lines.append(
-                "Note: `untilAsOfDate` is only supported on A.1+ datasets. The `latest` / `A.0` "
-                "dataset returns the most recent snapshot only."
+                "Note: cutoff parameters are not supported on the A.0 dataset. The `model_version` "
+                "column in each row records the actual model that produced that record — for resilient "
+                "downstream code, prefer `model_version` over the dataset alias when reasoning about "
+                "model behaviour."
             )
             lines.append("")
 
