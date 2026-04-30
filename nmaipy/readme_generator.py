@@ -31,83 +31,239 @@ FILE_PATTERNS = {
 # Files to exclude from documentation
 EXCLUDE_FILES = {"README.md", ".DS_Store", "export_config.json"}
 
+# ---------------------------------------------------------------------------
+# Column metadata schema
+# ---------------------------------------------------------------------------
+# Each entry is a (dtype, min, max, unit, description) tuple. The render
+# helpers emit a 6-column markdown table:
+# | Column | Type | Min | Max | Unit | Description |.
+#
+# Min and Max are stored as strings so the `—` sentinel can mean "no bound /
+# not applicable" alongside actual numeric bounds.
+#
+# Conventions:
+#   - dtype: short type label — int, float, string, Y/N, date, JSON, UUID,
+#            URL, WKT. Use "float (quantised uint8)" for confidence scores
+#            since the wire format is uint8 even though the value space is
+#            documented as a 0.0–1.0 fraction.
+#   - min / max: numerical lower / upper bound as strings, or "—" when no
+#            bound applies (strings, IDs, unbounded counts).
+#   - unit:  physical unit — "{unit_name}" for area columns (substituted with
+#            "square feet" or "square metres" depending on country), "years",
+#            "degrees", or "—" when unitless.
+#   - description: short human-readable description (no inline range/unit;
+#            the dedicated columns already carry that info). For enums, the
+#            allowed values go in the description.
+# ---------------------------------------------------------------------------
+
 # Common columns always present
 COMMON_COLUMNS = {
-    "aoi_id": "Property identifier matching original input row order (0-indexed). If your input had an aoi_id column, it is preserved; otherwise generated from row index.",
-    "mesh_date": "Date of AI model processing (YYYY-MM-DD)",
-    "system_version": "AI model version used for detection",
-    "link": "URL to view property in Nearmap MapBrowser",
+    "aoi_id": (
+        "string \\| int",
+        "—",
+        "—",
+        "—",
+        "Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).",
+    ),
+    "mesh_date": ("date", "—", "—", "—", "Date of AI model processing"),
+    "system_version": ("string", "—", "—", "—", "AI model version used for detection"),
+    "link": ("URL", "—", "—", "—", "URL to view property in Nearmap MapBrowser"),
 }
 
 # Address and query columns produced by nmaipy
 ADDRESS_QUERY_COLUMNS = {
-    "streetAddress": "Street address from input (used for address-based API queries)",
-    "city": "City from input (used for address-based API queries)",
-    "state": "State from input (used for address-based API queries)",
-    "zip": "ZIP/postal code from input (used for address-based API queries)",
-    "query_aoi_lat": "Representative latitude of the query AOI geometry",
-    "query_aoi_lon": "Representative longitude of the query AOI geometry",
-    "lat": "Input latitude used for primary feature selection",
-    "lon": "Input longitude used for primary feature selection",
+    "streetAddress": ("string", "—", "—", "—", "Street address from input (used for address-based API queries)"),
+    "city": ("string", "—", "—", "—", "City from input (used for address-based API queries)"),
+    "state": ("string", "—", "—", "—", "State from input (used for address-based API queries)"),
+    "zip": ("string", "—", "—", "—", "ZIP/postal code from input (used for address-based API queries)"),
+    "query_aoi_lat": ("float", "−90.0", "90.0", "degrees", "Representative latitude of the query AOI geometry"),
+    "query_aoi_lon": ("float", "−180.0", "180.0", "degrees", "Representative longitude of the query AOI geometry"),
+    "lat": ("float", "−90.0", "90.0", "degrees", "Input latitude used for primary feature selection"),
+    "lon": ("float", "−180.0", "180.0", "degrees", "Input longitude used for primary feature selection"),
 }
 
 # Roof Spotlight Index columns
 RSI_COLUMNS = {
-    "roof_spotlight_index": "Roof condition score (0-100, higher = better condition)",
-    "roof_spotlight_index_confidence": "Confidence in RSI score (0.0-1.0)",
+    "roof_spotlight_index": ("float", "0", "100", "—", "Roof condition score (higher = better condition)"),
+    "roof_spotlight_index_confidence": (
+        "float (quantised uint8)",
+        "0.0",
+        "1.0",
+        "—",
+        "Confidence in RSI score",
+    ),
 }
 
-# Roof Age columns
 # Dominant material/shape summary columns
 DOMINANT_ROOF_MATERIAL_COLUMNS = {
-    "dominant_roof_material_feature_class": "Feature class UUID of the dominant roof material",
-    "dominant_roof_material_description": "Snake_case name of the dominant material (or 'unknown' if ratio < 0.5)",
-    "dominant_roof_material_area_{unit}": "Area of the dominant material component",
-    "dominant_roof_material_ratio": "Ratio of the dominant material relative to total roof area (0.0-1.0)",
-    "dominant_roof_material_confidence": "Confidence in the dominant material classification (0.0-1.0)",
+    "dominant_roof_material_feature_class": (
+        "UUID",
+        "—",
+        "—",
+        "—",
+        "Feature class UUID of the dominant roof material",
+    ),
+    "dominant_roof_material_description": (
+        "string",
+        "—",
+        "—",
+        "—",
+        "Snake_case name of the `description` field of the dominant material feature class (or `unknown` if ratio < 0.5)",
+    ),
+    "dominant_roof_material_area_{unit}": (
+        "float",
+        "0",
+        "—",
+        "{unit_name}",
+        "Area of the dominant material component",
+    ),
+    "dominant_roof_material_ratio": (
+        "float",
+        "0.0",
+        "1.0",
+        "—",
+        "Ratio of the dominant material relative to total roof area",
+    ),
+    "dominant_roof_material_confidence": (
+        "float (quantised uint8)",
+        "0.0",
+        "1.0",
+        "—",
+        "Confidence in the dominant material classification",
+    ),
 }
 
 DOMINANT_ROOF_TYPES_COLUMNS = {
-    "dominant_roof_types_feature_class": "Feature class UUID of the dominant roof shape",
-    "dominant_roof_types_description": "Snake_case name of the dominant shape (or 'unknown' if no detected area)",
-    "dominant_roof_types_area_{unit}": "Area of the dominant shape component",
-    "dominant_roof_types_confidence": "Confidence in the dominant shape classification (0.0-1.0)",
+    "dominant_roof_types_feature_class": (
+        "UUID",
+        "—",
+        "—",
+        "—",
+        "Feature class UUID of the dominant roof shape",
+    ),
+    "dominant_roof_types_description": (
+        "string",
+        "—",
+        "—",
+        "—",
+        "Snake_case name of the `description` field of the dominant shape feature class (or `unknown` if no detected area)",
+    ),
+    "dominant_roof_types_area_{unit}": (
+        "float",
+        "0",
+        "—",
+        "{unit_name}",
+        "Area of the dominant shape component",
+    ),
+    "dominant_roof_types_confidence": (
+        "float (quantised uint8)",
+        "0.0",
+        "1.0",
+        "—",
+        "Confidence in the dominant shape classification",
+    ),
 }
 
 # Defensible Space columns (per zone, on primary roof and aggregate)
 DEFENSIBLE_SPACE_ZONE_COLUMNS = {
-    "zone_area_{unit}": "Total area of the zone around the structure",
-    "defensible_space_area_{unit}": "Clear/defensible area within the zone",
-    "coverage_ratio": "Fraction of zone that is defensible (0.0-1.0)",
-    "risk_object_area_{unit}": "Total area of all risk objects within the zone",
-    "medium_and_high_vegetation_with_woody_vegetation_area_{unit}": "Area of medium/high woody vegetation in the zone",
-    "medium_and_high_vegetation_with_woody_vegetation_ratio": "Ratio of medium/high woody vegetation to zone area",
-    "roof_area_{unit}": "Area of neighbouring roof structures in the zone",
-    "roof_ratio": "Ratio of neighbouring roof area to zone area",
-    "yard_debris_area_{unit}": "Area of yard debris in the zone",
-    "yard_debris_ratio": "Ratio of yard debris to zone area",
+    "zone_area_{unit}": ("float", "0", "—", "{unit_name}", "Total area of the zone around the structure"),
+    "defensible_space_area_{unit}": ("float", "0", "—", "{unit_name}", "Clear/defensible area within the zone"),
+    "coverage_ratio": ("float", "0.0", "1.0", "—", "Fraction of zone that is defensible"),
+    "risk_object_area_{unit}": (
+        "float",
+        "0",
+        "—",
+        "{unit_name}",
+        "Total area of all risk objects within the zone",
+    ),
+    "medium_and_high_vegetation_with_woody_vegetation_area_{unit}": (
+        "float",
+        "0",
+        "—",
+        "{unit_name}",
+        "Area of medium/high woody vegetation in the zone",
+    ),
+    "medium_and_high_vegetation_with_woody_vegetation_ratio": (
+        "float",
+        "0.0",
+        "1.0",
+        "—",
+        "Ratio of medium/high woody vegetation to zone area",
+    ),
+    "roof_area_{unit}": ("float", "0", "—", "{unit_name}", "Area of neighbouring roof structures in the zone"),
+    "roof_ratio": ("float", "0.0", "1.0", "—", "Ratio of neighbouring roof area to zone area"),
+    "yard_debris_area_{unit}": ("float", "0", "—", "{unit_name}", "Area of yard debris in the zone"),
+    "yard_debris_ratio": ("float", "0.0", "1.0", "—", "Ratio of yard debris to zone area"),
 }
 
 ROOF_AGE_COLUMNS = {
-    "roof_age_installation_date": "Estimated roof installation date (YYYY-MM-DD)",
-    "roof_age_as_of_date": "Reference date for age calculation",
-    "roof_age_years_as_of_date": "Calculated roof age in years",
-    "roof_age_trust_score": "Reliability of age estimate (0-100, higher = more reliable)",
-    "roof_age_evidence_type": "How age was determined (numeric code)",
-    "roof_age_evidence_type_description": "Human-readable evidence description",
-    "roof_age_before_installation_capture_date": "Last capture before roof installation",
-    "roof_age_after_installation_capture_date": "First capture after roof installation",
-    "roof_age_min_capture_date": "Earliest imagery capture date analyzed",
-    "roof_age_max_capture_date": "Latest imagery capture date analyzed",
-    "roof_age_number_of_captures": "Number of aerial captures analyzed",
-    "roof_age_map_browser_url": "URL to view roof age timeline in MapBrowser",
-    "roof_age_model_version": "Version of the roof age prediction model used",
-    "roof_age_kind": "Type of estimate: 'roof' (section) or 'parcel' (property-level)",
-    "roof_age_relevant_permits": "Whether relevant building permits were found (Y/N)",
-    "roof_age_relevant_permits_details": "Details of relevant building permits (JSON, present when permits found)",
-    "roof_age_assessor_data": "Whether assessor records were found (Y/N)",
-    "roof_age_assessor_data_details": "Details of assessor records (JSON, present when records found)",
+    "roof_age_installation_date": ("date", "—", "—", "—", "Estimated roof installation date"),
+    "roof_age_as_of_date": ("date", "—", "—", "—", "Reference date for age calculation"),
+    "roof_age_years_as_of_date": ("float", "0", "—", "years", "Calculated roof age in years"),
+    "roof_age_trust_score": ("int", "0", "100", "—", "Reliability of age estimate (higher = more reliable)"),
+    "roof_age_evidence_type": ("int", "0", "8", "—", "How age was determined (numeric code; see legend below)"),
+    "roof_age_evidence_type_description": ("string", "—", "—", "—", "Human-readable evidence description"),
+    "roof_age_before_installation_capture_date": ("date", "—", "—", "—", "Last capture before roof installation"),
+    "roof_age_after_installation_capture_date": ("date", "—", "—", "—", "First capture after roof installation"),
+    "roof_age_min_capture_date": ("date", "—", "—", "—", "Earliest imagery capture date analyzed"),
+    "roof_age_max_capture_date": ("date", "—", "—", "—", "Latest imagery capture date analyzed"),
+    "roof_age_number_of_captures": ("int", "0", "—", "—", "Number of aerial captures analyzed"),
+    "roof_age_map_browser_url": ("URL", "—", "—", "—", "URL to view roof age timeline in MapBrowser"),
+    "roof_age_model_version": ("string", "—", "—", "—", "Version of the roof age prediction model used"),
+    "roof_age_kind": (
+        "string",
+        "—",
+        "—",
+        "—",
+        "Type of estimate. One of `roof` (roof section) or `parcel` (property-level).",
+    ),
+    "roof_age_relevant_permits": ("Y/N", "—", "—", "—", "Whether relevant building permits were found"),
+    "roof_age_relevant_permits_details": (
+        "JSON",
+        "—",
+        "—",
+        "—",
+        "Details of relevant building permits (present when permits found)",
+    ),
+    "roof_age_assessor_data": ("Y/N", "—", "—", "—", "Whether assessor records were found"),
+    "roof_age_assessor_data_details": (
+        "JSON",
+        "—",
+        "—",
+        "—",
+        "Details of assessor records (present when records found)",
+    ),
 }
+
+
+# Long-form unit names paired with their short column-suffix form.
+# Used by `_render_columns_table` to substitute the `{unit_name}` placeholder
+# in the Unit column based on the country's area unit.
+_AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
+
+
+def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
+    """Render a column metadata dict as a 6-column markdown table.
+
+    Each ``columns`` entry is ``(dtype, min, max, unit, description)``. Two
+    placeholders are substituted at render time:
+      - ``{unit}`` (in column names, descriptions): replaced with the country's
+        area-column suffix (``sqft``/``sqm``).
+      - ``{unit_name}`` (in the Unit field): replaced with the country's
+        spelled-out area unit (``square feet`` / ``square metres``).
+    """
+    lines = [
+        "| Column | Type | Min | Max | Unit | Description |",
+        "|--------|------|-----|-----|------|-------------|",
+    ]
+    unit_name = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
+    for col, meta in columns.items():
+        dtype, mn, mx, unit, desc = meta
+        col_rendered = col.replace("{unit}", area_unit)
+        unit_rendered = unit.replace("{unit_name}", unit_name)
+        desc_rendered = desc.replace("{unit}", area_unit)
+        lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit_rendered} | {desc_rendered} |")
+    return lines
 
 
 class ReadmeGenerator:
@@ -424,6 +580,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         }
         method_desc = method_descriptions.get(primary_method, primary_method)
         u = area_unit
+        u_long = _AREA_UNIT_LONG_NAMES.get(u, u)
 
         lines = [
             "## Column Naming Patterns",
@@ -432,26 +589,26 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "For each feature class, the following columns are generated:",
             "",
-            "| Pattern | Example | Description |",
-            "|---------|---------|-------------|",
-            f"| `{{class}}_present` | `{example_class}_present` | Y/N - feature was detected |",
-            f"| `{{class}}_count` | `{example_class}_count` | Number of features detected |",
-            f"| `{{class}}_confidence` | `{example_class}_confidence` | Combined confidence score (0.0-1.0) |",
-            f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | Total area of all features |",
-            f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | Total area clipped to parcel boundary |",
-            f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | Total unclipped feature area |",
+            "| Pattern | Example | Type | Min | Max | Unit | Description |",
+            "|---------|---------|------|-----|-----|------|-------------|",
+            f"| `{{class}}_present` | `{example_class}_present` | Y/N | — | — | — | Feature was detected |",
+            f"| `{{class}}_count` | `{example_class}_count` | int | 0 | — | — | Number of features detected |",
+            f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Combined confidence score |",
+            f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | float | 0 | — | {u_long} | Total area of all features |",
+            f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | float | 0 | — | {u_long} | Total area clipped to parcel boundary |",
+            f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | float | 0 | — | {u_long} | Total unclipped feature area |",
             "",
             "### Primary Feature Columns",
             "",
             f"The **{method_desc}** feature of each class has additional `primary_` columns:",
             "",
-            "| Pattern | Example | Description |",
-            "|---------|---------|-------------|",
-            f"| `primary_{{class}}_area_{u}` | `primary_{example_class}_area_{u}` | Area of primary feature |",
-            f"| `primary_{{class}}_clipped_area_{u}` | `primary_{example_class}_clipped_area_{u}` | Clipped area of primary feature |",
-            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | Confidence of primary feature |",
-            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | Unique ID of primary feature |",
-            f"| `primary_{{class}}_fidelity` | `primary_{example_class}_fidelity` | Detection fidelity score |",
+            "| Pattern | Example | Type | Min | Max | Unit | Description |",
+            "|---------|---------|------|-----|-----|------|-------------|",
+            f"| `primary_{{class}}_area_{u}` | `primary_{example_class}_area_{u}` | float | 0 | — | {u_long} | Area of primary feature |",
+            f"| `primary_{{class}}_clipped_area_{u}` | `primary_{example_class}_clipped_area_{u}` | float | 0 | — | {u_long} | Clipped area of primary feature |",
+            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Confidence of primary feature |",
+            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | Unique ID of primary feature |",
+            f"| `primary_{{class}}_fidelity` | `primary_{example_class}_fidelity` | float | 0.0 | 1.0 | — | Detection fidelity score |",
             "",
         ]
 
@@ -464,32 +621,22 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "These columns appear in most output files:",
             "",
-            "| Column | Description |",
-            "|--------|-------------|",
+            *_render_columns_table(COMMON_COLUMNS),
+            "",
         ]
-
-        for col, desc in COMMON_COLUMNS.items():
-            lines.append(f"| `{col}` | {desc} |")
-
-        lines.append("")
         return "\n".join(lines)
 
     def _generate_address_query_section(self, rollup_columns: set[str]) -> str:
         """Generate the address/query columns section."""
+        present_cols = {col: meta for col, meta in ADDRESS_QUERY_COLUMNS.items() if col in rollup_columns}
         lines = [
             "## Address & Query Columns",
             "",
             "These columns are present based on the query mode used:",
             "",
-            "| Column | Description |",
-            "|--------|-------------|",
+            *_render_columns_table(present_cols),
+            "",
         ]
-
-        for col, desc in ADDRESS_QUERY_COLUMNS.items():
-            if col in rollup_columns:
-                lines.append(f"| `{col}` | {desc} |")
-
-        lines.append("")
         return "\n".join(lines)
 
     def _generate_dominant_section(self, area_unit: str) -> str:
@@ -501,39 +648,18 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "### Dominant Material",
             "",
-            "| Column | Description |",
-            "|--------|-------------|",
+            *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS, area_unit),
+            "",
+            "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
+            "",
+            "### Dominant Shape",
+            "",
+            *_render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS, area_unit),
+            "",
+            "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
+            "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
+            "",
         ]
-
-        for col, desc in DOMINANT_ROOF_MATERIAL_COLUMNS.items():
-            col_name = col.replace("{unit}", area_unit)
-            lines.append(f"| `{col_name}` | {desc.replace('{unit}', area_unit)} |")
-
-        lines.extend(
-            [
-                "",
-                "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
-                "",
-                "### Dominant Shape",
-                "",
-                "| Column | Description |",
-                "|--------|-------------|",
-            ]
-        )
-
-        for col, desc in DOMINANT_ROOF_TYPES_COLUMNS.items():
-            col_name = col.replace("{unit}", area_unit)
-            lines.append(f"| `{col_name}` | {desc.replace('{unit}', area_unit)} |")
-
-        lines.extend(
-            [
-                "",
-                "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
-                "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
-                "",
-            ]
-        )
-
         return "\n".join(lines)
 
     def _generate_rsi_section(self) -> str:
@@ -543,12 +669,8 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "RSI provides a roof condition assessment score:",
             "",
-            "| Column | Description |",
-            "|--------|-------------|",
+            *_render_columns_table(RSI_COLUMNS),
         ]
-
-        for col, desc in RSI_COLUMNS.items():
-            lines.append(f"| `{col}` | {desc} |")
 
         lines.append(
             """
@@ -622,15 +744,7 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             )
             lines.append("")
 
-        lines.extend(
-            [
-                "| Column | Description |",
-                "|--------|-------------|",
-            ]
-        )
-
-        for col, desc in ROOF_AGE_COLUMNS.items():
-            lines.append(f"| `{col}` | {desc} |")
+        lines.extend(_render_columns_table(ROOF_AGE_COLUMNS))
 
         lines.append(
             """
@@ -680,13 +794,8 @@ For more details, see:
             "",
             "### Columns Per Zone",
             "",
-            "| Column Suffix | Description |",
-            "|---------------|-------------|",
+            *_render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS, u),
         ]
-
-        for col, desc in DEFENSIBLE_SPACE_ZONE_COLUMNS.items():
-            col_name = col.replace("{unit}", u)
-            lines.append(f"| `{col_name}` | {desc.replace('{unit}', u)} |")
 
         lines.append(
             """

@@ -31,6 +31,7 @@ from nmaipy.constants import (
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
     ROOF_AGE_PREFIX_COLUMNS,
+    country_area_suffix,
 )
 
 # 1% tolerance for detecting clipped roofs by comparing clipped vs unclipped area
@@ -718,10 +719,12 @@ def flatten_roof_attributes(
             # Try to reconstruct from dot-notation columns (created by exporter.py's process_chunk)
             attributes = _reconstruct_attributes_from_dot_notation(roof)
 
-        # Detect if roof is clipped by comparing clipped vs unclipped area
-        # Use _get_feature_value to handle both dict and Series formats
-        clipped_area = _get_feature_value(roof, "clipped_area_sqm")
-        unclipped_area = _get_feature_value(roof, "unclipped_area_sqm")
+        # Detect if roof is clipped by comparing clipped vs unclipped area.
+        # Per-feature exports keep only the country-correct unit family, so look up
+        # the suffix that this country actually emits (US: sqft, others: sqm).
+        suffix = country_area_suffix(country)
+        clipped_area = _get_feature_value(roof, f"clipped_area_{suffix}")
+        unclipped_area = _get_feature_value(roof, f"unclipped_area_{suffix}")
         is_clipped = (
             clipped_area is not None
             and unclipped_area is not None

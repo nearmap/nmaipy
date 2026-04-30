@@ -223,6 +223,21 @@ class MeasurementUnits:
         return area_units
 
 
+def country_area_suffix(country: str) -> str:
+    """Return the area-column suffix for the given country: 'sqft' for imperial, 'sqm' otherwise."""
+    return "sqft" if country.lower() in IMPERIAL_COUNTRIES else "sqm"
+
+
+def wrong_unit_area_columns(country: str) -> list[str]:
+    """Return the area columns to drop from per-feature exports for the given country.
+
+    The Feature API returns both metric and imperial columns; per-feature exports keep only
+    the country-correct family to match rollup behaviour.
+    """
+    drop = "sqm" if country.lower() in IMPERIAL_COUNTRIES else "sqft"
+    return [f"area_{drop}", f"clipped_area_{drop}", f"unclipped_area_{drop}"]
+
+
 # Error Codes
 AOI_EXCEEDS_MAX_SIZE = "AOI_EXCEEDS_MAX_SIZE"
 POLYGON_TOO_COMPLEX = "POLYGON_TOO_COMPLEX"
