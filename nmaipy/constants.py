@@ -16,7 +16,53 @@ DEFAULT_URL_ROOT = "api.nearmap.com/ai/features/v4/bulk"
 # Roof Age API Configuration
 # ============================================================================
 ROOF_AGE_URL_ROOT = "api.nearmap.com/ai/roofage/v1"
-ROOF_AGE_RESOURCE_ENDPOINT = "resources/latest"
+ROOF_AGE_RESOURCE_PATH = "resources"
+ROOF_AGE_DEFAULT_RESOURCE_ID = "latest"
+
+# Roof Age dataset resource ids. These identify *datasets* (Roof Age API "resources"),
+# not model versions — the per-row `model_version` field returned by the API is the
+# source of truth for which model produced a given record. Current API team practice
+# is to bump the dataset alias whenever the underlying model changes, but the two are
+# not formally 1:1.
+#
+# `latest` is a pointer maintained by the API team that today serves A.0; it will be
+# bumped to A.1 (and beyond) as new datasets are released.
+ROOF_AGE_A0_RESOURCE_ID = "81b605d0-d70d-592d-a1f0-a14c7d020912"
+ROOF_AGE_A1_RESOURCE_ID = "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
+
+# Friendly aliases for known datasets. Unknown values pass through and are
+# treated as raw resource UUIDs.
+ROOF_AGE_DATASET_ALIASES: dict[str, str] = {
+    "latest": "latest",
+    "A.0": ROOF_AGE_A0_RESOURCE_ID,
+    "A.1": ROOF_AGE_A1_RESOURCE_ID,
+}
+
+# Datasets that do not support the `untilAsOfDate` / `sinceAsOfDate` body parameters.
+# As of writing, only A.0. `latest` is intentionally NOT in this set: today it points
+# at A.0 (so the API will reject cutoff requests with HTTP 500 against `latest`), but
+# once it's bumped to A.1+ the same client invocation will start working without any
+# code change here.
+ROOF_AGE_NO_CUTOFF_RESOURCE_IDS = frozenset({ROOF_AGE_A0_RESOURCE_ID})
+
+
+def resolve_roof_age_dataset(value: str) -> str:
+    """Resolve a dataset alias (e.g. ``A.1``) to its resource id; pass unknown values through."""
+    return ROOF_AGE_DATASET_ALIASES.get(value, value)
+
+
+def format_no_cutoff_error(*, flag: str = "--until") -> str:
+    """Canonical error message for combining a cutoff flag with the A.0 dataset.
+
+    Used by both exporters at all three rejection sites (argparse, constructor, AOI-load)
+    so the wording stays consistent and only changes in one place if the rule shifts.
+    """
+    return (
+        f"{flag} (and --since) is not supported on the A.0 Roof Age dataset. "
+        "Pass --roof-age-dataset A.1 (or any A.1+ resource UUID), or drop "
+        f"{flag} if you only need it for the Feature API."
+    )
+
 
 # Roof Age API pagination settings
 ROOF_AGE_DEFAULT_PAGE_LIMIT = 1000  # Default max features per page (API default)

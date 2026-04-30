@@ -99,6 +99,200 @@ def test_roof_age_api_bulk_mode_disabled():
     assert api.bulk_mode is False
 
 
+def test_a0_resource_id_matches_cached_latest_response():
+    """Lock the A.0 UUID constant against the real-API fixture in tests/data.
+
+    test_roof_age_nj_response.json was captured against /resources/latest, which today serves
+    A.0; its top-level resourceId is therefore A.0's UUID. If the API team bumps `latest` to a
+    new dataset, this test will fail and the constant needs updating in lockstep.
+    """
+    from nmaipy.constants import ROOF_AGE_A0_RESOURCE_ID
+
+    fixture_path = Path(__file__).parent / "data" / "test_roof_age_nj_response.json"
+    with open(fixture_path) as f:
+        payload = json.load(f)
+    assert payload["resourceId"] == ROOF_AGE_A0_RESOURCE_ID
+
+
+def test_resolve_roof_age_dataset():
+    """Aliases resolve, unknown values pass through unchanged."""
+    from nmaipy.constants import (
+        ROOF_AGE_A0_RESOURCE_ID,
+        ROOF_AGE_A1_RESOURCE_ID,
+        resolve_roof_age_dataset,
+    )
+
+    # `latest` is a pointer maintained by the API team; it stays a string alias.
+    assert resolve_roof_age_dataset("latest") == "latest"
+    # A.0 / A.1 resolve to their real resource UUIDs.
+    assert resolve_roof_age_dataset("A.0") == ROOF_AGE_A0_RESOURCE_ID
+    assert resolve_roof_age_dataset("A.1") == ROOF_AGE_A1_RESOURCE_ID
+    # Unknown UUID is passed through verbatim — escape hatch for new datasets.
+    raw = "12345678-1234-5678-1234-567812345678"
+    assert resolve_roof_age_dataset(raw) == raw
+
+
+def test_roof_age_api_resource_id_in_url():
+    """Custom resource_id is reflected in base_url."""
+    raw = "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
+    api = RoofAgeApi(api_key="test_key", resource_id=raw)
+    assert api.base_url.endswith(f"/resources/{raw}")
+    assert api.resource_id == raw
+
+
+def test_roof_age_api_until_as_of_date_in_payload(test_aoi_nj):
+    """untilAsOfDate, when set, is injected into the request body; per-call override wins."""
+    payload = RoofAgeApi(api_key="t", resource_id="abc")._build_request_payload(
+        aoi=test_aoi_nj, until_as_of_date="2020-01-01"
+    )
+    assert payload["untilAsOfDate"] == "2020-01-01"
+
+    payload_no_cutoff = RoofAgeApi(api_key="t", resource_id="abc")._build_request_payload(aoi=test_aoi_nj)
+    assert "untilAsOfDate" not in payload_no_cutoff
+
+
+def test_roof_age_api_since_as_of_date_in_payload(test_aoi_nj):
+    """sinceAsOfDate, when set, is injected into the request body."""
+    payload = RoofAgeApi(api_key="t", resource_id="abc")._build_request_payload(
+        aoi=test_aoi_nj, since_as_of_date="2018-01-01"
+    )
+    assert payload["sinceAsOfDate"] == "2018-01-01"
+
+    payload_no_cutoff = RoofAgeApi(api_key="t", resource_id="abc")._build_request_payload(aoi=test_aoi_nj)
+    assert "sinceAsOfDate" not in payload_no_cutoff
+
+
+def test_roof_age_api_per_call_until_overrides_instance_default(test_aoi_nj):
+    """A per-call until_as_of_date overrides the instance-wide default in get_roof_age_by_aoi."""
+    api = RoofAgeApi(api_key="t", resource_id="abc", until_as_of_date="2020-01-01")
+    with patch.object(api, "_fetch_all_pages", return_value={"features": [], "type": "FeatureCollection"}) as fetch:
+        with patch.object(api, "_load_from_cache", return_value=None), patch.object(api, "_save_to_cache"):
+            api.get_roof_age_by_aoi(test_aoi_nj, "aoi1")
+            assert fetch.call_args.kwargs["until_as_of_date"] == "2020-01-01"
+
+            api.get_roof_age_by_aoi(test_aoi_nj, "aoi2", until_as_of_date="2019-06-15")
+            assert fetch.call_args.kwargs["until_as_of_date"] == "2019-06-15"
+
+
+def test_roof_age_api_per_call_since_overrides_instance_default(test_aoi_nj):
+    """A per-call since_as_of_date overrides the instance-wide default in get_roof_age_by_aoi."""
+    api = RoofAgeApi(api_key="t", resource_id="abc", since_as_of_date="2018-01-01")
+    with patch.object(api, "_fetch_all_pages", return_value={"features": [], "type": "FeatureCollection"}) as fetch:
+        with patch.object(api, "_load_from_cache", return_value=None), patch.object(api, "_save_to_cache"):
+            api.get_roof_age_by_aoi(test_aoi_nj, "aoi1")
+            assert fetch.call_args.kwargs["since_as_of_date"] == "2018-01-01"
+
+            api.get_roof_age_by_aoi(test_aoi_nj, "aoi2", since_as_of_date="2019-06-15")
+            assert fetch.call_args.kwargs["since_as_of_date"] == "2019-06-15"
+
+
+def test_roof_age_api_bulk_reads_per_aoi_until_column(test_aoi_nj):
+    """get_roof_age_bulk picks up an 'until' column on the input GeoDataFrame and forwards it per-row.
+
+    Mirrors feature_api.py's pattern: the bulk default is overridden when the row has a non-empty string.
+    """
+    from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, UNTIL_COL_NAME
+
+    api = RoofAgeApi(api_key="t", resource_id="abc", until_as_of_date="2020-01-01", threads=1)
+
+    aoi_gdf = gpd.GeoDataFrame(
+        {UNTIL_COL_NAME: ["2018-01-01", ""]},
+        geometry=[test_aoi_nj, test_aoi_nj],
+        crs=API_CRS,
+        index=pd.Index(["row_with_override", "row_without_override"], name=AOI_ID_COLUMN_NAME),
+    )
+
+    captured = []
+
+    def fake_get(aoi, aoi_id, until_as_of_date=None, since_as_of_date=None):
+        captured.append((aoi_id, until_as_of_date))
+        return gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+
+    with patch.object(api, "get_roof_age_by_aoi", side_effect=fake_get):
+        api.get_roof_age_bulk(aoi_gdf)
+
+    by_id = dict(captured)
+    assert by_id["row_with_override"] == "2018-01-01"  # row override wins
+    assert by_id["row_without_override"] == "2020-01-01"  # falls back to bulk default
+
+
+def test_roof_age_api_bulk_reads_per_aoi_since_column(test_aoi_nj):
+    """get_roof_age_bulk picks up a 'since' column on the input GeoDataFrame and forwards it per-row."""
+    from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, SINCE_COL_NAME
+
+    api = RoofAgeApi(api_key="t", resource_id="abc", since_as_of_date="2018-01-01", threads=1)
+
+    aoi_gdf = gpd.GeoDataFrame(
+        {SINCE_COL_NAME: ["2015-06-15", ""]},
+        geometry=[test_aoi_nj, test_aoi_nj],
+        crs=API_CRS,
+        index=pd.Index(["row_with_override", "row_without_override"], name=AOI_ID_COLUMN_NAME),
+    )
+
+    captured = []
+
+    def fake_get(aoi, aoi_id, until_as_of_date=None, since_as_of_date=None):
+        captured.append((aoi_id, since_as_of_date))
+        return gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+
+    with patch.object(api, "get_roof_age_by_aoi", side_effect=fake_get):
+        api.get_roof_age_bulk(aoi_gdf)
+
+    by_id = dict(captured)
+    assert by_id["row_with_override"] == "2015-06-15"
+    assert by_id["row_without_override"] == "2018-01-01"
+
+
+def test_roof_age_api_cache_path_layout(test_aoi_nj, cache_directory):
+    """Cache path encodes resource_id, until and since as directory segments."""
+    api = RoofAgeApi(api_key="t", cache_dir=cache_directory, resource_id="cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc")
+    cache_key = api._build_cache_key(aoi=test_aoi_nj)
+    path = api._get_cache_path(cache_key, until_as_of_date="2020-01-01", since_as_of_date="2018-01-01")
+    # Layout: <cache_dir>/roofage/<resource_id>/<until>/<since>/<hash>.json
+    assert "/roofage/" in path
+    assert "/cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc/" in path
+    assert "/2020-01-01/" in path
+    assert "/2018-01-01/" in path
+
+    # No-cutoff requests use the literal "none" segment in both positions.
+    none_path = api._get_cache_path(cache_key)
+    assert "/roofage/" in none_path
+    assert "/none/none/" in none_path
+
+
+def test_roof_age_api_cache_separated_by_resource_id(test_aoi_nj, cache_directory):
+    """Two clients with the same AOI but different resource ids must produce different cache paths.
+
+    Regression guard: prior versions hashed only the AOI WKT, so switching from A.0 to A.1
+    against the same cache dir would silently return stale A.0 results.
+    """
+    a0 = RoofAgeApi(api_key="t", cache_dir=cache_directory, resource_id="81b605d0-d70d-592d-a1f0-a14c7d020912")
+    a1 = RoofAgeApi(api_key="t", cache_dir=cache_directory, resource_id="cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc")
+    assert a0._get_cache_path(a0._build_cache_key(aoi=test_aoi_nj)) != a1._get_cache_path(
+        a1._build_cache_key(aoi=test_aoi_nj)
+    )
+
+
+def test_roof_age_api_cache_separated_by_until_as_of_date(test_aoi_nj, cache_directory):
+    """Different untilAsOfDate values must cache to different paths for the same AOI."""
+    api = RoofAgeApi(api_key="t", cache_dir=cache_directory, resource_id="abc")
+    cache_key = api._build_cache_key(aoi=test_aoi_nj)
+    none_path = api._get_cache_path(cache_key, until_as_of_date=None)
+    p2020 = api._get_cache_path(cache_key, until_as_of_date="2020-01-01")
+    p2021 = api._get_cache_path(cache_key, until_as_of_date="2021-01-01")
+    assert none_path != p2020 != p2021 and none_path != p2021
+
+
+def test_roof_age_api_cache_separated_by_since_as_of_date(test_aoi_nj, cache_directory):
+    """Different sinceAsOfDate values must cache to different paths for the same AOI."""
+    api = RoofAgeApi(api_key="t", cache_dir=cache_directory, resource_id="abc")
+    cache_key = api._build_cache_key(aoi=test_aoi_nj)
+    none_path = api._get_cache_path(cache_key, since_as_of_date=None)
+    p2018 = api._get_cache_path(cache_key, since_as_of_date="2018-01-01")
+    p2019 = api._get_cache_path(cache_key, since_as_of_date="2019-01-01")
+    assert none_path != p2018 != p2019 and none_path != p2019
+
+
 def test_roof_age_api_missing_key():
     """Test that RoofAgeApi raises error when no API key is provided"""
     # Clear environment variable temporarily
@@ -384,7 +578,7 @@ def test_bulk_query_with_errors(roof_age_api):
     # Mock one success and one failure
     with patch.object(roof_age_api, "get_roof_age_by_aoi") as mock_get:
 
-        def side_effect(aoi, aoi_id):
+        def side_effect(aoi, aoi_id, until_as_of_date=None, since_as_of_date=None):
             if aoi_id == 0:
                 # Return a valid GeoDataFrame
                 return gpd.GeoDataFrame(

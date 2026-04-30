@@ -40,7 +40,16 @@ from nmaipy.api_common import (
     save_chunk_latency_stats,
 )
 from nmaipy.base_exporter import BaseExporter
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, ROOF_AGE_PREFIX_COLUMNS
+from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
+    API_CRS,
+    ROOF_AGE_NO_CUTOFF_RESOURCE_IDS,
+    ROOF_AGE_PREFIX_COLUMNS,
+    SINCE_COL_NAME,
+    UNTIL_COL_NAME,
+    format_no_cutoff_error,
+    resolve_roof_age_dataset,
+)
 from nmaipy.feature_attributes import (
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
@@ -48,6 +57,15 @@ from nmaipy.feature_attributes import (
 from nmaipy.roof_age_api import RoofAgeApi
 
 logger = log.get_logger()
+
+
+def _yyyy_mm_dd(value: str) -> str:
+    """Argparse type for ``YYYY-MM-DD`` date strings; returns the original string on success."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}") from exc
+    return value
 
 
 def parse_arguments():
@@ -139,7 +157,46 @@ def parse_arguments():
         help="Include original AOI geometry in output",
         action="store_true",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--roof-age-dataset",
+        help=(
+            "Roof Age dataset to query. Known aliases: 'latest' (default, currently a pointer to A.0), "
+            "'A.0', 'A.1'. Any other value is sent to the API as a literal resource UUID, which lets "
+            "you target newly published datasets without a code change."
+        ),
+        type=str,
+        default="latest",
+    )
+    parser.add_argument(
+        "--until",
+        help=(
+            "Bulk YYYY-MM-DD upper-bound cutoff applied to every AOI ('untilAsOfDate' on the Roof Age "
+            "API). If the input file has an 'until' string column, per-AOI values override this for "
+            "each row. Not supported on the A.0 dataset."
+        ),
+        type=_yyyy_mm_dd,
+        default=None,
+    )
+    parser.add_argument(
+        "--since",
+        help=(
+            "Bulk YYYY-MM-DD lower-bound cutoff applied to every AOI ('sinceAsOfDate' on the Roof Age "
+            "API). If the input file has a 'since' string column, per-AOI values override this for "
+            "each row. Not supported on the A.0 dataset."
+        ),
+        type=_yyyy_mm_dd,
+        default=None,
+    )
+    args = parser.parse_args()
+
+    resolved = resolve_roof_age_dataset(args.roof_age_dataset)
+    if resolved in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
+        if args.until is not None:
+            parser.error(format_no_cutoff_error(flag="--until"))
+        if args.since is not None:
+            parser.error(format_no_cutoff_error(flag="--since"))
+
+    return args
 
 
 class RoofAgeExporter(BaseExporter):
@@ -166,6 +223,9 @@ class RoofAgeExporter(BaseExporter):
         api_key: str = None,
         log_level: str = "INFO",
         include_aoi_geometry: bool = False,
+        roof_age_dataset: str = "latest",
+        until: str = None,
+        since: str = None,
     ):
         """
         Initialize RoofAgeExporter.
@@ -185,6 +245,11 @@ class RoofAgeExporter(BaseExporter):
             api_key: API key (optional, uses environment variable if not provided)
             log_level: Logging level
             include_aoi_geometry: Include AOI geometry in output
+            roof_age_dataset: Roof Age dataset alias or resource UUID (default 'latest')
+            until: Optional YYYY-MM-DD upper-bound cutoff (sent as 'untilAsOfDate' to the Roof Age API).
+                Per-AOI 'until' string column values override this for each row. Not supported on A.0.
+            since: Optional YYYY-MM-DD lower-bound cutoff (sent as 'sinceAsOfDate' to the Roof Age API).
+                Per-AOI 'since' string column values override this for each row. Not supported on A.0.
         """
         # Initialize base exporter (handles output_dir, processes, chunk_size, log_level)
         super().__init__(
@@ -205,12 +270,26 @@ class RoofAgeExporter(BaseExporter):
         self.country = country
         self.api_key = api_key
         self.include_aoi_geometry = include_aoi_geometry
+        self.roof_age_dataset = roof_age_dataset
+        self.roof_age_resource_id = resolve_roof_age_dataset(roof_age_dataset)
+        self.until = until
+        self.since = since
 
         # Validate country
         if self.country.lower() != "us":
             raise ValueError(
                 f"Roof Age API is currently only available for US properties. " f"Got country='{self.country}'"
             )
+
+        # Belt-and-braces: cutoff parameters aren't supported on the A.0 dataset (HTTP 500 from prod).
+        # The CLI parser also enforces this, but a programmatic caller could bypass it. Gate on the
+        # resolved A.0 *UUID* rather than the string "latest" so the rejection stays correct once
+        # the API team bumps `latest` to point at A.1+.
+        if self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
+            if self.until is not None:
+                raise ValueError(format_no_cutoff_error(flag="until"))
+            if self.since is not None:
+                raise ValueError(format_no_cutoff_error(flag="since"))
 
         # Create cache directory if needed and warn about S3 cache performance
         if not self.no_cache:
@@ -235,6 +314,10 @@ class RoofAgeExporter(BaseExporter):
                 "chunk_size": chunk_size,
                 "country": country,
                 "include_aoi_geometry": include_aoi_geometry,
+                "roof_age_dataset": self.roof_age_dataset,
+                "roof_age_resource_id": self.roof_age_resource_id,
+                "until": self.until,
+                "since": self.since,
             },
             config_name="roof_age_export_config.json",
         )
@@ -299,6 +382,9 @@ class RoofAgeExporter(BaseExporter):
                 threads=self.threads,
                 country=self.country,
                 progress_counters=progress_counters,
+                resource_id=self.roof_age_resource_id,
+                until_as_of_date=self.until,
+                since_as_of_date=self.since,
             )
 
             # Query API for this chunk
@@ -356,6 +442,27 @@ class RoofAgeExporter(BaseExporter):
         if "geometry" in aoi_gdf.columns and aoi_gdf.crs != API_CRS:
             self.logger.info(f"Reprojecting from {aoi_gdf.crs} to {API_CRS}")
             aoi_gdf = aoi_gdf.to_crs(API_CRS)
+
+        # Validate per-AOI cutoff columns. Two checks:
+        #   1) Strings only — pandas may infer datetime64 from CSV/parquet, after which the per-AOI
+        #      override is silently skipped at request time. We surface that loud here.
+        #   2) When the resolved dataset doesn't support cutoffs, reject any per-AOI cutoffs since
+        #      the API will return HTTP 500.
+        for col, flag in ((UNTIL_COL_NAME, "until"), (SINCE_COL_NAME, "since")):
+            if col not in aoi_gdf.columns:
+                continue
+            non_null = aoi_gdf[col].dropna()
+            if len(non_null) and not pd.api.types.is_string_dtype(non_null):
+                raise ValueError(
+                    f"AOI file column '{col}' must contain YYYY-MM-DD strings, got dtype "
+                    f"{non_null.dtype}. If your input file is parsing the column as a date, "
+                    f"cast to string before export, e.g. df[{col!r}] = df[{col!r}].dt.strftime('%Y-%m-%d')."
+                )
+            if self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS and aoi_gdf[col].notna().any():
+                raise ValueError(
+                    f"AOI file column '{col}' has values, but the targeted dataset does not support "
+                    f"cutoffs. {format_no_cutoff_error(flag=flag)}"
+                )
 
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
@@ -591,6 +698,9 @@ def main():
             api_key=args.api_key,
             log_level=args.log_level,
             include_aoi_geometry=args.include_aoi_geometry,
+            roof_age_dataset=args.roof_age_dataset,
+            until=args.until,
+            since=args.since,
         )
         exporter.run()
     except Exception as e:

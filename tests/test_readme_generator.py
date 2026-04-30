@@ -168,6 +168,48 @@ class TestHasRoofAgeColumns:
         assert gen._has_roof_age_columns(columns) is False
 
 
+class TestRoofAgeDatasetSection:
+    """The roof age section surfaces dataset / untilAsOfDate selection from export_config.json."""
+
+    def _write_config(self, tmp_path, **params):
+        (tmp_path / "export_config.json").write_text(
+            json.dumps({"_metadata": {}, "parameters": params})
+        )
+
+    def test_renders_dataset_block_when_a1_with_bulk_until(self, tmp_path):
+        self._write_config(
+            tmp_path,
+            roof_age_dataset="A.1",
+            roof_age_resource_id="cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc",
+            until="2020-01-01",
+        )
+        section = ReadmeGenerator(output_dir=tmp_path)._generate_roof_age_section()
+        assert "**Dataset and historical query for this export:**" in section
+        assert "`roof_age_dataset`: `A.1`" in section
+        assert "Resolved resource id: `cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc`" in section
+        assert "`untilAsOfDate` cutoff: `2020-01-01`" in section
+        assert "per-AOI `until` column" in section
+
+    def test_renders_no_cutoff_line_when_until_absent(self, tmp_path):
+        self._write_config(
+            tmp_path,
+            roof_age_dataset="A.1",
+            roof_age_resource_id="cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc",
+            until=None,
+        )
+        section = ReadmeGenerator(output_dir=tmp_path)._generate_roof_age_section()
+        assert "No historical cutoff applied" in section
+        assert "untilAsOfDate` cutoff" not in section
+
+    def test_omits_dataset_block_when_config_missing(self, tmp_path):
+        # No export_config.json — section should still render but without the dataset block.
+        section = ReadmeGenerator(output_dir=tmp_path)._generate_roof_age_section()
+        assert "## Roof Age Columns" in section
+        assert "**Dataset and historical query for this export:**" not in section
+        # Column table still present
+        assert "`roof_age_installation_date`" in section
+
+
 class TestHasAddressQueryColumns:
     """Tests for address/query column detection."""
 
