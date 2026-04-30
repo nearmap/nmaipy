@@ -236,6 +236,36 @@ ROOF_AGE_COLUMNS = {
 }
 
 
+# Long-form unit names paired with their short column-suffix form.
+# Used by `_render_columns_table` to substitute the `{unit_name}` placeholder
+# in the Unit column based on the country's area unit.
+_AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
+
+
+def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
+    """Render a column metadata dict as a 6-column markdown table.
+
+    Each ``columns`` entry is ``(dtype, min, max, unit, description)``. Two
+    placeholders are substituted at render time:
+      - ``{unit}`` (in column names, descriptions): replaced with the country's
+        area-column suffix (``sqft``/``sqm``).
+      - ``{unit_name}`` (in the Unit field): replaced with the country's
+        spelled-out area unit (``square feet`` / ``square metres``).
+    """
+    lines = [
+        "| Column | Type | Min | Max | Unit | Description |",
+        "|--------|------|-----|-----|------|-------------|",
+    ]
+    unit_name = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
+    for col, meta in columns.items():
+        dtype, mn, mx, unit, desc = meta
+        col_rendered = col.replace("{unit}", area_unit)
+        unit_rendered = unit.replace("{unit_name}", unit_name)
+        desc_rendered = desc.replace("{unit}", area_unit)
+        lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit_rendered} | {desc_rendered} |")
+    return lines
+
+
 class ReadmeGenerator:
     """Generates dynamic README.md based on actual export files and columns."""
 
@@ -550,7 +580,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         }
         method_desc = method_descriptions.get(primary_method, primary_method)
         u = area_unit
-        u_long = self._AREA_UNIT_LONG_NAMES.get(u, u)
+        u_long = _AREA_UNIT_LONG_NAMES.get(u, u)
 
         lines = [
             "## Column Naming Patterns",
@@ -584,35 +614,6 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 
         return "\n".join(lines)
 
-    # Long-form unit names paired with their short column-suffix form.
-    # Used by `_render_columns_table` to substitute the `{unit_name}` placeholder
-    # in the Unit column based on the country's area unit.
-    _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
-
-    @staticmethod
-    def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
-        """Render a column metadata dict as a 6-column markdown table.
-
-        Each ``columns`` entry is ``(dtype, min, max, unit, description)``. Two
-        placeholders are substituted at render time:
-          - ``{unit}`` (in column names, descriptions): replaced with the country's
-            area-column suffix (``sqft``/``sqm``).
-          - ``{unit_name}`` (in the Unit field): replaced with the country's
-            spelled-out area unit (``square feet`` / ``square metres``).
-        """
-        lines = [
-            "| Column | Type | Min | Max | Unit | Description |",
-            "|--------|------|-----|-----|------|-------------|",
-        ]
-        unit_name = ReadmeGenerator._AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
-        for col, meta in columns.items():
-            dtype, mn, mx, unit, desc = meta
-            col_rendered = col.replace("{unit}", area_unit)
-            unit_rendered = unit.replace("{unit_name}", unit_name)
-            desc_rendered = desc.replace("{unit}", area_unit)
-            lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit_rendered} | {desc_rendered} |")
-        return lines
-
     def _generate_common_columns_section(self) -> str:
         """Generate the common columns section."""
         lines = [
@@ -620,7 +621,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "These columns appear in most output files:",
             "",
-            *self._render_columns_table(COMMON_COLUMNS),
+            *_render_columns_table(COMMON_COLUMNS),
             "",
         ]
         return "\n".join(lines)
@@ -633,7 +634,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "These columns are present based on the query mode used:",
             "",
-            *self._render_columns_table(present_cols),
+            *_render_columns_table(present_cols),
             "",
         ]
         return "\n".join(lines)
@@ -647,13 +648,13 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "### Dominant Material",
             "",
-            *self._render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS, area_unit),
+            *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS, area_unit),
             "",
             "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
             "",
             "### Dominant Shape",
             "",
-            *self._render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS, area_unit),
+            *_render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS, area_unit),
             "",
             "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
             "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
@@ -668,7 +669,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "RSI provides a roof condition assessment score:",
             "",
-            *self._render_columns_table(RSI_COLUMNS),
+            *_render_columns_table(RSI_COLUMNS),
         ]
 
         lines.append(
@@ -743,7 +744,7 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             )
             lines.append("")
 
-        lines.extend(self._render_columns_table(ROOF_AGE_COLUMNS))
+        lines.extend(_render_columns_table(ROOF_AGE_COLUMNS))
 
         lines.append(
             """
@@ -793,7 +794,7 @@ For more details, see:
             "",
             "### Columns Per Zone",
             "",
-            *self._render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS, u),
+            *_render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS, u),
         ]
 
         lines.append(

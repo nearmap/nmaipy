@@ -20,6 +20,7 @@ from nmaipy.readme_generator import (
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
     ReadmeGenerator,
+    _render_columns_table,
 )
 
 
@@ -273,7 +274,7 @@ class TestColumnMetadataTables:
             "score": ("float", "0", "100", "—", "Some score"),
             "flag": ("Y/N", "—", "—", "—", "Some flag"),
         }
-        rendered = ReadmeGenerator._render_columns_table(sample)
+        rendered = _render_columns_table(sample)
         # Header + separator + 2 rows = 4 lines
         assert len(rendered) == 4
         assert rendered[0] == "| Column | Type | Min | Max | Unit | Description |"
@@ -284,8 +285,8 @@ class TestColumnMetadataTables:
     def test_render_columns_table_substitutes_unit_placeholders(self):
         """`{unit}` (column name) and `{unit_name}` (Unit cell) substitute on render."""
         sample = {"area_{unit}": ("float", "0", "—", "{unit_name}", "Area of feature")}
-        us_rows = ReadmeGenerator._render_columns_table(sample, area_unit="sqft")
-        au_rows = ReadmeGenerator._render_columns_table(sample, area_unit="sqm")
+        us_rows = _render_columns_table(sample, area_unit="sqft")
+        au_rows = _render_columns_table(sample, area_unit="sqm")
         # US: column name uses sqft suffix, Unit cell uses spelled-out form.
         assert any("`area_sqft`" in row for row in us_rows)
         assert any("square feet" in row for row in us_rows)
