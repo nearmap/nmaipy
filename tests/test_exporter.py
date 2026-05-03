@@ -1079,3 +1079,126 @@ class TestSkipRebuildWhenReadmeExists:
         with patch("nmaipy.exporter.FeatureApi", side_effect=boom):
             with pytest.raises(RuntimeError, match="got past the fast-path"):
                 exporter.run()
+
+    def test_fast_path_triggered_when_config_unchanged(self, tmp_path):
+        """README + matching config → fast-path triggers.
+
+        Constructing exporter1 saves export_config.json. Constructing
+        exporter2 with identical args reads that config as `_previous_config_params`
+        before saving its own; comparison sees no diff, so the fast-path fires.
+        """
+        # Run 1: constructor saves export_config.json
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+        # Mark "completed" by writing the README sentinel
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        # Run 2: same args
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter2.run()
+            mock_api.assert_not_called()
+
+    def test_fast_path_skipped_when_output_affecting_param_changed(self, tmp_path):
+        """README present but country changed → rebuild (don't silently return prior output)."""
+        # Run 1: country=au
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        # Run 2: country=us — output-affecting change, must rebuild
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+        )
+
+        with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("got past fast-path")):
+            with pytest.raises(RuntimeError, match="got past fast-path"):
+                exporter2.run()
+
+    def test_fast_path_skipped_when_packs_changed(self, tmp_path):
+        """Packs change → rebuild even though README is present."""
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building", "vegetation"],  # added vegetation
+        )
+
+        with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("got past fast-path")):
+            with pytest.raises(RuntimeError, match="got past fast-path"):
+                exporter2.run()
+
+    def test_fast_path_triggered_when_only_ignored_param_changed(self, tmp_path):
+        """Performance / ergonomics knobs (processes, threads, log_level, etc.)
+        do NOT invalidate the fast-path. The previous run's output is still
+        valid; the user just changed how the export would have been computed,
+        not what would have come out."""
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            processes=4,
+        )
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            processes=8,  # ignored — pure perf knob
+        )
+
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter2.run()
+            mock_api.assert_not_called()
+
+    def test_fast_path_triggered_when_no_previous_config(self, tmp_path):
+        """Backward-compat: README present but no export_config.json → fast-path
+        still triggers. Pre-existing exports from before this comparison logic
+        landed shouldn't lose their fast-path on upgrade.
+        """
+        final_dir = tmp_path / "final"
+        final_dir.mkdir()
+        (final_dir / "README.md").write_text("# legacy")
+        # No export_config.json — emulate a pre-feature export
+
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+        # Constructor will write its own export_config.json (overwriting nothing
+        # since none was there). _previous_config_params should be None and the
+        # diff should be empty → fast-path.
+
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter.run()
+            mock_api.assert_not_called()

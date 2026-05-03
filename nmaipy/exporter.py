@@ -2104,6 +2104,28 @@ def cleanup_thread_sessions(executor):
                         pass
 
 
+# Export-config keys whose values do not affect output content. Differences in
+# these keys between a previously-completed run and the current run do NOT
+# invalidate the README.md "fully complete" sentinel — they're either pure
+# performance / ergonomics knobs (processes, threads, chunk_size, log_level),
+# infrastructure paths that don't change row-level results (cache_dir,
+# compress_cache), or API-cache controls that operate beneath the chunk-cache
+# layer the fast-path actually depends on (no_cache, overwrite_cache: chunks
+# are reused regardless).
+_CONFIG_KEYS_NOT_AFFECTING_OUTPUT = frozenset(
+    {
+        "processes",
+        "threads",
+        "chunk_size",
+        "log_level",
+        "cache_dir",
+        "compress_cache",
+        "no_cache",
+        "overwrite_cache",
+    }
+)
+
+
 class NearmapAIExporter(BaseExporter):
     """
     Unified exporter for Nearmap AI data from Feature API and Roof Age API.
@@ -2226,49 +2248,102 @@ class NearmapAIExporter(BaseExporter):
 
         # Note: logger already configured by BaseExporter
 
+        # Capture any previously-saved export config BEFORE _save_config below
+        # overwrites it. The fast-path in _run_inner uses this to decide whether
+        # an existing README.md sentinel was produced by an export with the
+        # same output-affecting parameters as this run.
+        self._previous_config_params = self._read_existing_config_params()
+
+        # Build config params for save + fast-path comparison.
+        config_params = {
+            "aoi_file": str(aoi_file),
+            "packs": packs,
+            "classes": classes,
+            "include": include,
+            "primary_decision": primary_decision,
+            "aoi_grid_min_pct": aoi_grid_min_pct,
+            "aoi_grid_inexact": aoi_grid_inexact,
+            "aoi_grid_cell_size": aoi_grid_cell_size,
+            "processes": processes,
+            "threads": threads,
+            "chunk_size": chunk_size,
+            "include_parcel_geometry": include_parcel_geometry,
+            "save_features": save_features,
+            "save_buildings": save_buildings,
+            "tabular_file_format": tabular_file_format,
+            "cache_dir": str(cache_dir) if cache_dir else None,
+            "no_cache": no_cache,
+            "overwrite_cache": overwrite_cache,
+            "compress_cache": compress_cache,
+            "country": country,
+            "alpha": alpha,
+            "beta": beta,
+            "prerelease": prerelease,
+            "only3d": only3d,
+            "since": since,
+            "until": until,
+            "url_root": url_root,
+            "system_version_prefix": system_version_prefix,
+            "system_version": system_version,
+            "parcel_mode": parcel_mode,
+            "rapid": rapid,
+            "order": order,
+            "exclude_tiles_with_occlusion": exclude_tiles_with_occlusion,
+            "roof_age": self.roof_age,  # Use validated value
+            "roof_age_dataset": self.roof_age_dataset,
+            "roof_age_resource_id": self.roof_age_resource_id,
+            "class_level_files": class_level_files,
+            "max_retries": max_retries,
+        }
+        # Round-trip through JSON now (with default=str) so the in-memory copy
+        # used for fast-path comparison matches the on-disk shape — same
+        # str-coercion of Path objects, list-not-tuple, etc.
+        self._current_config_params = json.loads(json.dumps(config_params, default=str))
+
         # Save export configuration at start (before processing begins)
-        self._save_config(
-            {
-                "aoi_file": str(aoi_file),
-                "packs": packs,
-                "classes": classes,
-                "include": include,
-                "primary_decision": primary_decision,
-                "aoi_grid_min_pct": aoi_grid_min_pct,
-                "aoi_grid_inexact": aoi_grid_inexact,
-                "aoi_grid_cell_size": aoi_grid_cell_size,
-                "processes": processes,
-                "threads": threads,
-                "chunk_size": chunk_size,
-                "include_parcel_geometry": include_parcel_geometry,
-                "save_features": save_features,
-                "save_buildings": save_buildings,
-                "tabular_file_format": tabular_file_format,
-                "cache_dir": str(cache_dir) if cache_dir else None,
-                "no_cache": no_cache,
-                "overwrite_cache": overwrite_cache,
-                "compress_cache": compress_cache,
-                "country": country,
-                "alpha": alpha,
-                "beta": beta,
-                "prerelease": prerelease,
-                "only3d": only3d,
-                "since": since,
-                "until": until,
-                "url_root": url_root,
-                "system_version_prefix": system_version_prefix,
-                "system_version": system_version,
-                "parcel_mode": parcel_mode,
-                "rapid": rapid,
-                "order": order,
-                "exclude_tiles_with_occlusion": exclude_tiles_with_occlusion,
-                "roof_age": self.roof_age,  # Use validated value
-                "roof_age_dataset": self.roof_age_dataset,
-                "roof_age_resource_id": self.roof_age_resource_id,
-                "class_level_files": class_level_files,
-                "max_retries": max_retries,
-            }
-        )
+        self._save_config(config_params)
+
+    def _read_existing_config_params(self):
+        """Read the parameters block of any previously-saved export_config.json.
+
+        Returns the `parameters` dict, or None if no readable previous config
+        exists. Called from __init__ BEFORE _save_config overwrites the file
+        on disk, so the fast-path in _run_inner can compare current params
+        against the params that produced any pre-existing README.md.
+        """
+        prev_path = storage.join_path(self.final_path, "export_config.json")
+        if not storage.file_exists(prev_path):
+            return None
+        try:
+            prev = storage.read_json(prev_path)
+        except Exception as e:
+            self.logger.debug(f"Could not read previous export_config.json: {e}")
+            return None
+        if not isinstance(prev, dict):
+            return None
+        params = prev.get("parameters")
+        return params if isinstance(params, dict) else None
+
+    def _config_diff_for_fast_path(self):
+        """Return list of (key, previous_value, current_value) tuples for params
+        that differ between the previously-saved run and this run, ignoring
+        keys in _CONFIG_KEYS_NOT_AFFECTING_OUTPUT.
+
+        Returns empty list when no previous config is available — preserves the
+        baseline "README presence alone is the sentinel" behaviour for exports
+        that pre-date this comparison logic.
+        """
+        if self._previous_config_params is None:
+            return []
+        cur = self._current_config_params
+        prev = self._previous_config_params
+        diff = []
+        for key in sorted(set(cur.keys()) | set(prev.keys())):
+            if key in _CONFIG_KEYS_NOT_AFFECTING_OUTPUT:
+                continue
+            if cur.get(key) != prev.get(key):
+                diff.append((key, prev.get(key), cur.get(key)))
+        return diff
 
     def api_key(self) -> str:
         # Use provided API key if available, otherwise fall back to environment variable
@@ -3490,14 +3565,28 @@ class NearmapAIExporter(BaseExporter):
         # To force a rebuild from cached chunks, delete final/README.md
         # before re-invoking. Atomic write in ReadmeGenerator guarantees the
         # file only ever exists with full content; no torn-write false signal.
+        #
+        # We additionally validate that the export config hasn't changed in
+        # any output-affecting way (see _CONFIG_KEYS_NOT_AFFECTING_OUTPUT):
+        # if the user re-ran with different packs / country / date range /
+        # etc., we rebuild rather than silently returning the previous run's
+        # output.
         readme_path = storage.join_path(self.final_path, "README.md")
         if storage.file_exists(readme_path):
-            self.logger.info(
-                f"Prior run already complete: README.md present at {readme_path}. "
-                "Skipping all processing. Delete this file to force a rebuild "
-                "from cached chunks."
-            )
-            return
+            config_diff = self._config_diff_for_fast_path()
+            if not config_diff:
+                self.logger.info(
+                    f"Prior run already complete: README.md present at {readme_path}. "
+                    "Skipping all processing. Delete this file (or change export "
+                    "flags) to force a rebuild from cached chunks."
+                )
+                return
+            else:
+                changed = ", ".join(f"{k} ({prev!r} -> {cur!r})" for k, prev, cur in config_diff)
+                self.logger.info(
+                    f"README.md present at {readme_path} but export config has changed "
+                    f"since the prior run ({changed}). Rebuilding."
+                )
 
         # Process a single AOI file
         aoi_path = self.aoi_file
