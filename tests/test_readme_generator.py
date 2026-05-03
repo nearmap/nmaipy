@@ -711,3 +711,48 @@ class TestExactSkipMatch:
 
         class_columns = [c["column"] for c in classes]
         assert "latency_stats_detail" in class_columns, "Superstrings of skip names should not be skipped"
+
+
+# ---------------------------------------------------------------------------
+# Atomic write semantics
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateAndSaveAtomicWrite:
+    """README.md presence is used by exporter._run_inner as a 'fully complete'
+    marker that skips rebuild on re-run. A torn write would falsely signal
+    completion. These tests lock in the atomic-write invariant."""
+
+    def test_no_tmp_file_left_after_successful_save(self, tmp_path):
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        gen.generate_and_save()
+
+        assert (tmp_path / "README.md").exists()
+        # The temp file must not linger after a successful save
+        assert not (tmp_path / "README.md.tmp").exists()
+
+    def test_failure_before_move_does_not_create_readme(self, tmp_path, monkeypatch):
+        """If the move step fails (simulated), README.md must not exist —
+        only the .tmp file. Next run sees no README and rebuilds normally,
+        rather than fast-pathing on a phantom complete marker."""
+        from nmaipy import storage as storage_module
+
+        (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
+
+        def fail_move(src, dst):
+            raise OSError("simulated failure during move")
+
+        monkeypatch.setattr(storage_module, "move_file", fail_move)
+
+        gen = ReadmeGenerator(output_dir=tmp_path)
+        try:
+            gen.generate_and_save()
+        except OSError:
+            pass
+
+        assert not (tmp_path / "README.md").exists()
+        # A .tmp file may exist from the failed move attempt — that's fine,
+        # the next run won't be misled by it (only README.md presence triggers
+        # the fast-path).

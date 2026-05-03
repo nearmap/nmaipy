@@ -3482,6 +3482,23 @@ class NearmapAIExporter(BaseExporter):
         self.logger.info(f"nmaipy version: {__version__}")
         self.logger.debug("Starting parcel rollup")
 
+        # Fast path: README.md is the very last file written by a successful
+        # run (post-consolidation, post-per-class merge, post error files).
+        # Its presence implies every other final/ artifact was successfully
+        # produced. Skip the entire pipeline — including chunk re-reading,
+        # rollup/feature consolidation, and per-class merging — and return.
+        # To force a rebuild from cached chunks, delete final/README.md
+        # before re-invoking. Atomic write in ReadmeGenerator guarantees the
+        # file only ever exists with full content; no torn-write false signal.
+        readme_path = storage.join_path(self.final_path, "README.md")
+        if storage.file_exists(readme_path):
+            self.logger.info(
+                f"Prior run already complete: README.md present at {readme_path}. "
+                "Skipping all processing. Delete this file to force a rebuild "
+                "from cached chunks."
+            )
+            return
+
         # Process a single AOI file
         aoi_path = self.aoi_file
         self.logger.info(f"Processing AOI file {aoi_path}")

@@ -1021,3 +1021,61 @@ class TestPerClassChunkGlobFiltering:
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
+
+
+# ---------------------------------------------------------------------------
+# Fast-path: skip rebuild when README.md exists
+# ---------------------------------------------------------------------------
+
+
+class TestSkipRebuildWhenReadmeExists:
+    """README.md is the very last file written by a successful run, so its
+    presence implies every other final/ artifact was successfully produced.
+    The fast-path in _run_inner returns immediately and skips chunk reading,
+    consolidation, and per-class merging."""
+
+    def test_fast_path_returns_immediately_when_readme_exists(self, tmp_path):
+        final_dir = tmp_path / "final"
+        final_dir.mkdir()
+        (final_dir / "README.md").write_text("# Nearmap AI Export\n\nany content")
+
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+
+        # FeatureApi construction is the first heavy step after the fast-path.
+        # If the fast-path triggers, FeatureApi is never instantiated.
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter.run()
+            mock_api.assert_not_called()
+
+    def test_full_pipeline_runs_when_readme_missing(self, tmp_path):
+        """Sanity check the inverse: with no README, _run_inner proceeds past
+        the fast-path. We force an early controlled failure so the test
+        doesn't have to actually run an export."""
+        final_dir = tmp_path / "final"
+        final_dir.mkdir()
+        # No README.md present
+
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+
+        # If we get past the fast-path, FeatureApi gets constructed. We patch
+        # it to raise; observing the raise confirms we did NOT take the fast
+        # path. This is a structural assertion — the actual export work isn't
+        # executed.
+        sentinel = RuntimeError("got past the fast-path as expected")
+
+        def boom(*args, **kwargs):
+            raise sentinel
+
+        with patch("nmaipy.exporter.FeatureApi", side_effect=boom):
+            with pytest.raises(RuntimeError, match="got past the fast-path"):
+                exporter.run()
