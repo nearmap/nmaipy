@@ -420,3 +420,41 @@ class TestWriteParquet:
         storage.write_parquet(df, "s3://bucket/test.parquet", index=False)
         mock_fs.open.assert_called_with("s3://bucket/test.parquet", "wb")
         df.to_parquet.assert_called_once_with(mock_file, index=False)
+
+
+# ---------------------------------------------------------------------------
+# move_file
+# ---------------------------------------------------------------------------
+
+
+class TestMoveFile:
+    def test_local_move_replaces_atomically(self, tmp_path):
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_text("hello")
+        storage.move_file(str(src), str(dst))
+        assert not src.exists()
+        assert dst.read_text() == "hello"
+
+    def test_local_move_overwrites_existing_destination(self, tmp_path):
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_text("new")
+        dst.write_text("old")
+        storage.move_file(str(src), str(dst))
+        assert dst.read_text() == "new"
+
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_move_routes_through_fs_mv(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_get_fs.return_value = mock_fs
+        storage.move_file("s3://bucket/src", "s3://bucket/dst")
+        mock_fs.mv.assert_called_once_with("s3://bucket/src", "s3://bucket/dst")
+
+    def test_cross_scheme_move_rejected(self, tmp_path):
+        local = str(tmp_path / "local.txt")
+        Path(local).write_text("x")
+        with pytest.raises(ValueError, match="cross-scheme"):
+            storage.move_file(local, "s3://bucket/dst")
+        with pytest.raises(ValueError, match="cross-scheme"):
+            storage.move_file("s3://bucket/src", local)

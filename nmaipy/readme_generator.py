@@ -311,13 +311,22 @@ class ReadmeGenerator:
         """
         Generate README and save to final directory.
 
+        Writes atomically: content is first written to README.md.tmp and then
+        moved to README.md. The exporter's run_inner uses README.md presence as
+        a "fully complete" marker that skips rebuild on re-run; a torn write
+        would falsely signal completion. Atomic move (os.replace on local,
+        s3fs.mv on S3) guarantees README.md only ever appears with the full
+        generated content.
+
         Returns:
             Path to generated README.md file (string, may be S3 URI).
         """
         content = self._generate()
         readme_path = storage.join_path(self.final_dir, "README.md")
-        with storage.open_file(readme_path, "w") as f:
+        tmp_path = readme_path + ".tmp"
+        with storage.open_file(tmp_path, "w") as f:
             f.write(content)
+        storage.move_file(tmp_path, readme_path)
         return readme_path
 
     def _generate(self) -> str:

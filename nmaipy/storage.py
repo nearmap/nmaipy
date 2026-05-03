@@ -255,6 +255,34 @@ def remove_file(path: str) -> None:
         pass
 
 
+def move_file(src: str, dst: str) -> None:
+    """
+    Move a file. Used for atomic-write patterns (write-to-temp + move).
+
+    On local filesystems, uses os.replace which is atomic on POSIX (and best-
+    effort atomic on Windows). On S3, uses s3fs server-side COPY+DELETE — the
+    destination becomes visible atomically at the S3 object level, even though
+    the operation is two API calls.
+
+    Cross-scheme moves (local <-> S3) are not supported.
+
+    Args:
+        src: Source path
+        dst: Destination path
+    """
+    src_is_s3 = is_s3_path(src)
+    dst_is_s3 = is_s3_path(dst)
+    if src_is_s3 != dst_is_s3:
+        raise ValueError(
+            f"move_file does not support cross-scheme moves: src={src!r} dst={dst!r}"
+        )
+    if src_is_s3:
+        fs = _get_s3_filesystem()
+        fs.mv(src, dst)
+    else:
+        os.replace(src, dst)
+
+
 def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
     """
     Read a JSON file, optionally gzip-compressed. Works for both local and S3.
