@@ -32,209 +32,21 @@ FILE_PATTERNS = {
 EXCLUDE_FILES = {"README.md", ".DS_Store", "export_config.json"}
 
 # ---------------------------------------------------------------------------
-# Column metadata schema
+# Column metadata
 # ---------------------------------------------------------------------------
-# Each entry is a (dtype, min, max, unit, description) tuple. The render
-# helpers emit a 6-column markdown table:
-# | Column | Type | Min | Max | Unit | Description |.
-#
-# Min and Max are stored as strings so the `—` sentinel can mean "no bound /
-# not applicable" alongside actual numeric bounds.
-#
-# Conventions:
-#   - dtype: short type label — int, float, string, Y/N, date, JSON, UUID,
-#            URL, WKT. Use "float (quantised uint8)" for confidence scores
-#            since the wire format is uint8 even though the value space is
-#            documented as a 0.0–1.0 fraction.
-#   - min / max: numerical lower / upper bound as strings, or "—" when no
-#            bound applies (strings, IDs, unbounded counts).
-#   - unit:  physical unit — "{unit_name}" for area columns (substituted with
-#            "square feet" or "square metres" depending on country), "years",
-#            "degrees", or "—" when unitless.
-#   - description: short human-readable description (no inline range/unit;
-#            the dedicated columns already carry that info). For enums, the
-#            allowed values go in the description.
+# Source of truth lives in nmaipy/data/column_metadata.json and is loaded by
+# nmaipy.column_metadata. This module re-imports the per-section dicts so
+# downstream callers (and tests) can keep using the historical names.
 # ---------------------------------------------------------------------------
-
-# Common columns always present
-COMMON_COLUMNS = {
-    "aoi_id": (
-        "string \\| int",
-        "—",
-        "—",
-        "—",
-        "Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).",
-    ),
-    "mesh_date": ("date", "—", "—", "—", "Date of AI model processing"),
-    "system_version": ("string", "—", "—", "—", "AI model version used for detection"),
-    "link": ("URL", "—", "—", "—", "URL to view property in Nearmap MapBrowser"),
-}
-
-# Address and query columns produced by nmaipy
-ADDRESS_QUERY_COLUMNS = {
-    "streetAddress": ("string", "—", "—", "—", "Street address from input (used for address-based API queries)"),
-    "city": ("string", "—", "—", "—", "City from input (used for address-based API queries)"),
-    "state": ("string", "—", "—", "—", "State from input (used for address-based API queries)"),
-    "zip": ("string", "—", "—", "—", "ZIP/postal code from input (used for address-based API queries)"),
-    "query_aoi_lat": ("float", "−90.0", "90.0", "degrees", "Representative latitude of the query AOI geometry"),
-    "query_aoi_lon": ("float", "−180.0", "180.0", "degrees", "Representative longitude of the query AOI geometry"),
-    "lat": ("float", "−90.0", "90.0", "degrees", "Input latitude used for primary feature selection"),
-    "lon": ("float", "−180.0", "180.0", "degrees", "Input longitude used for primary feature selection"),
-}
-
-# Roof Spotlight Index columns
-RSI_COLUMNS = {
-    "roof_spotlight_index": ("float", "0", "100", "—", "Roof condition score (higher = better condition)"),
-    "roof_spotlight_index_confidence": (
-        "float (quantised uint8)",
-        "0.0",
-        "1.0",
-        "—",
-        "Confidence in RSI score",
-    ),
-}
-
-# Dominant material/shape summary columns
-DOMINANT_ROOF_MATERIAL_COLUMNS = {
-    "dominant_roof_material_feature_class": (
-        "UUID",
-        "—",
-        "—",
-        "—",
-        "Feature class UUID of the dominant roof material",
-    ),
-    "dominant_roof_material_description": (
-        "string",
-        "—",
-        "—",
-        "—",
-        "Snake_case name of the `description` field of the dominant material feature class (or `unknown` if ratio < 0.5)",
-    ),
-    "dominant_roof_material_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Area of the dominant material component",
-    ),
-    "dominant_roof_material_ratio": (
-        "float",
-        "0.0",
-        "1.0",
-        "—",
-        "Ratio of the dominant material relative to total roof area",
-    ),
-    "dominant_roof_material_confidence": (
-        "float (quantised uint8)",
-        "0.0",
-        "1.0",
-        "—",
-        "Confidence in the dominant material classification",
-    ),
-}
-
-DOMINANT_ROOF_TYPES_COLUMNS = {
-    "dominant_roof_types_feature_class": (
-        "UUID",
-        "—",
-        "—",
-        "—",
-        "Feature class UUID of the dominant roof shape",
-    ),
-    "dominant_roof_types_description": (
-        "string",
-        "—",
-        "—",
-        "—",
-        "Snake_case name of the `description` field of the dominant shape feature class (or `unknown` if no detected area)",
-    ),
-    "dominant_roof_types_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Area of the dominant shape component",
-    ),
-    "dominant_roof_types_confidence": (
-        "float (quantised uint8)",
-        "0.0",
-        "1.0",
-        "—",
-        "Confidence in the dominant shape classification",
-    ),
-}
-
-# Defensible Space columns (per zone, on primary roof and aggregate)
-DEFENSIBLE_SPACE_ZONE_COLUMNS = {
-    "zone_area_{unit}": ("float", "0", "—", "{unit_name}", "Total area of the zone around the structure"),
-    "defensible_space_area_{unit}": ("float", "0", "—", "{unit_name}", "Clear/defensible area within the zone"),
-    "coverage_ratio": ("float", "0.0", "1.0", "—", "Fraction of zone that is defensible"),
-    "risk_object_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Total area of all risk objects within the zone",
-    ),
-    "medium_and_high_vegetation_with_woody_vegetation_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Area of medium/high woody vegetation in the zone",
-    ),
-    "medium_and_high_vegetation_with_woody_vegetation_ratio": (
-        "float",
-        "0.0",
-        "1.0",
-        "—",
-        "Ratio of medium/high woody vegetation to zone area",
-    ),
-    "roof_area_{unit}": ("float", "0", "—", "{unit_name}", "Area of neighbouring roof structures in the zone"),
-    "roof_ratio": ("float", "0.0", "1.0", "—", "Ratio of neighbouring roof area to zone area"),
-    "yard_debris_area_{unit}": ("float", "0", "—", "{unit_name}", "Area of yard debris in the zone"),
-    "yard_debris_ratio": ("float", "0.0", "1.0", "—", "Ratio of yard debris to zone area"),
-}
-
-ROOF_AGE_COLUMNS = {
-    "roof_age_installation_date": ("date", "—", "—", "—", "Estimated roof installation date"),
-    "roof_age_as_of_date": ("date", "—", "—", "—", "Reference date for age calculation"),
-    "roof_age_years_as_of_date": ("float", "0", "—", "years", "Calculated roof age in years"),
-    "roof_age_trust_score": ("int", "0", "100", "—", "Reliability of age estimate (higher = more reliable)"),
-    "roof_age_evidence_type": ("int", "0", "8", "—", "How age was determined (numeric code; see legend below)"),
-    "roof_age_evidence_type_description": ("string", "—", "—", "—", "Human-readable evidence description"),
-    "roof_age_before_installation_capture_date": ("date", "—", "—", "—", "Last capture before roof installation"),
-    "roof_age_after_installation_capture_date": ("date", "—", "—", "—", "First capture after roof installation"),
-    "roof_age_min_capture_date": ("date", "—", "—", "—", "Earliest imagery capture date analyzed"),
-    "roof_age_max_capture_date": ("date", "—", "—", "—", "Latest imagery capture date analyzed"),
-    "roof_age_number_of_captures": ("int", "0", "—", "—", "Number of aerial captures analyzed"),
-    "roof_age_map_browser_url": ("URL", "—", "—", "—", "URL to view roof age timeline in MapBrowser"),
-    "roof_age_model_version": ("string", "—", "—", "—", "Version of the roof age prediction model used"),
-    "roof_age_kind": (
-        "string",
-        "—",
-        "—",
-        "—",
-        "Type of estimate. One of `roof` (roof section) or `parcel` (property-level).",
-    ),
-    "roof_age_relevant_permits": ("Y/N", "—", "—", "—", "Whether relevant building permits were found"),
-    "roof_age_relevant_permits_details": (
-        "JSON",
-        "—",
-        "—",
-        "—",
-        "Details of relevant building permits (present when permits found)",
-    ),
-    "roof_age_assessor_data": ("Y/N", "—", "—", "—", "Whether assessor records were found"),
-    "roof_age_assessor_data_details": (
-        "JSON",
-        "—",
-        "—",
-        "—",
-        "Details of assessor records (present when records found)",
-    ),
-}
-
+from nmaipy.column_metadata import (  # noqa: E402
+    ADDRESS_QUERY_COLUMNS,
+    COMMON_COLUMNS,
+    DEFENSIBLE_SPACE_ZONE_COLUMNS,
+    DOMINANT_ROOF_MATERIAL_COLUMNS,
+    DOMINANT_ROOF_TYPES_COLUMNS,
+    ROOF_AGE_COLUMNS,
+    RSI_COLUMNS,
+)
 
 # Long-form unit names paired with their short column-suffix form.
 # Used by `_render_columns_table` to substitute the `{unit_name}` placeholder
@@ -245,12 +57,15 @@ _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
     """Render a column metadata dict as a 6-column markdown table.
 
-    Each ``columns`` entry is ``(dtype, min, max, unit, description)``. Two
-    placeholders are substituted at render time:
+    Each ``columns`` value is a ``ColumnMeta`` dataclass with fields ``dtype``,
+    ``min``, ``max``, ``unit``, ``description``. Two placeholders are substituted
+    at render time:
       - ``{unit}`` (in column names, descriptions): replaced with the country's
         area-column suffix (``sqft``/``sqm``).
       - ``{unit_name}`` (in the Unit field): replaced with the country's
         spelled-out area unit (``square feet`` / ``square metres``).
+
+    Empty min/max/unit fields render as the ``—`` sentinel.
     """
     lines = [
         "| Column | Type | Min | Max | Unit | Description |",
@@ -258,11 +73,13 @@ def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
     ]
     unit_name = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
     for col, meta in columns.items():
-        dtype, mn, mx, unit, desc = meta
+        dtype = meta.dtype or "—"
+        mn = meta.min or "—"
+        mx = meta.max or "—"
+        unit = (meta.unit or "—").replace("{unit_name}", unit_name)
+        desc = (meta.description or "").replace("{unit}", area_unit)
         col_rendered = col.replace("{unit}", area_unit)
-        unit_rendered = unit.replace("{unit_name}", unit_name)
-        desc_rendered = desc.replace("{unit}", area_unit)
-        lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit_rendered} | {desc_rendered} |")
+        lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit} | {desc} |")
     return lines
 
 

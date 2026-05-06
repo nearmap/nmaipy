@@ -114,6 +114,7 @@ INCLUDE_FIELD_MAPPINGS = {
             "vulnerabilityScore": "hurricane_vulnerability_score",
             "vulnerabilityProbability": "hurricane_vulnerability_probability",
             "vulnerabilityRateFactor": "hurricane_vulnerability_rate_factor",
+            "femaVersion": "hurricane_fema_version",
         },
     },
     "windScore": {
@@ -126,6 +127,7 @@ INCLUDE_FIELD_MAPPINGS = {
             "riskScore": "wind_risk_score",
             "riskRateFactor": "wind_risk_rate_factor",
             "femaAnnualWindFrequency": "wind_fema_annual_frequency",
+            "femaVersion": "wind_fema_version",
         },
     },
     "hailScore": {
@@ -138,6 +140,7 @@ INCLUDE_FIELD_MAPPINGS = {
             "riskScore": "hail_risk_score",
             "riskRateFactor": "hail_risk_rate_factor",
             "femaAnnualHailFrequency": "hail_fema_annual_frequency",
+            "femaVersion": "hail_fema_version",
         },
     },
     "wildfireScore": {
@@ -148,6 +151,7 @@ INCLUDE_FIELD_MAPPINGS = {
             "vulnerabilityProbability": "wildfire_vulnerability_probability",
             "vulnerabilityRateFactor": "wildfire_vulnerability_rate_factor",
             "femaAnnualWildfireFrequency": "wildfire_fema_annual_frequency",
+            "femaVersion": "wildfire_fema_version",
         },
     },
     # windHailRisk is a composed risk score (not a vulnerability score like the four perils above),
@@ -914,27 +918,27 @@ def flatten_roof_instance_attributes(
                 return roof_instance.get(key)
         return None
 
-    # Get keys from the instance
-    keys = roof_instance.keys() if isinstance(roof_instance, dict) else roof_instance.index
-
-    # Generic loop: add roof_age_ prefix to all non-standard columns
+    # Iterate the canonical ROOF_AGE_PREFIX_COLUMNS order so output columns
+    # land in a stable, documented sequence regardless of the order the API
+    # response presents them in. Always emit every canonical key (None when
+    # absent) so downstream DataFrame assembly preserves canonical column
+    # order even when individual rows are missing fields — pandas builds
+    # DataFrame columns from first-seen-key order across rows.
     installation_date = None
     as_of_date = None
-    for key in keys:
-        if key not in ROOF_AGE_PREFIX_COLUMNS:
-            continue
+    for key in ROOF_AGE_PREFIX_COLUMNS:
         value = get_value(key)
-        if value is None or (isinstance(value, float) and pd.isna(value)):
-            continue
+        is_missing = value is None or (isinstance(value, float) and pd.isna(value))
         output_key = f"{prefix}roof_age_{key}"
-        if key in boolean_fields:
+        if is_missing:
+            flattened[output_key] = None
+        elif key in boolean_fields:
             flattened[output_key] = TRUE_STRING if value else FALSE_STRING
         else:
             flattened[output_key] = value
-        # Track values needed for calculated fields
-        if key == "installation_date":
+        if key == "installation_date" and not is_missing:
             installation_date = value
-        elif key == "as_of_date":
+        elif key == "as_of_date" and not is_missing:
             as_of_date = value
 
     # Legacy fallback: untilDate → as_of_date for cached API responses
@@ -943,10 +947,21 @@ def flatten_roof_instance_attributes(
         if as_of_date is not None:
             flattened[f"{prefix}roof_age_as_of_date"] = as_of_date
 
-    # Calculate roof age in years as of as_of_date
+    # Calculate roof age in years as of as_of_date. Inserted right after
+    # ``map_browser_url`` so the canonical sequence reads:
+    #   map_browser_url → years_as_of_date → installation_date → ...
     age_years = calculate_roof_age_years(installation_date, as_of_date)
     if age_years is not None:
-        flattened[f"{prefix}roof_age_years_as_of_date"] = age_years
+        ordered = {}
+        url_key = f"{prefix}roof_age_map_browser_url"
+        years_key = f"{prefix}roof_age_years_as_of_date"
+        for k, v in flattened.items():
+            ordered[k] = v
+            if k == url_key:
+                ordered[years_key] = age_years
+        if years_key not in ordered:
+            ordered[years_key] = age_years
+        flattened = ordered
     return flattened
 
 

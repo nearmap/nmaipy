@@ -244,8 +244,9 @@ class TestGenerateEmptyDirectory:
 class TestColumnMetadataTables:
     """The README's column tables emit six columns: Column | Type | Min | Max | Unit | Description."""
 
-    def test_column_dicts_are_tuples_of_five(self):
-        """Each entry is a (dtype, min, max, unit, description) tuple."""
+    def test_column_dicts_are_columnmeta_instances(self):
+        """Each entry is a ColumnMeta dataclass with required fields populated."""
+        from nmaipy.column_metadata import ColumnMeta
         from nmaipy.readme_generator import (
             DEFENSIBLE_SPACE_ZONE_COLUMNS,
             DOMINANT_ROOF_MATERIAL_COLUMNS,
@@ -262,17 +263,17 @@ class TestColumnMetadataTables:
             ("DEFENSIBLE_SPACE_ZONE_COLUMNS", DEFENSIBLE_SPACE_ZONE_COLUMNS),
         ):
             for col, meta in columns.items():
-                assert isinstance(meta, tuple) and len(meta) == 5, f"{label}[{col!r}] must be a 5-tuple"
-                for i, field in enumerate(meta):
-                    assert (
-                        isinstance(field, str) and field
-                    ), f"{label}[{col!r}] field {i} must be a non-empty string, got {field!r}"
+                assert isinstance(meta, ColumnMeta), f"{label}[{col!r}] must be a ColumnMeta instance, got {type(meta)}"
+                assert meta.dtype, f"{label}[{col!r}] must have a non-empty dtype"
+                assert meta.description, f"{label}[{col!r}] must have a non-empty description"
 
     def test_render_columns_table_emits_six_column_markdown(self):
         """_render_columns_table produces a 6-column markdown table with one row per entry."""
+        from nmaipy.column_metadata import ColumnMeta
+
         sample = {
-            "score": ("float", "0", "100", "—", "Some score"),
-            "flag": ("Y/N", "—", "—", "—", "Some flag"),
+            "score": ColumnMeta(dtype="float", min="0", max="100", description="Some score"),
+            "flag": ColumnMeta(dtype="Y/N", description="Some flag"),
         }
         rendered = _render_columns_table(sample)
         # Header + separator + 2 rows = 4 lines
@@ -284,7 +285,9 @@ class TestColumnMetadataTables:
 
     def test_render_columns_table_substitutes_unit_placeholders(self):
         """`{unit}` (column name) and `{unit_name}` (Unit cell) substitute on render."""
-        sample = {"area_{unit}": ("float", "0", "—", "{unit_name}", "Area of feature")}
+        from nmaipy.column_metadata import ColumnMeta
+
+        sample = {"area_{unit}": ColumnMeta(dtype="float", min="0", unit="{unit_name}", description="Area of feature")}
         us_rows = _render_columns_table(sample, area_unit="sqft")
         au_rows = _render_columns_table(sample, area_unit="sqm")
         # US: column name uses sqft suffix, Unit cell uses spelled-out form.
@@ -298,7 +301,7 @@ class TestColumnMetadataTables:
         """The aoi_id `string | int` dtype escapes the markdown pipe so it doesn't break the table."""
         # aoi_id legitimately can be either string or int depending on input. The dtype string
         # must use an escaped backslash-pipe so markdown doesn't treat it as a column delimiter.
-        dtype = COMMON_COLUMNS["aoi_id"][0]
+        dtype = COMMON_COLUMNS["aoi_id"].dtype
         assert "\\|" in dtype, (
             f"aoi_id dtype should contain a backslash-escaped pipe, got {dtype!r}. "
             "An unescaped `|` inside a markdown table cell will be parsed as a column boundary."
@@ -308,7 +311,7 @@ class TestColumnMetadataTables:
         """Confidence scores are stored as uint8 on the wire even though the value space is 0.0–1.0."""
         # The dtype label calls this out so downstream consumers know to expect 256 distinct values
         # rather than continuous floats.
-        assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"][0]
+        assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"].dtype
 
     def test_rendered_section_includes_min_max_and_unit(self, tmp_path):
         """End-to-end: a rendered RSI section contains the new Min/Max/Unit columns."""

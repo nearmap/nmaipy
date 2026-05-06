@@ -65,10 +65,11 @@ Repository = "https://github.com/nearmap/nmaipy.git"
 "Bug Tracker" = "https://github.com/nearmap/nmaipy/issues"
 
 [tool.setuptools]
-packages = ["nmaipy"]
+packages = ["nmaipy", "nmaipy.data"]
 
 [tool.setuptools.package-data]
 nmaipy = ["class_descriptions.json"]
+"nmaipy.data" = ["column_metadata.json"]
 
 [tool.setuptools.package-dir]
 "" = "."

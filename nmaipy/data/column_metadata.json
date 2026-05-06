@@ -1,0 +1,1004 @@
+{
+  "_doc": "Data dictionary metadata for nmaipy export columns. PM-editable. See nmaipy/column_metadata.py for the loader. Sentinel '?' values mark cells where a definition is intentionally not yet provided.",
+  "exact_matches": {
+    "aoi_id": {
+      "group": "common",
+      "dtype": "string \\| int",
+      "description": "Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).",
+      "source": "input data"
+    },
+    "mesh_date": {
+      "group": "common",
+      "dtype": "date",
+      "description": "Date of the Nearmap 3D data capture.",
+      "source": "image metadata"
+    },
+    "system_version": {
+      "group": "common",
+      "dtype": "string",
+      "description": "Base AI model version used for detection (applies to all columns with source = 'base ai model').",
+      "source": "model metadata"
+    },
+    "link": {
+      "group": "common",
+      "dtype": "URL",
+      "description": "URL to view the {class_label} in Nearmap MapBrowser. Per-class files (roof, building, etc.) frame the URL on each feature's centroid; the rollup frames it on the parcel.",
+      "source": "image metadata"
+    },
+    "streetAddress": {
+      "group": "address_query",
+      "dtype": "string",
+      "description": "Street address from input (used for address-based API queries).",
+      "source": "input data"
+    },
+    "city": {
+      "group": "address_query",
+      "dtype": "string",
+      "description": "City from input (used for address-based API queries).",
+      "source": "input data"
+    },
+    "state": {
+      "group": "address_query",
+      "dtype": "string",
+      "description": "State from input (used for address-based API queries).",
+      "source": "input data"
+    },
+    "zip": {
+      "group": "address_query",
+      "dtype": "string",
+      "description": "ZIP/postal code from input (used for address-based API queries).",
+      "source": "input data"
+    },
+    "query_aoi_lat": {
+      "group": "address_query",
+      "dtype": "float",
+      "min": "-90.0",
+      "max": "90.0",
+      "unit": "degrees",
+      "description": "Representative latitude of the query AOI geometry.",
+      "source": "input data"
+    },
+    "query_aoi_lon": {
+      "group": "address_query",
+      "dtype": "float",
+      "min": "-180.0",
+      "max": "180.0",
+      "unit": "degrees",
+      "description": "Representative longitude of the query AOI geometry.",
+      "source": "input data"
+    },
+    "lat": {
+      "group": "address_query",
+      "dtype": "float",
+      "min": "-90.0",
+      "max": "90.0",
+      "unit": "degrees",
+      "description": "Input latitude used for primary feature selection.",
+      "source": "input data"
+    },
+    "lon": {
+      "group": "address_query",
+      "dtype": "float",
+      "min": "-180.0",
+      "max": "180.0",
+      "unit": "degrees",
+      "description": "Input longitude used for primary feature selection.",
+      "source": "input data"
+    },
+    "roof_spotlight_index": {
+      "group": "rsi",
+      "dtype": "int",
+      "min": "0",
+      "max": "100",
+      "description": "Roof Spotlight Index — roof condition score. 100 = best condition, 0 = worst condition.",
+      "allowed_values": "integer 0-100",
+      "source": "score model"
+    },
+    "roof_spotlight_index_confidence": {
+      "group": "rsi",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence in RSI score.",
+      "source": "score model"
+    },
+    "primary_roof_spotlight_index": {
+      "group": "rsi",
+      "dtype": "int",
+      "min": "0",
+      "max": "100",
+      "description": "Roof Spotlight Index of the primary roof on the parcel (with Building Lifecycle fallback when structural damage is present). 100 = best condition, 0 = worst condition.",
+      "allowed_values": "integer 0-100",
+      "source": "score model"
+    },
+    "primary_roof_spotlight_index_confidence": {
+      "group": "rsi",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence in the primary roof's Roof Spotlight Index.",
+      "source": "score model"
+    },
+    "dominant_roof_material_feature_class": {
+      "group": "dominant_roof_material",
+      "dtype": "UUID",
+      "description": "Feature class UUID of the dominant roof material. Dominant = highest-ratio component; UNKNOWN (null) when ratio < 0.5.",
+      "source": "base ai model"
+    },
+    "dominant_roof_material_description": {
+      "group": "dominant_roof_material",
+      "dtype": "string",
+      "description": "Snake_case name of the dominant material feature class (`unknown` when ratio < 0.5). Open-ended; consult the Feature API class registry for the full list of possible values.",
+      "source": "base ai model"
+    },
+    "dominant_roof_material_area_{unit}": {
+      "group": "dominant_roof_material",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Area of the dominant material component on the primary roof.",
+      "source": "base ai model"
+    },
+    "dominant_roof_material_ratio": {
+      "group": "dominant_roof_material",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Ratio of the dominant material relative to total roof area.",
+      "source": "base ai model"
+    },
+    "dominant_roof_material_confidence": {
+      "group": "dominant_roof_material",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence in the dominant material classification.",
+      "source": "base ai model"
+    },
+    "dominant_roof_types_feature_class": {
+      "group": "dominant_roof_types",
+      "dtype": "UUID",
+      "description": "Feature class UUID of the dominant roof shape. Dominant = highest-ratio component; UNKNOWN (null) when no detected area.",
+      "source": "base ai model"
+    },
+    "dominant_roof_types_description": {
+      "group": "dominant_roof_types",
+      "dtype": "string",
+      "description": "Snake_case name of the dominant shape feature class (`unknown` when no detected area). Open-ended; consult the Feature API class registry for the full list of possible values. Excludes deprecated flat roof and `shed`.",
+      "source": "base ai model"
+    },
+    "dominant_roof_types_area_{unit}": {
+      "group": "dominant_roof_types",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Area of the dominant shape component on the primary roof.",
+      "source": "base ai model"
+    },
+    "dominant_roof_types_confidence": {
+      "group": "dominant_roof_types",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence in the dominant shape classification.",
+      "source": "base ai model"
+    },
+    "defensible_space_model_version": {
+      "group": "defensible_space",
+      "dtype": "string",
+      "description": "Version of the defensible space model used.",
+      "source": "model metadata"
+    },
+    "roof_age_installation_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "Estimated roof installation date.",
+      "source": "roof age model"
+    },
+    "roof_age_as_of_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "Reference date for age calculation. When --until is set, this is the requested cutoff (clamped to the dataset's nearest snapshot date).",
+      "source": "roof age model"
+    },
+    "roof_age_years_as_of_date": {
+      "group": "roof_age",
+      "dtype": "float",
+      "min": "0",
+      "unit": "years",
+      "description": "Calculated roof age in years (as_of_date \u2212 installation_date).",
+      "source": "roof age model"
+    },
+    "roof_age_trust_score": {
+      "group": "roof_age",
+      "dtype": "int",
+      "min": "0",
+      "max": "100",
+      "description": "Reliability of age estimate (higher = more reliable).",
+      "source": "roof age model"
+    },
+    "roof_age_evidence_type": {
+      "group": "roof_age",
+      "dtype": "int",
+      "min": "0",
+      "max": "8",
+      "description": "How age was determined (numeric code; see evidence_type_legend in README.md).",
+      "allowed_values": "0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8",
+      "source": "roof age model"
+    },
+    "roof_age_evidence_type_description": {
+      "group": "roof_age",
+      "dtype": "string",
+      "description": "Human-readable evidence type description.",
+      "source": "roof age model"
+    },
+    "roof_age_before_installation_capture_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "Last capture before roof installation.",
+      "source": "roof age model"
+    },
+    "roof_age_after_installation_capture_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "First capture after roof installation.",
+      "source": "roof age model"
+    },
+    "roof_age_min_capture_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "Earliest imagery capture date analyzed.",
+      "source": "roof age model"
+    },
+    "roof_age_max_capture_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "Latest imagery capture date analyzed.",
+      "source": "roof age model"
+    },
+    "roof_age_number_of_captures": {
+      "group": "roof_age",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of images analyzed.",
+      "source": "roof age model"
+    },
+    "roof_age_map_browser_url": {
+      "group": "roof_age",
+      "dtype": "URL",
+      "description": "URL to view roof age timeline in MapBrowser.",
+      "source": "roof age model"
+    },
+    "roof_age_model_version": {
+      "group": "roof_age",
+      "dtype": "string",
+      "description": "Version of the roof age prediction model used.",
+      "source": "model metadata"
+    },
+    "roof_age_kind": {
+      "group": "roof_age",
+      "dtype": "string",
+      "description": "Type of estimate. One of `roof` (roof section) or `parcel` (property-level). Parcel-level estimates are only provided when no imagery is available.",
+      "allowed_values": "roof | parcel",
+      "source": "roof age model"
+    },
+    "roof_age_relevant_permits": {
+      "group": "roof_age",
+      "dtype": "Y/N",
+      "description": "Whether relevant building permits were used in determining roof age.",
+      "allowed_values": "Y | N",
+      "source": "roof age model"
+    },
+    "roof_age_relevant_permits_details": {
+      "group": "roof_age",
+      "dtype": "JSON",
+      "description": "Details of relevant building permits (present when permits used in determining roof age).",
+      "source": "roof age model"
+    },
+    "roof_age_assessor_data": {
+      "group": "roof_age",
+      "dtype": "Y/N",
+      "description": "Whether assessor records (year built) were used in determining roof age.",
+      "allowed_values": "Y | N",
+      "source": "roof age model"
+    },
+    "roof_age_assessor_data_details": {
+      "group": "roof_age",
+      "dtype": "JSON",
+      "description": "Details of assessor (year built) records (present when records were used in determining roof age).",
+      "source": "roof age model"
+    },
+    "feature_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "Feature ID of the {class_label_primary}.",
+      "source": "base ai model"
+    },
+    "class_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "AI feature class UUID for this row.",
+      "source": "model metadata"
+    },
+    "description": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "Human-readable name of this feature's class.",
+      "source": "model metadata"
+    },
+    "geometry": {
+      "group": "feature_meta",
+      "dtype": "WKT \\| GeoParquet",
+      "description": "Feature geometry. WKT in CSVs, native GeoParquet geometry in `_features.parquet`.",
+      "source": "base ai model"
+    },
+    "parent_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "Feature ID of this feature's parent in the API hierarchy. For the new Building class, this points to the Building Lifecycle ancestor.",
+      "source": "base ai model"
+    },
+    "is_primary": {
+      "group": "feature_meta",
+      "dtype": "Y/N",
+      "description": "Whether this feature is the parcel's primary feature for its class (selected by --primary-decision).",
+      "allowed_values": "Y | N",
+      "source": "base ai model"
+    },
+    "confidence": {
+      "group": "feature_meta",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence in detection of the {class_label_primary}.",
+      "source": "base ai model"
+    },
+    "roof_confidence": {
+      "group": "rollup_class_confidence",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Combined confidence that at least one roof was detected on the parcel. When multiple roofs are present, individual confidences are combined via the probabilistic union (noisy-OR): 1 - product(1 - confidence_i). Null when no roofs are detected.",
+      "source": "base ai model"
+    },
+    "building_confidence": {
+      "group": "rollup_class_confidence",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Combined confidence that at least one building was detected on the parcel. When multiple buildings are present, individual confidences are combined via the probabilistic union (noisy-OR): 1 - product(1 - confidence_i). Null when no buildings are detected.",
+      "source": "base ai model"
+    },
+    "building_lifecycle_confidence": {
+      "group": "rollup_class_confidence",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Combined confidence that at least one building lifecycle feature was detected on the parcel. When multiple are present, individual confidences are combined via the probabilistic union (noisy-OR): 1 - product(1 - confidence_i). Null when none are detected.",
+      "source": "base ai model"
+    },
+    "swimming_pool_confidence": {
+      "group": "rollup_class_confidence",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Combined confidence that at least one swimming pool was detected on the parcel. When multiple pools are present, individual confidences are combined via the probabilistic union (noisy-OR): 1 - product(1 - confidence_i). Null when no pools are detected.",
+      "source": "base ai model"
+    },
+    "solar_panel_confidence": {
+      "group": "rollup_class_confidence",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Combined confidence that at least one solar panel was detected on the parcel. When multiple panels are present, individual confidences are combined via the probabilistic union (noisy-OR): 1 - product(1 - confidence_i). Null when no panels are detected.",
+      "source": "base ai model"
+    },
+    "fidelity": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Quality of the vectorized footprint polygon for the {class_label_primary} (higher = better fidelity to the true outline). Only present on structural classes (e.g. building, roof).",
+      "source": "base ai model"
+    },
+    "has_3d_attributes": {
+      "group": "feature_meta",
+      "dtype": "Y/N",
+      "allowed_values": "Y | N",
+      "description": "Boolean indicator of whether 3D attribute data from Nearmap is available for this record.",
+      "source": "model metadata"
+    },
+    "pitch_degrees": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "unit": "degrees",
+      "description": "Predominant roof pitch in degrees, from 3D data. Building-level pitch is identical to roof pitch.",
+      "source": "model metadata"
+    },
+    "survey_date": {
+      "group": "feature_meta",
+      "dtype": "date",
+      "description": "Date the imagery was captured for this feature's source survey.",
+      "source": "image metadata"
+    },
+    "survey_resource_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "Survey resource UUID for the imagery.",
+      "source": "image metadata"
+    },
+    "match_quality": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "Quality of address-to-AOI geocoding match.",
+      "source": "input data"
+    },
+    "geocode_source": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "Source of the geocoded coordinates for an address-based query.",
+      "source": "input data"
+    },
+    "area_sqm": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "square metres",
+      "description": "Area of the {class_label_primary}, in square metres.",
+      "source": "base ai model"
+    },
+    "area_sqft": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "square feet",
+      "description": "Area of the {class_label_primary}, in square feet.",
+      "source": "base ai model"
+    },
+    "clipped_area_sqm": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "square metres",
+      "description": "Area of the {class_label_primary} clipped to the parcel boundary, in square metres.",
+      "source": "base ai model"
+    },
+    "clipped_area_sqft": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "square feet",
+      "description": "Area of the {class_label_primary} clipped to the parcel boundary, in square feet.",
+      "source": "base ai model"
+    },
+    "unclipped_area_sqm": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "square metres",
+      "description": "Total area of the {class_label_primary} before parcel clipping, in square metres.",
+      "source": "base ai model"
+    },
+    "unclipped_area_sqft": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "square feet",
+      "description": "Total area of the {class_label_primary} before parcel clipping, in square feet.",
+      "source": "base ai model"
+    },
+    "resource_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "Identifier of the AI resource (model dataset) that produced this row.",
+      "source": "model metadata"
+    },
+    "parent_building_id": {
+      "group": "linkage",
+      "dtype": "UUID",
+      "description": "Feature ID of the building this roof spatially matches (IoU-linked).",
+      "source": "base ai model"
+    },
+    "parent_building_iou": {
+      "group": "linkage",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Intersection-over-Union score with the parent building (\u22650.005 to assign).",
+      "source": "base ai model"
+    },
+    "parent_iou": {
+      "group": "linkage",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Intersection-over-Union score with the parent feature (\u22650.005 to assign).",
+      "source": "base ai model"
+    },
+    "primary_child_roof_id": {
+      "group": "linkage",
+      "dtype": "UUID",
+      "description": "Feature ID of this building's primary child roof (highest IoU above threshold).",
+      "source": "base ai model"
+    },
+    "primary_child_roof_iou": {
+      "group": "linkage",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "IoU between this building and its primary child roof.",
+      "source": "base ai model"
+    },
+    "primary_child_roof_age_feature_id": {
+      "group": "linkage",
+      "dtype": "UUID",
+      "description": "Feature ID of the roof age instance linked to this roof (highest IoU above 0.005).",
+      "source": "base ai model"
+    },
+    "primary_child_roof_age_iou": {
+      "group": "linkage",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "IoU between this roof and its primary linked roof age instance.",
+      "source": "base ai model"
+    },
+    "child_roofs": {
+      "group": "linkage",
+      "dtype": "JSON",
+      "description": "JSON list of all roofs linked to this building, sorted by IoU descending. Each item: `{feature_id, iou}`.",
+      "source": "base ai model"
+    },
+    "child_roof_count": {
+      "group": "linkage",
+      "dtype": "int",
+      "min": "0",
+      "description": "Count of linked child roofs.",
+      "source": "base ai model"
+    },
+    "child_roof_instances": {
+      "group": "linkage",
+      "dtype": "JSON",
+      "description": "JSON list of all roof age instances linked to this roof, sorted by IoU descending. Each item: `{feature_id, iou, kind}`.",
+      "source": "base ai model"
+    },
+    "child_roof_instance_count": {
+      "group": "linkage",
+      "dtype": "int",
+      "min": "0",
+      "description": "Count of linked roof age instances.",
+      "source": "base ai model"
+    },
+    "damage_class": {
+      "group": "damage",
+      "dtype": "string",
+      "description": "Most-likely damage class for this Building Lifecycle feature.",
+      "allowed_values": "Undamaged | Affected | Minor | Major | Destroyed",
+      "source": "base ai model"
+    },
+    "since": {
+      "group": "query_input",
+      "dtype": "date",
+      "description": "Earliest survey date filter for the query (per-AOI override of the bulk --since flag).",
+      "source": "input data"
+    },
+    "until": {
+      "group": "query_input",
+      "dtype": "date",
+      "description": "Latest survey date filter for the query (per-AOI override of the bulk --until flag). Also drives Roof Age `untilAsOfDate` when --roof-age is set with an A.1+ dataset.",
+      "source": "input data"
+    },
+    "survey_id": {
+      "group": "query_input",
+      "dtype": "UUID",
+      "description": "Survey identifier the AI features were drawn from.",
+      "source": "image metadata"
+    },
+    "perspective": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "Imagery perspective (e.g. 'Vert' for vertical/orthographic).",
+      "source": "image metadata"
+    },
+    "postcat": {
+      "group": "feature_meta",
+      "dtype": "Y/N",
+      "description": "Whether this feature comes from post-catastrophe imagery.",
+      "allowed_values": "Y | N",
+      "source": "image metadata"
+    },
+    "feature_api_success": {
+      "group": "api_status",
+      "dtype": "Y/N",
+      "description": "Whether the Feature API call succeeded for this AOI.",
+      "allowed_values": "Y | N",
+      "source": "model metadata"
+    },
+    "roof_age_api_success": {
+      "group": "api_status",
+      "dtype": "Y/N",
+      "description": "Whether the Roof Age API call succeeded for this AOI.",
+      "allowed_values": "Y | N",
+      "source": "model metadata"
+    },
+    "installation_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "Estimated roof installation date.",
+      "source": "roof age model"
+    },
+    "as_of_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "Reference date for age calculation.",
+      "source": "roof age model"
+    },
+    "trust_score": {
+      "group": "roof_age_bare",
+      "dtype": "int",
+      "min": "0",
+      "max": "100",
+      "description": "Reliability of age estimate.",
+      "source": "roof age model"
+    },
+    "evidence_type": {
+      "group": "roof_age_bare",
+      "dtype": "int",
+      "min": "0",
+      "max": "8",
+      "description": "How age was determined (numeric code; un-prefixed; appears on roof age instance features).",
+      "allowed_values": "0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8",
+      "source": "roof age model"
+    },
+    "evidence_type_description": {
+      "group": "roof_age_bare",
+      "dtype": "string",
+      "description": "Human-readable evidence description.",
+      "source": "roof age model"
+    },
+    "before_installation_capture_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "Last capture before roof installation.",
+      "source": "roof age model"
+    },
+    "after_installation_capture_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "First capture after roof installation.",
+      "source": "roof age model"
+    },
+    "min_capture_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "Earliest imagery capture date analyzed.",
+      "source": "roof age model"
+    },
+    "max_capture_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "Latest imagery capture date analyzed.",
+      "source": "roof age model"
+    },
+    "number_of_captures": {
+      "group": "roof_age_bare",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of aerial captures analyzed.",
+      "source": "roof age model"
+    },
+    "map_browser_url": {
+      "group": "roof_age_bare",
+      "dtype": "URL",
+      "description": "URL to view roof age timeline in MapBrowser.",
+      "source": "roof age model"
+    },
+    "model_version": {
+      "group": "roof_age_bare",
+      "dtype": "string",
+      "description": "Model version.",
+      "source": "model metadata"
+    },
+    "kind": {
+      "group": "roof_age_bare",
+      "dtype": "string",
+      "description": "Type of estimate. One of `roof` (roof section) or `parcel` (property-level). Un-prefixed; appears on roof age instance features.",
+      "allowed_values": "roof | parcel",
+      "source": "roof age model"
+    },
+    "relevant_permits": {
+      "group": "roof_age_bare",
+      "dtype": "Y/N",
+      "description": "Whether relevant building permits were found.",
+      "allowed_values": "Y | N",
+      "source": "roof age model"
+    },
+    "assessor_data": {
+      "group": "roof_age_bare",
+      "dtype": "Y/N",
+      "description": "Whether assessor records were found.",
+      "allowed_values": "Y | N",
+      "source": "roof age model"
+    },
+    "assessor_data_details": {
+      "group": "roof_age_bare",
+      "dtype": "JSON",
+      "description": "Details of assessor records.",
+      "source": "roof age model"
+    },
+    "internal_class_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "Internal class ID used by the Feature API for downstream linkage; not customer-facing.",
+      "source": "model metadata"
+    },
+    "attributes": {
+      "group": "feature_meta",
+      "dtype": "JSON",
+      "description": "Raw API attributes payload for this feature (used during processing; preserved on raw feature outputs).",
+      "source": "base ai model"
+    },
+    "damage": {
+      "group": "feature_meta",
+      "dtype": "JSON",
+      "description": "Raw API damage payload for Building Lifecycle features (used by damage flattening).",
+      "source": "base ai model"
+    },
+    "belongs_to_parcel": {
+      "group": "feature_meta",
+      "dtype": "Y/N",
+      "description": "Whether this feature is contained within (rather than spanning beyond) the AOI parcel.",
+      "allowed_values": "Y | N",
+      "source": "base ai model"
+    },
+    "multiparcel_feature": {
+      "group": "feature_meta",
+      "dtype": "Y/N",
+      "description": "Whether the {class_label_primary} is also detected on at least one other parcel (e.g. a roof or building spanning a row of townhomes). 'Y' indicates this feature is shared across multiple parcels.",
+      "allowed_values": "Y | N",
+      "source": "base ai model"
+    },
+    "is_footprint": {
+      "group": "feature_meta",
+      "dtype": "Y/N",
+      "description": "Whether this feature is a building footprint.",
+      "allowed_values": "Y | N",
+      "source": "base ai model"
+    },
+    "aoi_geometry": {
+      "group": "feature_meta",
+      "dtype": "WKT \\| GeoParquet",
+      "description": "Original AOI geometry (preserved on grid-failure error rows for context).",
+      "source": "input data"
+    }
+  },
+  "patterns": [
+    {
+      "regex": "^(?P<roof_scope>primary_|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_zone_area_(?P<unit>sqft|sqm)$",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Total area of defensible-space zone {zone_id} ({zone_band} from the structure) {ds_scope_phrasing}. In {unit}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<roof_scope>primary_|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_defensible_space_area_(?P<unit>sqft|sqm)$",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Clear/defensible area within defensible-space zone {zone_id} ({zone_band} from the structure) {ds_scope_phrasing} — area free of vegetation, buildings and yard debris. In {unit}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<roof_scope>primary_|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_coverage_ratio$",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Fraction of defensible-space zone {zone_id} ({zone_band} from the structure) {ds_scope_phrasing} that is defensible (clear of vegetation, buildings and yard debris).",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<roof_scope>primary_|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_risk_object_area_(?P<unit>sqft|sqm)$",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Total area of all risk objects (vegetation, neighbouring roofs, yard debris, etc.) within defensible-space zone {zone_id} ({zone_band} from the structure) {ds_scope_phrasing}. In {unit}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<roof_scope>primary_|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_(?P<risk_class>.+?)_area_(?P<unit>sqft|sqm)$",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Area of {risk_class} within defensible-space zone {zone_id} ({zone_band} from the structure) {ds_scope_phrasing}. In {unit}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<roof_scope>primary_|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_(?P<risk_class>.+?)_ratio$",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Ratio of {risk_class} area to total zone area within defensible-space zone {zone_id} ({zone_band} from the structure) {ds_scope_phrasing}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane)_vulnerability_model_input_(?P<feature>.+)$",
+      "dtype": "float",
+      "description": "Value of {feature} used as input to the {peril} vulnerability score model.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane)_vulnerability_score$",
+      "dtype": "int",
+      "min": "1",
+      "max": "5",
+      "allowed_values": "1 | 2 | 3 | 4 | 5",
+      "description": "{Peril} vulnerability score of {primary_phrasing}. 1 = most vulnerable, 5 = least vulnerable.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane)_vulnerability_probability$",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Raw model probability from the {peril} vulnerability model. This probability is binned into the 1-5 {peril} vulnerability score.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane|wind_hail)_risk_score$",
+      "dtype": "int",
+      "min": "1",
+      "max": "5",
+      "allowed_values": "1 | 2 | 3 | 4 | 5",
+      "description": "{Peril} risk score of {primary_phrasing}. 1 = highest risk, 5 = lowest risk.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?wind_hail_risk_model_input_(?P<feature>.+)$",
+      "dtype": "float",
+      "description": "Value of {feature} used as input to the wind/hail risk score model for {primary_phrasing}.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane|wind_hail)_(?P<kind>vulnerability|risk)_rate_factor$",
+      "dtype": "float",
+      "description": "Rate factor corresponding to the {peril} {kind} score for {primary_phrasing}, as per Nearmap's approved regulatory filings.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane)_fema_annual_frequency$",
+      "dtype": "float",
+      "description": "Estimated annual frequency of {peril} at the location of {primary_phrasing}, according to the FEMA National Risk Index (version reported in {peril}_fema_version).",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<primary_prefix>primary_)?(?P<peril>hail|wind|wildfire|hurricane)_fema_version$",
+      "dtype": "string",
+      "description": "Version of the FEMA National Risk Index used to derive {peril}-related risk fields. Sourced from the API response field femaVersion on each {peril} score block.",
+      "source": "model metadata"
+    },
+    {
+      "regex": "^(?:primary_)?(?P<score>roof_spotlight_index|(?:hail|wind|wildfire|hurricane)_score|wind_hail_risk_score)_model_version$",
+      "dtype": "string",
+      "description": "Model version for {score}.",
+      "source": "model metadata"
+    },
+    {
+      "regex": "^(?P<score>roof_spotlight_index|(?:hail|wind|wildfire|hurricane)_(?:vulnerability|risk)_score|wind_hail_risk_score)_min$",
+      "dtype": "float",
+      "description": "Minimum {score} across all roofs on the parcel.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<score>roof_spotlight_index|(?:hail|wind|wildfire|hurricane)_(?:vulnerability|risk)_score|wind_hail_risk_score)_max$",
+      "dtype": "float",
+      "description": "Maximum {score} across all roofs on the parcel.",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<score>roof_spotlight_index|(?:hail|wind|wildfire|hurricane)_(?:vulnerability|risk)_score|wind_hail_risk_score)_area_weighted_mean$",
+      "dtype": "float",
+      "description": "Area-weighted mean {score} across all roofs on the parcel (weighted by each roof's clipped area).",
+      "source": "score model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_child_roof_)?ground_height_(?P<length_unit>ft|m)$",
+      "dtype": "float",
+      "unit": "{length_unit}",
+      "description": "Ground elevation in {length_unit}, from 3D data.",
+      "source": "model metadata"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_child_roof_)?height_(?P<length_unit>ft|m)$",
+      "dtype": "float",
+      "unit": "{length_unit}",
+      "description": "Height of building above ground in {length_unit}, from 3D data.",
+      "source": "model metadata"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_area_(?P<unit>sqft|sqm)$",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Total area of {class} detected {scope_phrase}, in {unit}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<class>building|building_under_construction|roof|roof_instance|building_lifecycle|swimming_pool|solar_panel)_multiparcel_feature_count$",
+      "dtype": "int",
+      "min": "0",
+      "description": "Count of {class} features on this parcel that are also detected on at least one other parcel (e.g. row-home features whose footprint spans multiple parcels).",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_swimming_pool_)?(?P<condition>unmaintained|in_lanai|covered|empty|above_ground)_swimming_pool_ratio$",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Fraction of {pool_subject} detected to be {condition_phrase}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_count$",
+      "dtype": "int",
+      "min": "0",
+      "description": "Count of {class} detections {scope_phrase}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_present$",
+      "dtype": "Y/N",
+      "allowed_values": "Y | N",
+      "description": "Whether any {class} is detected {scope_phrase}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_ratio$",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Ratio of {class} detected {scope_phrase}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_dominant$",
+      "dtype": "Y/N",
+      "allowed_values": "Y | N",
+      "description": "Boolean indicator of whether {dominant_subject} is predominantly {class}.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_confidence$",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "precision": "uint8 quantised (0-255 \u2192 0.0-1.0)",
+      "description": "Confidence in {class} classification {scope_phrase}. Aggregation when multiple detections contribute: probabilistic union 1 - product(1 - confidence_i) for top-level pack classes on the parcel (e.g. all roofs, all vegetation segments); maximum across detections for sub-attributes within a parent feature (e.g. staining detections on a roof). Null when the corresponding area is 0.",
+      "source": "base ai model"
+    },
+    {
+      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)(?P<class>.+?)_feature_id$",
+      "dtype": "UUID",
+      "description": "Feature ID of the primary {class} {scope_phrase}.",
+      "source": "base ai model"
+    }
+  ],
+  "defensible_space_zone_distances": {
+    "_doc": "Defensible space zoneId \u2192 distance band around the structure. Used by patterns to substitute {zone_band} in descriptions. Edit here if the API team changes the zone definitions.",
+    "0": "0-5 ft",
+    "1": "5-30 ft",
+    "2": "30-100 ft"
+  },
+  "evidence_type_legend": {
+    "_doc": "Roof age evidence_type code \u2192 human-readable description. Source: https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score. Used by roof_age_evidence_type allowed_values and the README evidence-type legend.",
+    "0": "No unobscured images of the roof or parcel and no relevant building permits or assessor year-built data. No roof installation date is provided.",
+    "1": "(Future Release) No unobscured images and no relevant permits/assessor data, but aggregated supporting evidence from the area indicates the likely age of roofs nearby.",
+    "2": "No unobscured images of the roof or parcel, but relevant building permits and/or assessor year-built data provide an indication of the installation date.",
+    "3": "A single unobscured image of the roof. Roof change cannot be detected; a machine-learning model predicts the age from the image plus other sources (e.g. climate data). No supporting evidence corroborating the date.",
+    "4": "A single unobscured image of the roof (ML-predicted age, as in Type 3), with relevant building permits and/or assessor year-built data supporting the predicted installation date.",
+    "5": "Multiple unobscured images of the roof, no roof change detected between captures. A separate ML model predicts the age from imagery plus other sources. No supporting evidence corroborating the date.",
+    "6": "Multiple unobscured images of the roof, no roof change detected (ML-predicted age, as in Type 5), with relevant building permits and/or assessor year-built data supporting the predicted installation date.",
+    "7": "Multiple unobscured images of the roof. AI model detects a roof change between two captures; installation date is set as the mid-point of those captures. No supporting evidence corroborating the date.",
+    "8": "Multiple unobscured images of the roof, with detected roof change (mid-point installation date, as in Type 7), with relevant building permits and/or assessor year-built data supporting the predicted installation date."
+  }
+}
