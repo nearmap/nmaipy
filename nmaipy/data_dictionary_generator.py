@@ -160,9 +160,7 @@ class DataDictionaryGenerator:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         return out_path
 
-    def _row_for_column(
-        self, name: str, area_unit: str, class_label: str, extras: dict[str, str]
-    ) -> dict[str, str]:
+    def _row_for_column(self, name: str, area_unit: str, class_label: str, extras: dict[str, str]) -> dict[str, str]:
         """Build a single dictionary row for one column."""
         meta = lookup_column(name, area_unit=area_unit, class_label=class_label, extras=extras)
         return {

@@ -273,9 +273,7 @@ def move_file(src: str, dst: str) -> None:
     src_is_s3 = is_s3_path(src)
     dst_is_s3 = is_s3_path(dst)
     if src_is_s3 != dst_is_s3:
-        raise ValueError(
-            f"move_file does not support cross-scheme moves: src={src!r} dst={dst!r}"
-        )
+        raise ValueError(f"move_file does not support cross-scheme moves: src={src!r} dst={dst!r}")
     if src_is_s3:
         fs = _get_s3_filesystem()
         fs.mv(src, dst)

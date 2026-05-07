@@ -35,9 +35,7 @@ _NEVER_LIST = {"README.md", ".DS_Store"}
 _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 
 
-def _render_columns_table(
-    column_names: Iterable[str], area_unit: str = "", class_label: str = "parcel"
-) -> list[str]:
+def _render_columns_table(column_names: Iterable[str], area_unit: str = "", class_label: str = "parcel") -> list[str]:
     """Render the named columns as a 6-column markdown table.
 
     Each name is resolved via ``column_metadata.lookup_column`` so that

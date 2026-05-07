@@ -28,7 +28,7 @@ import pytest
 
 from nmaipy import column_metadata as cm
 from nmaipy.column_metadata import ColumnMeta, lookup_column, reload_metadata
-from nmaipy.data_dictionary_generator import DataDictionaryGenerator, _DD_COLUMNS
+from nmaipy.data_dictionary_generator import _DD_COLUMNS, DataDictionaryGenerator
 
 
 @pytest.fixture(autouse=True)
@@ -131,10 +131,13 @@ class TestScopeAwarePatterns:
 class TestGenericPatterns:
     """Each suffix family produces the expected dtype/source default."""
 
-    @pytest.mark.parametrize("name, dtype, expect_min", [
-        ("tile_area_sqft", "float", "0"),
-        ("metal_area_sqm", "float", "0"),
-    ])
+    @pytest.mark.parametrize(
+        "name, dtype, expect_min",
+        [
+            ("tile_area_sqft", "float", "0"),
+            ("metal_area_sqm", "float", "0"),
+        ],
+    )
     def test_area_pattern(self, name, dtype, expect_min):
         unit = "sqft" if name.endswith("_sqft") else "sqm"
         meta = lookup_column(name, area_unit=unit)
@@ -226,8 +229,7 @@ class TestFileDiscovery:
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
 
         existing = sorted(
-            p.name for p in tmp_path.iterdir()
-            if p.suffix == ".csv" and p.name.endswith("_data_dictionary.csv")
+            p.name for p in tmp_path.iterdir() if p.suffix == ".csv" and p.name.endswith("_data_dictionary.csv")
         )
         # Only the tabular AI file (rollup.csv) gets a dictionary. The geoparquet
         # companion (roof_features.parquet) and the operational files do not.
@@ -242,26 +244,30 @@ class TestFileDiscovery:
         _write_parquet(tmp_path / "building_features.parquet", ["aoi_id", "tile_area_sqft"])
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
 
-        existing = sorted(
-            p.name for p in tmp_path.iterdir()
-            if p.name.endswith("_data_dictionary.csv")
-        )
+        existing = sorted(p.name for p in tmp_path.iterdir() if p.name.endswith("_data_dictionary.csv"))
         assert existing == ["building_data_dictionary.csv"]
 
     def test_per_class_files_in_configured_format_get_dictionaries(self, tmp_path):
         """Each per-class tabular file in the configured format gets exactly one dictionary."""
         _write_export_config(tmp_path / "export_config.json", tabular_file_format="csv")
         per_class = [
-            "building_lifecycle.csv", "building.csv", "roof.csv", "roof_instance.csv",
-            "swimming_pool.csv", "solar_panel.csv",
+            "building_lifecycle.csv",
+            "building.csv",
+            "roof.csv",
+            "roof_instance.csv",
+            "swimming_pool.csv",
+            "solar_panel.csv",
         ]
         for name in per_class:
             _write_csv(tmp_path / name, ["aoi_id"])
         # Geoparquet companions exist alongside but should not get dictionaries.
         for name in [
-            "building_lifecycle_features.parquet", "building_features.parquet",
-            "roof_features.parquet", "roof_instance_features.parquet",
-            "swimming_pool_features.parquet", "solar_panel_features.parquet",
+            "building_lifecycle_features.parquet",
+            "building_features.parquet",
+            "roof_features.parquet",
+            "roof_instance_features.parquet",
+            "swimming_pool_features.parquet",
+            "solar_panel_features.parquet",
         ]:
             _write_parquet(tmp_path / name, ["aoi_id"])
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
@@ -270,9 +276,9 @@ class TestFileDiscovery:
             assert (tmp_path / f"{stem}_data_dictionary.csv").exists(), f"missing dictionary for {name}"
         # Geoparquet companions get no dictionary.
         for name in ["roof_features", "building_features"]:
-            assert not (tmp_path / f"{name}_data_dictionary.csv").exists(), (
-                f"unexpected dictionary for geometry file {name}"
-            )
+            assert not (
+                tmp_path / f"{name}_data_dictionary.csv"
+            ).exists(), f"unexpected dictionary for geometry file {name}"
 
     def test_parquet_format_picks_parquet_variants(self, tmp_path):
         """When tabular_file_format='parquet', only the parquet variants get dictionaries."""
@@ -282,9 +288,7 @@ class TestFileDiscovery:
         # A stray CSV variant exists alongside but isn't the configured format.
         _write_csv(tmp_path / "rollup.csv", ["aoi_id"])
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
-        existing = sorted(
-            p.name for p in tmp_path.iterdir() if p.name.endswith("_data_dictionary.csv")
-        )
+        existing = sorted(p.name for p in tmp_path.iterdir() if p.name.endswith("_data_dictionary.csv"))
         assert existing == ["building_data_dictionary.csv", "rollup_data_dictionary.csv"]
 
 
@@ -411,6 +415,4 @@ class TestCrossFileConsistency:
         for col, entries in observations.items():
             assert len(entries) >= 2, f"shared column {col!r} only seen in one file: {entries}"
             unique = {struct for _, struct in entries}
-            assert len(unique) == 1, (
-                f"structural metadata for {col!r} differs across files: {entries}"
-            )
+            assert len(unique) == 1, f"structural metadata for {col!r} differs across files: {entries}"

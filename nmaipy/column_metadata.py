@@ -84,9 +84,7 @@ PER_CLASS_LABELS: dict[str, str] = {
     "solar_panel": "solar panel",
 }
 
-_SCOPE_CLASS_LABELS_SIMPLE: dict[str, str] = {
-    f"primary_{cname}_": label for cname, label in PER_CLASS_LABELS.items()
-}
+_SCOPE_CLASS_LABELS_SIMPLE: dict[str, str] = {f"primary_{cname}_": label for cname, label in PER_CLASS_LABELS.items()}
 # Child-feature scope variants don't fit the per-class label layout above
 # (they refer to the parent feature, not the parcel). Keep these explicit.
 _SCOPE_CLASS_LABELS_SIMPLE.update(
@@ -288,22 +286,13 @@ def load_metadata(
 
     _validate(payload)
 
-    exact: dict[str, ColumnMeta] = {
-        name: _meta_from_json(entry) for name, entry in payload["exact_matches"].items()
-    }
+    exact: dict[str, ColumnMeta] = {name: _meta_from_json(entry) for name, entry in payload["exact_matches"].items()}
     patterns = tuple(
-        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p))
-        for p in payload["patterns"]
+        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p)) for p in payload["patterns"]
     )
-    legend = {
-        k: v
-        for k, v in payload.get("evidence_type_legend", {}).items()
-        if not k.startswith("_")
-    }
+    legend = {k: v for k, v in payload.get("evidence_type_legend", {}).items() if not k.startswith("_")}
     zone_distances = {
-        k: v
-        for k, v in payload.get("defensible_space_zone_distances", {}).items()
-        if not k.startswith("_")
+        k: v for k, v in payload.get("defensible_space_zone_distances", {}).items() if not k.startswith("_")
     }
     return exact, patterns, legend, zone_distances
 
@@ -348,18 +337,14 @@ def lookup_column(
     if area_unit:
         templated = name.replace(f"_{area_unit}", "_{unit}")
         if templated != name and templated in exact:
-            return _instantiate(
-                exact[templated], area_unit=area_unit, class_label=class_label, extra_groups=extras
-            )
+            return _instantiate(exact[templated], area_unit=area_unit, class_label=class_label, extra_groups=extras)
 
     # 2. Scope-stripped exact match.
     for scope_prefix in _SCOPE_PHRASES:
         if not name.startswith(scope_prefix):
             continue
-        remainder = name[len(scope_prefix):]
-        scoped_meta = _scope_stripped_lookup(
-            remainder, exact, area_unit, scope_prefix, class_label, extras
-        )
+        remainder = name[len(scope_prefix) :]
+        scoped_meta = _scope_stripped_lookup(remainder, exact, area_unit, scope_prefix, class_label, extras)
         if scoped_meta is not None:
             return scoped_meta
 
@@ -397,13 +382,9 @@ def lookup_column(
             if "roof_scope" in extra_groups:
                 rs = extra_groups["roof_scope"]
                 if rs == "primary_roof_":
-                    extra_groups["ds_scope_phrasing"] = (
-                        "around the primary roof on the parcel"
-                    )
+                    extra_groups["ds_scope_phrasing"] = "around the primary roof on the parcel"
                 elif rs == "aggregate_":
-                    extra_groups["ds_scope_phrasing"] = (
-                        "aggregated across all roofs on the parcel"
-                    )
+                    extra_groups["ds_scope_phrasing"] = "aggregated across all roofs on the parcel"
                 else:
                     extra_groups["ds_scope_phrasing"] = f"around this {class_label}"
             # Dominant-subject phrasing for ``<class>_dominant`` Y/N columns,
@@ -413,9 +394,7 @@ def lookup_column(
             # filename (per-class file = "this <thing>"; rollup unscoped = "the parcel").
             scope_for_subject = groups.get("scope") or ""
             if scope_for_subject in _SCOPE_CLASS_LABELS_SIMPLE:
-                extra_groups["dominant_subject"] = (
-                    f"the primary {_SCOPE_CLASS_LABELS_SIMPLE[scope_for_subject]}"
-                )
+                extra_groups["dominant_subject"] = f"the primary {_SCOPE_CLASS_LABELS_SIMPLE[scope_for_subject]}"
             elif class_label and class_label != "feature" and class_label != "parcel":
                 extra_groups["dominant_subject"] = f"this {class_label}"
             else:

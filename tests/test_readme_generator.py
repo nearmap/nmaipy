@@ -299,9 +299,7 @@ class TestColumnMetadataTables:
         them. Previously the README's bespoke renderer ignored these placeholders
         and shipped them literally to customers.
         """
-        rendered = _render_columns_table(
-            ["feature_id", "area_sqft"], area_unit="sqft", class_label="building"
-        )
+        rendered = _render_columns_table(["feature_id", "area_sqft"], area_unit="sqft", class_label="building")
         for row in rendered:
             assert "{" not in row, f"unsubstituted placeholder leaked: {row!r}"
 

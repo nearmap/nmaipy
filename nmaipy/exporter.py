@@ -94,6 +94,7 @@ from nmaipy.constants import (
     resolve_roof_age_dataset,
     wrong_unit_area_columns,
 )
+from nmaipy.data_dictionary_generator import DataDictionaryGenerator
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
     FALSE_STRING,
@@ -114,7 +115,6 @@ from nmaipy.parcels import (
     resolve_footprint_rsi,
     resolve_scores_with_bl_fallback,
 )
-from nmaipy.data_dictionary_generator import DataDictionaryGenerator
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
 
