@@ -152,8 +152,9 @@ class TestGenericPatterns:
 
     def test_present_pattern(self):
         meta = lookup_column("solar_present", area_unit="sqft")
-        assert meta.dtype == "Y/N"
+        assert meta.dtype == "binary"
         assert meta.allowed_values == "Y | N"
+        assert meta.min == "N" and meta.max == "Y"
 
     def test_confidence_includes_null_caveat(self):
         meta = lookup_column("tile_confidence", area_unit="sqft")

@@ -16,7 +16,7 @@
     "system_version": {
       "group": "common",
       "dtype": "string",
-      "unit": "gen{X}-{major}_{minor}-{api_version}",
+      "unit": "gen<N>-<release_name>-<api_version>",
       "description": "Base AI model version used for detection (applies to all columns with source = 'base ai model'). Example: `gen6-glowing_moon-1.0`. See https://help.nearmap.com/kb/articles/1629-generation-6-ai-content for details.",
       "source": "model metadata"
     },
@@ -280,7 +280,7 @@
       "group": "roof_age",
       "dtype": "string",
       "min": "A.0",
-      "unit": "{major}.{minor}",
+      "unit": "<major>.<minor>",
       "description": "Version of the roof age prediction model used.",
       "source": "model metadata"
     },
