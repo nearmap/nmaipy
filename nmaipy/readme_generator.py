@@ -26,6 +26,8 @@ from nmaipy.column_metadata import (
     evidence_type_legend,
     lookup_column,
 )
+from nmaipy.constants import NEAREST_TOLERANCE_METERS
+from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +142,7 @@ class ReadmeGenerator:
         sections.append(self._generate_header())
         sections.append(self._generate_files_table(files))
         sections.append(self._generate_classes_section(classes))
+        sections.append(self._generate_class_hierarchy_section(classes))
         sections.append(self._generate_column_patterns_section(classes, area_unit))
         sections.append(self._generate_common_columns_section())
 
@@ -290,8 +293,19 @@ class ReadmeGenerator:
         return "streetAddress" in columns or "query_aoi_lat" in columns
 
     def _has_dominant_columns(self, columns: set[str]) -> bool:
-        """Check if dominant material/shape summary columns are present."""
-        return any(c.startswith("dominant_roof_material_") or c.startswith("dominant_roof_types_") for c in columns)
+        """Check if dominant material/shape summary columns are present.
+
+        The rollup emits these columns under the ``primary_roof_`` scope (e.g.
+        ``primary_roof_dominant_roof_material_description``); per-class roof
+        files carry the same columns unscoped.
+        """
+        prefixes = (
+            "dominant_roof_material_",
+            "dominant_roof_types_",
+            "primary_roof_dominant_roof_material_",
+            "primary_roof_dominant_roof_types_",
+        )
+        return any(c.startswith(p) for c in columns for p in prefixes)
 
     def _has_rsi_columns(self, columns: set[str]) -> bool:
         """Check if Roof Spotlight Index columns are present."""
@@ -362,10 +376,86 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines.append("")
         return "\n".join(lines)
 
+    def _generate_class_hierarchy_section(self, classes: list[dict]) -> str:
+        """Generate the class hierarchy & relationships section.
+
+        Always renders the full canonical 4-layer hierarchy when at least one
+        of the structural classes (Building Lifecycle / Building / Roof /
+        Roof Instance) is present in the export. Unrelated exports (e.g.
+        vegetation-only) skip the section entirely.
+        """
+        structural_columns = {"building_lifecycle", "building", "roof", "roof_instance"}
+        present_columns = {c["column"] for c in classes}
+        if not (present_columns & structural_columns):
+            return ""
+
+        # Canonical hierarchy. Edge labels reflect the API's actual linkage
+        # mechanism between adjacent layers; render in full so customers see
+        # the conceptual structure even when their export only includes some
+        # of the layers.
+        layers = [
+            ("building_lifecycle", "Building Lifecycle", "stable building identity, linked across surveys", "parent_id"),
+            ("building", "Building", "building footprint", "spatial IoU"),
+            ("roof", "Roof", "roof footprint", "spatial IoU"),
+            ("roof_instance", "Roof Instance", "roof clipped to parcel — the unit roof age is reported on", None),
+        ]
+        max_label_len = max(len(label) for _, label, _, _ in layers)
+        tree_lines: list[str] = []
+        for i, (_, label, note, edge) in enumerate(layers):
+            tree_lines.append(f"  {label.ljust(max_label_len)}  ({note})")
+            if edge is not None:
+                tree_lines.append(f"  {' ' * max_label_len}    │  {edge}")
+                tree_lines.append(f"  {' ' * max_label_len}    ▼")
+
+        bullets = [
+            "- **Building Lifecycle ↔ Building** is a 1-hop traversal of the API's `parent_id`.",
+            "- **Building ↔ Roof** and **Roof ↔ Roof Instance** use spatial Intersection over "
+            "Union (IoU), not `parent_id`. The roof's API `parentId` points to a deprecated "
+            "Building class, so nmaipy re-links via geometry, with an IoU-based threshold to "
+            "assign a parent.",
+            "- Each parent feature gets a `primary_child_*_id` (the child with the highest IoU); "
+            "each child gets a `parent_*_id`.",
+            "- When the primary roof has structural damage that masks its polygon, RSI and "
+            "similar scores fall back through Roof → Building → Building Lifecycle.",
+        ]
+
+        lines = [
+            "## Class Hierarchy & Relationships",
+            "",
+            "nmaipy connects structural classes so that primary-feature columns and per-class "
+            "files can be cross-referenced. The canonical hierarchy is shown below; only the "
+            "layers actually requested in your export will have corresponding files in `final/`.",
+            "",
+            "```",
+            *tree_lines,
+            "```",
+            "",
+            "**How the layers are linked:**",
+            "",
+            *bullets,
+            "",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _hierarchy_edge_label(parent_col: str, child_col: str) -> str:
+        """Return the link-mechanism label for a parent → child edge in the hierarchy tree."""
+        if parent_col == "building_lifecycle" and child_col == "building":
+            return "parent_id"
+        return "spatial IoU"
+
     def _generate_column_patterns_section(self, classes: list[dict], area_unit: str) -> str:
         """Generate the column naming patterns section."""
         # Get first class for examples, default to 'roof'
         example_class = classes[0]["column"] if classes else "roof"
+        # Fidelity is only populated on roof / building / building_under_construction;
+        # pick a class from this set for the fidelity rows so the example is real.
+        # Fall back to "roof" (still illustrative even if not present in the export).
+        present_columns = {c["column"] for c in classes}
+        fidelity_example = next(
+            (c for c in ("roof", "building", "building_under_construction") if c in present_columns),
+            "roof",
+        )
 
         # Get primary selection method from export config
         config = self._load_export_config()
@@ -378,6 +468,29 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "largest_intersection": "largest intersection area with parcel",
         }
         method_desc = method_descriptions.get(primary_method, primary_method)
+
+        # Detailed algorithm prose per method. Numeric thresholds bind to the
+        # actual code constants so the rendered README stays in sync if those
+        # defaults ever change.
+        small = BUILDING_SMALL_MAX_AREA_SQM
+        tol = NEAREST_TOLERANCE_METERS
+        method_logic = {
+            "optimal": (
+                "First tries to select the feature whose footprint contains the input geocoded "
+                f"point, or the nearest feature within {tol:g} m of it, preferring features above "
+                f"{small:g} m² to avoid sheds and other small outbuildings. If no feature qualifies "
+                "(e.g. the point falls in open space or no point was provided), falls back to the "
+                "feature with the largest area in the parcel."
+            ),
+            "nearest": (
+                "Selects the feature whose footprint contains the input geocoded point, or the "
+                f"nearest feature within {tol:g} m of it, preferring features above {small:g} m² "
+                "to avoid sheds and other small outbuildings. Returns no primary feature if "
+                "neither condition is met."
+            ),
+            "largest_intersection": ("Selects the feature with the largest area in the parcel."),
+        }
+        method_paragraph = method_logic.get(primary_method, "")
         u = area_unit
         u_long = _AREA_UNIT_LONG_NAMES.get(u, u)
 
@@ -392,23 +505,25 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "|---------|---------|------|-----|-----|------|-------------|",
             f"| `{{class}}_present` | `{example_class}_present` | Y/N | — | — | — | Feature was detected |",
             f"| `{{class}}_count` | `{example_class}_count` | int | 0 | — | — | Number of features detected |",
-            f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Combined confidence score |",
+            f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Combined confidence score indicating likelihood that any features of this class are present |",
             f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | float | 0 | — | {u_long} | Total area of all features |",
             f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | float | 0 | — | {u_long} | Total area clipped to parcel boundary |",
             f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | float | 0 | — | {u_long} | Total unclipped feature area |",
-            f"| `{{class}}_fidelity` | `{example_class}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
+            f"| `{{class}}_fidelity` | `{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
             "",
             "### Primary Feature Columns",
             "",
-            f"The **{method_desc}** feature of each class has additional `primary_` columns:",
+            f"The **{method_desc}** feature of each class has additional `primary_` columns.",
+            "",
+            f"**How the primary feature is selected ({primary_method}):** {method_paragraph}",
             "",
             "| Pattern | Example | Type | Min | Max | Unit | Description |",
             "|---------|---------|------|-----|-----|------|-------------|",
             f"| `primary_{{class}}_area_{u}` | `primary_{example_class}_area_{u}` | float | 0 | — | {u_long} | Area of primary feature |",
             f"| `primary_{{class}}_clipped_area_{u}` | `primary_{example_class}_clipped_area_{u}` | float | 0 | — | {u_long} | Clipped area of primary feature |",
-            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Confidence of primary feature |",
-            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | Unique ID of primary feature |",
-            f"| `primary_{{class}}_fidelity` | `primary_{example_class}_fidelity` | float | 0.0 | 1.0 | — | Detection fidelity score |",
+            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Calibrated confidence measuring likelihood that the primary feature exists |",
+            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | Unique ID of primary feature (does not persist across surveys) |",
+            f"| `primary_{{class}}_fidelity` | `primary_{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
             "",
         ]
 
@@ -444,7 +559,17 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines = [
             "## Dominant Roof Material & Shape Columns",
             "",
-            "These columns summarise the dominant (largest area) roof material and shape for the primary roof:",
+            "These columns summarise the dominant roof material and shape for the primary roof.",
+            "",
+            "**How dominant is computed.** Each roof is decomposed into material and shape "
+            "components (each with a class, area, and ratio of the roof's total area). The "
+            "**dominant** component is the one with the highest ratio. For **materials**, the "
+            "dominant material is reported only when its ratio is at least 0.5; below that "
+            "threshold the column is `unknown`. For **shapes**, the same \"highest ratio wins\" "
+            "rule applies but no ratio threshold is enforced — a shape is dominant if it has the "
+            "highest ratio *and* a non-zero area; otherwise `unknown`. (Shape ratios can overlap "
+            "or gap and do not sum to 1, which is why no shape ratio column is emitted.) "
+            "Deprecated `flat (deprecated)` and `shed` shape classes are excluded from selection.",
             "",
             "### Dominant Material",
             "",
