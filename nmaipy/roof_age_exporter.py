@@ -619,7 +619,9 @@ class RoofAgeExporter(BaseExporter):
             if self.output_format in ["geoparquet", "both"]:
                 roofs_path = storage.join_path(output_path, "roofs.parquet")
                 self.logger.info(f"Saving {len(roofs_gdf)} roofs to {roofs_path}")
-                storage.write_parquet(roofs_gdf, roofs_path, index=True)
+                # aoi_id is already a column, so don't also write the RangeIndex
+                # (it would surface as a vestigial __index_level_0__ column).
+                storage.write_parquet(roofs_gdf, roofs_path, index=False)
 
             if self.output_format in ["csv", "both"]:
                 roofs_path = storage.join_path(output_path, "roofs.csv")

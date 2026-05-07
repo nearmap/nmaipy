@@ -254,7 +254,6 @@ The exporter writes results to `{output_dir}/final/` with the following structur
 | `{class}.csv` | Per-class attribute tables (e.g. `roof.csv`, `building.csv`) |
 | `{class}_features.parquet` | Per-class GeoParquet with feature geometries (when `save_features=True`) |
 | `features.parquet` | All features combined as GeoParquet (when `save_features=True`) |
-| `buildings.csv` or `.parquet` | Per-building detail rows (when `save_buildings=True`) |
 | `feature_api_errors.csv` | AOIs where the Feature API returned errors |
 | `roof_age_errors.csv` | AOIs where the Roof Age API returned errors (US only) |
 | `latency_stats.csv` | API timing diagnostics |
@@ -352,8 +351,7 @@ Key options:
 - `--roof-age`: Include Roof Age API data (US only)
 - `--roof-age-dataset`: Roof Age dataset to query when `--roof-age` is set. Aliases `latest` (default — pointer maintained by the API team, currently serving A.0), `A.0`, `A.1`; any other value is sent to the API as a literal resource UUID, so newly published datasets can be targeted without a code change. Note that the dataset alias is not the same thing as the model version: each row's `model_version` field records which model produced that record, and is the source of truth when reasoning about model behaviour
 - `--save-features`: Save per-class GeoParquet files with feature geometries
-- `--save-buildings`: Save per-building detail rows
-- `--tabular-file-format`: Format for tabular output files — rollup, buildings, and per-class attribute files (`csv` or `parquet`, default: `csv`)
+- `--tabular-file-format`: Format for tabular output files — rollup and per-class attribute files (`csv` or `parquet`, default: `csv`)
 - `--cache-dir`: Directory for caching API responses
 - `--no-cache`: Disable caching entirely
 - `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)

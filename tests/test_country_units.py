@@ -3,12 +3,11 @@ Tests for country-aware unit emission across per-feature exports.
 
 The Feature API returns both metric and imperial area columns; per-feature exports
 should keep only the country-correct family (matching rollup behaviour). These tests
-verify the four sites that the fix touches:
+verify the three sites that the fix touches:
 
 1. constants helpers — `country_area_suffix`, `wrong_unit_area_columns`.
 2. Per-class assembler in `_compute_feature_class_data` (US: sqft only, AU: sqm only).
-3. `extract_building_features` populates only the country-correct columns.
-4. `flatten_roof_attributes` clipping detection works for US (regression test for the
+3. `flatten_roof_attributes` clipping detection works for US (regression test for the
    previously latent metric-only hardcoding bug).
 """
 
@@ -33,7 +32,6 @@ from nmaipy.constants import (
 )
 from nmaipy.exporter import _add_is_primary_column, _compute_all_per_class_data
 from nmaipy.feature_attributes import flatten_roof_attributes
-from nmaipy.parcels import extract_building_features
 
 # ---------------------------------------------------------------------------
 # 1. Constants helpers
@@ -162,59 +160,7 @@ def test_roof_instance_per_class_export_emits_only_country_unit(country, kept, d
 
 
 # ---------------------------------------------------------------------------
-# 3. Buildings extract
-# ---------------------------------------------------------------------------
-
-
-def _building_features_and_parcels():
-    """Minimal features_gdf + parcels_gdf for extract_building_features."""
-    polygon = box(-111.89, 40.76, -111.8895, 40.7605)
-    features = pd.DataFrame(
-        [
-            {
-                "feature_id": "bld-1",
-                "class_id": BUILDING_NEW_ID,
-                "description": "Building",
-                "confidence": 0.9,
-                "fidelity": 0.95,
-                "area_sqm": 200.0,
-                "clipped_area_sqm": 180.0,
-                "unclipped_area_sqm": 200.0,
-                "area_sqft": 2153.0,
-                "clipped_area_sqft": 1937.0,
-                "unclipped_area_sqft": 2153.0,
-                "survey_date": "2024-01-01",
-                "mesh_date": "2024-01-01",
-                "geometry": polygon,
-                "is_primary": True,
-            }
-        ],
-        index=pd.Index(["aoi-1"], name=AOI_ID_COLUMN_NAME),
-    )
-    features_gdf = gpd.GeoDataFrame(features, geometry="geometry", crs=API_CRS)
-    parcels_gdf = gpd.GeoDataFrame(
-        {"geometry": [polygon]},
-        index=pd.Index(["aoi-1"], name=AOI_ID_COLUMN_NAME),
-        crs=API_CRS,
-    )
-    return features_gdf, parcels_gdf
-
-
-@pytest.mark.parametrize("country,kept,dropped", [("us", "sqft", "sqm"), ("au", "sqm", "sqft")])
-def test_extract_building_features_emits_only_country_unit(country, kept, dropped):
-    features_gdf, parcels_gdf = _building_features_and_parcels()
-    out = extract_building_features(parcels_gdf=parcels_gdf, features_gdf=features_gdf, country=country)
-    cols = set(out.columns)
-    assert f"area_{kept}" in cols
-    assert f"clipped_area_{kept}" in cols
-    assert f"unclipped_area_{kept}" in cols
-    assert f"area_{dropped}" not in cols
-    assert f"clipped_area_{dropped}" not in cols
-    assert f"unclipped_area_{dropped}" not in cols
-
-
-# ---------------------------------------------------------------------------
-# 4. Clipping detection regression test (real bug fix)
+# 3. Clipping detection regression test (real bug fix)
 # ---------------------------------------------------------------------------
 
 

@@ -5,264 +5,60 @@ present in an export directory, rather than using a static template.
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
 import pyarrow.parquet as pq
 
-from nmaipy import storage
+from nmaipy import output_files, storage
 from nmaipy.__version__ import __version__
+from nmaipy.column_metadata import (
+    ADDRESS_QUERY_COLUMNS,
+    COMMON_COLUMNS,
+    DEFENSIBLE_SPACE_ZONE_COLUMNS,
+    DOMINANT_ROOF_MATERIAL_COLUMNS,
+    DOMINANT_ROOF_TYPES_COLUMNS,
+    ROOF_AGE_COLUMNS,
+    RSI_COLUMNS,
+    evidence_type_legend,
+    lookup_column,
+)
 
-# Known output filenames mapped to descriptions.
-FILE_PATTERNS = {
-    "rollup.csv": "Property-level summary with one row per property containing aggregated statistics",
-    "rollup.parquet": "Property-level summary with one row per property containing aggregated statistics (Parquet format)",
-    "features.parquet": "All detected features with geometry (GeoParquet)",
-    "feature_api_errors.csv": "Properties where Feature API calls failed",
-    "feature_api_errors.parquet": "Feature API errors with geometry (GeoParquet)",
-    "roof_age_errors.csv": "Properties where Roof Age API calls failed",
-    "roof_age_errors.parquet": "Roof Age API errors with geometry (GeoParquet)",
-    "latency_stats.csv": "API call timing statistics",
-    "buildings.csv": "Building-level summary data",
-    "buildings.parquet": "Building-level summary data (Parquet format)",
-}
+logger = logging.getLogger(__name__)
 
-# Files to exclude from documentation
-EXCLUDE_FILES = {"README.md", ".DS_Store", "export_config.json"}
+# Files always skipped from the README's file listing.
+_NEVER_LIST = {"README.md", ".DS_Store"}
 
-# ---------------------------------------------------------------------------
-# Column metadata schema
-# ---------------------------------------------------------------------------
-# Each entry is a (dtype, min, max, unit, description) tuple. The render
-# helpers emit a 6-column markdown table:
-# | Column | Type | Min | Max | Unit | Description |.
-#
-# Min and Max are stored as strings so the `—` sentinel can mean "no bound /
-# not applicable" alongside actual numeric bounds.
-#
-# Conventions:
-#   - dtype: short type label — int, float, string, Y/N, date, JSON, UUID,
-#            URL, WKT. Use "float (quantised uint8)" for confidence scores
-#            since the wire format is uint8 even though the value space is
-#            documented as a 0.0–1.0 fraction.
-#   - min / max: numerical lower / upper bound as strings, or "—" when no
-#            bound applies (strings, IDs, unbounded counts).
-#   - unit:  physical unit — "{unit_name}" for area columns (substituted with
-#            "square feet" or "square metres" depending on country), "years",
-#            "degrees", or "—" when unitless.
-#   - description: short human-readable description (no inline range/unit;
-#            the dedicated columns already carry that info). For enums, the
-#            allowed values go in the description.
-# ---------------------------------------------------------------------------
-
-# Common columns always present
-COMMON_COLUMNS = {
-    "aoi_id": (
-        "string \\| int",
-        "—",
-        "—",
-        "—",
-        "Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).",
-    ),
-    "mesh_date": ("date", "—", "—", "—", "Date of AI model processing"),
-    "system_version": ("string", "—", "—", "—", "AI model version used for detection"),
-    "link": ("URL", "—", "—", "—", "URL to view property in Nearmap MapBrowser"),
-}
-
-# Address and query columns produced by nmaipy
-ADDRESS_QUERY_COLUMNS = {
-    "streetAddress": ("string", "—", "—", "—", "Street address from input (used for address-based API queries)"),
-    "city": ("string", "—", "—", "—", "City from input (used for address-based API queries)"),
-    "state": ("string", "—", "—", "—", "State from input (used for address-based API queries)"),
-    "zip": ("string", "—", "—", "—", "ZIP/postal code from input (used for address-based API queries)"),
-    "query_aoi_lat": ("float", "−90.0", "90.0", "degrees", "Representative latitude of the query AOI geometry"),
-    "query_aoi_lon": ("float", "−180.0", "180.0", "degrees", "Representative longitude of the query AOI geometry"),
-    "lat": ("float", "−90.0", "90.0", "degrees", "Input latitude used for primary feature selection"),
-    "lon": ("float", "−180.0", "180.0", "degrees", "Input longitude used for primary feature selection"),
-}
-
-# Roof Spotlight Index columns
-RSI_COLUMNS = {
-    "roof_spotlight_index": ("float", "0", "100", "—", "Roof condition score (higher = better condition)"),
-    "roof_spotlight_index_confidence": (
-        "float (quantised uint8)",
-        "0.0",
-        "1.0",
-        "—",
-        "Confidence in RSI score",
-    ),
-}
-
-# Dominant material/shape summary columns
-DOMINANT_ROOF_MATERIAL_COLUMNS = {
-    "dominant_roof_material_feature_class": (
-        "UUID",
-        "—",
-        "—",
-        "—",
-        "Feature class UUID of the dominant roof material",
-    ),
-    "dominant_roof_material_description": (
-        "string",
-        "—",
-        "—",
-        "—",
-        "Snake_case name of the `description` field of the dominant material feature class (or `unknown` if ratio < 0.5)",
-    ),
-    "dominant_roof_material_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Area of the dominant material component",
-    ),
-    "dominant_roof_material_ratio": (
-        "float",
-        "0.0",
-        "1.0",
-        "—",
-        "Ratio of the dominant material relative to total roof area",
-    ),
-    "dominant_roof_material_confidence": (
-        "float (quantised uint8)",
-        "0.0",
-        "1.0",
-        "—",
-        "Confidence in the dominant material classification",
-    ),
-}
-
-DOMINANT_ROOF_TYPES_COLUMNS = {
-    "dominant_roof_types_feature_class": (
-        "UUID",
-        "—",
-        "—",
-        "—",
-        "Feature class UUID of the dominant roof shape",
-    ),
-    "dominant_roof_types_description": (
-        "string",
-        "—",
-        "—",
-        "—",
-        "Snake_case name of the `description` field of the dominant shape feature class (or `unknown` if no detected area)",
-    ),
-    "dominant_roof_types_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Area of the dominant shape component",
-    ),
-    "dominant_roof_types_confidence": (
-        "float (quantised uint8)",
-        "0.0",
-        "1.0",
-        "—",
-        "Confidence in the dominant shape classification",
-    ),
-}
-
-# Defensible Space columns (per zone, on primary roof and aggregate)
-DEFENSIBLE_SPACE_ZONE_COLUMNS = {
-    "zone_area_{unit}": ("float", "0", "—", "{unit_name}", "Total area of the zone around the structure"),
-    "defensible_space_area_{unit}": ("float", "0", "—", "{unit_name}", "Clear/defensible area within the zone"),
-    "coverage_ratio": ("float", "0.0", "1.0", "—", "Fraction of zone that is defensible"),
-    "risk_object_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Total area of all risk objects within the zone",
-    ),
-    "medium_and_high_vegetation_with_woody_vegetation_area_{unit}": (
-        "float",
-        "0",
-        "—",
-        "{unit_name}",
-        "Area of medium/high woody vegetation in the zone",
-    ),
-    "medium_and_high_vegetation_with_woody_vegetation_ratio": (
-        "float",
-        "0.0",
-        "1.0",
-        "—",
-        "Ratio of medium/high woody vegetation to zone area",
-    ),
-    "roof_area_{unit}": ("float", "0", "—", "{unit_name}", "Area of neighbouring roof structures in the zone"),
-    "roof_ratio": ("float", "0.0", "1.0", "—", "Ratio of neighbouring roof area to zone area"),
-    "yard_debris_area_{unit}": ("float", "0", "—", "{unit_name}", "Area of yard debris in the zone"),
-    "yard_debris_ratio": ("float", "0.0", "1.0", "—", "Ratio of yard debris to zone area"),
-}
-
-ROOF_AGE_COLUMNS = {
-    "roof_age_installation_date": ("date", "—", "—", "—", "Estimated roof installation date"),
-    "roof_age_as_of_date": ("date", "—", "—", "—", "Reference date for age calculation"),
-    "roof_age_years_as_of_date": ("float", "0", "—", "years", "Calculated roof age in years"),
-    "roof_age_trust_score": ("int", "0", "100", "—", "Reliability of age estimate (higher = more reliable)"),
-    "roof_age_evidence_type": ("int", "0", "8", "—", "How age was determined (numeric code; see legend below)"),
-    "roof_age_evidence_type_description": ("string", "—", "—", "—", "Human-readable evidence description"),
-    "roof_age_before_installation_capture_date": ("date", "—", "—", "—", "Last capture before roof installation"),
-    "roof_age_after_installation_capture_date": ("date", "—", "—", "—", "First capture after roof installation"),
-    "roof_age_min_capture_date": ("date", "—", "—", "—", "Earliest imagery capture date analyzed"),
-    "roof_age_max_capture_date": ("date", "—", "—", "—", "Latest imagery capture date analyzed"),
-    "roof_age_number_of_captures": ("int", "0", "—", "—", "Number of aerial captures analyzed"),
-    "roof_age_map_browser_url": ("URL", "—", "—", "—", "URL to view roof age timeline in MapBrowser"),
-    "roof_age_model_version": ("string", "—", "—", "—", "Version of the roof age prediction model used"),
-    "roof_age_kind": (
-        "string",
-        "—",
-        "—",
-        "—",
-        "Type of estimate. One of `roof` (roof section) or `parcel` (property-level).",
-    ),
-    "roof_age_relevant_permits": ("Y/N", "—", "—", "—", "Whether relevant building permits were found"),
-    "roof_age_relevant_permits_details": (
-        "JSON",
-        "—",
-        "—",
-        "—",
-        "Details of relevant building permits (present when permits found)",
-    ),
-    "roof_age_assessor_data": ("Y/N", "—", "—", "—", "Whether assessor records were found"),
-    "roof_age_assessor_data_details": (
-        "JSON",
-        "—",
-        "—",
-        "—",
-        "Details of assessor records (present when records found)",
-    ),
-}
-
-
-# Long-form unit names paired with their short column-suffix form.
-# Used by `_render_columns_table` to substitute the `{unit_name}` placeholder
-# in the Unit column based on the country's area unit.
 _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 
 
-def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
-    """Render a column metadata dict as a 6-column markdown table.
+def _render_columns_table(
+    column_names: Iterable[str], area_unit: str = "", class_label: str = "parcel"
+) -> list[str]:
+    """Render the named columns as a 6-column markdown table.
 
-    Each ``columns`` entry is ``(dtype, min, max, unit, description)``. Two
-    placeholders are substituted at render time:
-      - ``{unit}`` (in column names, descriptions): replaced with the country's
-        area-column suffix (``sqft``/``sqm``).
-      - ``{unit_name}`` (in the Unit field): replaced with the country's
-        spelled-out area unit (``square feet`` / ``square metres``).
+    Each name is resolved via ``column_metadata.lookup_column`` so that
+    ``{unit}`` / ``{class_label}`` / ``{scope_phrase}`` substitution stays
+    consistent with the data dictionary. Templated names (``area_{unit}``)
+    are resolved against ``area_unit`` before lookup; empty min/max/unit
+    fields render as ``—``.
     """
     lines = [
         "| Column | Type | Min | Max | Unit | Description |",
         "|--------|------|-----|-----|------|-------------|",
     ]
-    unit_name = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
-    for col, meta in columns.items():
-        dtype, mn, mx, unit, desc = meta
-        col_rendered = col.replace("{unit}", area_unit)
-        unit_rendered = unit.replace("{unit_name}", unit_name)
-        desc_rendered = desc.replace("{unit}", area_unit)
-        lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit_rendered} | {desc_rendered} |")
+    for raw_name in column_names:
+        resolved_name = raw_name.replace("{unit}", area_unit)
+        meta = lookup_column(resolved_name, area_unit=area_unit, class_label=class_label)
+        dtype = meta.dtype or "—"
+        mn = meta.min or "—"
+        mx = meta.max or "—"
+        unit = meta.unit or "—"
+        desc = meta.description or ""
+        lines.append(f"| `{resolved_name}` | {dtype} | {mn} | {mx} | {unit} | {desc} |")
     return lines
 
 
@@ -366,13 +162,23 @@ class ReadmeGenerator:
         return "\n".join(sections)
 
     def _discover_files(self) -> list[str]:
-        """Discover all files in the final/ directory, excluding certain files."""
+        """List files in ``final/`` worth showing in the README's file table.
+
+        Inclusion is governed by the ``output_files`` registry's
+        ``list_in_readme`` flag; ``_NEVER_LIST`` covers files outside the
+        registry. Unrecognised files are listed with a generic description so
+        unexpected outputs are visible.
+        """
         all_files = storage.glob_files(self.final_dir, "*")
         files = []
         for f in sorted(all_files):
             name = storage.basename(f)
-            if name not in EXCLUDE_FILES:
-                files.append(f)
+            if name in _NEVER_LIST:
+                continue
+            spec = output_files.file_spec_for(name)
+            if spec is not None and not spec.list_in_readme:
+                continue
+            files.append(f)
         return files
 
     def _detect_classes(self, files: list[str]) -> list[dict]:
@@ -387,7 +193,6 @@ class ReadmeGenerator:
             "feature_api_errors",
             "roof_age_errors",
             "latency_stats",
-            "buildings",
         }
         classes = []
         seen = set()
@@ -532,24 +337,11 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         return "\n".join(lines)
 
     def _get_file_description(self, filename: str) -> str:
-        """Get description for a file based on exact filename or pattern matching."""
-        if filename in FILE_PATTERNS:
-            return FILE_PATTERNS[filename]
-
-        # Per-class feature geometry files: {class}_features.parquet
-        if filename.endswith("_features.parquet"):
-            class_name = filename[: -len("_features.parquet")].replace("_", " ").title()
-            return f"{class_name} polygons with geometry (GeoParquet)"
-
-        # Per-class attribute files: {class}.csv or {class}.parquet
-        if filename.endswith(".csv"):
-            class_name = filename[: -len(".csv")].replace("_", " ").title()
-            return f"Per-{class_name.lower()} data with feature attributes"
-
-        if filename.endswith(".parquet") and not filename.endswith("_features.parquet"):
-            class_name = filename[: -len(".parquet")].replace("_", " ").title()
-            return f"Per-{class_name.lower()} data with feature attributes (Parquet format)"
-
+        """Description for ``filename`` from the registry, or a generic fallback."""
+        spec = output_files.file_spec_for(filename)
+        if spec is not None:
+            return spec.description
+        logger.debug("No registry entry for %r; using generic description.", filename)
         return "Export data file"
 
     def _generate_classes_section(self, classes: list[dict]) -> str:
@@ -630,20 +422,20 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "These columns appear in most output files:",
             "",
-            *_render_columns_table(COMMON_COLUMNS),
+            *_render_columns_table(COMMON_COLUMNS.keys()),
             "",
         ]
         return "\n".join(lines)
 
     def _generate_address_query_section(self, rollup_columns: set[str]) -> str:
         """Generate the address/query columns section."""
-        present_cols = {col: meta for col, meta in ADDRESS_QUERY_COLUMNS.items() if col in rollup_columns}
+        present = [col for col in ADDRESS_QUERY_COLUMNS if col in rollup_columns]
         lines = [
             "## Address & Query Columns",
             "",
             "These columns are present based on the query mode used:",
             "",
-            *_render_columns_table(present_cols),
+            *_render_columns_table(present),
             "",
         ]
         return "\n".join(lines)
@@ -657,13 +449,13 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "### Dominant Material",
             "",
-            *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS, area_unit),
+            *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS.keys(), area_unit),
             "",
             "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
             "",
             "### Dominant Shape",
             "",
-            *_render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS, area_unit),
+            *_render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS.keys(), area_unit),
             "",
             "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
             "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
@@ -678,7 +470,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "RSI provides a roof condition assessment score:",
             "",
-            *_render_columns_table(RSI_COLUMNS),
+            *_render_columns_table(RSI_COLUMNS.keys()),
         ]
 
         lines.append(
@@ -753,34 +545,47 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             )
             lines.append("")
 
-        lines.extend(_render_columns_table(ROOF_AGE_COLUMNS))
+        lines.extend(_render_columns_table(ROOF_AGE_COLUMNS.keys()))
 
+        # Evidence Type legend — sourced from column_metadata.json so the README
+        # and any downstream consumers see the same descriptions.
+        legend = evidence_type_legend()
+        lines.append("")
+        lines.append("**Evidence Type code → description:**")
+        lines.append("")
+        for code in sorted(legend, key=int):
+            lines.append(f"- **Type {code}**: {legend[code]}")
+        lines.append("")
         lines.append(
-            """
-**Evidence Type (0-8):**
-- **Type 8**: Multiple clear images with detected roof change, plus corroborating permits/assessor data
-- **Type 7**: Multiple clear images with detected roof change, no corroborating data
-- **Type 6**: Multiple clear images, no change detected but other strong evidence
-- **Type 2**: No clear imagery, but building permits or assessor records available
-- **Type 0**: Minimal supporting evidence
-
-Higher evidence types indicate more robust information sources.
-
-**Trust Score (0-100):**
-- Higher scores indicate more reliable estimates
-- Based on evidence quality (permits, imagery change detection, number of captures)
-
-For more details, see:
-- https://help.nearmap.com/kb/articles/1810-nearmap-roof-age
-- https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score
-"""
+            "Higher evidence types indicate more robust information sources. "
+            "**Trust Score (0-100)** quantifies reliability based on the same evidence "
+            "quality factors (imagery, permits, change detection, capture count)."
         )
+        lines.append("")
+        lines.append("For more details, see:")
+        lines.append("- https://help.nearmap.com/kb/articles/1810-nearmap-roof-age")
+        lines.append("- https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score")
+        lines.append("")
 
         return "\n".join(lines)
 
     def _generate_defensible_space_section(self, area_unit: str) -> str:
         """Generate the Defensible Space columns section."""
         u = area_unit
+        # Zone 0 is shown as a representative example; the API returns zones 0/1/2.
+        example_columns = [
+            f"primary_roof_defensible_space_zone_0_zone_area_{u}",
+            f"primary_roof_defensible_space_zone_0_defensible_space_area_{u}",
+            "primary_roof_defensible_space_zone_0_coverage_ratio",
+            f"primary_roof_defensible_space_zone_0_risk_object_area_{u}",
+            f"primary_roof_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_{u}",
+            "primary_roof_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_ratio",
+            f"primary_roof_defensible_space_zone_0_roof_area_{u}",
+            "primary_roof_defensible_space_zone_0_roof_ratio",
+            f"primary_roof_defensible_space_zone_0_yard_debris_area_{u}",
+            "primary_roof_defensible_space_zone_0_yard_debris_ratio",
+            "defensible_space_model_version",
+        ]
         lines = [
             "## Defensible Space Columns",
             "",
@@ -801,9 +606,9 @@ For more details, see:
             "| `primary_roof_defensible_space_zone_{N}_` | Defensible space for the primary roof feature only |",
             "| `aggregate_defensible_space_zone_{N}_` | Defensible space aggregated across the entire parcel (all structures) |",
             "",
-            "### Columns Per Zone",
+            "### Columns Per Zone (illustrated for zone 0; analogous columns exist for zones 1 and 2)",
             "",
-            *_render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS, u),
+            *_render_columns_table(example_columns, u),
         ]
 
         lines.append(

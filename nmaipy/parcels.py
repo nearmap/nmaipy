@@ -73,7 +73,6 @@ logger = log.get_logger()
 __all__ = [
     "read_from_file",
     "parcel_rollup",
-    "extract_building_features",
     "feature_attributes",
     "link_roof_instances_to_roofs",
     "link_roofs_to_buildings",
@@ -1276,112 +1275,6 @@ def feature_attributes(
                     parcel[f"{field}_area_weighted_mean"] = float(np.dot(arr, a) / t)
 
     return parcel
-
-
-def extract_building_features(
-    parcels_gdf: gpd.GeoDataFrame,
-    features_gdf: gpd.GeoDataFrame,
-    country: str,
-) -> gpd.GeoDataFrame:
-    """
-    Extract building-related features and their attributes to create a building-level export. Note that this gets all building like features, not strictly buildings.
-
-    Args:
-        parcels_gdf: GeoDataFrame with AOI information
-        features_gdf: GeoDataFrame with all features
-        country: Country code for units
-
-    Returns:
-        GeoDataFrame with one row per building style feature, including geometry and attributes
-    """
-    if features_gdf is None or len(features_gdf) == 0:
-        return gpd.GeoDataFrame()
-
-    # Filter for building-style features only
-    building_gdf = features_gdf[features_gdf.class_id.isin(BUILDING_STYLE_CLASS_IDS)].copy()
-
-    if len(building_gdf) == 0:
-        return gpd.GeoDataFrame()
-
-    # Create a list to store processed building records
-    building_records = []
-
-    # Process each building feature
-    for idx, building in building_gdf.iterrows():
-        # Get AOI ID
-        aoi_id = building.name if hasattr(building, "name") else idx
-
-        # Start with basic feature info. Emit only the country-correct unit family,
-        # matching rollup behaviour.
-        suffix = country_area_suffix(country)
-        area_col = f"area_{suffix}"
-        clipped_col = f"clipped_area_{suffix}"
-        unclipped_col = f"unclipped_area_{suffix}"
-        building_record = {
-            AOI_ID_COLUMN_NAME: aoi_id,
-            "feature_id": building.feature_id,
-            "class_id": building.class_id,
-            "description": building.description,
-            "confidence": building.confidence,
-            "fidelity": building.fidelity if hasattr(building, "fidelity") else None,
-            area_col: getattr(building, area_col, None),
-            clipped_col: getattr(building, clipped_col, None),
-            unclipped_col: getattr(building, unclipped_col, None),
-            "survey_date": (building.survey_date if hasattr(building, "survey_date") else None),
-            "mesh_date": building.mesh_date if hasattr(building, "mesh_date") else None,
-            "geometry": building.geometry,
-            "is_primary": (building.is_primary if hasattr(building, "is_primary") else False),
-        }
-        if hasattr(building, "parent_id"):
-            building_record["parent_id"] = building.parent_id
-
-        # Preserve damage field for building lifecycle features
-        if hasattr(building, "damage") and building.damage is not None:
-            building_record["damage"] = building.damage
-
-        # Flatten attributes based on the class type
-        try:
-            if building.class_id == ROOF_ID:
-                # For roof attributes, don't wrap in a list if it's already a list
-                # This is the key fix - roof attributes should be processed as they are
-                if isinstance(building, list):
-                    flat_attrs = flatten_roof_attributes(building, country=country)
-                else:
-                    flat_attrs = flatten_roof_attributes([building], country=country)
-
-                for k, v in flat_attrs.items():
-                    building_record[k] = v
-            elif building.class_id == BUILDING_NEW_ID:
-                flat_attrs = flatten_building_attributes([building], country=country)
-                for k, v in flat_attrs.items():
-                    building_record[k] = v
-            elif building.class_id == BUILDING_LIFECYCLE_ID:
-                flat_attrs = flatten_building_lifecycle_damage_attributes([building])
-                for k, v in flat_attrs.items():
-                    building_record[k] = v
-        except Exception as e:
-            # If any issues processing attributes, log and continue
-            logger.warning(f"Error processing attributes for feature {building.feature_id}: {str(e)}")
-
-        building_records.append(building_record)
-
-    if not building_records:
-        return gpd.GeoDataFrame()
-
-    # Create GeoDataFrame from building records
-    buildings_df = gpd.GeoDataFrame(building_records, geometry="geometry", crs=API_CRS)
-
-    # Add AOI information if available (merge on AOI ID)
-    if parcels_gdf is not None:
-        # Identify columns from parcels_gdf to include (exclude geometry to avoid conflicts)
-        parcel_cols = [col for col in parcels_gdf.columns if col != "geometry"]
-        if parcel_cols:
-            # Create copy with reset index to allow merging
-            parcel_info = parcels_gdf.reset_index()[parcel_cols + [AOI_ID_COLUMN_NAME]]
-            # Merge with buildings dataframe
-            buildings_df = buildings_df.merge(parcel_info, on=AOI_ID_COLUMN_NAME, how="left")
-
-    return buildings_df
 
 
 def parcel_rollup(

@@ -105,9 +105,9 @@ class TestDetectClasses:
         class_columns = [c["column"] for c in classes]
         assert "feature_api_errors" not in class_columns
 
-    def test_detect_classes_skips_buildings_file(self, tmp_path):
+    def test_detect_classes_skips_operational_files(self, tmp_path):
         (tmp_path / "rollup.csv").write_text("col1\n1")
-        (tmp_path / "buildings.csv").write_text("col1\n1")
+        (tmp_path / "latency_stats.csv").write_text("col1\n1")
         (tmp_path / "roof.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
@@ -115,7 +115,7 @@ class TestDetectClasses:
         classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
-        assert "buildings" not in class_columns
+        assert "latency_stats" not in class_columns
         assert "roof" in class_columns
 
     def test_detect_classes_formats_display_name(self, tmp_path):
@@ -244,8 +244,9 @@ class TestGenerateEmptyDirectory:
 class TestColumnMetadataTables:
     """The README's column tables emit six columns: Column | Type | Min | Max | Unit | Description."""
 
-    def test_column_dicts_are_tuples_of_five(self):
-        """Each entry is a (dtype, min, max, unit, description) tuple."""
+    def test_column_dicts_are_columnmeta_instances(self):
+        """Each entry is a ColumnMeta dataclass with required fields populated."""
+        from nmaipy.column_metadata import ColumnMeta
         from nmaipy.readme_generator import (
             DEFENSIBLE_SPACE_ZONE_COLUMNS,
             DOMINANT_ROOF_MATERIAL_COLUMNS,
@@ -262,20 +263,16 @@ class TestColumnMetadataTables:
             ("DEFENSIBLE_SPACE_ZONE_COLUMNS", DEFENSIBLE_SPACE_ZONE_COLUMNS),
         ):
             for col, meta in columns.items():
-                assert isinstance(meta, tuple) and len(meta) == 5, f"{label}[{col!r}] must be a 5-tuple"
-                for i, field in enumerate(meta):
-                    assert (
-                        isinstance(field, str) and field
-                    ), f"{label}[{col!r}] field {i} must be a non-empty string, got {field!r}"
+                assert isinstance(meta, ColumnMeta), f"{label}[{col!r}] must be a ColumnMeta instance, got {type(meta)}"
+                assert meta.dtype, f"{label}[{col!r}] must have a non-empty dtype"
+                assert meta.description, f"{label}[{col!r}] must have a non-empty description"
 
     def test_render_columns_table_emits_six_column_markdown(self):
         """_render_columns_table produces a 6-column markdown table with one row per entry."""
-        sample = {
-            "score": ("float", "0", "100", "—", "Some score"),
-            "flag": ("Y/N", "—", "—", "—", "Some flag"),
-        }
-        rendered = _render_columns_table(sample)
-        # Header + separator + 2 rows = 4 lines
+        # Use columns whose dtype/description don't contain escaped pipes so the
+        # raw pipe-count check is a clean structural test.
+        rendered = _render_columns_table(["roof_spotlight_index", "mesh_date"])
+        # Header + separator + 2 rows = 4 lines.
         assert len(rendered) == 4
         assert rendered[0] == "| Column | Type | Min | Max | Unit | Description |"
         # Each row has exactly 7 pipes (delimiting 6 columns).
@@ -283,22 +280,36 @@ class TestColumnMetadataTables:
             assert row.count("|") == 7
 
     def test_render_columns_table_substitutes_unit_placeholders(self):
-        """`{unit}` (column name) and `{unit_name}` (Unit cell) substitute on render."""
-        sample = {"area_{unit}": ("float", "0", "—", "{unit_name}", "Area of feature")}
-        us_rows = _render_columns_table(sample, area_unit="sqft")
-        au_rows = _render_columns_table(sample, area_unit="sqm")
+        """`{unit}` in column names is resolved to the area suffix; `{unit_name}` is filled by lookup_column."""
+        # `dominant_roof_material_area_{unit}` is a templated entry in the JSON.
+        us_rows = _render_columns_table(["dominant_roof_material_area_{unit}"], area_unit="sqft")
+        au_rows = _render_columns_table(["dominant_roof_material_area_{unit}"], area_unit="sqm")
         # US: column name uses sqft suffix, Unit cell uses spelled-out form.
-        assert any("`area_sqft`" in row for row in us_rows)
+        assert any("`dominant_roof_material_area_sqft`" in row for row in us_rows)
         assert any("square feet" in row for row in us_rows)
         # AU: column name uses sqm suffix, Unit cell spelled out.
-        assert any("`area_sqm`" in row for row in au_rows)
+        assert any("`dominant_roof_material_area_sqm`" in row for row in au_rows)
         assert any("square metres" in row for row in au_rows)
+
+    def test_render_columns_table_substitutes_class_label_primary(self):
+        """{class_label_primary} in JSON descriptions is substituted, not leaked.
+
+        Several JSON entries (e.g. ``feature_id``, ``area_sqft``) reference
+        ``{class_label_primary}``; routing through ``lookup_column`` resolves
+        them. Previously the README's bespoke renderer ignored these placeholders
+        and shipped them literally to customers.
+        """
+        rendered = _render_columns_table(
+            ["feature_id", "area_sqft"], area_unit="sqft", class_label="building"
+        )
+        for row in rendered:
+            assert "{" not in row, f"unsubstituted placeholder leaked: {row!r}"
 
     def test_aoi_id_dtype_pipe_is_escaped(self):
         """The aoi_id `string | int` dtype escapes the markdown pipe so it doesn't break the table."""
         # aoi_id legitimately can be either string or int depending on input. The dtype string
         # must use an escaped backslash-pipe so markdown doesn't treat it as a column delimiter.
-        dtype = COMMON_COLUMNS["aoi_id"][0]
+        dtype = COMMON_COLUMNS["aoi_id"].dtype
         assert "\\|" in dtype, (
             f"aoi_id dtype should contain a backslash-escaped pipe, got {dtype!r}. "
             "An unescaped `|` inside a markdown table cell will be parsed as a column boundary."
@@ -308,7 +319,7 @@ class TestColumnMetadataTables:
         """Confidence scores are stored as uint8 on the wire even though the value space is 0.0–1.0."""
         # The dtype label calls this out so downstream consumers know to expect 256 distinct values
         # rather than continuous floats.
-        assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"][0]
+        assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"].dtype
 
     def test_rendered_section_includes_min_max_and_unit(self, tmp_path):
         """End-to-end: a rendered RSI section contains the new Min/Max/Unit columns."""
@@ -318,6 +329,35 @@ class TestColumnMetadataTables:
         assert "| Column | Type | Min | Max | Unit | Description |" in content
         # RSI score's bounds are split across Min and Max cells.
         assert "| 0 | 100 |" in content
+
+    def test_rendered_readme_has_no_unresolved_placeholders(self, tmp_path):
+        """Regression test: no {placeholder} survives into the rendered README.
+
+        Previously the JSON description for `link` contained ``{class_label}``
+        which `_render_columns_table` did not substitute, so it shipped to
+        customers as a literal placeholder. Routing rendering through
+        ``column_metadata.lookup_column`` fixes it; this test guards the fix.
+        """
+        import re
+
+        # Realistic exporter output: rollup with roof age + RSI columns plus per-class files.
+        (tmp_path / "rollup.csv").write_text(
+            "aoi_id,link,roof_spotlight_index,roof_age_installation_date,"
+            "primary_roof_staining_area_sqft\n"
+            "0,https://example,85,2019-06,12.3\n"
+        )
+        (tmp_path / "roof.csv").write_text("aoi_id,link\n0,https://example\n")
+        (tmp_path / "roof_instance.csv").write_text("aoi_id\n0\n")
+        content = ReadmeGenerator(output_dir=tmp_path)._generate()
+
+        # `{class}_*` and `primary_{class}_*` placeholders ARE expected in the
+        # "Column Naming Patterns" section as illustrative templates, so we
+        # restrict the check to lowercase-letter placeholders that are NOT
+        # within backticks (i.e. table cells, not the pattern docs).
+        # Strip code blocks first so backtick-quoted patterns don't trigger.
+        without_code = re.sub(r"`[^`]*`", "", content)
+        leaks = re.findall(r"\{[a-z_]+\}", without_code)
+        assert not leaks, f"unsubstituted placeholders leaked into README: {sorted(set(leaks))}"
 
 
 class TestLoadExportConfig:

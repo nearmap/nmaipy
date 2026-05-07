@@ -87,29 +87,33 @@ ROOF_AGE_MODEL_VERSION_FIELD = "modelVersion"
 ROOF_AGE_MAPBROWSER_URL_FIELD = "mapBrowserUrl"
 
 # Roof Age API columns that should receive the roof_age_ prefix during export.
-# Whitelist of snake_case column names from _parse_response() that are specific
-# to the Roof Age API. Only these get prefixed; all other columns (standard
-# feature columns, exporter columns, Feature API columns) are left untouched.
-ROOF_AGE_PREFIX_COLUMNS = {
-    "kind",
+# Ordered list of snake_case column names from _parse_response() that are
+# specific to the Roof Age API. Only these get the ``roof_age_`` prefix
+# applied during flattening; all other columns (standard feature columns,
+# exporter columns, Feature API columns) are left untouched. Iteration order
+# below is the canonical column order applied wherever roof-age data is
+# emitted (roof_instance.csv, rollup primary_roof_instance_*, roof.csv
+# primary_child_roof_age_*, building.csv chained primary_child_roof_*_*).
+ROOF_AGE_PREFIX_COLUMNS = (
+    "map_browser_url",
     "installation_date",
-    "as_of_date",
-    "until_date",
-    "trust_score",
     "evidence_type",
     "evidence_type_description",
+    "trust_score",
     "before_installation_capture_date",
     "after_installation_capture_date",
     "min_capture_date",
     "max_capture_date",
     "number_of_captures",
-    "relevant_permits",
-    "relevant_permits_details",
+    "as_of_date",
+    "until_date",
+    "kind",
     "assessor_data",
     "assessor_data_details",
-    "map_browser_url",
+    "relevant_permits",
+    "relevant_permits_details",
     "model_version",
-}
+)
 
 
 # ============================================================================

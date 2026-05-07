@@ -114,6 +114,7 @@ from nmaipy.parcels import (
     resolve_footprint_rsi,
     resolve_scores_with_bl_fallback,
 )
+from nmaipy.data_dictionary_generator import DataDictionaryGenerator
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -1032,20 +1033,30 @@ def _compute_feature_class_data(
                 ri_batch[col] = class_features[col].values
                 added_cols.add(col)
 
-        # Add roof_age_ prefix to Roof Age API columns (whitelist).
-        # Only known Roof Age columns get prefixed; all other columns are ignored.
-        for col in class_features.columns:
-            if col in added_cols:
-                continue
-            if col in ROOF_AGE_PREFIX_COLUMNS:
+        # Add roof_age_ prefix to Roof Age API columns. Iterate the canonical
+        # ROOF_AGE_PREFIX_COLUMNS order so the per-class roof_instance file
+        # lands columns in the same documented sequence the rollup uses.
+        # ``years_as_of_date`` is a calculated field already prefixed
+        # ``roof_age_*`` upstream; surface it right after ``map_browser_url``
+        # to match the canonical ordering in flatten_roof_instance_attributes.
+        for col in ROOF_AGE_PREFIX_COLUMNS:
+            if col in class_features.columns:
                 dst = f"roof_age_{col}"
-            elif col.startswith("roof_age_"):
-                dst = col  # calculated fields like roof_age_years_as_of_date
-            else:
+                if dst not in added_cols:
+                    ri_batch[dst] = class_features[col].values
+                    added_cols.add(dst)
+            if col == "map_browser_url":
+                years_col = "roof_age_years_as_of_date"
+                if years_col in class_features.columns and years_col not in added_cols:
+                    ri_batch[years_col] = class_features[years_col].values
+                    added_cols.add(years_col)
+        # Sweep any remaining roof_age_* columns not covered above (e.g. cached
+        # variants or future additions); preserves source order for them.
+        for col in class_features.columns:
+            if col in added_cols or not col.startswith("roof_age_"):
                 continue
-            if dst not in added_cols:
-                ri_batch[dst] = class_features[col].values
-                added_cols.add(dst)
+            ri_batch[col] = class_features[col].values
+            added_cols.add(col)
 
         convert_bool_columns_to_yn(ri_batch)
 
@@ -1077,11 +1088,28 @@ def _compute_feature_class_data(
                 else features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID]
             )
             if len(roof_instances) > 0 and "feature_id" in roof_instances.columns:
-                # Build lookup table with primary_child_roof_age_ prefixed column names
+                # Build lookup table with primary_child_roof_age_ prefixed
+                # column names. Iterate canonical order so the resulting roof
+                # rows (and downstream building chain) sit in the documented
+                # roof-age sequence, not the parquet-read order.
                 ri_cols = ["feature_id"]
                 col_rename = {}
+                ordered_ri_keys: list[str] = []
+                for col in ROOF_AGE_PREFIX_COLUMNS:
+                    ordered_ri_keys.append(col)
+                    if col == "map_browser_url":
+                        ordered_ri_keys.append("roof_age_years_as_of_date")
+                # Append any other roof_age_* columns present on the source
+                # frame that aren't covered above (legacy/future).
                 for col in roof_instances.columns:
                     if col == "feature_id":
+                        continue
+                    if col in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date":
+                        continue
+                    if col.startswith("roof_age_"):
+                        ordered_ri_keys.append(col)
+                for col in ordered_ri_keys:
+                    if col == "feature_id" or col not in roof_instances.columns:
                         continue
                     if col in ROOF_AGE_PREFIX_COLUMNS:
                         base = f"roof_age_{col}"
@@ -1461,11 +1489,25 @@ def _compute_feature_class_data(
                         # Create lookup from roof feature_id → roof's primary_child_roof_age_feature_id
                         roof_to_ri = roofs_linked.set_index("feature_id")["primary_child_roof_age_feature_id"].to_dict()
 
-                        # Roof age columns to link through (same as what roofs get)
+                        # Roof age columns to link through (same as what roofs
+                        # get). Iterate canonical order so building.csv lands
+                        # the chained columns in the documented sequence.
                         ri_cols = ["feature_id"]
                         col_rename = {}
+                        ordered_ri_keys: list[str] = []
+                        for col in ROOF_AGE_PREFIX_COLUMNS:
+                            ordered_ri_keys.append(col)
+                            if col == "map_browser_url":
+                                ordered_ri_keys.append("roof_age_years_as_of_date")
                         for col in roof_instances.columns:
                             if col == "feature_id":
+                                continue
+                            if col in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date":
+                                continue
+                            if col.startswith("roof_age_"):
+                                ordered_ri_keys.append(col)
+                        for col in ordered_ri_keys:
+                            if col == "feature_id" or col not in roof_instances.columns:
                                 continue
                             if col in ROOF_AGE_PREFIX_COLUMNS:
                                 base = f"roof_age_{col}"
@@ -1936,18 +1978,13 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
-        "--save-buildings",
-        help="If set, save a building-level geoparquet file with one row per building feature and associated attributes.",
-        action="store_true",
-    )
-    parser.add_argument(
         "--no-class-level-files",
         help="If set, disable per-feature-class tabular exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
         action="store_true",
     )
     parser.add_argument(
         "--tabular-file-format",
-        help="csv | parquet: Format for tabular output files — rollup, buildings, and per-class attribute files (defaults to csv)",
+        help="csv | parquet: Format for tabular output files — rollup and per-class attribute files (defaults to csv)",
         type=str,
         required=False,
         default="csv",
@@ -2152,7 +2189,6 @@ class NearmapAIExporter(BaseExporter):
         chunk_size=CHUNK_SIZE,
         include_parcel_geometry=False,
         save_features=False,
-        save_buildings=False,
         tabular_file_format="csv",
         cache_dir=None,
         no_cache=False,
@@ -2200,7 +2236,6 @@ class NearmapAIExporter(BaseExporter):
         self.threads = threads
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
-        self.save_buildings = save_buildings
         self.tabular_file_format = tabular_file_format
         self.cache_dir = cache_dir
         self.no_cache = no_cache
@@ -2269,7 +2304,6 @@ class NearmapAIExporter(BaseExporter):
             "chunk_size": chunk_size,
             "include_parcel_geometry": include_parcel_geometry,
             "save_features": save_features,
-            "save_buildings": save_buildings,
             "tabular_file_format": tabular_file_format,
             "cache_dir": str(cache_dir) if cache_dir else None,
             "no_cache": no_cache,
@@ -3657,13 +3691,12 @@ class NearmapAIExporter(BaseExporter):
         # Output file paths in final directory (no stem prefix — directory provides context)
         outpath = storage.join_path(self.final_path, f"rollup.{self.tabular_file_format}")
         outpath_features = storage.join_path(self.final_path, "features.parquet")
-        outpath_buildings = storage.join_path(self.final_path, f"buildings.{self.tabular_file_format}")
 
         # Check for existing output files and warn about overwriting.
         # We always rebuild from chunks (the source of truth) to avoid leaving
         # partial outputs from a previous interrupted run.
         existing_outputs = []
-        for check_path in [outpath, outpath_features, outpath_buildings]:
+        for check_path in [outpath, outpath_features]:
             if storage.file_exists(check_path):
                 existing_outputs.append(storage.basename(check_path))
         if existing_outputs:
@@ -4048,53 +4081,6 @@ class NearmapAIExporter(BaseExporter):
                 outpath_features,
             )
 
-            # If buildings export is enabled, process building features
-            if self.save_buildings:
-                self.logger.info(f"Saving building-level data as {self.tabular_file_format} to {outpath_buildings}")
-                # Define geoparquet path for buildings
-                outpath_buildings_geoparquet = storage.join_path(self.final_path, "building_features.parquet")
-
-                buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf,
-                    features_gdf=None,
-                    country=self.country,
-                )
-                if len(buildings_gdf) > 0:
-                    # First, save the geoparquet version with intact geometries
-                    self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
-                    try:
-                        # Save with explicit schema version for better QGIS compatibility
-                        # Requires geopandas >= 1.1.0
-                        try:
-                            storage.write_parquet(
-                                buildings_gdf,
-                                outpath_buildings_geoparquet,
-                                schema_version="1.0.0",
-                            )
-                        except (TypeError, ValueError) as e:
-                            # Fallback for older geopandas or pyarrow versions
-                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
-                            storage.write_parquet(buildings_gdf, outpath_buildings_geoparquet)
-                    except Exception as e:
-                        self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
-
-                    # Then convert geodataframe to plain dataframe for tabular output
-                    # Keep geometry as WKT representation if needed
-                    buildings_df = pd.DataFrame(buildings_gdf)
-                    if "geometry" in buildings_df.columns:
-                        buildings_df["geometry"] = buildings_df.geometry.apply(lambda geom: geom.wkt if geom else None)
-
-                    # Save in the same format as rollup
-                    if self.tabular_file_format == "parquet":
-                        storage.write_parquet(buildings_df, outpath_buildings, index=True)
-                    elif self.tabular_file_format == "csv":
-                        buildings_df.to_csv(outpath_buildings, index=True)
-                    else:
-                        self.logger.info("Invalid output format specified for buildings - reverting to csv")
-                        buildings_df.to_csv(outpath_buildings, index=True)
-                else:
-                    self.logger.info(f"No building features found for {Path(aoi_path).stem}")
-
         # Per-class export: merge pre-computed per-class chunk files into final files.
         # Per-class data was computed in process_chunk() while feature data was still
         # in memory, avoiding the expensive re-read of features.parquet.
@@ -4117,7 +4103,18 @@ class NearmapAIExporter(BaseExporter):
                 requested_class_ids=set(classes_df.index),
             )
 
-        # Generate README data dictionary
+        # Generate per-output data dictionaries first. Failure isolated; the
+        # export's contract is the data files themselves, not the dictionary.
+        try:
+            written = DataDictionaryGenerator(output_dir=self.final_path).generate_and_save()
+            self.logger.info(f"Generated {len(written)} data dictionary file(s).")
+        except Exception as e:
+            self.logger.warning(f"Data dictionary generation warning: {e}")
+
+        # README must be the LAST file written — _run_inner uses its presence
+        # as the "fully complete" marker that triggers the fast-path skip on
+        # re-runs (see exporter._run_inner). Anything written after this would
+        # silently miss regeneration on cached re-invocations.
         try:
             readme_gen = ReadmeGenerator(output_dir=self.final_path)
             readme_path = readme_gen.generate_and_save()
@@ -4163,7 +4160,6 @@ def main():
         chunk_size=args.chunk_size,
         include_parcel_geometry=args.include_parcel_geometry,
         save_features=args.save_features,
-        save_buildings=args.save_buildings,
         tabular_file_format=args.tabular_file_format,
         cache_dir=args.cache_dir,
         no_cache=args.no_cache,
