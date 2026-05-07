@@ -26,6 +26,8 @@ from nmaipy.column_metadata import (
     evidence_type_legend,
     lookup_column,
 )
+from nmaipy.constants import NEAREST_TOLERANCE_METERS
+from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = logging.getLogger(__name__)
 
@@ -297,9 +299,13 @@ class ReadmeGenerator:
         ``primary_roof_dominant_roof_material_description``); per-class roof
         files carry the same columns unscoped.
         """
-        return any(
-            "dominant_roof_material_" in c or "dominant_roof_types_" in c for c in columns
+        prefixes = (
+            "dominant_roof_material_",
+            "dominant_roof_types_",
+            "primary_roof_dominant_roof_material_",
+            "primary_roof_dominant_roof_types_",
         )
+        return any(c.startswith(p) for c in columns for p in prefixes)
 
     def _has_rsi_columns(self, columns: set[str]) -> bool:
         """Check if Roof Spotlight Index columns are present."""
@@ -425,8 +431,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             bullets.append(
                 f"- {joined} {verb} spatial Intersection over Union (IoU), not `parent_id`. The "
                 "roof's API `parentId` points to a deprecated Building class, so nmaipy re-links "
-                "via geometry. The minimum IoU to assign a parent is 0.005 "
-                "(`MIN_ROOF_INSTANCE_IOU_THRESHOLD`)."
+                "via geometry, with an IoU-based threshold to assign a parent."
             )
         bullets.append(
             "- Each parent feature gets a `primary_child_*_id` (the child with the highest IoU); "
@@ -481,25 +486,26 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         }
         method_desc = method_descriptions.get(primary_method, primary_method)
 
-        # Detailed algorithm prose per method. Constants (30 m², 1 m) come from
-        # primary_feature_selection.BUILDING_SMALL_MAX_AREA_SQM and
-        # NEAREST_TOLERANCE_METERS — keep these in sync if those defaults change.
+        # Detailed algorithm prose per method. Numeric thresholds bind to the
+        # actual code constants so the rendered README stays in sync if those
+        # defaults ever change.
+        small = BUILDING_SMALL_MAX_AREA_SQM
+        tol = NEAREST_TOLERANCE_METERS
         method_logic = {
             "optimal": (
                 "First tries to select the feature whose footprint contains the input geocoded "
-                "point, or the nearest feature within 1 m of it, preferring features above 30 m² "
-                "to avoid sheds and other small outbuildings. If no feature qualifies (e.g. the "
-                "point falls in open space or no point was provided), falls back to the feature "
-                "with the largest area in the parcel."
+                f"point, or the nearest feature within {tol:g} m of it, preferring features above "
+                f"{small:g} m² to avoid sheds and other small outbuildings. If no feature qualifies "
+                "(e.g. the point falls in open space or no point was provided), falls back to the "
+                "feature with the largest area in the parcel."
             ),
             "nearest": (
                 "Selects the feature whose footprint contains the input geocoded point, or the "
-                "nearest feature within 1 m of it, preferring features above 30 m² to avoid sheds "
-                "and other small outbuildings. Returns no primary feature if neither condition is met."
+                f"nearest feature within {tol:g} m of it, preferring features above {small:g} m² "
+                "to avoid sheds and other small outbuildings. Returns no primary feature if "
+                "neither condition is met."
             ),
-            "largest_intersection": (
-                "Selects the feature with the largest area in the parcel."
-            ),
+            "largest_intersection": ("Selects the feature with the largest area in the parcel."),
         }
         method_paragraph = method_logic.get(primary_method, "")
         u = area_unit
