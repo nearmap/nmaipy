@@ -15,10 +15,17 @@ from typing import Optional
 import pandas as pd
 import pyarrow.parquet as pq
 
-from nmaipy import output_files, storage
+from nmaipy import aoi_io, output_files, storage
 from nmaipy.column_metadata import lookup_column
 
 logger = logging.getLogger(__name__)
+
+# Description/source rendered for arbitrary columns the user passed through
+# from their input AOI file (e.g. ``external_id``, ``address``). Recognised
+# by header-matching against the input file rather than living in the seeded
+# JSON metadata, since they vary per export.
+USER_INPUT_DESCRIPTION = "Input column provided by user (passed through from the input AOI file)."
+USER_INPUT_SOURCE = "input data"
 
 _DD_COLUMNS = [
     "column_name",
@@ -64,10 +71,11 @@ class DataDictionaryGenerator:
         ext = self._tabular_extension()
         area_unit = self._detect_area_unit()
         extras = self._description_extras()
+        input_columns = self._input_columns()
         written: list[str] = []
         for filepath, class_label in output_files.tabular_ai_files(self.final_dir, ext):
             try:
-                out_path = self._build_and_write(filepath, class_label, area_unit, extras)
+                out_path = self._build_and_write(filepath, class_label, area_unit, extras, input_columns)
             except Exception as exc:
                 logger.warning(f"Data dictionary generation failed for {filepath}: {exc}")
                 continue
@@ -100,6 +108,22 @@ class DataDictionaryGenerator:
         """Return ``'csv'`` or ``'parquet'`` based on the export's tabular_file_format setting."""
         fmt = self._load_export_config().get("parameters", {}).get("tabular_file_format", "csv")
         return fmt if fmt in ("csv", "parquet") else "csv"
+
+    def _input_columns(self) -> set[str]:
+        """Return column names from the input AOI file, or empty set on any failure.
+
+        Used to recognise pass-through user columns (e.g. ``external_id``,
+        ``address``) so the data dictionary can describe them as input columns
+        rather than rendering the unknown sentinel.
+        """
+        aoi_file = self._load_export_config().get("parameters", {}).get("aoi_file")
+        if not aoi_file:
+            return set()
+        try:
+            return aoi_io.read_header_columns(str(aoi_file))
+        except Exception as exc:
+            logger.debug(f"Could not read input AOI columns from {aoi_file!r}: {exc}")
+            return set()
 
     def _description_extras(self) -> dict[str, str]:
         """Build the extra-substitution dict used by ``column_metadata.lookup_column``.
@@ -148,10 +172,15 @@ class DataDictionaryGenerator:
     # ------------------------------------------------------------------
 
     def _build_and_write(
-        self, filepath: str, class_label: str, area_unit: str, extras: dict[str, str]
+        self,
+        filepath: str,
+        class_label: str,
+        area_unit: str,
+        extras: dict[str, str],
+        input_columns: set[str],
     ) -> Optional[str]:
         columns = self._read_columns(filepath)
-        rows = [self._row_for_column(name, area_unit, class_label, extras) for name in columns]
+        rows = [self._row_for_column(name, area_unit, class_label, extras, input_columns) for name in columns]
         if not rows:
             return None
         out_path = self._dictionary_path_for(filepath)
@@ -160,15 +189,31 @@ class DataDictionaryGenerator:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         return out_path
 
-    def _row_for_column(self, name: str, area_unit: str, class_label: str, extras: dict[str, str]) -> dict[str, str]:
+    def _row_for_column(
+        self,
+        name: str,
+        area_unit: str,
+        class_label: str,
+        extras: dict[str, str],
+        input_columns: set[str],
+    ) -> dict[str, str]:
         """Build a single dictionary row for one column."""
         meta = lookup_column(name, area_unit=area_unit, class_label=class_label, extras=extras)
+        # Pass-through columns from the user's input file aren't in the seeded
+        # metadata. Recognise them so the dictionary describes them rather
+        # than surfacing the unknown sentinel.
+        if meta.is_unknown() and name in input_columns:
+            description = USER_INPUT_DESCRIPTION
+            source = USER_INPUT_SOURCE
+        else:
+            description = meta.description
+            source = meta.source
         return {
             "column_name": name,
-            "description": meta.description,
+            "description": description,
             "allowed_values": meta.allowed_values,
             "dtype": meta.dtype,
-            "source": meta.source,
+            "source": source,
             "min": meta.min,
             "max": meta.max,
             "precision": meta.precision,
