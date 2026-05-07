@@ -417,3 +417,74 @@ class TestCrossFileConsistency:
             assert len(entries) >= 2, f"shared column {col!r} only seen in one file: {entries}"
             unique = {struct for _, struct in entries}
             assert len(unique) == 1, f"structural metadata for {col!r} differs across files: {entries}"
+
+
+# ---------------------------------------------------------------------------
+# 13. Pass-through user input columns
+# ---------------------------------------------------------------------------
+
+
+class TestUserInputColumns:
+    """Arbitrary columns from the input AOI file should be labelled as user-supplied
+    rather than rendering as the unknown sentinel. Triggers when the input file
+    is reachable via the ``aoi_file`` recorded in ``export_config.json``.
+    """
+
+    def _write_aoi_config(self, dirpath: Path, aoi_file: Path) -> None:
+        payload = {
+            "parameters": {
+                "tabular_file_format": "csv",
+                "country": "us",
+                "aoi_file": str(aoi_file),
+            }
+        }
+        (dirpath / "export_config.json").write_text(json.dumps(payload))
+
+    def test_input_columns_described_as_user_provided(self, tmp_path):
+        # Input file with columns the metadata layer has never heard of.
+        aoi_path = tmp_path / "input_aois.csv"
+        _write_csv(aoi_path, ["aoi_id", "external_id", "force_new", "address"])
+        # Rollup carries the same columns through plus a known one.
+        _write_csv(
+            tmp_path / "rollup.csv",
+            ["aoi_id", "external_id", "force_new", "address", "tile_area_sqft"],
+        )
+        self._write_aoi_config(tmp_path, aoi_path)
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+
+        dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
+        rows = {r["column_name"]: r for _, r in dd.iterrows()}
+        for col in ("external_id", "force_new", "address"):
+            assert "Input column provided by user" in rows[col]["description"], (
+                f"{col} should be labelled as user-supplied"
+            )
+            assert rows[col]["source"] == "input data"
+        # Known columns are unaffected.
+        assert "?" not in rows["tile_area_sqft"]["description"]
+        assert rows["aoi_id"]["source"] == "input data"  # already curated, unchanged
+
+    def test_unknown_column_not_in_input_still_sentinel(self, tmp_path):
+        # If a column appears in output but not in the input file, it remains
+        # an unknown sentinel — the override is gated on the input file's
+        # column set, not a blanket fallback.
+        aoi_path = tmp_path / "input_aois.csv"
+        _write_csv(aoi_path, ["aoi_id"])  # only aoi_id in input
+        _write_csv(tmp_path / "rollup.csv", ["aoi_id", "totally_unknown_xyz"])
+        self._write_aoi_config(tmp_path, aoi_path)
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+
+        dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
+        rows = {r["column_name"]: r for _, r in dd.iterrows()}
+        assert rows["totally_unknown_xyz"]["description"] == "?"
+        assert rows["totally_unknown_xyz"]["source"] == "?"
+
+    def test_missing_input_file_falls_back_gracefully(self, tmp_path):
+        # If aoi_file is unreadable, generator should not crash and unknown
+        # columns continue to render the sentinel (preserving prior behaviour).
+        self._write_aoi_config(tmp_path, tmp_path / "does_not_exist.csv")
+        _write_csv(tmp_path / "rollup.csv", ["aoi_id", "external_id"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+
+        dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
+        rows = {r["column_name"]: r for _, r in dd.iterrows()}
+        assert rows["external_id"]["description"] == "?"

@@ -26,6 +26,14 @@ from typing import Optional
 # generated dictionaries so missing descriptions are easy to spot.
 UNKNOWN_SENTINEL = "?"
 
+# Description/source rendered for arbitrary columns that the user passed
+# through from their input AOI file (e.g. `external_id`, `address`). These
+# columns aren't in the seeded metadata, but they aren't truly unknown
+# either — the data dictionary generator substitutes these for the sentinel
+# when it can match the column against the input file's header.
+USER_INPUT_DESCRIPTION = "Input column provided by user (passed through from the input AOI file)."
+USER_INPUT_SOURCE = "input data"
+
 # Long-form unit names paired with their short column-suffix form.
 _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 
