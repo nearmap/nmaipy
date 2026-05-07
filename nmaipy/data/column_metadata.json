@@ -356,7 +356,7 @@
       "dtype": "float (quantised uint8)",
       "min": "0.0",
       "max": "1.0",
-      "description": "Confidence in detection of the {class_label_primary}.",
+      "description": "Confidence in detection of the {class_label_primary} (single feature, not combined).",
       "source": "base ai model"
     },
     "fidelity": {
@@ -364,7 +364,7 @@
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",
-      "description": "Quality of the vectorized footprint polygon for the {class_label_primary} (higher = better fidelity to the true outline). Only present on structural classes (e.g. building, roof).",
+      "description": "Quality of the shape of the vectorized footprint polygon (and implicitly the accuracy of the area measurement).",
       "source": "base ai model"
     },
     "has_3d_attributes": {
@@ -545,7 +545,7 @@
     "postcat": {
       "group": "feature_meta",
       "dtype": "Y/N",
-      "description": "Whether this feature comes from post-catastrophe imagery.",
+      "description": "Whether the resource was tagged as a post catastrophe survey.",
       "allowed_values": "Y | N",
       "source": "image metadata"
     },
