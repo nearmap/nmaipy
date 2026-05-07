@@ -140,6 +140,7 @@ class ReadmeGenerator:
         sections.append(self._generate_header())
         sections.append(self._generate_files_table(files))
         sections.append(self._generate_classes_section(classes))
+        sections.append(self._generate_class_hierarchy_section(classes))
         sections.append(self._generate_column_patterns_section(classes, area_unit))
         sections.append(self._generate_common_columns_section())
 
@@ -290,8 +291,15 @@ class ReadmeGenerator:
         return "streetAddress" in columns or "query_aoi_lat" in columns
 
     def _has_dominant_columns(self, columns: set[str]) -> bool:
-        """Check if dominant material/shape summary columns are present."""
-        return any(c.startswith("dominant_roof_material_") or c.startswith("dominant_roof_types_") for c in columns)
+        """Check if dominant material/shape summary columns are present.
+
+        The rollup emits these columns under the ``primary_roof_`` scope (e.g.
+        ``primary_roof_dominant_roof_material_description``); per-class roof
+        files carry the same columns unscoped.
+        """
+        return any(
+            "dominant_roof_material_" in c or "dominant_roof_types_" in c for c in columns
+        )
 
     def _has_rsi_columns(self, columns: set[str]) -> bool:
         """Check if Roof Spotlight Index columns are present."""
@@ -362,6 +370,100 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines.append("")
         return "\n".join(lines)
 
+    def _generate_class_hierarchy_section(self, classes: list[dict]) -> str:
+        """Generate the class hierarchy & relationships section.
+
+        Renders only the layers actually present in this export, derived from
+        the ``classes`` list that ``_generate_classes_section`` already consumes.
+        Empty when none of Building Lifecycle / Building / Roof / Roof Instance
+        appear in the export — unrelated packs (e.g. vegetation, surfaces) don't
+        need this section.
+        """
+        present_columns = {c["column"] for c in classes}
+        # Layer ordering matches the parent → child hierarchy. Each entry is
+        # (column_name, display_name, parenthetical).
+        layers = [
+            ("building_lifecycle", "Building Lifecycle", "most general — same building identity across surveys"),
+            ("building", "Building", "single-survey building footprint"),
+            ("roof", "Roof", "single-survey roof footprint"),
+            ("roof_instance", "Roof Instance", "roof clipped to parcel — the unit roof age is reported on"),
+        ]
+        present_layers = [layer for layer in layers if layer[0] in present_columns]
+        # Don't render an empty / single-row hierarchy — relationships are the
+        # whole point of this section.
+        if len(present_layers) < 2:
+            return ""
+
+        # Width-align the first column for readability in the rendered code block.
+        max_label_len = max(len(label) for _, label, _ in present_layers)
+        tree_lines: list[str] = []
+        for i, (_, label, note) in enumerate(present_layers):
+            tree_lines.append(f"  {label.ljust(max_label_len)}  ({note})")
+            if i < len(present_layers) - 1:
+                # Pick an edge label that matches the link mechanism between
+                # this layer and the next.
+                edge = self._hierarchy_edge_label(present_layers[i][0], present_layers[i + 1][0])
+                tree_lines.append(f"  {' ' * max_label_len}    │  {edge}")
+                tree_lines.append(f"  {' ' * max_label_len}    ▼")
+
+        # Per-edge bullets only render when both endpoints are present in the
+        # export — otherwise the prose mentions classes the customer doesn't see.
+        present_set = {layer[0] for layer in present_layers}
+        bullets: list[str] = []
+        if {"building_lifecycle", "building"} <= present_set:
+            bullets.append(
+                "- **Building Lifecycle ↔ Building** is a 1-hop traversal of the API's `parent_id`."
+            )
+        iou_pairs = []
+        if {"building", "roof"} <= present_set:
+            iou_pairs.append("Building ↔ Roof")
+        if {"roof", "roof_instance"} <= present_set:
+            iou_pairs.append("Roof ↔ Roof Instance")
+        if iou_pairs:
+            joined = " and ".join(f"**{p}**" for p in iou_pairs)
+            verb = "use" if len(iou_pairs) > 1 else "uses"
+            bullets.append(
+                f"- {joined} {verb} spatial Intersection over Union (IoU), not `parent_id`. The "
+                "roof's API `parentId` points to a deprecated Building class, so nmaipy re-links "
+                "via geometry. The minimum IoU to assign a parent is 0.005 "
+                "(`MIN_ROOF_INSTANCE_IOU_THRESHOLD`)."
+            )
+        bullets.append(
+            "- Each parent feature gets a `primary_child_*_id` (the child with the highest IoU); "
+            "each child gets a `parent_*_id`."
+        )
+        # The RSI fallback note only makes sense when the chain it walks
+        # actually exists in this export.
+        if {"roof", "building", "building_lifecycle"} <= present_set:
+            bullets.append(
+                "- When the primary roof has structural damage that masks its polygon, RSI and "
+                "similar scores fall back through Roof → Building → Building Lifecycle."
+            )
+
+        lines = [
+            "## Class Hierarchy & Relationships",
+            "",
+            "When this export contains multiple structural classes, nmaipy connects them so that "
+            "primary-feature columns and per-class files can be cross-referenced:",
+            "",
+            "```",
+            *tree_lines,
+            "```",
+            "",
+            "**How the layers are linked:**",
+            "",
+            *bullets,
+            "",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _hierarchy_edge_label(parent_col: str, child_col: str) -> str:
+        """Return the link-mechanism label for a parent → child edge in the hierarchy tree."""
+        if parent_col == "building_lifecycle" and child_col == "building":
+            return "parent_id"
+        return "spatial IoU"
+
     def _generate_column_patterns_section(self, classes: list[dict], area_unit: str) -> str:
         """Generate the column naming patterns section."""
         # Get first class for examples, default to 'roof'
@@ -378,6 +480,28 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "largest_intersection": "largest intersection area with parcel",
         }
         method_desc = method_descriptions.get(primary_method, primary_method)
+
+        # Detailed algorithm prose per method. Constants (30 m², 1 m) come from
+        # primary_feature_selection.BUILDING_SMALL_MAX_AREA_SQM and
+        # NEAREST_TOLERANCE_METERS — keep these in sync if those defaults change.
+        method_logic = {
+            "optimal": (
+                "First tries to select the feature whose footprint contains the input geocoded "
+                "point, or the nearest feature within 1 m of it, preferring features above 30 m² "
+                "to avoid sheds and other small outbuildings. If no feature qualifies (e.g. the "
+                "point falls in open space or no point was provided), falls back to the feature "
+                "with the largest area in the parcel."
+            ),
+            "nearest": (
+                "Selects the feature whose footprint contains the input geocoded point, or the "
+                "nearest feature within 1 m of it, preferring features above 30 m² to avoid sheds "
+                "and other small outbuildings. Returns no primary feature if neither condition is met."
+            ),
+            "largest_intersection": (
+                "Selects the feature with the largest area in the parcel."
+            ),
+        }
+        method_paragraph = method_logic.get(primary_method, "")
         u = area_unit
         u_long = _AREA_UNIT_LONG_NAMES.get(u, u)
 
@@ -400,7 +524,9 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "### Primary Feature Columns",
             "",
-            f"The **{method_desc}** feature of each class has additional `primary_` columns:",
+            f"The **{method_desc}** feature of each class has additional `primary_` columns.",
+            "",
+            f"**How the primary feature is selected ({primary_method}):** {method_paragraph}",
             "",
             "| Pattern | Example | Type | Min | Max | Unit | Description |",
             "|---------|---------|------|-----|-----|------|-------------|",
@@ -444,7 +570,17 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         lines = [
             "## Dominant Roof Material & Shape Columns",
             "",
-            "These columns summarise the dominant (largest area) roof material and shape for the primary roof:",
+            "These columns summarise the dominant roof material and shape for the primary roof.",
+            "",
+            "**How dominant is computed.** Each roof is decomposed into material and shape "
+            "components (each with a class, area, and ratio of the roof's total area). The "
+            "**dominant** component is the one with the highest ratio. For **materials**, the "
+            "dominant material is reported only when its ratio is at least 0.5; below that "
+            "threshold the column is `unknown`. For **shapes**, the same \"highest ratio wins\" "
+            "rule applies but no ratio threshold is enforced — a shape is dominant if it has the "
+            "highest ratio *and* a non-zero area; otherwise `unknown`. (Shape ratios can overlap "
+            "or gap and do not sum to 1, which is why no shape ratio column is emitted.) "
+            "Deprecated `flat (deprecated)` and `shed` shape classes are excluded from selection.",
             "",
             "### Dominant Material",
             "",
