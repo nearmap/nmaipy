@@ -105,9 +105,9 @@ class TestDetectClasses:
         class_columns = [c["column"] for c in classes]
         assert "feature_api_errors" not in class_columns
 
-    def test_detect_classes_skips_buildings_file(self, tmp_path):
+    def test_detect_classes_skips_operational_files(self, tmp_path):
         (tmp_path / "rollup.csv").write_text("col1\n1")
-        (tmp_path / "buildings.csv").write_text("col1\n1")
+        (tmp_path / "latency_stats.csv").write_text("col1\n1")
         (tmp_path / "roof.csv").write_text("col1\n1")
 
         gen = ReadmeGenerator(output_dir=tmp_path)
@@ -115,7 +115,7 @@ class TestDetectClasses:
         classes = gen._detect_classes(files)
 
         class_columns = [c["column"] for c in classes]
-        assert "buildings" not in class_columns
+        assert "latency_stats" not in class_columns
         assert "roof" in class_columns
 
     def test_detect_classes_formats_display_name(self, tmp_path):
@@ -291,13 +291,19 @@ class TestColumnMetadataTables:
         assert any("`dominant_roof_material_area_sqm`" in row for row in au_rows)
         assert any("square metres" in row for row in au_rows)
 
-    def test_render_columns_table_substitutes_class_label(self):
-        """{class_label} in JSON descriptions is substituted at render time, not leaked."""
-        # The `link` entry's description references {class_label} — must be resolved.
-        rendered = _render_columns_table(["link"], class_label="property")
+    def test_render_columns_table_substitutes_class_label_primary(self):
+        """{class_label_primary} in JSON descriptions is substituted, not leaked.
+
+        Several JSON entries (e.g. ``feature_id``, ``area_sqft``) reference
+        ``{class_label_primary}``; routing through ``lookup_column`` resolves
+        them. Previously the README's bespoke renderer ignored these placeholders
+        and shipped them literally to customers.
+        """
+        rendered = _render_columns_table(
+            ["feature_id", "area_sqft"], area_unit="sqft", class_label="building"
+        )
         for row in rendered:
-            assert "{class_label}" not in row, f"unsubstituted placeholder leaked: {row!r}"
-        assert any("URL to view the property" in row for row in rendered)
+            assert "{" not in row, f"unsubstituted placeholder leaked: {row!r}"
 
     def test_aoi_id_dtype_pipe_is_escaped(self):
         """The aoi_id `string | int` dtype escapes the markdown pipe so it doesn't break the table."""

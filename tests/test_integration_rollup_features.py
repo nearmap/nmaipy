@@ -70,7 +70,6 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
         country="us",
         packs=["building", "building_char", "roof_char"],
         save_features=True,  # Generate features GeoParquet
-        save_buildings=True,  # Generate building rollups
         no_cache=True,
         processes=1,
     )
@@ -81,7 +80,7 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
     final_dir = integration_test_dir / "final"
 
     # 1. Check rollup CSV
-    rollup_file = final_dir / "buildings.csv"
+    rollup_file = final_dir / "rollup.csv"
     if rollup_file.exists():
         rollup_df = pd.read_csv(rollup_file)
 
@@ -187,7 +186,6 @@ def test_features_without_rollup(integration_test_dir):
         country="us",
         packs=["building", "roof_char"],
         save_features=True,
-        save_buildings=False,  # No rollup
         no_cache=True,
         processes=1,
     )
@@ -196,12 +194,8 @@ def test_features_without_rollup(integration_test_dir):
 
     final_dir = integration_test_dir / "final"
 
-    # Should have features but no buildings CSV
     features_file = final_dir / "features.parquet"
-    buildings_file = final_dir / "buildings.csv"
-
     assert features_file.exists(), "Features file should exist"
-    assert not buildings_file.exists(), "Buildings rollup should not exist"
 
     # Verify features have proper flattening
     features_gdf = gpd.read_parquet(features_file)
@@ -247,7 +241,6 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
         packs=["building", "vegetation", "roof_cond", "roof_char", "building_char"],
         include=["all"],  # Get all available includes
         save_features=True,  # Test both features and rollup output
-        save_buildings=True,
         chunk_size=2,  # Force multiple chunks for testing
         no_cache=True,
         processes=1,
@@ -357,7 +350,6 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
         packs=["building", "roof_char"],
         include=["hurricaneScore", "defensibleSpace", "roofSpotlightIndex"],
         save_features=True,
-        save_buildings=False,
         no_cache=True,
         processes=1,
     )
@@ -464,7 +456,6 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
         # the AOI happens to contain solar panels.
         packs=["building", "roof_char", "solar"],
         save_features=True,
-        save_buildings=True,
         class_level_files=True,
         no_cache=True,
         processes=1,
@@ -476,10 +467,10 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
 
     exclude_patterns = [
         "rollup",
-        "buildings",
         "latency_stats",
         "feature_api_errors",
         "roof_age_errors",
+        "_data_dictionary",
     ]
     per_class_csvs = [f for f in final_dir.glob("*.csv") if not any(pattern in f.name for pattern in exclude_patterns)]
     assert len(per_class_csvs) > 0, f"Should have per-class CSV files. Files in final: {list(final_dir.glob('*'))}"
@@ -522,7 +513,7 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
         _expect_columns(class_gdf, parquet_path.name)
 
     # Cross-verify: primary features in per-class parquets match rollup IDs.
-    rollup_file = final_dir / "buildings.csv"
+    rollup_file = final_dir / "rollup.csv"
     if rollup_file.exists():
         rollup_df = pd.read_csv(rollup_file, index_col="aoi_id")
         for col_name, class_id in PRIMARY_FEATURE_COLUMN_TO_CLASS.items():

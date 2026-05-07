@@ -1978,18 +1978,13 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
-        "--save-buildings",
-        help="If set, save a building-level geoparquet file with one row per building feature and associated attributes.",
-        action="store_true",
-    )
-    parser.add_argument(
         "--no-class-level-files",
         help="If set, disable per-feature-class tabular exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
         action="store_true",
     )
     parser.add_argument(
         "--tabular-file-format",
-        help="csv | parquet: Format for tabular output files — rollup, buildings, and per-class attribute files (defaults to csv)",
+        help="csv | parquet: Format for tabular output files — rollup and per-class attribute files (defaults to csv)",
         type=str,
         required=False,
         default="csv",
@@ -2194,7 +2189,6 @@ class NearmapAIExporter(BaseExporter):
         chunk_size=CHUNK_SIZE,
         include_parcel_geometry=False,
         save_features=False,
-        save_buildings=False,
         tabular_file_format="csv",
         cache_dir=None,
         no_cache=False,
@@ -2242,7 +2236,6 @@ class NearmapAIExporter(BaseExporter):
         self.threads = threads
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
-        self.save_buildings = save_buildings
         self.tabular_file_format = tabular_file_format
         self.cache_dir = cache_dir
         self.no_cache = no_cache
@@ -2311,7 +2304,6 @@ class NearmapAIExporter(BaseExporter):
             "chunk_size": chunk_size,
             "include_parcel_geometry": include_parcel_geometry,
             "save_features": save_features,
-            "save_buildings": save_buildings,
             "tabular_file_format": tabular_file_format,
             "cache_dir": str(cache_dir) if cache_dir else None,
             "no_cache": no_cache,
@@ -3699,13 +3691,12 @@ class NearmapAIExporter(BaseExporter):
         # Output file paths in final directory (no stem prefix — directory provides context)
         outpath = storage.join_path(self.final_path, f"rollup.{self.tabular_file_format}")
         outpath_features = storage.join_path(self.final_path, "features.parquet")
-        outpath_buildings = storage.join_path(self.final_path, f"buildings.{self.tabular_file_format}")
 
         # Check for existing output files and warn about overwriting.
         # We always rebuild from chunks (the source of truth) to avoid leaving
         # partial outputs from a previous interrupted run.
         existing_outputs = []
-        for check_path in [outpath, outpath_features, outpath_buildings]:
+        for check_path in [outpath, outpath_features]:
             if storage.file_exists(check_path):
                 existing_outputs.append(storage.basename(check_path))
         if existing_outputs:
@@ -4090,53 +4081,6 @@ class NearmapAIExporter(BaseExporter):
                 outpath_features,
             )
 
-            # If buildings export is enabled, process building features
-            if self.save_buildings:
-                self.logger.info(f"Saving building-level data as {self.tabular_file_format} to {outpath_buildings}")
-                # Define geoparquet path for buildings
-                outpath_buildings_geoparquet = storage.join_path(self.final_path, "building_features.parquet")
-
-                buildings_gdf = parcels.extract_building_features(
-                    parcels_gdf=aoi_gdf,
-                    features_gdf=None,
-                    country=self.country,
-                )
-                if len(buildings_gdf) > 0:
-                    # First, save the geoparquet version with intact geometries
-                    self.logger.info(f"Saving building-level data as geoparquet to {outpath_buildings_geoparquet}")
-                    try:
-                        # Save with explicit schema version for better QGIS compatibility
-                        # Requires geopandas >= 1.1.0
-                        try:
-                            storage.write_parquet(
-                                buildings_gdf,
-                                outpath_buildings_geoparquet,
-                                schema_version="1.0.0",
-                            )
-                        except (TypeError, ValueError) as e:
-                            # Fallback for older geopandas or pyarrow versions
-                            self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
-                            storage.write_parquet(buildings_gdf, outpath_buildings_geoparquet)
-                    except Exception as e:
-                        self.logger.error(f"Failed to save buildings geoparquet file: {str(e)}")
-
-                    # Then convert geodataframe to plain dataframe for tabular output
-                    # Keep geometry as WKT representation if needed
-                    buildings_df = pd.DataFrame(buildings_gdf)
-                    if "geometry" in buildings_df.columns:
-                        buildings_df["geometry"] = buildings_df.geometry.apply(lambda geom: geom.wkt if geom else None)
-
-                    # Save in the same format as rollup
-                    if self.tabular_file_format == "parquet":
-                        storage.write_parquet(buildings_df, outpath_buildings, index=True)
-                    elif self.tabular_file_format == "csv":
-                        buildings_df.to_csv(outpath_buildings, index=True)
-                    else:
-                        self.logger.info("Invalid output format specified for buildings - reverting to csv")
-                        buildings_df.to_csv(outpath_buildings, index=True)
-                else:
-                    self.logger.info(f"No building features found for {Path(aoi_path).stem}")
-
         # Per-class export: merge pre-computed per-class chunk files into final files.
         # Per-class data was computed in process_chunk() while feature data was still
         # in memory, avoiding the expensive re-read of features.parquet.
@@ -4216,7 +4160,6 @@ def main():
         chunk_size=args.chunk_size,
         include_parcel_geometry=args.include_parcel_geometry,
         save_features=args.save_features,
-        save_buildings=args.save_buildings,
         tabular_file_format=args.tabular_file_format,
         cache_dir=args.cache_dir,
         no_cache=args.no_cache,

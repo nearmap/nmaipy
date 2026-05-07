@@ -1,12 +1,9 @@
-"""Registry of files the nmaipy exporter is allowed to produce.
+"""Registry of files the nmaipy exporter produces. Consumed by
+``readme_generator`` and ``data_dictionary_generator`` so output file metadata
+lives in one place.
 
-Single source of truth used by `readme_generator` and `data_dictionary_generator`.
-Adding a new output file should be a one-line entry here, not a distributed
-update across blacklists/whitelists in multiple modules.
-
-The `kind` field drives downstream behaviour:
-- ``ai_data``     → has columns (rollup, per-class tabular); gets a data
-                    dictionary.
+``kind`` drives downstream behaviour:
+- ``ai_data``     → has columns; gets a data dictionary.
 - ``geometry``    → geoparquet with geometry; listed in README, no dictionary.
 - ``operational`` → telemetry / errors; listed in README, no dictionary.
 - ``config``      → input metadata; not listed in the README's file table.
@@ -18,6 +15,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from nmaipy import storage
+from nmaipy.column_metadata import PER_CLASS_LABELS
 
 
 @dataclass(frozen=True)
@@ -28,20 +26,18 @@ class FileSpec:
     kind: str
     class_label: Optional[str] = None
     is_per_class: bool = False
+    list_in_readme: bool = True
 
 
-# Static-name files. Stems only — extension is set by `tabular_file_format` for
-# `ai_data` files (csv|parquet), fixed for the rest.
+# Static-name files. Per-class files are derived from PER_CLASS_LABELS in
+# ``file_spec_for``. Extension for ``ai_data`` files is the export's
+# ``tabular_file_format``; other entries are fixed-extension.
 STATIC_FILES: dict[str, FileSpec] = {
     "rollup": FileSpec(
-        description="Property-level summary with one row per property containing aggregated statistics",
+        description="Property-level summary with one row per parcel containing aggregated statistics",
         kind="ai_data",
-        class_label="property",
-    ),
-    "buildings": FileSpec(
-        description="Building-level summary (one row per building; present when --save-buildings is set)",
-        kind="ai_data",
-        class_label="building",
+        # "parcel" triggers parcel-aggregate scope phrasing in column_metadata.lookup_column.
+        class_label="parcel",
     ),
     "features": FileSpec(
         description="All detected features with geometry (GeoParquet)",
@@ -66,23 +62,13 @@ STATIC_FILES: dict[str, FileSpec] = {
     "export_config": FileSpec(
         description="Parameters used to produce this export",
         kind="config",
+        list_in_readme=False,
     ),
     "roof_age_export_config": FileSpec(
         description="Parameters used to produce this Roof Age export",
         kind="config",
+        list_in_readme=False,
     ),
-}
-
-# Per-class file stems → human-readable class label.
-# Labels must match keys in `column_metadata._SCOPE_PHRASES` so that the
-# `{class_label}` substitution path in `lookup_column` resolves consistently.
-PER_CLASS_LABELS: dict[str, str] = {
-    "building": "building",
-    "building_lifecycle": "building lifecycle",
-    "roof": "roof",
-    "roof_instance": "roof age instance",
-    "swimming_pool": "swimming pool",
-    "solar_panel": "solar panel",
 }
 
 
@@ -95,7 +81,14 @@ def file_spec_for(filename: str) -> Optional[FileSpec]:
       (per-class tabular AI data).
     - ``<cname>_features.parquet`` for cnames in `PER_CLASS_LABELS` (per-class
       geometry / GeoParquet).
+    - ``*_data_dictionary.csv`` — auto-generated sidecar; not listed.
     """
+    if filename.endswith("_data_dictionary.csv"):
+        return FileSpec(
+            description="Auto-generated data dictionary describing the columns of the matching output file",
+            kind="documentation",
+            list_in_readme=False,
+        )
     if "." not in filename:
         return None
     stem, ext = filename.rsplit(".", 1)
@@ -123,18 +116,8 @@ def file_spec_for(filename: str) -> Optional[FileSpec]:
 
 
 def tabular_ai_files(final_dir: str, ext: str) -> list[tuple[str, str]]:
-    """Enumerate tabular AI-data files that exist on disk under `final_dir`.
-
-    Args:
-        final_dir: Path to the export's ``final/`` directory (local or ``s3://``).
-        ext: Tabular extension to look for — ``"csv"`` or ``"parquet"``. Comes from
-            the export config's ``tabular_file_format``.
-
-    Returns:
-        ``[(filepath, class_label), ...]`` for each registry entry whose file
-        exists at ``final_dir/<stem>.<ext>``. Used by the data dictionary
-        generator to emit one dictionary per logical class file (no duplication
-        across CSV+parquet variants, no geoparquet companions).
+    """Return ``[(filepath, class_label), ...]`` for tabular AI-data files
+    present at ``final_dir/<stem>.<ext>``. ``ext`` is ``csv`` or ``parquet``.
     """
     out: list[tuple[str, str]] = []
     for stem, spec in STATIC_FILES.items():
@@ -142,7 +125,7 @@ def tabular_ai_files(final_dir: str, ext: str) -> list[tuple[str, str]]:
             continue
         path = storage.join_path(final_dir, f"{stem}.{ext}")
         if storage.file_exists(path):
-            out.append((path, spec.class_label or "property"))
+            out.append((path, spec.class_label or "parcel"))
     for cname, label in PER_CLASS_LABELS.items():
         path = storage.join_path(final_dir, f"{cname}.{ext}")
         if storage.file_exists(path):

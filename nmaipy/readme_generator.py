@@ -23,32 +23,28 @@ from nmaipy.column_metadata import (
     DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
+    evidence_type_legend,
     lookup_column,
 )
 
 logger = logging.getLogger(__name__)
 
-# README is the export's "all done" sentinel (see exporter._run_inner).
-# Skip it from the listed files table; .DS_Store is filesystem noise.
+# Files always skipped from the README's file listing.
 _NEVER_LIST = {"README.md", ".DS_Store"}
 
-# Long-form unit names paired with the area-suffix used in column names.
 _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 
 
 def _render_columns_table(
-    column_names: Iterable[str], area_unit: str = "", class_label: str = "property"
+    column_names: Iterable[str], area_unit: str = "", class_label: str = "parcel"
 ) -> list[str]:
-    """Render a list of column names as a 6-column markdown table.
+    """Render the named columns as a 6-column markdown table.
 
-    Each name is resolved through ``column_metadata.lookup_column``, which
-    handles ``{unit}`` / ``{unit_name}`` / ``{class_label}`` / ``{scope_phrase}``
-    substitution and pattern matching. This is the same path the data
-    dictionary uses, so README and dictionary descriptions stay in lock-step.
-
-    Names containing ``{unit}`` are resolved to the country's area suffix
-    before lookup (e.g. ``area_{unit}`` → ``area_sqft``). Empty min/max/unit
-    fields render as the ``—`` sentinel.
+    Each name is resolved via ``column_metadata.lookup_column`` so that
+    ``{unit}`` / ``{class_label}`` / ``{scope_phrase}`` substitution stays
+    consistent with the data dictionary. Templated names (``area_{unit}``)
+    are resolved against ``area_unit`` before lookup; empty min/max/unit
+    fields render as ``—``.
     """
     lines = [
         "| Column | Type | Min | Max | Unit | Description |",
@@ -166,10 +162,12 @@ class ReadmeGenerator:
         return "\n".join(sections)
 
     def _discover_files(self) -> list[str]:
-        """Discover files in the final/ directory worth listing in the README.
+        """List files in ``final/`` worth showing in the README's file table.
 
-        Excludes README itself, OS noise, config files, and any ``*_data_dictionary.csv``
-        sidecars (handled by their own paragraph rather than the file table).
+        Inclusion is governed by the ``output_files`` registry's
+        ``list_in_readme`` flag; ``_NEVER_LIST`` covers files outside the
+        registry. Unrecognised files are listed with a generic description so
+        unexpected outputs are visible.
         """
         all_files = storage.glob_files(self.final_dir, "*")
         files = []
@@ -177,10 +175,8 @@ class ReadmeGenerator:
             name = storage.basename(f)
             if name in _NEVER_LIST:
                 continue
-            if name.endswith("_data_dictionary.csv"):
-                continue
             spec = output_files.file_spec_for(name)
-            if spec is not None and spec.kind == "config":
+            if spec is not None and not spec.list_in_readme:
                 continue
             files.append(f)
         return files
@@ -197,7 +193,6 @@ class ReadmeGenerator:
             "feature_api_errors",
             "roof_age_errors",
             "latency_stats",
-            "buildings",
         }
         classes = []
         seen = set()
@@ -342,18 +337,11 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         return "\n".join(lines)
 
     def _get_file_description(self, filename: str) -> str:
-        """Get description for a file from the output_files registry.
-
-        Files not in the registry get a generic fallback and a debug log so
-        unexpected output filenames surface during development without
-        breaking the README.
-        """
+        """Description for ``filename`` from the registry, or a generic fallback."""
         spec = output_files.file_spec_for(filename)
         if spec is not None:
             return spec.description
-        logger.debug(
-            "README file table: no registry entry for %r; using generic description.", filename
-        )
+        logger.debug("No registry entry for %r; using generic description.", filename)
         return "Export data file"
 
     def _generate_classes_section(self, classes: list[dict]) -> str:
@@ -559,32 +547,45 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
 
         lines.extend(_render_columns_table(ROOF_AGE_COLUMNS.keys()))
 
+        # Evidence Type legend — sourced from column_metadata.json so the README
+        # and any downstream consumers see the same descriptions.
+        legend = evidence_type_legend()
+        lines.append("")
+        lines.append("**Evidence Type code → description:**")
+        lines.append("")
+        for code in sorted(legend, key=int):
+            lines.append(f"- **Type {code}**: {legend[code]}")
+        lines.append("")
         lines.append(
-            """
-**Evidence Type (0-8):**
-- **Type 8**: Multiple clear images with detected roof change, plus corroborating permits/assessor data
-- **Type 7**: Multiple clear images with detected roof change, no corroborating data
-- **Type 6**: Multiple clear images, no change detected but other strong evidence
-- **Type 2**: No clear imagery, but building permits or assessor records available
-- **Type 0**: Minimal supporting evidence
-
-Higher evidence types indicate more robust information sources.
-
-**Trust Score (0-100):**
-- Higher scores indicate more reliable estimates
-- Based on evidence quality (permits, imagery change detection, number of captures)
-
-For more details, see:
-- https://help.nearmap.com/kb/articles/1810-nearmap-roof-age
-- https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score
-"""
+            "Higher evidence types indicate more robust information sources. "
+            "**Trust Score (0-100)** quantifies reliability based on the same evidence "
+            "quality factors (imagery, permits, change detection, capture count)."
         )
+        lines.append("")
+        lines.append("For more details, see:")
+        lines.append("- https://help.nearmap.com/kb/articles/1810-nearmap-roof-age")
+        lines.append("- https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score")
+        lines.append("")
 
         return "\n".join(lines)
 
     def _generate_defensible_space_section(self, area_unit: str) -> str:
         """Generate the Defensible Space columns section."""
         u = area_unit
+        # Zone 0 is shown as a representative example; the API returns zones 0/1/2.
+        example_columns = [
+            f"primary_roof_defensible_space_zone_0_zone_area_{u}",
+            f"primary_roof_defensible_space_zone_0_defensible_space_area_{u}",
+            "primary_roof_defensible_space_zone_0_coverage_ratio",
+            f"primary_roof_defensible_space_zone_0_risk_object_area_{u}",
+            f"primary_roof_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_{u}",
+            "primary_roof_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_ratio",
+            f"primary_roof_defensible_space_zone_0_roof_area_{u}",
+            "primary_roof_defensible_space_zone_0_roof_ratio",
+            f"primary_roof_defensible_space_zone_0_yard_debris_area_{u}",
+            "primary_roof_defensible_space_zone_0_yard_debris_ratio",
+            "defensible_space_model_version",
+        ]
         lines = [
             "## Defensible Space Columns",
             "",
@@ -605,9 +606,9 @@ For more details, see:
             "| `primary_roof_defensible_space_zone_{N}_` | Defensible space for the primary roof feature only |",
             "| `aggregate_defensible_space_zone_{N}_` | Defensible space aggregated across the entire parcel (all structures) |",
             "",
-            "### Columns Per Zone",
+            "### Columns Per Zone (illustrated for zone 0; analogous columns exist for zones 1 and 2)",
             "",
-            *_render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS.keys(), u),
+            *_render_columns_table(example_columns, u),
         ]
 
         lines.append(

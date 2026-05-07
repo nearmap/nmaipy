@@ -1,20 +1,8 @@
-"""Data dictionary generator.
-
-Generates a ``<filename>_data_dictionary.csv`` next to every tabular AI-data
-output file in an nmaipy export ``final/`` directory. Each dictionary lists
-every column with description, allowed values, dtype, source, min, max, and
-precision — sourced from ``nmaipy/data/column_metadata.json`` via
-``column_metadata.lookup_column``.
-
-The set of files we emit dictionaries for is driven by the
-``nmaipy.output_files`` registry, gated on the export's ``tabular_file_format``
-(csv|parquet) so geoparquet companions and parallel format variants don't get
-redundant dictionaries.
-
-Mirrors the shape of ``ReadmeGenerator``: construct with ``output_dir``, call
-``generate_and_save()``. Failure is isolated and logged per-file; the export's
-primary contract is the data files themselves, and the README atomic write
-remains the "all done" sentinel.
+"""Generate ``<filename>_data_dictionary.csv`` next to every tabular AI-data
+output in an export ``final/`` directory. Columns are looked up via
+``column_metadata.lookup_column``; eligible files come from the
+``output_files`` registry, gated on the export's ``tabular_file_format``.
+Per-file failures are logged and isolated.
 """
 
 from __future__ import annotations
@@ -32,8 +20,6 @@ from nmaipy.column_metadata import lookup_column
 
 logger = logging.getLogger(__name__)
 
-# CSV column order in the generated data dictionaries. Matches the field
-# sequence requested in the INDS-2080 ticket.
 _DD_COLUMNS = [
     "column_name",
     "description",
@@ -77,10 +63,11 @@ class DataDictionaryGenerator:
         """Generate all data dictionaries for the export. Returns list of written paths."""
         ext = self._tabular_extension()
         area_unit = self._detect_area_unit()
+        extras = self._description_extras()
         written: list[str] = []
         for filepath, class_label in output_files.tabular_ai_files(self.final_dir, ext):
             try:
-                out_path = self._build_and_write(filepath, class_label, area_unit)
+                out_path = self._build_and_write(filepath, class_label, area_unit, extras)
             except Exception as exc:
                 logger.warning(f"Data dictionary generation failed for {filepath}: {exc}")
                 continue
@@ -114,6 +101,26 @@ class DataDictionaryGenerator:
         fmt = self._load_export_config().get("parameters", {}).get("tabular_file_format", "csv")
         return fmt if fmt in ("csv", "parquet") else "csv"
 
+    def _description_extras(self) -> dict[str, str]:
+        """Build the extra-substitution dict used by ``column_metadata.lookup_column``.
+
+        Currently surfaces the export's ``primary_decision`` strategy so that
+        descriptions like ``is_primary`` can render the actual selection
+        method ("optimal" / "nearest" / "largest_intersection") instead of
+        referencing a CLI flag the customer never sees.
+        """
+        params = self._load_export_config().get("parameters", {})
+        method = params.get("primary_decision") or "optimal"
+        method_descriptions = {
+            "optimal": "the optimal strategy (geocoded point preferred, falling back to largest intersection)",
+            "nearest": "the nearest-to-centroid strategy",
+            "largest_intersection": "the largest-intersection strategy",
+        }
+        return {
+            "primary_strategy": method,
+            "primary_strategy_description": method_descriptions.get(method, method),
+        }
+
     # ------------------------------------------------------------------
     # Schema reads
     # ------------------------------------------------------------------
@@ -140,23 +147,24 @@ class DataDictionaryGenerator:
     # Per-file dictionary build + write
     # ------------------------------------------------------------------
 
-    def _build_and_write(self, filepath: str, class_label: str, area_unit: str) -> Optional[str]:
+    def _build_and_write(
+        self, filepath: str, class_label: str, area_unit: str, extras: dict[str, str]
+    ) -> Optional[str]:
         columns = self._read_columns(filepath)
-        rows = [self._row_for_column(name, area_unit, class_label) for name in columns]
+        rows = [self._row_for_column(name, area_unit, class_label, extras) for name in columns]
         if not rows:
             return None
         out_path = self._dictionary_path_for(filepath)
         df = pd.DataFrame(rows, columns=_DD_COLUMNS)
-        # ``encoding="utf-8-sig"`` writes a BOM so Excel on macOS renders Unicode
-        # (em-dashes, etc.) correctly when opening the .csv. Pandas + fsspec
-        # handles ``s3://`` URIs natively — same idiom as the rollup write
-        # (exporter.py ``data.to_csv(outpath, ...)``).
+        # utf-8-sig writes a BOM so Excel on macOS renders Unicode correctly.
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         return out_path
 
-    def _row_for_column(self, name: str, area_unit: str, class_label: str) -> dict[str, str]:
+    def _row_for_column(
+        self, name: str, area_unit: str, class_label: str, extras: dict[str, str]
+    ) -> dict[str, str]:
         """Build a single dictionary row for one column."""
-        meta = lookup_column(name, area_unit=area_unit, class_label=class_label)
+        meta = lookup_column(name, area_unit=area_unit, class_label=class_label, extras=extras)
         return {
             "column_name": name,
             "description": meta.description,
@@ -177,17 +185,8 @@ class DataDictionaryGenerator:
         return storage.join_path(directory, f"{stem}_data_dictionary.csv")
 
 
-# ---------------------------------------------------------------------------
-# Module-level convenience
-# ---------------------------------------------------------------------------
-
 def generate_dictionaries(output_dir: str) -> list[str]:
-    """Generate dictionaries for an export. Returns list of written paths.
-
-    Wrapper around ``DataDictionaryGenerator(output_dir).generate_and_save()``
-    that swallows top-level errors and logs a warning, mirroring the
-    failure-isolation contract requested in the design.
-    """
+    """Generate dictionaries for an export, swallowing top-level errors. Returns written paths."""
     try:
         return DataDictionaryGenerator(output_dir=output_dir).generate_and_save()
     except Exception as exc:

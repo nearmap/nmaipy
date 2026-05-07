@@ -68,7 +68,6 @@ class TestExporter:
             parcel_mode=True,
             system_version_prefix="gen6-",
             processes=8,
-            save_buildings=True,
         )
         my_exporter.process_chunk(
             chunk_id=chunk_id,

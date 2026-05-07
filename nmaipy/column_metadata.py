@@ -44,6 +44,21 @@ _SCOPE_PHRASES: dict[str, str] = {
 }
 _DEFAULT_SCOPE_PHRASE = "across the entire parcel"
 
+# Terse labels for scope-stripped lookup, appended in parens to the resolved
+# description (e.g. "Estimated roof installation date (primary roof's roof
+# age)."). Used only when the underlying template doesn't already carry scope
+# information via ``{scope_phrase}`` / ``{class_label}`` / ``{class_label_primary}``.
+_SCOPE_APPENDED_LABELS: dict[str, str] = {
+    "primary_roof_": "primary roof",
+    "primary_building_": "primary building",
+    "primary_roof_instance_": "primary roof's roof age",
+    "primary_building_lifecycle_": "primary building lifecycle",
+    "primary_swimming_pool_": "primary swimming pool",
+    "primary_solar_panel_": "primary solar panel",
+    "primary_child_roof_": "primary linked roof",
+    "primary_child_roof_age_": "primary linked roof's roof age",
+}
+
 # When scope-stripping resolves a bare entry against a scoped column, the scope
 # prefix carries class information. Two flavours of label:
 #   - ``simple``: bare class name (used inside e.g. "Total {class_label} area"
@@ -55,26 +70,41 @@ _DEFAULT_SCOPE_PHRASE = "across the entire parcel"
 # Today both fall back to the simple form unless the description text reads
 # more naturally with the primary phrasing — that's controlled by the seeded
 # JSON's wording, not by code.
+
+# Canonical per-class label dict, keyed by the snake_case slug from
+# `_description_to_cname`. Single source of truth — `output_files.py` imports
+# this for filename → label resolution, and the scope-prefixed dicts below
+# derive from it.
+PER_CLASS_LABELS: dict[str, str] = {
+    "building": "building",
+    "building_lifecycle": "building lifecycle",
+    "roof": "roof",
+    "roof_instance": "roof age instance",
+    "swimming_pool": "swimming pool",
+    "solar_panel": "solar panel",
+}
+
 _SCOPE_CLASS_LABELS_SIMPLE: dict[str, str] = {
-    "primary_roof_": "roof",
-    "primary_building_": "building",
-    "primary_roof_instance_": "roof age instance",
-    "primary_building_lifecycle_": "building lifecycle",
-    "primary_swimming_pool_": "swimming pool",
-    "primary_solar_panel_": "solar panel",
-    "primary_child_roof_": "roof",
-    "primary_child_roof_age_": "roof age instance",
+    f"primary_{cname}_": label for cname, label in PER_CLASS_LABELS.items()
 }
+# Child-feature scope variants don't fit the per-class label layout above
+# (they refer to the parent feature, not the parcel). Keep these explicit.
+_SCOPE_CLASS_LABELS_SIMPLE.update(
+    {
+        "primary_child_roof_": "roof",
+        "primary_child_roof_age_": "roof age instance",
+    }
+)
+
 _SCOPE_CLASS_LABELS_PRIMARY: dict[str, str] = {
-    "primary_roof_": "primary roof on the parcel",
-    "primary_building_": "primary building on the parcel",
-    "primary_roof_instance_": "primary roof age instance on the parcel",
-    "primary_building_lifecycle_": "primary building lifecycle on the parcel",
-    "primary_swimming_pool_": "primary swimming pool on the parcel",
-    "primary_solar_panel_": "primary solar panel on the parcel",
-    "primary_child_roof_": "primary child roof of the parent feature",
-    "primary_child_roof_age_": "primary linked roof age instance of the parent feature",
+    f"primary_{cname}_": f"primary {label} on the parcel" for cname, label in PER_CLASS_LABELS.items()
 }
+_SCOPE_CLASS_LABELS_PRIMARY.update(
+    {
+        "primary_child_roof_": "primary child roof of the parent feature",
+        "primary_child_roof_age_": "primary linked roof age instance of the parent feature",
+    }
+)
 # Backwards-compatibility alias kept for any callers using the old name.
 _SCOPE_CLASS_LABELS = _SCOPE_CLASS_LABELS_SIMPLE
 
@@ -283,45 +313,53 @@ def reload_metadata() -> None:
     load_metadata.cache_clear()
 
 
-def lookup_column(name: str, area_unit: str = "", class_label: str = "feature") -> ColumnMeta:
+def lookup_column(
+    name: str,
+    area_unit: str = "",
+    class_label: str = "feature",
+    extras: Optional[dict[str, str]] = None,
+) -> ColumnMeta:
     """Resolve a column name to its ColumnMeta.
 
     Args:
         name: Column name to look up.
         area_unit: ``"sqft"`` or ``"sqm"`` for area-unit substitution.
         class_label: Human-readable class label for the file the column lives in
-            (e.g. ``"building"`` for ``building_features.parquet``). Used to
-            substitute ``{class_label}`` in bare entries like ``area_sqft``.
-            Defaults to ``"feature"`` for mixed-class or rollup files.
+            (e.g. ``"building"`` for ``building.csv``). Used to substitute
+            ``{class_label}`` in templates. Defaults to ``"feature"`` for
+            mixed-class or rollup files.
+        extras: Caller-supplied substitutions (e.g.
+            ``{"primary_strategy": "optimal"}``). Each key becomes a
+            ``{key}`` placeholder in the description; values use snake_case →
+            spaces and a ``{Key}`` capitalised variant for sentence-initial use.
 
     Lookup precedence:
       1. Exact match in ``exact_matches`` (templates substituted with ``area_unit``).
-      2. Scope-stripped exact match: strip a known scope prefix from the front,
-         re-look up the remainder, and append the scope phrase to the description.
-         This catches columns like ``primary_roof_instance_roof_age_installation_date``
-         that share semantics with the bare ``roof_age_installation_date`` entry but
-         appear with a scope prefix in the rollup.
-      3. First matching regex in ``patterns`` (templates substituted with the
-         pattern's named groups: ``scope``, ``class``, ``unit``).
+      2. Scope-stripped exact match: strip a known scope prefix, re-look up the
+         remainder, and append a terse scope label.
+      3. First matching regex in ``patterns``.
       4. Sentinel ColumnMeta with ``description = source = "?"``.
     """
     exact, patterns, _, zone_distances = load_metadata()
 
-    # 1. Exact match. Try the literal name first, then a unit-templated form
-    #    (e.g. "tile_area_sqft" → check "tile_area_{unit}").
+    # 1. Exact match. Try the literal name first, then a unit-templated form.
     if name in exact:
-        return _instantiate(exact[name], area_unit=area_unit, class_label=class_label)
+        return _instantiate(exact[name], area_unit=area_unit, class_label=class_label, extra_groups=extras)
     if area_unit:
         templated = name.replace(f"_{area_unit}", "_{unit}")
         if templated != name and templated in exact:
-            return _instantiate(exact[templated], area_unit=area_unit, class_label=class_label)
+            return _instantiate(
+                exact[templated], area_unit=area_unit, class_label=class_label, extra_groups=extras
+            )
 
     # 2. Scope-stripped exact match.
     for scope_prefix in _SCOPE_PHRASES:
         if not name.startswith(scope_prefix):
             continue
         remainder = name[len(scope_prefix):]
-        scoped_meta = _scope_stripped_lookup(remainder, exact, area_unit, scope_prefix, class_label)
+        scoped_meta = _scope_stripped_lookup(
+            remainder, exact, area_unit, scope_prefix, class_label, extras
+        )
         if scoped_meta is not None:
             return scoped_meta
 
@@ -352,13 +390,13 @@ def lookup_column(name: str, area_unit: str = "", class_label: str = "feature") 
                 else:
                     extra_groups["primary_phrasing"] = f"this {class_label}"
             # Defensible-space scope phrasing. The same patterns serve three
-            # contexts: rollup (``primary_``/``aggregate_`` prefixes) and the
+            # contexts: rollup (``primary_roof_``/``aggregate_`` prefixes) and the
             # per-roof ``roof.csv`` (no prefix — the row already identifies the
             # roof). Surface a single ``{ds_scope_phrasing}`` token so one
             # description can read sensibly in all three.
             if "roof_scope" in extra_groups:
                 rs = extra_groups["roof_scope"]
-                if rs == "primary_":
+                if rs == "primary_roof_":
                     extra_groups["ds_scope_phrasing"] = (
                         "around the primary roof on the parcel"
                     )
@@ -411,6 +449,8 @@ def lookup_column(name: str, area_unit: str = "", class_label: str = "feature") 
             scope_phrase_override = ""
             if not scope and class_label and class_label not in ("feature", "parcel"):
                 scope_phrase_override = f"on this {class_label}"
+            if extras:
+                extra_groups.update(extras)
             return _instantiate(
                 pattern.template,
                 area_unit=area_unit,
@@ -431,6 +471,7 @@ def _scope_stripped_lookup(
     area_unit: str,
     scope_prefix: str,
     class_label: str = "feature",
+    extras: Optional[dict[str, str]] = None,
 ) -> Optional[ColumnMeta]:
     """If ``remainder`` is in ``exact_matches``, return its meta with scope phrase appended.
 
@@ -468,23 +509,24 @@ def _scope_stripped_lookup(
         area_unit=area_unit,
         class_label=effective_simple,
         class_label_primary=effective_primary,
+        extra_groups=extras,
     )
-    scope_phrase = _format_scope_phrase(scope_prefix)
-    # Append the scope phrase to the description so callers can tell parcel-scope
-    # apart from primary-feature-scope at a glance. Skip it when the template
-    # already references {scope_phrase}, {class_label}, or {class_label_primary}
-    # — those placeholders already encode the scope-aware information.
+    # Append a terse scope label to the description so callers can tell
+    # parcel-scope apart from primary-feature-scope at a glance. Skipped when
+    # the template already references {scope_phrase}, {class_label}, or
+    # {class_label_primary} — those placeholders already encode scope info.
+    scope_label = _SCOPE_APPENDED_LABELS.get(scope_prefix, _format_scope_phrase(scope_prefix))
     template_uses_scope = (
         "{scope_phrase}" in base.description
         or "{class_label}" in base.description
         or "{class_label_primary}" in base.description
     )
-    if not template_uses_scope and scope_phrase not in rendered.description:
+    if not template_uses_scope and scope_label not in rendered.description:
         new_desc = rendered.description.rstrip(".")
         if new_desc:
-            new_desc = f"{new_desc} ({scope_phrase})."
+            new_desc = f"{new_desc} ({scope_label})."
         else:
-            new_desc = f"{scope_phrase}."
+            new_desc = f"{scope_label}."
         rendered = replace(rendered, description=new_desc)
     return rendered
 
