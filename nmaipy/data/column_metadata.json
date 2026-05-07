@@ -201,6 +201,12 @@
       "description": "Reference date for age calculation. When --until is set, this is the requested cutoff (clamped to the dataset's nearest snapshot date).",
       "source": "roof age model"
     },
+    "roof_age_until_date": {
+      "group": "roof_age",
+      "dtype": "date",
+      "description": "The original requested cutoff (`untilAsOfDate`) before snapshot clamping. Differs from `roof_age_as_of_date` when the requested cutoff fell between dataset snapshots; null when no historical cutoff was applied.",
+      "source": "roof age model"
+    },
     "roof_age_years_as_of_date": {
       "group": "roof_age",
       "dtype": "float",
@@ -631,6 +637,12 @@
       "group": "roof_age_bare",
       "dtype": "date",
       "description": "Reference date for age calculation.",
+      "source": "roof age model"
+    },
+    "until_date": {
+      "group": "roof_age_bare",
+      "dtype": "date",
+      "description": "Original requested cutoff (`untilAsOfDate`) before snapshot clamping. Un-prefixed; appears on roof age instance features. Null when no historical cutoff was applied.",
       "source": "roof age model"
     },
     "trust_score": {

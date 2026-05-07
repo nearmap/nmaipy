@@ -896,13 +896,18 @@ def flatten_roof_instance_attributes(
         prefix: Optional prefix for flattened keys (e.g., "primary_child_")
 
     Returns:
-        Flattened dictionary with roof instance attributes
+        Flattened dictionary with every canonical ``roof_age_*`` key. Keys absent
+        from the input arrive as ``None`` so downstream DataFrame assembly
+        preserves canonical column ordering even when individual rows are
+        missing fields (pandas builds columns from first-seen-key order across
+        rows).
 
     Example:
         >>> instance = {"installation_date": "2019-06", "trust_score": 0.85, "evidence_type": 1}
         >>> attrs = flatten_roof_instance_attributes(instance, country="us")
-        >>> print(attrs)
-        {'roof_age_installation_date': '2019-06', 'roof_age_trust_score': 0.85, 'roof_age_evidence_type': 1}
+        >>> attrs["roof_age_installation_date"], attrs["roof_age_trust_score"]
+        ('2019-06', 0.85)
+        >>> attrs["roof_age_until_date"]  # not in input, emitted as None
     """
     flattened = {}
 

@@ -5,40 +5,17 @@ present in an export directory, rather than using a static template.
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
 import pyarrow.parquet as pq
 
-from nmaipy import storage
+from nmaipy import output_files, storage
 from nmaipy.__version__ import __version__
-
-# Known output filenames mapped to descriptions.
-FILE_PATTERNS = {
-    "rollup.csv": "Property-level summary with one row per property containing aggregated statistics",
-    "rollup.parquet": "Property-level summary with one row per property containing aggregated statistics (Parquet format)",
-    "features.parquet": "All detected features with geometry (GeoParquet)",
-    "feature_api_errors.csv": "Properties where Feature API calls failed",
-    "feature_api_errors.parquet": "Feature API errors with geometry (GeoParquet)",
-    "roof_age_errors.csv": "Properties where Roof Age API calls failed",
-    "roof_age_errors.parquet": "Roof Age API errors with geometry (GeoParquet)",
-    "latency_stats.csv": "API call timing statistics",
-    "buildings.csv": "Building-level summary data",
-    "buildings.parquet": "Building-level summary data (Parquet format)",
-}
-
-# Files to exclude from documentation
-EXCLUDE_FILES = {"README.md", ".DS_Store", "export_config.json"}
-
-# ---------------------------------------------------------------------------
-# Column metadata
-# ---------------------------------------------------------------------------
-# Source of truth lives in nmaipy/data/column_metadata.json and is loaded by
-# nmaipy.column_metadata. This module re-imports the per-section dicts so
-# downstream callers (and tests) can keep using the historical names.
-# ---------------------------------------------------------------------------
-from nmaipy.column_metadata import (  # noqa: E402
+from nmaipy.column_metadata import (
     ADDRESS_QUERY_COLUMNS,
     COMMON_COLUMNS,
     DEFENSIBLE_SPACE_ZONE_COLUMNS,
@@ -46,40 +23,46 @@ from nmaipy.column_metadata import (  # noqa: E402
     DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
+    lookup_column,
 )
 
-# Long-form unit names paired with their short column-suffix form.
-# Used by `_render_columns_table` to substitute the `{unit_name}` placeholder
-# in the Unit column based on the country's area unit.
+logger = logging.getLogger(__name__)
+
+# README is the export's "all done" sentinel (see exporter._run_inner).
+# Skip it from the listed files table; .DS_Store is filesystem noise.
+_NEVER_LIST = {"README.md", ".DS_Store"}
+
+# Long-form unit names paired with the area-suffix used in column names.
 _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 
 
-def _render_columns_table(columns: dict, area_unit: str = "") -> list[str]:
-    """Render a column metadata dict as a 6-column markdown table.
+def _render_columns_table(
+    column_names: Iterable[str], area_unit: str = "", class_label: str = "property"
+) -> list[str]:
+    """Render a list of column names as a 6-column markdown table.
 
-    Each ``columns`` value is a ``ColumnMeta`` dataclass with fields ``dtype``,
-    ``min``, ``max``, ``unit``, ``description``. Two placeholders are substituted
-    at render time:
-      - ``{unit}`` (in column names, descriptions): replaced with the country's
-        area-column suffix (``sqft``/``sqm``).
-      - ``{unit_name}`` (in the Unit field): replaced with the country's
-        spelled-out area unit (``square feet`` / ``square metres``).
+    Each name is resolved through ``column_metadata.lookup_column``, which
+    handles ``{unit}`` / ``{unit_name}`` / ``{class_label}`` / ``{scope_phrase}``
+    substitution and pattern matching. This is the same path the data
+    dictionary uses, so README and dictionary descriptions stay in lock-step.
 
-    Empty min/max/unit fields render as the ``—`` sentinel.
+    Names containing ``{unit}`` are resolved to the country's area suffix
+    before lookup (e.g. ``area_{unit}`` → ``area_sqft``). Empty min/max/unit
+    fields render as the ``—`` sentinel.
     """
     lines = [
         "| Column | Type | Min | Max | Unit | Description |",
         "|--------|------|-----|-----|------|-------------|",
     ]
-    unit_name = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
-    for col, meta in columns.items():
+    for raw_name in column_names:
+        resolved_name = raw_name.replace("{unit}", area_unit)
+        meta = lookup_column(resolved_name, area_unit=area_unit, class_label=class_label)
         dtype = meta.dtype or "—"
         mn = meta.min or "—"
         mx = meta.max or "—"
-        unit = (meta.unit or "—").replace("{unit_name}", unit_name)
-        desc = (meta.description or "").replace("{unit}", area_unit)
-        col_rendered = col.replace("{unit}", area_unit)
-        lines.append(f"| `{col_rendered}` | {dtype} | {mn} | {mx} | {unit} | {desc} |")
+        unit = meta.unit or "—"
+        desc = meta.description or ""
+        lines.append(f"| `{resolved_name}` | {dtype} | {mn} | {mx} | {unit} | {desc} |")
     return lines
 
 
@@ -183,13 +166,23 @@ class ReadmeGenerator:
         return "\n".join(sections)
 
     def _discover_files(self) -> list[str]:
-        """Discover all files in the final/ directory, excluding certain files."""
+        """Discover files in the final/ directory worth listing in the README.
+
+        Excludes README itself, OS noise, config files, and any ``*_data_dictionary.csv``
+        sidecars (handled by their own paragraph rather than the file table).
+        """
         all_files = storage.glob_files(self.final_dir, "*")
         files = []
         for f in sorted(all_files):
             name = storage.basename(f)
-            if name not in EXCLUDE_FILES:
-                files.append(f)
+            if name in _NEVER_LIST:
+                continue
+            if name.endswith("_data_dictionary.csv"):
+                continue
+            spec = output_files.file_spec_for(name)
+            if spec is not None and spec.kind == "config":
+                continue
+            files.append(f)
         return files
 
     def _detect_classes(self, files: list[str]) -> list[dict]:
@@ -349,24 +342,18 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         return "\n".join(lines)
 
     def _get_file_description(self, filename: str) -> str:
-        """Get description for a file based on exact filename or pattern matching."""
-        if filename in FILE_PATTERNS:
-            return FILE_PATTERNS[filename]
+        """Get description for a file from the output_files registry.
 
-        # Per-class feature geometry files: {class}_features.parquet
-        if filename.endswith("_features.parquet"):
-            class_name = filename[: -len("_features.parquet")].replace("_", " ").title()
-            return f"{class_name} polygons with geometry (GeoParquet)"
-
-        # Per-class attribute files: {class}.csv or {class}.parquet
-        if filename.endswith(".csv"):
-            class_name = filename[: -len(".csv")].replace("_", " ").title()
-            return f"Per-{class_name.lower()} data with feature attributes"
-
-        if filename.endswith(".parquet") and not filename.endswith("_features.parquet"):
-            class_name = filename[: -len(".parquet")].replace("_", " ").title()
-            return f"Per-{class_name.lower()} data with feature attributes (Parquet format)"
-
+        Files not in the registry get a generic fallback and a debug log so
+        unexpected output filenames surface during development without
+        breaking the README.
+        """
+        spec = output_files.file_spec_for(filename)
+        if spec is not None:
+            return spec.description
+        logger.debug(
+            "README file table: no registry entry for %r; using generic description.", filename
+        )
         return "Export data file"
 
     def _generate_classes_section(self, classes: list[dict]) -> str:
@@ -447,20 +434,20 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "These columns appear in most output files:",
             "",
-            *_render_columns_table(COMMON_COLUMNS),
+            *_render_columns_table(COMMON_COLUMNS.keys()),
             "",
         ]
         return "\n".join(lines)
 
     def _generate_address_query_section(self, rollup_columns: set[str]) -> str:
         """Generate the address/query columns section."""
-        present_cols = {col: meta for col, meta in ADDRESS_QUERY_COLUMNS.items() if col in rollup_columns}
+        present = [col for col in ADDRESS_QUERY_COLUMNS if col in rollup_columns]
         lines = [
             "## Address & Query Columns",
             "",
             "These columns are present based on the query mode used:",
             "",
-            *_render_columns_table(present_cols),
+            *_render_columns_table(present),
             "",
         ]
         return "\n".join(lines)
@@ -474,13 +461,13 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "### Dominant Material",
             "",
-            *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS, area_unit),
+            *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS.keys(), area_unit),
             "",
             "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
             "",
             "### Dominant Shape",
             "",
-            *_render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS, area_unit),
+            *_render_columns_table(DOMINANT_ROOF_TYPES_COLUMNS.keys(), area_unit),
             "",
             "If all shape components have zero area, the dominant shape is reported as `unknown` with null statistics.",
             "Shape does not include a ratio column because roof shapes can overlap or gap, so ratios do not sum to 1.",
@@ -495,7 +482,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "RSI provides a roof condition assessment score:",
             "",
-            *_render_columns_table(RSI_COLUMNS),
+            *_render_columns_table(RSI_COLUMNS.keys()),
         ]
 
         lines.append(
@@ -570,7 +557,7 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             )
             lines.append("")
 
-        lines.extend(_render_columns_table(ROOF_AGE_COLUMNS))
+        lines.extend(_render_columns_table(ROOF_AGE_COLUMNS.keys()))
 
         lines.append(
             """
@@ -620,7 +607,7 @@ For more details, see:
             "",
             "### Columns Per Zone",
             "",
-            *_render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS, u),
+            *_render_columns_table(DEFENSIBLE_SPACE_ZONE_COLUMNS.keys(), u),
         ]
 
         lines.append(

@@ -7,13 +7,13 @@ the standalone Roof Age exporter is intentionally out of scope):
 - Generic suffix patterns
 - Unknown columns -> sentinel
 - Order preservation
-- File discovery (skips operational/error files; ignores existing dictionaries)
+- Registry-driven file discovery (gated on tabular_file_format)
 - Per-class file coverage
-- Atomic write
 - Source attribution (input data / base ai model / score model / roof age model)
 - JSON round-trip (PM editability)
 - JSON validation (malformed JSON / missing keys)
 - Confidence-null caveat in pattern descriptions
+- Cross-file structural consistency for shared columns
 """
 
 from __future__ import annotations
@@ -48,6 +48,12 @@ def _write_parquet(path: Path, columns: list[str]) -> None:
     """Write a tiny parquet with the given columns (zero rows)."""
     schema = pa.schema([pa.field(c, pa.string()) for c in columns])
     pq.write_table(pa.Table.from_pylist([], schema=schema), path)
+
+
+def _write_export_config(path: Path, *, tabular_file_format: str = "csv", country: str = "us") -> None:
+    """Write a minimal export_config.json that the generator reads for format/country."""
+    payload = {"parameters": {"tabular_file_format": tabular_file_format, "country": country}}
+    path.write_text(json.dumps(payload))
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +215,9 @@ class TestColumnOrderPreservation:
 
 
 class TestFileDiscovery:
-    def test_skips_operational_and_error_files(self, tmp_path):
+    def test_only_tabular_ai_files_get_dictionaries(self, tmp_path):
+        """Operational/error/geometry files are not in the registry — they get no dictionary."""
+        _write_export_config(tmp_path / "export_config.json")
         _write_csv(tmp_path / "rollup.csv", ["aoi_id"])
         _write_parquet(tmp_path / "roof_features.parquet", ["aoi_id", "tile_area_sqft"])
         _write_csv(tmp_path / "latency_stats.csv", ["chunk_id", "p50"])
@@ -217,64 +225,67 @@ class TestFileDiscovery:
         _write_csv(tmp_path / "roof_age_errors.csv", ["aoi_id", "status_code"])
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
 
-        # Only rollup and roof_features should have dictionaries.
-        existing = sorted(p.name for p in tmp_path.iterdir() if p.suffix == ".csv" and p.name.endswith("_data_dictionary.csv"))
-        assert set(existing) == {"roof_features_data_dictionary.csv", "rollup_data_dictionary.csv"}
+        existing = sorted(
+            p.name for p in tmp_path.iterdir()
+            if p.suffix == ".csv" and p.name.endswith("_data_dictionary.csv")
+        )
+        # Only the tabular AI file (rollup.csv) gets a dictionary. The geoparquet
+        # companion (roof_features.parquet) and the operational files do not.
+        assert existing == ["rollup_data_dictionary.csv"]
 
-    def test_does_not_recursively_dictionary_existing_dictionaries(self, tmp_path):
-        _write_csv(tmp_path / "rollup.csv", ["aoi_id"])
-        # Pre-create a stray dictionary file as if from a prior run.
-        _write_csv(tmp_path / "stale_data_dictionary.csv", ["column_name", "dtype"])
+    def test_one_dictionary_per_logical_class(self, tmp_path):
+        """When CSV is the configured format, parquet variants get no parallel dictionary."""
+        _write_export_config(tmp_path / "export_config.json", tabular_file_format="csv")
+        # CSV variant is the configured tabular format → gets a dictionary.
+        _write_csv(tmp_path / "building.csv", ["aoi_id"])
+        # Geoparquet companion → no dictionary (geometry kind, not tabular AI).
+        _write_parquet(tmp_path / "building_features.parquet", ["aoi_id", "tile_area_sqft"])
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
-        # No "stale_data_dictionary_data_dictionary.csv" should be produced.
-        assert not (tmp_path / "stale_data_dictionary_data_dictionary.csv").exists()
 
-    def test_all_per_class_files_get_dictionaries(self, tmp_path):
+        existing = sorted(
+            p.name for p in tmp_path.iterdir()
+            if p.name.endswith("_data_dictionary.csv")
+        )
+        assert existing == ["building_data_dictionary.csv"]
+
+    def test_per_class_files_in_configured_format_get_dictionaries(self, tmp_path):
+        """Each per-class tabular file in the configured format gets exactly one dictionary."""
+        _write_export_config(tmp_path / "export_config.json", tabular_file_format="csv")
         per_class = [
             "building_lifecycle.csv", "building.csv", "roof.csv", "roof_instance.csv",
             "swimming_pool.csv", "solar_panel.csv",
+        ]
+        for name in per_class:
+            _write_csv(tmp_path / name, ["aoi_id"])
+        # Geoparquet companions exist alongside but should not get dictionaries.
+        for name in [
             "building_lifecycle_features.parquet", "building_features.parquet",
             "roof_features.parquet", "roof_instance_features.parquet",
             "swimming_pool_features.parquet", "solar_panel_features.parquet",
-        ]
-        for name in per_class:
-            (tmp_path / name).touch()
-            if name.endswith(".csv"):
-                _write_csv(tmp_path / name, ["aoi_id"])
-            else:
-                _write_parquet(tmp_path / name, ["aoi_id"])
+        ]:
+            _write_parquet(tmp_path / name, ["aoi_id"])
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
         for name in per_class:
             stem = name.rsplit(".", 1)[0]
-            dd = tmp_path / f"{stem}_data_dictionary.csv"
-            assert dd.exists(), f"missing dictionary for {name}"
+            assert (tmp_path / f"{stem}_data_dictionary.csv").exists(), f"missing dictionary for {name}"
+        # Geoparquet companions get no dictionary.
+        for name in ["roof_features", "building_features"]:
+            assert not (tmp_path / f"{name}_data_dictionary.csv").exists(), (
+                f"unexpected dictionary for geometry file {name}"
+            )
 
-
-# ---------------------------------------------------------------------------
-# 9. Atomic write
-# ---------------------------------------------------------------------------
-
-
-class TestAtomicWrite:
-    def test_does_not_clobber_existing_dictionary_on_failure(self, tmp_path, monkeypatch):
-        """If row generation throws mid-file, the previous dictionary stays intact."""
-        # Pre-existing dictionary content.
-        existing_dd = tmp_path / "rollup_data_dictionary.csv"
-        existing_dd.write_text("column_name,description\nlegacy_col,prior content\n")
+    def test_parquet_format_picks_parquet_variants(self, tmp_path):
+        """When tabular_file_format='parquet', only the parquet variants get dictionaries."""
+        _write_export_config(tmp_path / "export_config.json", tabular_file_format="parquet")
+        _write_parquet(tmp_path / "rollup.parquet", ["aoi_id"])
+        _write_parquet(tmp_path / "building.parquet", ["aoi_id"])
+        # A stray CSV variant exists alongside but isn't the configured format.
         _write_csv(tmp_path / "rollup.csv", ["aoi_id"])
-
-        # Force the write helper to fail mid-flight.
-        from nmaipy import data_dictionary_generator as ddg
-
-        def _boom(path, rows):
-            raise OSError("simulated mid-write failure")
-
-        monkeypatch.setattr(ddg.DataDictionaryGenerator, "_write_csv", _boom)
-        # Should not raise (failures are caught per-file in generate_and_save).
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
-
-        # Existing dictionary content is preserved.
-        assert existing_dd.read_text().startswith("column_name,description\nlegacy_col,prior content")
+        existing = sorted(
+            p.name for p in tmp_path.iterdir() if p.name.endswith("_data_dictionary.csv")
+        )
+        assert existing == ["building_data_dictionary.csv", "rollup_data_dictionary.csv"]
 
 
 # ---------------------------------------------------------------------------
@@ -342,3 +353,64 @@ class TestOutputSchema:
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
         dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv")
         assert list(dd.columns) == _DD_COLUMNS
+
+    def test_does_not_dictionary_unregistered_files(self, tmp_path):
+        """Registry-driven discovery skips anything not in output_files."""
+        _write_csv(tmp_path / "rollup.csv", ["aoi_id"])
+        # A file with no registry entry — should be ignored, not produce a dictionary.
+        _write_csv(tmp_path / "some_random_export.csv", ["foo"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        assert not (tmp_path / "some_random_export_data_dictionary.csv").exists()
+
+
+# ---------------------------------------------------------------------------
+# 12. Cross-file structural consistency
+# ---------------------------------------------------------------------------
+
+
+SHARED_COLUMNS = [
+    "aoi_id",
+    "feature_id",
+    "is_primary",
+    "confidence",
+    "roof_age_installation_date",
+    "roof_age_trust_score",
+]
+
+
+class TestCrossFileConsistency:
+    """Columns appearing in multiple output files must have identical structural metadata.
+
+    Descriptions are allowed to vary (scope/class-label phrasing). Anything that
+    would surprise a downstream consumer reading two dictionaries side-by-side
+    (dtype, min, max, unit, allowed_values) must be identical.
+    """
+
+    def test_shared_columns_have_identical_structural_metadata(self, tmp_path):
+        _write_export_config(tmp_path / "export_config.json", tabular_file_format="csv")
+        # Each column appears in every per-class file plus the rollup.
+        common = SHARED_COLUMNS + ["primary_roof_confidence"]
+        _write_csv(tmp_path / "rollup.csv", common)
+        _write_csv(tmp_path / "roof.csv", common)
+        _write_csv(tmp_path / "building.csv", common)
+        _write_csv(tmp_path / "roof_instance.csv", common)
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+
+        # Load each generated dictionary, build {column → list of (file, structural-tuple)}.
+        observations: dict[str, list[tuple[str, tuple]]] = {}
+        for dd in tmp_path.glob("*_data_dictionary.csv"):
+            df = pd.read_csv(dd, keep_default_na=False)
+            for _, row in df.iterrows():
+                col = row["column_name"]
+                if col not in SHARED_COLUMNS:
+                    continue
+                structural = (row["dtype"], row["min"], row["max"], row["allowed_values"])
+                observations.setdefault(col, []).append((dd.name, structural))
+
+        # Every shared column should have appeared in 2+ dictionaries; check parity.
+        for col, entries in observations.items():
+            assert len(entries) >= 2, f"shared column {col!r} only seen in one file: {entries}"
+            unique = {struct for _, struct in entries}
+            assert len(unique) == 1, (
+                f"structural metadata for {col!r} differs across files: {entries}"
+            )

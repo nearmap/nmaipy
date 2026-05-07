@@ -4159,21 +4159,24 @@ class NearmapAIExporter(BaseExporter):
                 requested_class_ids=set(classes_df.index),
             )
 
-        # Generate README data dictionary
+        # Generate per-output data dictionaries first. Failure isolated; the
+        # export's contract is the data files themselves, not the dictionary.
+        try:
+            written = DataDictionaryGenerator(output_dir=self.final_path).generate_and_save()
+            self.logger.info(f"Generated {len(written)} data dictionary file(s).")
+        except Exception as e:
+            self.logger.warning(f"Data dictionary generation warning: {e}")
+
+        # README must be the LAST file written — _run_inner uses its presence
+        # as the "fully complete" marker that triggers the fast-path skip on
+        # re-runs (see exporter._run_inner). Anything written after this would
+        # silently miss regeneration on cached re-invocations.
         try:
             readme_gen = ReadmeGenerator(output_dir=self.final_path)
             readme_path = readme_gen.generate_and_save()
             self.logger.info(f"Generated README: {storage.basename(str(readme_path))}")
         except Exception as e:
             self.logger.warning(f"README generation warning: {e}")
-
-        # Generate per-output data dictionaries. Failure isolated; the export's
-        # contract is the data files themselves, not the dictionary.
-        try:
-            written = DataDictionaryGenerator(output_dir=self.final_path).generate_and_save()
-            self.logger.info(f"Generated {len(written)} data dictionary file(s).")
-        except Exception as e:
-            self.logger.warning(f"Data dictionary generation warning: {e}")
 
 
 # Backward compatibility alias
