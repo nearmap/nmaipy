@@ -16,7 +16,8 @@
     "system_version": {
       "group": "common",
       "dtype": "string",
-      "description": "Base AI model version used for detection (applies to all columns with source = 'base ai model').",
+      "unit": "gen{X}-{major}_{minor}-{api_version}",
+      "description": "Base AI model version used for detection (applies to all columns with source = 'base ai model'). Example: `gen6-glowing_moon-1.0`. See https://help.nearmap.com/kb/articles/1629-generation-6-ai-content for details.",
       "source": "model metadata"
     },
     "link": {
@@ -212,7 +213,7 @@
       "dtype": "float",
       "min": "0",
       "unit": "years",
-      "description": "Calculated roof age in years (as_of_date \u2212 installation_date).",
+      "description": "Calculated roof age in years (as_of_date − installation_date).",
       "source": "roof age model"
     },
     "roof_age_trust_score": {
@@ -278,6 +279,8 @@
     "roof_age_model_version": {
       "group": "roof_age",
       "dtype": "string",
+      "min": "A.0",
+      "unit": "{major}.{minor}",
       "description": "Version of the roof age prediction model used.",
       "source": "model metadata"
     },
@@ -290,10 +293,12 @@
     },
     "roof_age_relevant_permits": {
       "group": "roof_age",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether relevant building permits were used in determining roof age.",
       "allowed_values": "Y | N",
-      "source": "roof age model"
+      "source": "roof age model",
+      "min": "N",
+      "max": "Y"
     },
     "roof_age_relevant_permits_details": {
       "group": "roof_age",
@@ -303,10 +308,12 @@
     },
     "roof_age_assessor_data": {
       "group": "roof_age",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether assessor records (year built) were used in determining roof age.",
       "allowed_values": "Y | N",
-      "source": "roof age model"
+      "source": "roof age model",
+      "min": "N",
+      "max": "Y"
     },
     "roof_age_assessor_data_details": {
       "group": "roof_age",
@@ -346,10 +353,12 @@
     },
     "is_primary": {
       "group": "feature_meta",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether this feature is the parcel's primary feature for its class — selected by {primary_strategy_description} (see README → Primary Feature Selection).",
       "allowed_values": "Y | N",
-      "source": "base ai model"
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
     },
     "confidence": {
       "group": "feature_meta",
@@ -369,10 +378,12 @@
     },
     "has_3d_attributes": {
       "group": "feature_meta",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "allowed_values": "Y | N",
       "description": "Boolean indicator of whether 3D attribute data from Nearmap is available for this record.",
-      "source": "model metadata"
+      "source": "model metadata",
+      "min": "N",
+      "max": "Y"
     },
     "pitch_degrees": {
       "group": "feature_meta",
@@ -446,7 +457,7 @@
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",
-      "description": "IoU (Intersection over Union) score with the parent building (\u22650.005 to assign).",
+      "description": "IoU (Intersection over Union) score with the parent building (≥0.005 to assign).",
       "source": "base ai model"
     },
     "parent_iou": {
@@ -454,13 +465,13 @@
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",
-      "description": "IoU (Intersection over Union) score with the parent feature (\u22650.005 to assign).",
+      "description": "IoU (Intersection over Union) score with the parent feature (≥0.005 to assign).",
       "source": "base ai model"
     },
     "primary_child_roof_id": {
       "group": "linkage",
       "dtype": "UUID",
-      "description": "Feature ID of this building's primary child roof \u2014 highest IoU (Intersection over Union) above the linkage threshold.",
+      "description": "Feature ID of this building's primary child roof — highest IoU (Intersection over Union) above the linkage threshold.",
       "source": "base ai model"
     },
     "primary_child_roof_iou": {
@@ -474,7 +485,7 @@
     "primary_child_roof_age_feature_id": {
       "group": "linkage",
       "dtype": "UUID",
-      "description": "Feature ID of the roof age instance linked to this roof \u2014 highest IoU (Intersection over Union) above 0.005.",
+      "description": "Feature ID of the roof age instance linked to this roof — highest IoU (Intersection over Union) above 0.005.",
       "source": "base ai model"
     },
     "primary_child_roof_age_iou": {
@@ -544,24 +555,30 @@
     },
     "postcat": {
       "group": "feature_meta",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether the resource was tagged as a post catastrophe survey.",
       "allowed_values": "Y | N",
-      "source": "image metadata"
+      "source": "image metadata",
+      "min": "N",
+      "max": "Y"
     },
     "feature_api_success": {
       "group": "api_status",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether the Feature API call succeeded for this AOI.",
       "allowed_values": "Y | N",
-      "source": "model metadata"
+      "source": "model metadata",
+      "min": "N",
+      "max": "Y"
     },
     "roof_age_api_success": {
       "group": "api_status",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether the Roof Age API call succeeded for this AOI.",
       "allowed_values": "Y | N",
-      "source": "model metadata"
+      "source": "model metadata",
+      "min": "N",
+      "max": "Y"
     },
     "internal_class_id": {
       "group": "feature_meta",
@@ -583,24 +600,30 @@
     },
     "belongs_to_parcel": {
       "group": "feature_meta",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether this feature is contained within (rather than spanning beyond) the AOI parcel.",
       "allowed_values": "Y | N",
-      "source": "base ai model"
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
     },
     "multiparcel_feature": {
       "group": "feature_meta",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether the {class_label_primary} is also detected on at least one other parcel (e.g. a roof or building spanning a row of townhomes). 'Y' indicates this feature is shared across multiple parcels.",
       "allowed_values": "Y | N",
-      "source": "base ai model"
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
     },
     "is_footprint": {
       "group": "feature_meta",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "description": "Whether this feature is a building footprint.",
       "allowed_values": "Y | N",
-      "source": "base ai model"
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
     },
     "aoi_geometry": {
       "group": "feature_meta",
@@ -792,10 +815,12 @@
     },
     {
       "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_present$",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "allowed_values": "Y | N",
       "description": "Whether any {class} is detected {scope_phrase}.",
-      "source": "base ai model"
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
     },
     {
       "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_ratio$",
@@ -807,17 +832,19 @@
     },
     {
       "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_dominant$",
-      "dtype": "Y/N",
+      "dtype": "binary",
       "allowed_values": "Y | N",
       "description": "Boolean indicator of whether {dominant_subject} is predominantly {class}.",
-      "source": "base ai model"
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
     },
     {
       "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_confidence$",
       "dtype": "float (quantised uint8)",
       "min": "0.0",
       "max": "1.0",
-      "precision": "uint8 quantised (0-255 \u2192 0.0-1.0)",
+      "precision": "uint8 quantised (0-255 → 0.0-1.0)",
       "description": "Confidence in {class} classification {scope_phrase}. When multiple detections contribute: top-level feature classes on the parcel (e.g. all roofs, all vegetation segments) are combined so confidence rises with corroborating detections; sub-attributes within a parent feature (e.g. staining on a roof) take the maximum across detections. Null when the corresponding area is 0.",
       "source": "base ai model"
     },
@@ -829,13 +856,13 @@
     }
   ],
   "defensible_space_zone_distances": {
-    "_doc": "Defensible space zoneId \u2192 distance band around the structure. Used by patterns to substitute {zone_band} in descriptions. Edit here if the API team changes the zone definitions.",
+    "_doc": "Defensible space zoneId → distance band around the structure. Used by patterns to substitute {zone_band} in descriptions. Edit here if the API team changes the zone definitions.",
     "0": "0-5 ft",
     "1": "5-30 ft",
     "2": "30-100 ft"
   },
   "evidence_type_legend": {
-    "_doc": "Roof age evidence_type code \u2192 human-readable description. Source: https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score. Used by roof_age_evidence_type allowed_values and the README evidence-type legend.",
+    "_doc": "Roof age evidence_type code → human-readable description. Source: https://help.nearmap.com/kb/articles/1811-evidence-type-and-trust-score. Used by roof_age_evidence_type allowed_values and the README evidence-type legend.",
     "0": "No unobscured images of the roof or parcel and no relevant building permits or assessor year-built data. No roof installation date is provided.",
     "1": "(Future Release) No unobscured images and no relevant permits/assessor data, but aggregated supporting evidence from the area indicates the likely age of roofs nearby.",
     "2": "No unobscured images of the roof or parcel, but relevant building permits and/or assessor year-built data provide an indication of the installation date.",

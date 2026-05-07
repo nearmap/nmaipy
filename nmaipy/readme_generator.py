@@ -396,6 +396,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | float | 0 | — | {u_long} | Total area of all features |",
             f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | float | 0 | — | {u_long} | Total area clipped to parcel boundary |",
             f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | float | 0 | — | {u_long} | Total unclipped feature area |",
+            f"| `{{class}}_fidelity` | `{example_class}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
             "",
             "### Primary Feature Columns",
             "",
