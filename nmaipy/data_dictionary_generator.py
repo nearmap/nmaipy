@@ -15,15 +15,17 @@ from typing import Optional
 import pandas as pd
 import pyarrow.parquet as pq
 
-from nmaipy import output_files, storage
-from nmaipy.column_metadata import (
-    UNKNOWN_SENTINEL,
-    USER_INPUT_DESCRIPTION,
-    USER_INPUT_SOURCE,
-    lookup_column,
-)
+from nmaipy import aoi_io, output_files, storage
+from nmaipy.column_metadata import lookup_column
 
 logger = logging.getLogger(__name__)
+
+# Description/source rendered for arbitrary columns the user passed through
+# from their input AOI file (e.g. ``external_id``, ``address``). Recognised
+# by header-matching against the input file rather than living in the seeded
+# JSON metadata, since they vary per export.
+USER_INPUT_DESCRIPTION = "Input column provided by user (passed through from the input AOI file)."
+USER_INPUT_SOURCE = "input data"
 
 _DD_COLUMNS = [
     "column_name",
@@ -112,13 +114,13 @@ class DataDictionaryGenerator:
 
         Used to recognise pass-through user columns (e.g. ``external_id``,
         ``address``) so the data dictionary can describe them as input columns
-        rather than rendering the unknown sentinel. Reads only the header.
+        rather than rendering the unknown sentinel.
         """
         aoi_file = self._load_export_config().get("parameters", {}).get("aoi_file")
         if not aoi_file:
             return set()
         try:
-            return _read_header_columns(str(aoi_file))
+            return aoi_io.read_header_columns(str(aoi_file))
         except Exception as exc:
             logger.debug(f"Could not read input AOI columns from {aoi_file!r}: {exc}")
             return set()
@@ -200,7 +202,7 @@ class DataDictionaryGenerator:
         # Pass-through columns from the user's input file aren't in the seeded
         # metadata. Recognise them so the dictionary describes them rather
         # than surfacing the unknown sentinel.
-        if meta.description == UNKNOWN_SENTINEL and name in input_columns:
+        if meta.is_unknown() and name in input_columns:
             description = USER_INPUT_DESCRIPTION
             source = USER_INPUT_SOURCE
         else:
@@ -224,33 +226,6 @@ class DataDictionaryGenerator:
         name = storage.basename(filepath)
         stem = name.rsplit(".", 1)[0]
         return storage.join_path(directory, f"{stem}_data_dictionary.csv")
-
-
-def _read_header_columns(path: str) -> set[str]:
-    """Return the set of column names from an input AOI file by reading just the header.
-
-    Supports the same formats as ``aoi_io.read_from_file`` (CSV/PSV/TSV,
-    GeoJSON, GeoPackage, Parquet). Raises on unsupported formats; callers
-    catch and degrade gracefully.
-    """
-    suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-    sep_for = {"csv": ",", "psv": "|", "tsv": "\t"}
-    if suffix in sep_for:
-        with storage.open_file(path, "r") as fh:
-            df = pd.read_csv(fh, sep=sep_for[suffix], nrows=0)
-        return set(df.columns)
-    if suffix == "parquet":
-        with storage.open_file(path, "rb") as fh:
-            schema = pq.read_schema(fh)
-        return set(schema.names)
-    if suffix in ("geojson", "json", "gpkg"):
-        # geopandas can read these; cheaper than alternatives and the file
-        # is typically small enough that loading it once is fine.
-        import geopandas as gpd
-
-        gdf = gpd.read_file(path, rows=0)
-        return set(gdf.columns)
-    raise ValueError(f"Unsupported input AOI format: {path!r}")
 
 
 def generate_dictionaries(output_dir: str) -> list[str]:

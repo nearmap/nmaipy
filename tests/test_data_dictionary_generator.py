@@ -455,9 +455,9 @@ class TestUserInputColumns:
         dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
         rows = {r["column_name"]: r for _, r in dd.iterrows()}
         for col in ("external_id", "force_new", "address"):
-            assert "Input column provided by user" in rows[col]["description"], (
-                f"{col} should be labelled as user-supplied"
-            )
+            assert (
+                "Input column provided by user" in rows[col]["description"]
+            ), f"{col} should be labelled as user-supplied"
             assert rows[col]["source"] == "input data"
         # Known columns are unaffected.
         assert "?" not in rows["tile_area_sqft"]["description"]
@@ -488,3 +488,17 @@ class TestUserInputColumns:
         dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
         rows = {r["column_name"]: r for _, r in dd.iterrows()}
         assert rows["external_id"]["description"] == "?"
+
+    def test_parquet_input_columns_recognised(self, tmp_path):
+        # Parquet input files exercise a different branch of the header reader.
+        aoi_path = tmp_path / "input_aois.parquet"
+        _write_parquet(aoi_path, ["aoi_id", "external_id", "policy_number"])
+        _write_csv(tmp_path / "rollup.csv", ["aoi_id", "external_id", "policy_number"])
+        self._write_aoi_config(tmp_path, aoi_path)
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+
+        dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
+        rows = {r["column_name"]: r for _, r in dd.iterrows()}
+        for col in ("external_id", "policy_number"):
+            assert "Input column provided by user" in rows[col]["description"]
+            assert rows[col]["source"] == "input data"

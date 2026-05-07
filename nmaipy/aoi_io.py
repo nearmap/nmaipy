@@ -17,11 +17,46 @@ from typing import Optional, Union
 
 import geopandas as gpd
 import pandas as pd
+import pyarrow.parquet as pq
 
 from nmaipy import log
 from nmaipy.constants import ADDRESS_FIELDS, AOI_ID_COLUMN_NAME, LAT_LONG_CRS
 
 logger = log.get_logger()
+
+
+def _path_suffix(path: Union[str, Path]) -> str:
+    """Return the lowercased extension of ``path``.
+
+    Strips off any query string (``?key=val``) and fragment (``#x``) so that
+    S3-style URIs like ``s3://bucket/file.csv?x=y`` resolve to ``"csv"``.
+    Returns an empty string if the path has no extension.
+    """
+    s = str(path)
+    s = s.split("?", 1)[0].split("#", 1)[0]
+    return s.rsplit(".", 1)[-1].lower() if "." in s else ""
+
+
+def read_header_columns(path: Union[str, Path]) -> set[str]:
+    """Return the set of column names from an AOI file by reading only its header.
+
+    Mirrors the format support of :func:`read_from_file` (CSV/PSV/TSV with WKT,
+    GeoJSON, GeoPackage, Parquet/GeoParquet). Avoids materialising the full file.
+
+    Raises:
+        NotImplementedError: If the file format is not supported.
+    """
+    suffix = _path_suffix(path)
+    sep_for = {"csv": ",", "psv": "|", "tsv": "\t"}
+    if suffix in sep_for:
+        return set(pd.read_csv(path, sep=sep_for[suffix], nrows=0).columns)
+    if suffix == "parquet":
+        # Parquet schema can be read without materialising any rows.
+        return set(pq.read_schema(path).names)
+    if suffix in ("geojson", "gpkg"):
+        # geopandas reads the file; rows=0 limits to the header schema.
+        return set(gpd.read_file(path, rows=0).columns)
+    raise NotImplementedError(f"Source format not supported: {suffix=}")
 
 
 def read_from_file(
