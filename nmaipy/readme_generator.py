@@ -379,77 +379,52 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
     def _generate_class_hierarchy_section(self, classes: list[dict]) -> str:
         """Generate the class hierarchy & relationships section.
 
-        Renders only the layers actually present in this export, derived from
-        the ``classes`` list that ``_generate_classes_section`` already consumes.
-        Empty when none of Building Lifecycle / Building / Roof / Roof Instance
-        appear in the export — unrelated packs (e.g. vegetation, surfaces) don't
-        need this section.
+        Always renders the full canonical 4-layer hierarchy when at least one
+        of the structural classes (Building Lifecycle / Building / Roof /
+        Roof Instance) is present in the export. Unrelated exports (e.g.
+        vegetation-only) skip the section entirely.
         """
+        structural_columns = {"building_lifecycle", "building", "roof", "roof_instance"}
         present_columns = {c["column"] for c in classes}
-        # Layer ordering matches the parent → child hierarchy. Each entry is
-        # (column_name, display_name, parenthetical).
-        layers = [
-            ("building_lifecycle", "Building Lifecycle", "most general — same building identity across surveys"),
-            ("building", "Building", "single-survey building footprint"),
-            ("roof", "Roof", "single-survey roof footprint"),
-            ("roof_instance", "Roof Instance", "roof clipped to parcel — the unit roof age is reported on"),
-        ]
-        present_layers = [layer for layer in layers if layer[0] in present_columns]
-        # Don't render an empty / single-row hierarchy — relationships are the
-        # whole point of this section.
-        if len(present_layers) < 2:
+        if not (present_columns & structural_columns):
             return ""
 
-        # Width-align the first column for readability in the rendered code block.
-        max_label_len = max(len(label) for _, label, _ in present_layers)
+        # Canonical hierarchy. Edge labels reflect the API's actual linkage
+        # mechanism between adjacent layers; render in full so customers see
+        # the conceptual structure even when their export only includes some
+        # of the layers.
+        layers = [
+            ("building_lifecycle", "Building Lifecycle", "stable building identity, linked across surveys", "parent_id"),
+            ("building", "Building", "building footprint", "spatial IoU"),
+            ("roof", "Roof", "roof footprint", "spatial IoU"),
+            ("roof_instance", "Roof Instance", "roof clipped to parcel — the unit roof age is reported on", None),
+        ]
+        max_label_len = max(len(label) for _, label, _, _ in layers)
         tree_lines: list[str] = []
-        for i, (_, label, note) in enumerate(present_layers):
+        for i, (_, label, note, edge) in enumerate(layers):
             tree_lines.append(f"  {label.ljust(max_label_len)}  ({note})")
-            if i < len(present_layers) - 1:
-                # Pick an edge label that matches the link mechanism between
-                # this layer and the next.
-                edge = self._hierarchy_edge_label(present_layers[i][0], present_layers[i + 1][0])
+            if edge is not None:
                 tree_lines.append(f"  {' ' * max_label_len}    │  {edge}")
                 tree_lines.append(f"  {' ' * max_label_len}    ▼")
 
-        # Per-edge bullets only render when both endpoints are present in the
-        # export — otherwise the prose mentions classes the customer doesn't see.
-        present_set = {layer[0] for layer in present_layers}
-        bullets: list[str] = []
-        if {"building_lifecycle", "building"} <= present_set:
-            bullets.append(
-                "- **Building Lifecycle ↔ Building** is a 1-hop traversal of the API's `parent_id`."
-            )
-        iou_pairs = []
-        if {"building", "roof"} <= present_set:
-            iou_pairs.append("Building ↔ Roof")
-        if {"roof", "roof_instance"} <= present_set:
-            iou_pairs.append("Roof ↔ Roof Instance")
-        if iou_pairs:
-            joined = " and ".join(f"**{p}**" for p in iou_pairs)
-            verb = "use" if len(iou_pairs) > 1 else "uses"
-            bullets.append(
-                f"- {joined} {verb} spatial Intersection over Union (IoU), not `parent_id`. The "
-                "roof's API `parentId` points to a deprecated Building class, so nmaipy re-links "
-                "via geometry, with an IoU-based threshold to assign a parent."
-            )
-        bullets.append(
+        bullets = [
+            "- **Building Lifecycle ↔ Building** is a 1-hop traversal of the API's `parent_id`.",
+            "- **Building ↔ Roof** and **Roof ↔ Roof Instance** use spatial Intersection over "
+            "Union (IoU), not `parent_id`. The roof's API `parentId` points to a deprecated "
+            "Building class, so nmaipy re-links via geometry, with an IoU-based threshold to "
+            "assign a parent.",
             "- Each parent feature gets a `primary_child_*_id` (the child with the highest IoU); "
-            "each child gets a `parent_*_id`."
-        )
-        # The RSI fallback note only makes sense when the chain it walks
-        # actually exists in this export.
-        if {"roof", "building", "building_lifecycle"} <= present_set:
-            bullets.append(
-                "- When the primary roof has structural damage that masks its polygon, RSI and "
-                "similar scores fall back through Roof → Building → Building Lifecycle."
-            )
+            "each child gets a `parent_*_id`.",
+            "- When the primary roof has structural damage that masks its polygon, RSI and "
+            "similar scores fall back through Roof → Building → Building Lifecycle.",
+        ]
 
         lines = [
             "## Class Hierarchy & Relationships",
             "",
-            "When this export contains multiple structural classes, nmaipy connects them so that "
-            "primary-feature columns and per-class files can be cross-referenced:",
+            "nmaipy connects structural classes so that primary-feature columns and per-class "
+            "files can be cross-referenced. The canonical hierarchy is shown below; only the "
+            "layers actually requested in your export will have corresponding files in `final/`.",
             "",
             "```",
             *tree_lines,
@@ -473,6 +448,14 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         """Generate the column naming patterns section."""
         # Get first class for examples, default to 'roof'
         example_class = classes[0]["column"] if classes else "roof"
+        # Fidelity is only populated on roof / building / building_under_construction;
+        # pick a class from this set for the fidelity rows so the example is real.
+        # Fall back to "roof" (still illustrative even if not present in the export).
+        present_columns = {c["column"] for c in classes}
+        fidelity_example = next(
+            (c for c in ("roof", "building", "building_under_construction") if c in present_columns),
+            "roof",
+        )
 
         # Get primary selection method from export config
         config = self._load_export_config()
@@ -522,11 +505,11 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "|---------|---------|------|-----|-----|------|-------------|",
             f"| `{{class}}_present` | `{example_class}_present` | Y/N | — | — | — | Feature was detected |",
             f"| `{{class}}_count` | `{example_class}_count` | int | 0 | — | — | Number of features detected |",
-            f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Combined confidence score |",
+            f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Combined confidence score indicating likelihood that any features of this class are present |",
             f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | float | 0 | — | {u_long} | Total area of all features |",
             f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | float | 0 | — | {u_long} | Total area clipped to parcel boundary |",
             f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | float | 0 | — | {u_long} | Total unclipped feature area |",
-            f"| `{{class}}_fidelity` | `{example_class}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
+            f"| `{{class}}_fidelity` | `{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
             "",
             "### Primary Feature Columns",
             "",
@@ -538,9 +521,9 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "|---------|---------|------|-----|-----|------|-------------|",
             f"| `primary_{{class}}_area_{u}` | `primary_{example_class}_area_{u}` | float | 0 | — | {u_long} | Area of primary feature |",
             f"| `primary_{{class}}_clipped_area_{u}` | `primary_{example_class}_clipped_area_{u}` | float | 0 | — | {u_long} | Clipped area of primary feature |",
-            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Confidence of primary feature |",
-            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | Unique ID of primary feature |",
-            f"| `primary_{{class}}_fidelity` | `primary_{example_class}_fidelity` | float | 0.0 | 1.0 | — | Detection fidelity score |",
+            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Calibrated confidence measuring likelihood that the primary feature exists |",
+            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | Unique ID of primary feature (does not persist across surveys) |",
+            f"| `primary_{{class}}_fidelity` | `primary_{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
             "",
         ]
 
