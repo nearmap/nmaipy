@@ -394,7 +394,12 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         # the conceptual structure even when their export only includes some
         # of the layers.
         layers = [
-            ("building_lifecycle", "Building Lifecycle", "stable building identity, linked across surveys", "parent_id"),
+            (
+                "building_lifecycle",
+                "Building Lifecycle",
+                "stable building identity, linked across surveys",
+                "parent_id",
+            ),
             ("building", "Building", "building footprint", "spatial IoU"),
             ("roof", "Roof", "roof footprint", "spatial IoU"),
             ("roof_instance", "Roof Instance", "roof clipped to parcel — the unit roof age is reported on", None),
@@ -565,7 +570,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "components (each with a class, area, and ratio of the roof's total area). The "
             "**dominant** component is the one with the highest ratio. For **materials**, the "
             "dominant material is reported only when its ratio is at least 0.5; below that "
-            "threshold the column is `unknown`. For **shapes**, the same \"highest ratio wins\" "
+            'threshold the column is `unknown`. For **shapes**, the same "highest ratio wins" '
             "rule applies but no ratio threshold is enforced — a shape is dominant if it has the "
             "highest ratio *and* a non-zero area; otherwise `unknown`. (Shape ratios can overlap "
             "or gap and do not sum to 1, which is why no shape ratio column is emitted.) "
