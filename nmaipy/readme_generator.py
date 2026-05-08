@@ -602,8 +602,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             *_render_columns_table(RSI_COLUMNS.keys()),
         ]
 
-        lines.append(
-            """
+        lines.append("""
 **RSI Score Interpretation:**
 - **91-100**: Very good
 - **81-90**: Good
@@ -623,8 +622,7 @@ This fallback only applies when building lifecycle features are included in the 
 roofs without structural damage will have an RSI value.
 
 For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-spotlight-index-rsi
-"""
-        )
+""")
 
         return "\n".join(lines)
 
@@ -703,16 +701,16 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
         u = area_unit
         # Zone 0 is shown as a representative example; the API returns zones 0/1/2.
         example_columns = [
-            f"primary_roof_defensible_space_zone_0_zone_area_{u}",
-            f"primary_roof_defensible_space_zone_0_defensible_space_area_{u}",
-            "primary_roof_defensible_space_zone_0_coverage_ratio",
-            f"primary_roof_defensible_space_zone_0_risk_object_area_{u}",
-            f"primary_roof_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_{u}",
-            "primary_roof_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_ratio",
-            f"primary_roof_defensible_space_zone_0_roof_area_{u}",
-            "primary_roof_defensible_space_zone_0_roof_ratio",
-            f"primary_roof_defensible_space_zone_0_yard_debris_area_{u}",
-            "primary_roof_defensible_space_zone_0_yard_debris_ratio",
+            f"primary_defensible_space_zone_0_zone_area_{u}",
+            f"primary_defensible_space_zone_0_defensible_space_area_{u}",
+            "primary_defensible_space_zone_0_coverage_ratio",
+            f"primary_defensible_space_zone_0_risk_object_area_{u}",
+            f"primary_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_{u}",
+            "primary_defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_ratio",
+            f"primary_defensible_space_zone_0_roof_area_{u}",
+            "primary_defensible_space_zone_0_roof_ratio",
+            f"primary_defensible_space_zone_0_yard_debris_area_{u}",
+            "primary_defensible_space_zone_0_yard_debris_ratio",
             "defensible_space_model_version",
         ]
         lines = [
@@ -732,7 +730,7 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             "",
             "| Prefix | Scope |",
             "|--------|-------|",
-            "| `primary_roof_defensible_space_zone_{N}_` | Defensible space for the primary roof feature only |",
+            "| `primary_defensible_space_zone_{N}_` | Defensible space for the primary roof feature only |",
             "| `aggregate_defensible_space_zone_{N}_` | Defensible space aggregated across the entire parcel (all structures) |",
             "",
             "### Columns Per Zone (illustrated for zone 0; analogous columns exist for zones 1 and 2)",
@@ -740,15 +738,13 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             *_render_columns_table(example_columns, u),
         ]
 
-        lines.append(
-            """
+        lines.append("""
 **Risk object classes** (vegetation, roof, yard debris) are always present with 0.0 defaults
 when a class is not detected in a given zone. This ensures consistent column presence across all rows.
 
 **Coverage ratio** indicates what fraction of the zone is clear/defensible space.
 A ratio of 1.0 means the entire zone is defensible; 0.0 means it is fully occupied by risk objects.
-"""
-        )
+""")
 
         return "\n".join(lines)
 

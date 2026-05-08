@@ -375,13 +375,16 @@ def lookup_column(
                 else:
                     extra_groups["primary_phrasing"] = f"this {class_label}"
             # Defensible-space scope phrasing. The same patterns serve three
-            # contexts: rollup (``primary_roof_``/``aggregate_`` prefixes) and the
-            # per-roof ``roof.csv`` (no prefix — the row already identifies the
-            # roof). Surface a single ``{ds_scope_phrasing}`` token so one
-            # description can read sensibly in all three.
+            # contexts: rollup (``primary_``/``primary_roof_``/``aggregate_``
+            # prefixes) and the per-roof ``roof.csv`` (no prefix — the row
+            # already identifies the roof). Surface a single
+            # ``{ds_scope_phrasing}`` token so one description can read
+            # sensibly in all three. The ``primary_roof_`` form is legacy —
+            # current rollups emit bare ``primary_`` after the rename in
+            # ``parcels.py`` — but we accept both for historical fixtures.
             if "roof_scope" in extra_groups:
                 rs = extra_groups["roof_scope"]
-                if rs == "primary_roof_":
+                if rs in ("primary_", "primary_roof_"):
                     extra_groups["ds_scope_phrasing"] = "around the primary roof on the parcel"
                 elif rs == "aggregate_":
                     extra_groups["ds_scope_phrasing"] = "aggregated across all roofs on the parcel"

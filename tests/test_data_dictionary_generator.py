@@ -502,3 +502,61 @@ class TestUserInputColumns:
         for col in ("external_id", "policy_number"):
             assert "Input column provided by user" in rows[col]["description"]
             assert rows[col]["source"] == "input data"
+
+
+class TestDefensibleSpacePrimaryScope:
+    """Regression for INDS-2080: ``primary_defensible_space_zone_*`` columns
+    must resolve via regex to a non-fallback description that includes the
+    zone band and the "clear of vegetation" / risk-object semantics — not the
+    generic underscore-replacement fallback. See BUG_defensible_space_prefix.md
+    for the original report. ``parcels.py`` renames resolved roof scores from
+    ``primary_roof_*`` to ``primary_*``; the regexes in ``column_metadata.json``
+    accept both forms so historical fixtures keep resolving correctly.
+    """
+
+    def test_primary_zone_columns_resolve_non_fallback(self):
+        cols = [
+            "primary_defensible_space_zone_0_zone_area_sqft",
+            "primary_defensible_space_zone_0_defensible_space_area_sqft",
+            "primary_defensible_space_zone_0_coverage_ratio",
+            "primary_defensible_space_zone_0_risk_object_area_sqft",
+            "primary_defensible_space_zone_1_coverage_ratio",
+            "primary_defensible_space_zone_2_zone_area_sqft",
+        ]
+        for col in cols:
+            meta = lookup_column(col, area_unit="sqft")
+            assert not meta.is_unknown(), f"{col} fell through to sentinel"
+            assert (
+                "around the primary roof on the parcel" in meta.description
+            ), f"{col} missing primary-roof scope phrase: {meta.description!r}"
+            assert (
+                "from the structure" in meta.description
+            ), f"{col} missing zone-band substitution: {meta.description!r}"
+
+    def test_primary_coverage_ratio_clear_of_vegetation_semantics(self):
+        meta = lookup_column("primary_defensible_space_zone_0_coverage_ratio", area_unit="sqft")
+        assert "clear of vegetation" in meta.description
+        assert "around the primary roof on the parcel" in meta.description
+
+    def test_primary_per_class_ratio_resolves(self):
+        meta = lookup_column("primary_defensible_space_zone_0_yard_debris_ratio", area_unit="sqft")
+        assert not meta.is_unknown()
+        assert "yard debris" in meta.description
+        assert "around the primary roof on the parcel" in meta.description
+
+    def test_legacy_primary_roof_form_still_resolves(self):
+        # Option B alternation: keep the historical form working for older fixtures.
+        meta = lookup_column("primary_roof_defensible_space_zone_0_coverage_ratio", area_unit="sqft")
+        assert not meta.is_unknown()
+        assert "around the primary roof on the parcel" in meta.description
+
+    def test_aggregate_form_still_works(self):
+        meta = lookup_column("aggregate_defensible_space_zone_0_coverage_ratio", area_unit="sqft")
+        assert not meta.is_unknown()
+        assert "aggregated across all roofs on the parcel" in meta.description
+
+    def test_unprefixed_form_still_works_for_per_roof_csv(self):
+        meta = lookup_column("defensible_space_zone_0_coverage_ratio", area_unit="sqft", class_label="roof")
+        assert not meta.is_unknown()
+        # Else branch in column_metadata.py → "around this {class_label}".
+        assert "around this roof" in meta.description

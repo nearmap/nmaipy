@@ -358,6 +358,30 @@ class TestColumnMetadataTables:
         assert not leaks, f"unsubstituted placeholders leaked into README: {sorted(set(leaks))}"
 
 
+class TestDefensibleSpaceSection:
+    """Regression for INDS-2080: the rendered defensible-space section must
+    list the actually-emitted ``primary_defensible_space_zone_*`` column names
+    (the rollup builder strips the ``roof_`` infix in ``parcels.py``), and must
+    not reference the stale ``primary_roof_defensible_space_zone_*`` form."""
+
+    def test_section_uses_primary_prefix_not_primary_roof(self, tmp_path):
+        section = ReadmeGenerator(output_dir=tmp_path)._generate_defensible_space_section("sqft")
+        assert "primary_defensible_space_zone_0_coverage_ratio" in section
+        assert "primary_roof_defensible_space_zone_" not in section
+
+    def test_rendered_readme_uses_primary_prefix_when_columns_present(self, tmp_path):
+        # Rollup carries defensible-space columns → defensible-space section is included.
+        (tmp_path / "rollup.csv").write_text(
+            "aoi_id,primary_defensible_space_zone_0_coverage_ratio,"
+            "aggregate_defensible_space_zone_0_coverage_ratio\n"
+            "0,0.42,0.55\n"
+        )
+        content = ReadmeGenerator(output_dir=tmp_path)._generate()
+        assert "## Defensible Space Columns" in content
+        assert "primary_defensible_space_zone_0_coverage_ratio" in content
+        assert "primary_roof_defensible_space_zone_" not in content
+
+
 class TestLoadExportConfig:
     """Tests for loading export configuration."""
 
