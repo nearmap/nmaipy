@@ -154,7 +154,7 @@
       "defensibleSpace": {
         "zones": [
           {
-            "zoneId": 1,
+            "zoneId": 0,
             "zoneInnerDistanceM": 0,
             "zoneInnerDistanceFt": 0,
             "zoneOuterDistanceM": 1.524,
@@ -1871,7 +1871,7 @@
             ]
           },
           {
-            "zoneId": 2,
+            "zoneId": 1,
             "zoneInnerDistanceM": 1.524,
             "zoneInnerDistanceFt": 5,
             "zoneOuterDistanceM": 9.144,
@@ -3818,7 +3818,7 @@
             ]
           },
           {
-            "zoneId": 3,
+            "zoneId": 2,
             "zoneInnerDistanceM": 9.144,
             "zoneInnerDistanceFt": 30,
             "zoneOuterDistanceM": 30.48,
@@ -6868,7 +6868,7 @@
       "defensibleSpace": {
         "zones": [
           {
-            "zoneId": 1,
+            "zoneId": 0,
             "zoneInnerDistanceM": 0,
             "zoneInnerDistanceFt": 0,
             "zoneOuterDistanceM": 1.524,
@@ -9248,7 +9248,7 @@
             ]
           },
           {
-            "zoneId": 2,
+            "zoneId": 1,
             "zoneInnerDistanceM": 1.524,
             "zoneInnerDistanceFt": 5,
             "zoneOuterDistanceM": 9.144,
@@ -11612,7 +11612,7 @@
             ]
           },
           {
-            "zoneId": 3,
+            "zoneId": 2,
             "zoneInnerDistanceM": 9.144,
             "zoneInnerDistanceFt": 30,
             "zoneOuterDistanceM": 30.48,
@@ -14704,7 +14704,7 @@
       "defensibleSpace": {
         "zones": [
           {
-            "zoneId": 1,
+            "zoneId": 0,
             "zoneInnerDistanceM": 0,
             "zoneInnerDistanceFt": 0,
             "zoneOuterDistanceM": 1.524,
@@ -16295,7 +16295,7 @@
             ]
           },
           {
-            "zoneId": 2,
+            "zoneId": 1,
             "zoneInnerDistanceM": 1.524,
             "zoneInnerDistanceFt": 5,
             "zoneOuterDistanceM": 9.144,
@@ -17963,7 +17963,7 @@
             ]
           },
           {
-            "zoneId": 3,
+            "zoneId": 2,
             "zoneInnerDistanceM": 9.144,
             "zoneInnerDistanceFt": 30,
             "zoneOuterDistanceM": 30.48,
@@ -20915,7 +20915,7 @@
       "defensibleSpace": {
         "zones": [
           {
-            "zoneId": 1,
+            "zoneId": 0,
             "zoneInnerDistanceM": 0,
             "zoneInnerDistanceFt": 0,
             "zoneOuterDistanceM": 1.524,
@@ -22612,7 +22612,7 @@
             ]
           },
           {
-            "zoneId": 2,
+            "zoneId": 1,
             "zoneInnerDistanceM": 1.524,
             "zoneInnerDistanceFt": 5,
             "zoneOuterDistanceM": 9.144,
@@ -24238,7 +24238,7 @@
             ]
           },
           {
-            "zoneId": 3,
+            "zoneId": 2,
             "zoneInnerDistanceM": 9.144,
             "zoneInnerDistanceFt": 30,
             "zoneOuterDistanceM": 30.48,
@@ -26909,7 +26909,7 @@
     "defensibleSpace": {
       "zones": [
         {
-          "zoneId": 1,
+          "zoneId": 0,
           "zoneInnerDistanceM": 0,
           "zoneInnerDistanceFt": 0,
           "zoneOuterDistanceM": 1.524,
@@ -34199,7 +34199,7 @@
           ]
         },
         {
-          "zoneId": 2,
+          "zoneId": 1,
           "zoneInnerDistanceM": 1.524,
           "zoneInnerDistanceFt": 5,
           "zoneOuterDistanceM": 9.144,
@@ -41675,7 +41675,7 @@
           ]
         },
         {
-          "zoneId": 3,
+          "zoneId": 2,
           "zoneInnerDistanceM": 9.144,
           "zoneInnerDistanceFt": 30,
           "zoneOuterDistanceM": 30.48,

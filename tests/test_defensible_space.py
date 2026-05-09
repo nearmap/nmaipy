@@ -170,7 +170,7 @@ def test_defensible_space_multiple_zones(roof_with_defensible_space):
 
     # Verify we have data for all zones
     num_zones = len(roof_with_defensible_space["defensibleSpace"]["zones"])
-    for zone_id in range(1, num_zones + 1):
+    for zone_id in range(num_zones):
         prefix = f"defensible_space_zone_{zone_id}"
         assert f"{prefix}_zone_area_sqft" in result, f"Zone {zone_id} should be present"
 
@@ -287,7 +287,7 @@ def test_defensible_space_with_other_includes(roof_with_defensible_space):
     result = flatten_roof_attributes([roof], country="us")
 
     # All three should be present
-    assert "defensible_space_zone_1_zone_area_sqft" in result
+    assert "defensible_space_zone_0_zone_area_sqft" in result
     assert "roof_spotlight_index" in result
     assert "hurricane_vulnerability_score" in result
 
@@ -368,17 +368,17 @@ def test_rollup_with_defensible_space(defensible_space_payload):
 
     # Verify resolved defensibleSpace columns use primary_ prefix (no roof_ infix)
     # Should have data for all 3 zones
-    for zone_id in [1, 2, 3]:
+    for zone_id in [0, 1, 2]:
         assert f"primary_defensible_space_zone_{zone_id}_zone_area_sqft" in rollup_df.columns
         assert f"primary_defensible_space_zone_{zone_id}_defensible_space_area_sqft" in rollup_df.columns
         assert f"primary_defensible_space_zone_{zone_id}_risk_object_area_sqft" in rollup_df.columns
         assert f"primary_defensible_space_zone_{zone_id}_coverage_ratio" in rollup_df.columns
 
     # Verify the values are present and reasonable
-    zone_1_area = rollup_df["primary_defensible_space_zone_1_zone_area_sqft"].iloc[0]
-    assert zone_1_area > 0, f"Expected positive zone area, got {zone_1_area}"
+    zone_0_area = rollup_df["primary_defensible_space_zone_0_zone_area_sqft"].iloc[0]
+    assert zone_0_area > 0, f"Expected positive zone area, got {zone_0_area}"
 
-    coverage_ratio = rollup_df["primary_defensible_space_zone_1_coverage_ratio"].iloc[0]
+    coverage_ratio = rollup_df["primary_defensible_space_zone_0_coverage_ratio"].iloc[0]
     assert 0 <= coverage_ratio <= 1, f"Expected coverage ratio between 0 and 1, got {coverage_ratio}"
 
 
@@ -388,7 +388,7 @@ class TestRiskObjects:
     SAMPLE_DEFENSIBLE_SPACE = {
         "zones": [
             {
-                "zoneId": 1,
+                "zoneId": 0,
                 "zoneAreaSqft": 100,
                 "zoneAreaSqm": 9.3,
                 "defensibleSpaceAreaSqft": 85,
@@ -407,7 +407,7 @@ class TestRiskObjects:
                 ],
             },
             {
-                "zoneId": 2,
+                "zoneId": 1,
                 "zoneAreaSqft": 500,
                 "zoneAreaSqm": 46.5,
                 "defensibleSpaceAreaSqft": 300,
@@ -447,36 +447,36 @@ class TestRiskObjects:
         result = flatten_roof_attributes([self._make_roof(self.SAMPLE_DEFENSIBLE_SPACE)], country="us")
 
         # Zone 1: vegetation only
-        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 15
-        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_ratio"] == 0.012
+        assert result["defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 15
+        assert result["defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_ratio"] == 0.012
 
         # Zone 2: vegetation + roof
-        assert result["defensible_space_zone_2_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 129
-        assert result["defensible_space_zone_2_medium_and_high_vegetation_with_woody_vegetation_ratio"] == 0.252
-        assert result["defensible_space_zone_2_roof_area_sqft"] == 71
-        assert result["defensible_space_zone_2_roof_ratio"] == 0.136
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 129
+        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_ratio"] == 0.252
+        assert result["defensible_space_zone_1_roof_area_sqft"] == 71
+        assert result["defensible_space_zone_1_roof_ratio"] == 0.136
 
     def test_risk_object_columns_metric(self):
         """Metric area units used for non-imperial countries."""
         result = flatten_roof_attributes([self._make_roof(self.SAMPLE_DEFENSIBLE_SPACE)], country="au")
 
-        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqm"] == 1.4
-        assert "defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft" not in result
+        assert result["defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_sqm"] == 1.4
+        assert "defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_sqft" not in result
 
     def test_zone_level_columns_still_present(self):
         """Existing zone-level aggregate columns are unaffected."""
         result = flatten_roof_attributes([self._make_roof(self.SAMPLE_DEFENSIBLE_SPACE)], country="us")
 
-        assert result["defensible_space_zone_1_zone_area_sqft"] == 100
-        assert result["defensible_space_zone_1_coverage_ratio"] == 0.85
-        assert result["defensible_space_zone_2_risk_object_area_sqft"] == 200
+        assert result["defensible_space_zone_0_zone_area_sqft"] == 100
+        assert result["defensible_space_zone_0_coverage_ratio"] == 0.85
+        assert result["defensible_space_zone_1_risk_object_area_sqft"] == 200
 
     def test_empty_risk_objects(self):
         """Zones with no riskObjects produce no per-class columns."""
         ds = {
             "zones": [
                 {
-                    "zoneId": 1,
+                    "zoneId": 0,
                     "zoneAreaSqft": 100,
                     "zoneAreaSqm": 9.3,
                     "defensibleSpaceAreaSqft": 100,
@@ -491,17 +491,17 @@ class TestRiskObjects:
         result = flatten_roof_attributes([self._make_roof(ds)], country="us")
 
         # Zone-level columns present, per-class columns default to 0.0
-        assert "defensible_space_zone_1_zone_area_sqft" in result
-        assert result["defensible_space_zone_1_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 0.0
-        assert result["defensible_space_zone_1_roof_area_sqft"] == 0.0
-        assert result["defensible_space_zone_1_yard_debris_area_sqft"] == 0.0
+        assert "defensible_space_zone_0_zone_area_sqft" in result
+        assert result["defensible_space_zone_0_medium_and_high_vegetation_with_woody_vegetation_area_sqft"] == 0.0
+        assert result["defensible_space_zone_0_roof_area_sqft"] == 0.0
+        assert result["defensible_space_zone_0_yard_debris_area_sqft"] == 0.0
 
     def test_missing_risk_objects_key(self):
         """Zones without riskObjects key at all are handled gracefully."""
         ds = {
             "zones": [
                 {
-                    "zoneId": 1,
+                    "zoneId": 0,
                     "zoneAreaSqft": 100,
                     "zoneAreaSqm": 9.3,
                     "defensibleSpaceAreaSqft": 100,
@@ -513,4 +513,4 @@ class TestRiskObjects:
             ],
         }
         result = flatten_roof_attributes([self._make_roof(ds)], country="us")
-        assert "defensible_space_zone_1_zone_area_sqft" in result
+        assert "defensible_space_zone_0_zone_area_sqft" in result

@@ -2102,7 +2102,7 @@ class TestExtractIncludeScoresFromFeature:
             "defensibleSpace": {
                 "zones": [
                     {
-                        "zoneId": 1,
+                        "zoneId": 0,
                         "zoneAreaSqft": 100.0,
                         "defensibleSpaceAreaSqft": 80.0,
                         "defensibleSpaceCoverageRatio": 0.8,
@@ -2112,9 +2112,9 @@ class TestExtractIncludeScoresFromFeature:
             }
         }
         result = parcels.extract_include_scores_from_feature(feature, country="us")
-        assert result["defensible_space_zone_1_zone_area_sqft"] == 100.0
-        assert result["defensible_space_zone_1_defensible_space_area_sqft"] == 80.0
-        assert result["defensible_space_zone_1_coverage_ratio"] == 0.8
+        assert result["defensible_space_zone_0_zone_area_sqft"] == 100.0
+        assert result["defensible_space_zone_0_defensible_space_area_sqft"] == 80.0
+        assert result["defensible_space_zone_0_coverage_ratio"] == 0.8
 
     def test_pandas_series_input(self):
         series = pd.Series({"hurricaneScore": {"vulnerabilityScore": 3}})
