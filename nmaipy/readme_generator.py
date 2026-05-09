@@ -733,7 +733,7 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             "| `primary_defensible_space_zone_{N}_` | Defensible space for the primary roof feature only |",
             "| `aggregate_defensible_space_zone_{N}_` | Defensible space aggregated across the entire parcel (all structures) |",
             "",
-            "### Columns Per Zone (illustrated for zone 0; analogous columns exist for zones 1 and 2)",
+            "### Columns Per Zone (illustrated for zone 0; analogous columns exist for zones 1, 2, etc.)",
             "",
             *_render_columns_table(example_columns, u),
         ]
