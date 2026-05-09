@@ -602,7 +602,8 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             *_render_columns_table(RSI_COLUMNS.keys()),
         ]
 
-        lines.append("""
+        lines.append(
+            """
 **RSI Score Interpretation:**
 - **91-100**: Very good
 - **81-90**: Good
@@ -622,7 +623,8 @@ This fallback only applies when building lifecycle features are included in the 
 roofs without structural damage will have an RSI value.
 
 For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-spotlight-index-rsi
-""")
+"""
+        )
 
         return "\n".join(lines)
 
@@ -738,13 +740,15 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             *_render_columns_table(example_columns, u),
         ]
 
-        lines.append("""
+        lines.append(
+            """
 **Risk object classes** (vegetation, roof, yard debris) are always present with 0.0 defaults
 when a class is not detected in a given zone. This ensures consistent column presence across all rows.
 
 **Coverage ratio** indicates what fraction of the zone is clear/defensible space.
 A ratio of 1.0 means the entire zone is defensible; 0.0 means it is fully occupied by risk objects.
-""")
+"""
+        )
 
         return "\n".join(lines)
 
