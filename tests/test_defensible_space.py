@@ -514,3 +514,113 @@ class TestRiskObjects:
         }
         result = flatten_roof_attributes([self._make_roof(ds)], country="us")
         assert "defensible_space_zone_0_zone_area_sqft" in result
+
+
+class TestSkipDetection:
+    """The Feature API may return ``{"skipped": true}`` for an include section
+    when it declines to evaluate that section on a given row. nmaipy surfaces
+    this as a per-include ``*_skipped`` boolean so downstream consumers can
+    distinguish "API skipped" from "no feature to score / no data available".
+
+    Three code paths emit ``*_skipped`` columns:
+      1. ``feature_attributes._flatten_include_params`` for perils + RSI
+      2. ``feature_attributes._flatten_defensible_space`` for per-roof DS
+      3. ``parcels.parcel_rollup`` aggregate-DS loop
+    """
+
+    @staticmethod
+    def _make_roof(**includes):
+        return {"feature_id": "r", "class_id": ROOF_ID, "attributes": [], **includes}
+
+    def test_per_roof_defensible_space_skipped_true(self):
+        from nmaipy.feature_attributes import _flatten_defensible_space
+
+        flat = {}
+        _flatten_defensible_space(
+            {"defensibleSpace": {"skipped": True, "modelVersion": "1.0.0"}},
+            flat,
+            country="us",
+        )
+        assert flat["defensible_space_skipped"] is True
+        assert flat["defensible_space_model_version"] == "1.0.0"
+        assert not any(k.startswith("defensible_space_zone_") for k in flat)
+
+    def test_per_roof_defensible_space_skipped_false_when_zones_present(self):
+        from nmaipy.feature_attributes import _flatten_defensible_space
+
+        flat = {}
+        _flatten_defensible_space(
+            {
+                "defensibleSpace": {
+                    "modelVersion": "1.0.0",
+                    "zones": [
+                        {
+                            "zoneId": 0,
+                            "zoneAreaSqft": 100,
+                            "zoneAreaSqm": 9.3,
+                            "defensibleSpaceAreaSqft": 100,
+                            "defensibleSpaceAreaSqm": 9.3,
+                            "totalRiskObjectAreaSqft": 0,
+                            "totalRiskObjectAreaSqm": 0,
+                            "defensibleSpaceCoverageRatio": 1.0,
+                            "riskObjects": [],
+                        }
+                    ],
+                }
+            },
+            flat,
+            country="us",
+        )
+        assert flat["defensible_space_skipped"] is False
+        assert flat["defensible_space_zone_0_zone_area_sqft"] == 100
+
+    def test_per_roof_defensible_space_skip_column_absent_when_include_not_requested(self):
+        # No defensibleSpace key on the feature → the function returns early
+        # and no *_skipped column is emitted.
+        from nmaipy.feature_attributes import _flatten_defensible_space
+
+        flat = {}
+        _flatten_defensible_space({}, flat, country="us")
+        assert "defensible_space_skipped" not in flat
+
+    def test_include_param_skip_true_perils(self):
+        # `hurricaneScore` is a known include with a snake_key in INCLUDE_FIELD_MAPPINGS.
+        # When the API returns skipped:true, the *_skipped column is True and no
+        # score-field columns are emitted.
+        from nmaipy.feature_attributes import _flatten_include_params
+
+        flat = {}
+        _flatten_include_params(
+            {"hurricaneScore": {"skipped": True, "modelVersion": "2.1.0"}}, flat
+        )
+        assert flat["hurricane_score_skipped"] is True
+        assert flat["hurricane_score_model_version"] == "2.1.0"
+        # No score fields written.
+        score_field_cols = [k for k in flat if "vulnerability" in k or "rate_factor" in k]
+        assert score_field_cols == []
+
+    def test_include_param_skip_false_when_evaluated(self):
+        from nmaipy.feature_attributes import _flatten_include_params
+
+        flat = {}
+        _flatten_include_params(
+            {
+                "hurricaneScore": {
+                    "modelVersion": "2.1.0",
+                    "vulnerabilityScore": 4,
+                    "vulnerabilityProbability": 0.65,
+                    "vulnerabilityRateFactor": 0.21,
+                }
+            },
+            flat,
+        )
+        assert flat["hurricane_score_skipped"] is False
+        assert flat["hurricane_vulnerability_score"] == 4
+
+    def test_include_param_no_column_when_include_absent(self):
+        from nmaipy.feature_attributes import _flatten_include_params
+
+        flat = {}
+        _flatten_include_params({}, flat)
+        assert "hurricane_score_skipped" not in flat
+        assert "spotlight_index_skipped" not in flat

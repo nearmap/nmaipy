@@ -739,9 +739,10 @@ def _compute_all_per_class_data(
     Args:
         threads: number of worker threads for the per-class loop. Defaults to 1
             (sequential) for backward compatibility. process_chunk passes
-            ``self.threads`` (default 15) so the per-class CPU phase reuses the
-            thread budget that's already idle once API fetch completes —
-            shapely operations release the GIL so this parallelises well.
+            ``self.threads`` (``THREADS`` default = 10) so the per-class CPU
+            phase reuses the thread budget that's already idle once API fetch
+            completes — shapely operations release the GIL so this parallelises
+            well.
             Cross-class data (parent_lookup, roof_attrs_cache, IoU linkage) is
             pre-computed before the loop; each class iteration operates on
             read-only references and writes to a distinct dict key.
