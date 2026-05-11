@@ -1504,7 +1504,11 @@ def parcel_rollup(
 
     # Flatten aggregate defensible space from API metadata into rollup columns.
     # The API returns parcel-level aggregate defensible space data (zone metrics +
-    # per-class risk objects) in the response's "aggregate" section.
+    # per-class risk objects) in the response's "aggregate" section. When the
+    # Feature API CPU-cutoff fires, the aggregate payload comes back as
+    # ``{"skipped": true}`` — we record ``aggregate_defensible_space_skipped``
+    # so downstream consumers can tell "API skipped this" from "no aggregate
+    # data available".
     if api_metadata:
         meta_df = api_metadata[0][0]
         if "aggregate" in meta_df.columns:
@@ -1518,15 +1522,17 @@ def parcel_rollup(
                 ds = agg.get("defensibleSpace")
                 if not isinstance(ds, dict):
                     continue
-                row = {}
+                if ds.get("skipped") is True:
+                    agg_rows[aoi_id_val] = {"aggregate_defensible_space_skipped": True}
+                    continue
+                row = {"aggregate_defensible_space_skipped": False}
                 for zone in sorted(ds.get("zones", []), key=lambda z: z.get("zoneId", 0)):
                     zone_id = zone.get("zoneId")
                     if zone_id is None:
                         continue
                     prefix = f"aggregate_defensible_space_zone_{zone_id}"
                     _flatten_defensible_space_zone(zone, prefix, country, row)
-                if row:
-                    agg_rows[aoi_id_val] = row
+                agg_rows[aoi_id_val] = row
             if agg_rows:
                 agg_df = pd.DataFrame.from_dict(agg_rows, orient="index")
                 agg_df.index.name = AOI_ID_COLUMN_NAME

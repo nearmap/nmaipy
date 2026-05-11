@@ -22,6 +22,7 @@ import fsspec
 import pyarrow as pa
 import pyarrow.parquet as pq
 from boto3.s3.transfer import TransferConfig
+from botocore.config import Config as BotoConfig
 
 # Tuned transfer config for large files (>1GB).
 # Default boto3 uses 8MB parts / 10 threads — too conservative for multi-GB files.
@@ -37,6 +38,18 @@ _s3_boto3_client_cache = {}
 _s3_filesystem_cache = {}
 
 
+# boto3's default max_pool_connections is 10. The chunk merge phase fans out
+# hundreds of parallel S3 reads — under that load we hit the pool limit and
+# log a flurry of "Connection pool is full, discarding connection" warnings
+# on multi-million-parcel exports. Bump to 50 to match a typical
+# 32-process × 15-thread runner shape with headroom. Adaptive retry mode
+# smooths transient 503s without changing correctness.
+_S3_CLIENT_CONFIG = BotoConfig(
+    max_pool_connections=50,
+    retries={"max_attempts": 10, "mode": "adaptive"},
+)
+
+
 def _get_s3_boto3_client():
     """Return a per-process cached boto3 S3 client.
 
@@ -45,7 +58,7 @@ def _get_s3_boto3_client():
     """
     pid = os.getpid()
     if pid not in _s3_boto3_client_cache:
-        _s3_boto3_client_cache[pid] = boto3.client("s3")
+        _s3_boto3_client_cache[pid] = boto3.client("s3", config=_S3_CLIENT_CONFIG)
     return _s3_boto3_client_cache[pid]
 
 
