@@ -1630,9 +1630,7 @@ class FeatureApi(GriddedApiClient):
             # of letting `"unhashable type: 'dict'"` surface 465 lines downstream in
             # geometry_utils.drop_duplicates. The payload_gdf fix above closes the
             # only known path; this guard catches future regressions.
-            non_shapely = features_gdf["geometry"].apply(
-                lambda g: g is not None and not isinstance(g, BaseGeometry)
-            )
+            non_shapely = features_gdf["geometry"].apply(lambda g: g is not None and not isinstance(g, BaseGeometry))
             if non_shapely.any():
                 n_bad = int(non_shapely.sum())
                 example_fid = (

@@ -3545,12 +3545,9 @@ class NearmapAIExporter(BaseExporter):
                 _skip_cols = [c for c in final_df.columns if c.endswith("_skipped")]
                 if _skip_cols:
                     _skip_counts = " ".join(
-                        f"{c}={int(final_df[c].fillna(False).astype(bool).sum())}"
-                        for c in sorted(_skip_cols)
+                        f"{c}={int(final_df[c].fillna(False).astype(bool).sum())}" for c in sorted(_skip_cols)
                     )
-                    self.logger.info(
-                        f"CHUNK_SKIPS chunk_id={chunk_id} rows={len(final_df)} {_skip_counts}"
-                    )
+                    self.logger.info(f"CHUNK_SKIPS chunk_id={chunk_id} rows={len(final_df)} {_skip_counts}")
             except Exception as e:
                 self.logger.debug(f"Chunk {chunk_id}: skip-counter log failed (non-blocking): {e}")
 

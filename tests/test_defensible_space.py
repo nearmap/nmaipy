@@ -590,9 +590,7 @@ class TestSkipDetection:
         from nmaipy.feature_attributes import _flatten_include_params
 
         flat = {}
-        _flatten_include_params(
-            {"hurricaneScore": {"skipped": True, "modelVersion": "2.1.0"}}, flat
-        )
+        _flatten_include_params({"hurricaneScore": {"skipped": True, "modelVersion": "2.1.0"}}, flat)
         assert flat["hurricane_score_skipped"] is True
         assert flat["hurricane_score_model_version"] == "2.1.0"
         # No score fields written.
