@@ -1839,6 +1839,100 @@ class TestApiMetadataInRollup:
             assert row["roof_instance_count"] == 1, f"{aoi}: roof_instance_count should be 1"
 
 
+class TestAggregateDefensibleSpaceSkipDetection:
+    """``parcels.parcel_rollup`` emits ``aggregate_defensible_space_skipped`` when
+    the API's parcel-level aggregate defensibleSpace payload comes back as
+    ``{"skipped": true}``. Mirrors the per-roof and per-include skip-detection
+    in ``feature_attributes`` (see TestSkipDetection in test_defensible_space).
+    """
+
+    @pytest.fixture
+    def classes_df(self):
+        return pd.DataFrame({"description": ["Roof"]}, index=[ROOF_ID])
+
+    @pytest.fixture
+    def parcels_gdf(self):
+        return gpd.GeoDataFrame(
+            {AOI_ID_COLUMN_NAME: ["aoi_1", "aoi_2"]},
+            geometry=[box(0, 0, 0.001, 0.001), box(0.01, 0.01, 0.011, 0.011)],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    @pytest.fixture
+    def empty_features(self):
+        return gpd.GeoDataFrame(
+            columns=[AOI_ID_COLUMN_NAME, "class_id", "feature_id", "geometry"],
+            geometry="geometry",
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    def _api_meta_with_aggregate(self, *, aggregates_by_aoi):
+        """Build api_metadata with an 'aggregate' column populated per AOI."""
+        feature_meta = pd.DataFrame(
+            {
+                "system_version": ["gen6"] * len(aggregates_by_aoi),
+                "aggregate": list(aggregates_by_aoi.values()),
+            },
+            index=pd.Index(list(aggregates_by_aoi.keys()), name=AOI_ID_COLUMN_NAME),
+        )
+        return [(feature_meta, pd.DataFrame({"description": ["Roof"]}, index=[ROOF_ID]))]
+
+    def test_aggregate_ds_skipped_emits_true(self, parcels_gdf, empty_features, classes_df):
+        api_metadata = self._api_meta_with_aggregate(
+            aggregates_by_aoi={
+                "aoi_1": {"defensibleSpace": {"skipped": True, "modelVersion": "1.0.0"}},
+                "aoi_2": {"defensibleSpace": {"skipped": True}},
+            }
+        )
+        rollup = parcels.parcel_rollup(
+            parcels_gdf,
+            empty_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+        )
+        assert bool(rollup.loc["aoi_1", "aggregate_defensible_space_skipped"]) is True
+        assert bool(rollup.loc["aoi_2", "aggregate_defensible_space_skipped"]) is True
+        # No zone columns when skipped
+        zone_cols = [c for c in rollup.columns if c.startswith("aggregate_defensible_space_zone_")]
+        assert zone_cols == []
+
+    def test_aggregate_ds_evaluated_emits_false_with_zones(self, parcels_gdf, empty_features, classes_df):
+        api_metadata = self._api_meta_with_aggregate(
+            aggregates_by_aoi={
+                "aoi_1": {
+                    "defensibleSpace": {
+                        "modelVersion": "1.0.0",
+                        "zones": [
+                            {
+                                "zoneId": 0,
+                                "zoneAreaSqft": 100,
+                                "zoneAreaSqm": 9.3,
+                                "defensibleSpaceAreaSqft": 80,
+                                "defensibleSpaceAreaSqm": 7.4,
+                                "totalRiskObjectAreaSqft": 20,
+                                "totalRiskObjectAreaSqm": 1.9,
+                                "defensibleSpaceCoverageRatio": 0.8,
+                                "riskObjects": [],
+                            }
+                        ],
+                    }
+                }
+            }
+        )
+        rollup = parcels.parcel_rollup(
+            parcels_gdf,
+            empty_features,
+            classes_df,
+            country="us",
+            primary_decision="largest_intersection",
+            api_metadata=api_metadata,
+        )
+        assert bool(rollup.loc["aoi_1", "aggregate_defensible_space_skipped"]) is False
+        assert rollup.loc["aoi_1", "aggregate_defensible_space_zone_0_zone_area_sqft"] == 100
+
+
 class TestPerVersionAvailabilityNullOut:
     """Rollup null-out driven by per-AOI system_version + class availability."""
 

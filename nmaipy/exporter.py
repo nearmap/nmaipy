@@ -725,6 +725,7 @@ def _compute_all_per_class_data(
     aoi_input_columns: list,
     whitelisted_classes: list = None,
     logger_instance=None,
+    threads: int = 1,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -734,6 +735,17 @@ def _compute_all_per_class_data(
 
     This is the shared core used by both process_chunk() (in-memory path) and
     _merge_per_class_chunks() (fallback recomputation path).
+
+    Args:
+        threads: number of worker threads for the per-class loop. Defaults to 1
+            (sequential) for backward compatibility. process_chunk passes
+            ``self.threads`` (``THREADS`` default = 10) so the per-class CPU
+            phase reuses the thread budget that's already idle once API fetch
+            completes — shapely operations release the GIL so this parallelises
+            well.
+            Cross-class data (parent_lookup, roof_attrs_cache, IoU linkage) is
+            pre-computed before the loop; each class iteration operates on
+            read-only references and writes to a distinct dict key.
     """
     if whitelisted_classes is None:
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
@@ -824,15 +836,18 @@ def _compute_all_per_class_data(
                     _log.debug(f"Could not flatten roof attrs: {e}")
             del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
 
-    # Compute per-class data for each whitelisted class
-    results = {}
-    for cid in whitelisted_classes:
+    # Compute per-class data for each whitelisted class.
+    # Threaded when `threads > 1`. Each worker reads class_feats, calls
+    # _compute_feature_class_data with read-only references to the shared
+    # cross-class data, and returns (cid, desc, flat_df, geo_gdf) or None.
+    # We materialise the pyarrow tables on the main thread to avoid any
+    # cross-thread pyarrow object handling.
+    def _process_one_class(cid):
         if cid not in chunk_class_ids:
-            continue
+            return None
         class_feats = chunk_gdf[chunk_gdf["class_id"] == cid]
         if len(class_feats) == 0:
-            continue
-
+            return None
         desc = chunk_class_descriptions.get(cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}"))
         try:
             flat_df, geo_gdf = _compute_feature_class_data(
@@ -853,18 +868,34 @@ def _compute_all_per_class_data(
             )
         except Exception as e:
             _log.error(f"Per-class export failed for {desc}: {e}")
-            continue
+            return None
         if flat_df is None:
-            continue
+            return None
+        return cid, desc, flat_df, geo_gdf
 
-        entry = {}
-        entry["tabular"] = pa.Table.from_pandas(flat_df, preserve_index=False)
+    def _finalise(out):
+        if out is None:
+            return None
+        cid, desc, flat_df, geo_gdf = out
+        entry = {"tabular": pa.Table.from_pandas(flat_df, preserve_index=False)}
         if geo_gdf is not None and len(geo_gdf) > 0:
             geo_wkb_df = pd.DataFrame(geo_gdf)
             geo_wkb_df["geometry"] = geo_gdf.geometry.to_wkb()
             entry["geo"] = pa.Table.from_pandas(geo_wkb_df, preserve_index=False)
-        results[cid] = entry
-        del flat_df, geo_gdf
+        return cid, entry
+
+    results = {}
+    if threads <= 1:
+        for cid in whitelisted_classes:
+            final = _finalise(_process_one_class(cid))
+            if final is not None:
+                results[final[0]] = final[1]
+    else:
+        with ThreadPoolExecutor(max_workers=threads) as ex:
+            for fut in as_completed(ex.submit(_process_one_class, cid) for cid in whitelisted_classes):
+                final = _finalise(fut.result())
+                if final is not None:
+                    results[final[0]] = final[1]
 
     return results
 
@@ -3439,6 +3470,7 @@ class NearmapAIExporter(BaseExporter):
                         country=self.country,
                         aoi_input_columns=aoi_input_columns,
                         logger_instance=self.logger,
+                        threads=self.threads,
                     )
                     _t_per_class_compute = time.monotonic()
 
@@ -3500,6 +3532,27 @@ class NearmapAIExporter(BaseExporter):
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
 
             _t_rollup_write = time.monotonic()
+
+            # Emit per-include API-skip counts for this chunk. The Feature API
+            # returns {"skipped": true} for high-CPU rows (currently parcels
+            # with >10 roofs) instead of the normal include payload — we
+            # detect this in feature_attributes._flatten_include_params,
+            # feature_attributes._flatten_defensible_space, and the aggregate
+            # DS loop in parcels.parcel_rollup, and surface it as a `*_skipped`
+            # boolean per include. One log line per chunk so divergences across
+            # includes (if the API ever stops skipping atomically) jump out.
+            try:
+                _skip_cols = [c for c in final_df.columns if c.endswith("_skipped")]
+                if _skip_cols:
+                    _skip_counts = " ".join(
+                        f"{c}={int(final_df[c].fillna(False).astype(bool).sum())}"
+                        for c in sorted(_skip_cols)
+                    )
+                    self.logger.info(
+                        f"CHUNK_SKIPS chunk_id={chunk_id} rows={len(final_df)} {_skip_counts}"
+                    )
+            except Exception as e:
+                self.logger.debug(f"Chunk {chunk_id}: skip-counter log failed (non-blocking): {e}")
 
             # Emit structured timing breakdown for profiling the closeout stage.
             # Grep for CHUNK_TIMING in the export log to analyse the dead-zone split.

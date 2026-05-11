@@ -766,6 +766,7 @@ A ratio of 1.0 means the entire zone is defensible; 0.0 means it is fully occupi
 - **Confidence scores**: Range from 0.0 (low) to 1.0 (high)
 - **Dates**: ISO 8601 format (YYYY-MM-DD)
 - **GeoParquet files**: Can be opened with QGIS, ArcGIS, or Python (geopandas)
+- **`*_skipped` columns**: The Feature API may return `{{skipped: true}}` for an include section (e.g. RSI, peril scores, defensible space) when it decides not to evaluate that section for a given row. nmaipy surfaces this as a per-include `*_skipped` boolean — `Y` means "API declined to evaluate", `N` means evaluated normally, absent means the include wasn't requested. When a row has `*_skipped = Y`, the corresponding score / area / ratio columns will be null because the API didn't compute them, not because the underlying feature is absent.
 
 """
 

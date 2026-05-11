@@ -21,6 +21,7 @@ import requests
 import shapely.geometry
 import stringcase
 from shapely.geometry import MultiPolygon, Polygon, shape
+from shapely.geometry.base import BaseGeometry
 
 from nmaipy import geometry_utils, log, storage
 from nmaipy.api_common import (
@@ -946,7 +947,19 @@ class FeatureApi(GriddedApiClient):
                 raise ValueError(f"Failed to set aoi_id '{aoi_id}' on feature DataFrame with {len(df)} rows") from e
             metadata[AOI_ID_COLUMN_NAME] = aoi_id
 
-        # Cast to GeoDataFrame - now we drop clipped_geometry since we've already used it
+        # Cast to GeoDataFrame - now we drop clipped_geometry since we've already used it.
+        #
+        # If no feature in this payload had a geometry/clippedGeometry key, df has
+        # no "geometry" column at this point. The naive `else: gdf = df` returns
+        # an unconverted pandas.DataFrame; when subsequently concatenated with
+        # sibling grid-cell responses that DID convert their geometry to shapely,
+        # the resulting geometry column has mixed dtypes (shapely objects in
+        # some rows, dict/None in others). Downstream
+        # ``geometry_utils.combine_features_from_grid:drop_duplicates(["feature_id",
+        # "geometry"])`` then trips on the dict with
+        # ``"Gridding failed: unhashable type: 'dict'"``. Fix at the root: emit a
+        # shapely-typed geometry column (all-None) so any downstream concat
+        # produces a uniform GeoSeries.
         if "geometry" in df.columns:
             gdf = gpd.GeoDataFrame(df.assign(geometry=df.geometry.apply(shape)))
             # Drop the clipped_geometry column if it exists
@@ -954,7 +967,8 @@ class FeatureApi(GriddedApiClient):
                 gdf = gdf.drop(columns=["clipped_geometry"])
             gdf = gdf.set_crs(cls.SOURCE_CRS)
         else:
-            gdf = df
+            df["geometry"] = gpd.GeoSeries([None] * len(df), crs=cls.SOURCE_CRS).values
+            gdf = gpd.GeoDataFrame(df, geometry="geometry", crs=cls.SOURCE_CRS)
 
         # Ensure belongs_to_parcel column exists - when parcel_mode is disabled during gridding,
         # the API may not return this field, but downstream code expects it to exist
@@ -1610,6 +1624,28 @@ class FeatureApi(GriddedApiClient):
         non_empty_data = [df for df in data if len(df) > 0]
         if len(non_empty_data) > 0:
             features_gdf = pd.concat(non_empty_data)
+            # Defensive type check: if any geometry value is still a dict / non-shapely
+            # at this point, payload_gdf produced an unconverted DataFrame somewhere
+            # in the call chain. Raise a clear error pointing at the source instead
+            # of letting `"unhashable type: 'dict'"` surface 465 lines downstream in
+            # geometry_utils.drop_duplicates. The payload_gdf fix above closes the
+            # only known path; this guard catches future regressions.
+            non_shapely = features_gdf["geometry"].apply(
+                lambda g: g is not None and not isinstance(g, BaseGeometry)
+            )
+            if non_shapely.any():
+                n_bad = int(non_shapely.sum())
+                example_fid = (
+                    features_gdf.loc[non_shapely, "feature_id"].iloc[0]
+                    if "feature_id" in features_gdf.columns
+                    else "<no feature_id col>"
+                )
+                raise TypeError(
+                    f"{n_bad} features have non-shapely geometry after grid concat — "
+                    "a payload_gdf path returned an unconverted DataFrame. "
+                    f"First offending feature_id: {example_fid!r}, "
+                    f"value type: {type(features_gdf.loc[non_shapely, 'geometry'].iloc[0]).__name__}"
+                )
             # Ensure we have a proper GeoDataFrame with geometry column and CRS
             features_gdf = gpd.GeoDataFrame(features_gdf, geometry="geometry", crs=API_CRS)
         else:

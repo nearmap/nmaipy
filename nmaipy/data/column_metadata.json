@@ -642,6 +642,15 @@
       "source": "base ai model"
     },
     {
+      "regex": "^(?P<scope>primary_(?:roof_)?|aggregate_)?(?P<include>.+?)_skipped$",
+      "dtype": "binary",
+      "allowed_values": "Y | N",
+      "min": "N",
+      "max": "Y",
+      "description": "Y when the Feature API returned `{skipped: true}` for the `{include}` section on this row — the API decided not to evaluate this section on this parcel. When Y, the corresponding score / area / ratio columns for this include are null because the API declined to evaluate, not because the underlying feature is absent. N when the include was evaluated normally; absent / null when the include wasn't requested for this row.",
+      "source": "model metadata"
+    },
+    {
       "regex": "^(?P<roof_scope>primary_(?:roof_)?|aggregate_)?defensible_space_zone_(?P<zone_id>\\d+)_zone_area_(?P<unit>sqft|sqm)$",
       "dtype": "float",
       "min": "0",

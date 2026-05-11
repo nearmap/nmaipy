@@ -278,12 +278,33 @@ def _parse_include_param(val):
 
 
 def _flatten_include_params(feature: dict, flattened: dict) -> None:
-    """Extract include parameters (scores, RSI) and their modelInputFeatures into flattened dict."""
+    """Extract include parameters (scores, RSI) and their modelInputFeatures into flattened dict.
+
+    Per-include skip detection: when the Feature API returns ``{"skipped": true}``
+    for an include section (a CPU-cutoff mechanism that activates on parcels with
+    many roofs / complex geometry), we record ``<snake_key>_skipped = True`` so
+    downstream consumers can tell "API skipped this" from "no roof to score".
+    When the include WAS returned with data, the column is ``False``. When the
+    include wasn't requested for this row, the column is left absent / null.
+
+    Per-include columns (not a single shared column) on the deliberate assumption
+    that the API may evolve to skip include sections independently.
+    """
     for camel_key, config in INCLUDE_FIELD_MAPPINGS.items():
         raw = feature.get(camel_key) or feature.get(config["snake_key"])
         data = _parse_include_param(raw)
         if not data:
             continue
+        skipped_col = f"{config['snake_key']}_skipped"
+        if data.get("skipped") is True:
+            # API returned {"skipped": true}. Don't try to extract score fields;
+            # do still record modelVersion if the API supplied it as metadata
+            # alongside the skip marker (current behaviour — useful for QA).
+            flattened[skipped_col] = True
+            if "modelVersion" in data:
+                flattened[f"{config['snake_key']}_model_version"] = data["modelVersion"]
+            continue
+        flattened[skipped_col] = False
         for api_field, output_col in config["fields"].items():
             if api_field in data:
                 flattened[output_col] = data[api_field]
@@ -307,11 +328,23 @@ def _flatten_defensible_space(feature: dict, flattened: dict, country: str) -> N
     Outer wrapper: reads the `defensibleSpace` include off the feature, iterates
     zones in ascending `zoneId` order, and delegates each zone to
     ``_flatten_defensible_space_zone``. Also flattens the top-level `modelVersion`.
+
+    Per-include skip detection: when the API returns ``{"skipped": true}`` for
+    the per-roof defensibleSpace section, we record
+    ``defensible_space_skipped = True`` so downstream consumers can tell
+    "API skipped this" from "no DS data available". See ``_flatten_include_params``
+    for the same pattern across perils and RSI.
     """
     defensible_raw = feature.get("defensibleSpace") or feature.get("defensible_space")
     defensible_space_data = _parse_include_param(defensible_raw)
     if not defensible_space_data:
         return
+    if defensible_space_data.get("skipped") is True:
+        flattened["defensible_space_skipped"] = True
+        if "modelVersion" in defensible_space_data:
+            flattened["defensible_space_model_version"] = defensible_space_data["modelVersion"]
+        return
+    flattened["defensible_space_skipped"] = False
     zones = defensible_space_data.get("zones", [])
     for zone in sorted(zones, key=lambda z: z.get("zoneId", 0)):
         zone_id = zone.get("zoneId")
