@@ -129,6 +129,86 @@ def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
 
 @pytest.mark.integration
 @pytest.mark.live_api
+def test_prefer3d_end_to_end_3d_path(test_output_dir, salt_lake_aoi):
+    """End-to-end run with --prefer3d against an AOI/window known to have 3D coverage.
+
+    The salt_lake_aoi (~40.7611, -111.8904) has a confirmed 3D capture on 2025-09-03;
+    with no since/until restriction, the latest survey for this point is 3D, so the
+    rollup row should carry a non-empty mesh_date and the 2D fallback path is NOT
+    exercised here (covered separately by `test_prefer3d_end_to_end_2d_fallback`).
+    """
+    exporter = AOIExporter(
+        aoi_file=str(salt_lake_aoi),
+        output_dir=str(test_output_dir),
+        country="us",
+        packs=["building"],
+        save_features=True,
+        no_cache=True,
+        processes=1,
+        prefer3d=True,
+    )
+
+    exporter.run()
+
+    rollup_files = list((test_output_dir / "final").glob("rollup.*"))
+    assert rollup_files, "rollup file should be created"
+    rollup_path = rollup_files[0]
+    rollup = pd.read_parquet(rollup_path) if rollup_path.suffix == ".parquet" else pd.read_csv(rollup_path)
+
+    assert "mesh_date" in rollup.columns, "rollup must expose the mesh_date metadata column"
+    assert len(rollup) == 1
+    mesh_date = rollup["mesh_date"].iloc[0]
+    assert (
+        mesh_date and str(mesh_date) != "" and str(mesh_date).lower() != "nan"
+    ), f"latest survey at this AOI is the 2025-09-03 3D capture; mesh_date should be populated, got {mesh_date!r}"
+
+
+@pytest.mark.integration
+@pytest.mark.live_api
+def test_prefer3d_end_to_end_2d_fallback(test_output_dir, salt_lake_aoi):
+    """End-to-end run with --prefer3d against a date window that has only 2D coverage.
+
+    At ~40.7611, -111.8904 the 2025-09-03 capture is 3D and the next survey (2026-03-04)
+    is 2D-only. The window [2025-09-04, 2026-03-31] excludes the 3D survey and includes
+    the 2D-only one, so the 3D-only first pass must 404 and the AOI must be resolved
+    via the 2D fallback. mesh_date should be empty in the resulting rollup.
+    """
+    exporter = AOIExporter(
+        aoi_file=str(salt_lake_aoi),
+        output_dir=str(test_output_dir),
+        country="us",
+        packs=["building"],
+        save_features=True,
+        no_cache=True,
+        processes=1,
+        prefer3d=True,
+        since="2025-09-04",
+        until="2026-03-31",
+    )
+
+    exporter.run()
+
+    rollup_files = list((test_output_dir / "final").glob("rollup.*"))
+    assert rollup_files, "rollup file should be created"
+    rollup_path = rollup_files[0]
+    rollup = pd.read_parquet(rollup_path) if rollup_path.suffix == ".parquet" else pd.read_csv(rollup_path)
+
+    assert "mesh_date" in rollup.columns
+    assert len(rollup) == 1, "single AOI should produce a single rollup row even via the 2D fallback"
+    mesh_date = rollup["mesh_date"].iloc[0]
+    # Empty string from a 2D survey, or NaN if the metadata-level mesh_date was dropped
+    # in favour of an absent per-feature mesh_date — either is a valid 2D signal.
+    is_empty = (mesh_date == "") or (pd.isna(mesh_date))
+    assert is_empty, f"window contains only 2D coverage; mesh_date should be empty, got {mesh_date!r}"
+
+    # And the 2026-03-04 2D survey should be the one used.
+    assert "survey_date" in rollup.columns
+    survey_date = str(rollup["survey_date"].iloc[0])
+    assert survey_date.startswith("2026-03-04"), f"expected the 2026-03-04 2D survey, got survey_date={survey_date!r}"
+
+
+@pytest.mark.integration
+@pytest.mark.live_api
 def test_attributes_list_handling():
     """Test that attributes list is properly handled in the flattening process."""
 
