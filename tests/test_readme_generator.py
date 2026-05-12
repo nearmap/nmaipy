@@ -267,17 +267,26 @@ class TestColumnMetadataTables:
                 assert meta.dtype, f"{label}[{col!r}] must have a non-empty dtype"
                 assert meta.description, f"{label}[{col!r}] must have a non-empty description"
 
-    def test_render_columns_table_emits_six_column_markdown(self):
-        """_render_columns_table produces a 6-column markdown table with one row per entry."""
+    def test_render_columns_table_emits_seven_column_markdown(self):
+        """_render_columns_table produces a 7-column markdown table with one row per entry."""
         # Use columns whose dtype/description don't contain escaped pipes so the
         # raw pipe-count check is a clean structural test.
         rendered = _render_columns_table(["roof_spotlight_index", "mesh_date"])
         # Header + separator + 2 rows = 4 lines.
         assert len(rendered) == 4
-        assert rendered[0] == "| Column | Type | Min | Max | Unit | Description |"
-        # Each row has exactly 7 pipes (delimiting 6 columns).
+        assert rendered[0] == "| Column | Type | Min | Max | Unit | Example | Description |"
+        # Each row has exactly 8 pipes (delimiting 7 columns).
         for row in rendered[2:]:
-            assert row.count("|") == 7
+            assert row.count("|") == 8
+
+    def test_render_columns_table_surfaces_spec_example(self):
+        """Spec-sourced example values appear in the Example column."""
+        rendered = _render_columns_table(["survey_date", "class_id"])
+        # survey_date and class_id both have spec examples that should surface
+        # through the per-field overlay (even though both are also overridden
+        # for description).
+        assert any("2019-09-27" in row for row in rendered), "spec example for survey_date missing"
+        assert any("5a5cb214-eee3-4fdd-bfce-d21e9793cf6a" in row for row in rendered), "spec example for class_id missing"
 
     def test_render_columns_table_substitutes_unit_placeholders(self):
         """`{unit}` in column names is resolved to the area suffix; `{unit_name}` is filled by lookup_column."""
@@ -320,11 +329,11 @@ class TestColumnMetadataTables:
         assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"].dtype
 
     def test_rendered_section_includes_min_max_and_unit(self, tmp_path):
-        """End-to-end: a rendered RSI section contains the new Min/Max/Unit columns."""
+        """End-to-end: a rendered RSI section contains the new Min/Max/Unit/Example columns."""
         (tmp_path / "rollup.csv").write_text("aoi_id,roof_spotlight_index\n0,85\n")
         (tmp_path / "roof.csv").write_text("aoi_id\n0\n")
         content = ReadmeGenerator(output_dir=tmp_path)._generate()
-        assert "| Column | Type | Min | Max | Unit | Description |" in content
+        assert "| Column | Type | Min | Max | Unit | Example | Description |" in content
         # RSI score's bounds are split across Min and Max cells.
         assert "| 0 | 100 |" in content
 

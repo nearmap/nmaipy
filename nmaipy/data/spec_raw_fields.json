@@ -1,0 +1,585 @@
+{
+  "_doc": "GENERATED — do not edit by hand. Produced by ai_offline_export_pipelines.spec_drift.generator from the vendored Nearmap Feature API OpenAPI spec. To customise a description, add an entry to column_metadata_overrides.json with the same key; overrides win at lookup time.",
+  "_source": {
+    "file": "api-v4.yml",
+    "spec_title": "AI Feature API.",
+    "spec_version": "4.0.0"
+  },
+  "exact_matches": {
+    "id": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "The Unique ID of this feature.",
+      "example": "1e88ed3a-abc7-5c34-963e-06df354d39fb",
+      "source": "base ai model",
+      "_spec_ref": "Feature.id"
+    },
+    "class_id": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "The unique ID for the class of this feature.",
+      "example": "5a5cb214-eee3-4fdd-bfce-d21e9793cf6a",
+      "source": "base ai model",
+      "_spec_ref": "Feature.classId"
+    },
+    "description": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "A description of the class of this feature.",
+      "example": "Roof",
+      "source": "base ai model",
+      "_spec_ref": "Feature.description"
+    },
+    "confidence": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The confidence level for this feature.",
+      "example": "0.94140625",
+      "source": "base ai model",
+      "_spec_ref": "Feature.confidence"
+    },
+    "parent_id": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "The feature ID of the immediate parent of this feature.  This field is always present. An empty string indicates that the feature is a root-level feature with no parent.",
+      "source": "base ai model",
+      "_spec_ref": "Feature.parentId"
+    },
+    "geometry": {
+      "group": "feature_meta",
+      "dtype": "object",
+      "description": "The geometry of the feature.",
+      "source": "base ai model",
+      "_spec_ref": "Feature.geometry"
+    },
+    "area_{unit}": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "unit": "{unit_name}",
+      "min": "0",
+      "description": "The area of the feature geometry, in {unit_name}. Connected features (e.g. lawn grass, medium and high vegetation, etc.) are clipped to the requested AOI and area computed off this clipped geometry. For connected features, this area will always equal clipped_area_{unit}. Discrete features (e.g. buildings, swimming pools, etc.) are not clipped to the requested AOI, and the area is computed from the entire feature geometry. For discrete features, this area will always equal unclipped_area_{unit}.",
+      "example": "12.8",
+      "source": "base ai model",
+      "_spec_ref": "Feature.areaSqm + areaSqft"
+    },
+    "clipped_area_{unit}": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "unit": "{unit_name}",
+      "min": "0",
+      "description": "The area of the feature geometry, clipped to the requested AOI, in {unit_name}.",
+      "example": "12.8",
+      "source": "base ai model",
+      "_spec_ref": "Feature.clippedAreaSqm + clippedAreaSqft"
+    },
+    "unclipped_area_{unit}": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "unit": "{unit_name}",
+      "min": "0",
+      "description": "The unclipped area of the feature geometry in {unit_name}.",
+      "example": "15.8",
+      "source": "base ai model",
+      "_spec_ref": "Feature.unclippedAreaSqm + unclippedAreaSqft"
+    },
+    "survey_date": {
+      "group": "feature_meta",
+      "dtype": "date",
+      "description": "The date of the survey capture.",
+      "example": "2019-09-27",
+      "source": "image metadata",
+      "_spec_ref": "Feature.surveyDate"
+    },
+    "mesh_date": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "The date of the 3D mesh used to generate the resource (if applicable).  This field is always present. An empty string indicates that the feature was not generated from a 3D mesh; a date string indicates the capture date of the mesh.",
+      "example": "2019-09-27",
+      "source": "image metadata",
+      "_spec_ref": "Feature.meshDate"
+    },
+    "attributes": {
+      "group": "feature_meta",
+      "dtype": "array",
+      "description": "The list of attributes related to this feature.",
+      "source": "base ai model",
+      "_spec_ref": "Feature.attributes"
+    },
+    "class_status": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "allowed_values": "prod | alpha | beta",
+      "description": "Indicates if the class is a production, alpha, or beta class.  This field is only populated if the alpha or beta request query parameters are set to true or a preview release is explicitly requested.",
+      "source": "base ai model",
+      "_spec_ref": "Feature.classStatus"
+    },
+    "belongs_to_parcel": {
+      "group": "feature_meta",
+      "dtype": "binary",
+      "description": "Indicates if the feature belongs to a parcel.  This field is only present if the `parcelMode` query parameter is set to true.",
+      "source": "base ai model",
+      "_spec_ref": "Feature.belongsToParcel"
+    },
+    "clipped_geometry": {
+      "group": "feature_meta",
+      "dtype": "object",
+      "description": "The clipped geometry of the feature. This field is only present if the `parcelMode` query parameter is set to true and the clipped geometry differs from the (unclipped) geometry.",
+      "source": "base ai model",
+      "_spec_ref": "Feature.clippedGeometry"
+    },
+    "components": {
+      "group": "feature_meta",
+      "dtype": "array",
+      "description": "The components of this attribute.",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.components"
+    },
+    "has3d_attributes": {
+      "group": "feature_meta",
+      "dtype": "binary",
+      "description": "Indicates if the attribute has 3D attribute data, such as roof pitch and building height.  Only available for `Building 3d attributes` and `Roof 3d attributes` attribute classes, omitted if not available.",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.has3dAttributes"
+    },
+    "pitch": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The pitch of the roof in degrees.  Only available for `Roof 3d attributes` class, omitted if not available.",
+      "example": "30.0",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.pitch"
+    },
+    "height": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The height of the building in meters.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "example": "5.0",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.height"
+    },
+    "height_m": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The height of the building in meters.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "example": "5.0",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.heightM"
+    },
+    "height_ft": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The height of the building in feet.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "example": "16.4",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.heightFt"
+    },
+    "num_stories": {
+      "group": "feature_meta",
+      "dtype": "object",
+      "description": "Confidence levels for the number of stories.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.numStories"
+    },
+    "available": {
+      "group": "feature_meta",
+      "dtype": "binary",
+      "description": "Indicates availability of the value of this attribute.  Only available for `Ground height` and `Building pitch` attribute classes, omitted if not available.",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.available"
+    },
+    "value": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The value of the attribute.  Only available for `Ground height` and `Building pitch` attribute classes, omitted if not available.",
+      "example": "5.0",
+      "source": "base ai model",
+      "_spec_ref": "Attribute.value"
+    },
+    "ratio": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "description": "The ratio of the attribute component area to the parent feature area.",
+      "example": "0.13075127",
+      "source": "base ai model",
+      "_spec_ref": "AttributeComponent.ratio"
+    },
+    "dominant": {
+      "group": "feature_meta",
+      "dtype": "binary",
+      "description": "Indicates if the attribute component is dominant, relative to other components of the same attribute.  This field is omitted if not available.",
+      "source": "base ai model",
+      "_spec_ref": "AttributeComponent.dominant"
+    },
+    "rccs": {
+      "group": "rccs",
+      "dtype": "object",
+      "description": "Top-level ``RCCS`` payload (the OpenAPI spec defines the schema but with no properties — see API team).",
+      "source": "score model",
+      "_spec_ref": "RCCS",
+      "_warning": "spec schema has no properties; see API team"
+    },
+    "confidences": {
+      "group": "damage",
+      "dtype": "object",
+      "description": "",
+      "source": "base ai model",
+      "_spec_ref": "Damage.confidences"
+    },
+    "ratios": {
+      "group": "damage",
+      "dtype": "array",
+      "description": "List of 50% confidence area ratios for each detection class.",
+      "source": "base ai model",
+      "_spec_ref": "Damage.ratios"
+    },
+    "skipped": {
+      "group": "damage",
+      "dtype": "binary",
+      "description": "Indicates whether the damage classification was skipped for this feature. This happens when the feature footprint exceeds the maximum size for damage classification of 100,000sqm.  This field is omitted when processing was not skipped.",
+      "source": "base ai model",
+      "_spec_ref": "Damage.skipped"
+    },
+    "zones": {
+      "group": "defensible_space",
+      "dtype": "array",
+      "description": "The defensible space zone buffers.",
+      "source": "base ai model",
+      "_spec_ref": "DefensibleSpace.zones"
+    },
+    "zone_id": {
+      "group": "defensible_space",
+      "dtype": "int",
+      "description": "Unique identifier for the zone.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneId"
+    },
+    "zone_inner_distance_m": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "description": "Inner boundary of the zone measured from the outer boundary of the building footprint (in meters).",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneInnerDistanceM"
+    },
+    "zone_inner_distance_ft": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "description": "Inner boundary of the zone measured from the outer boundary of the building footprint (in feet).",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneInnerDistanceFt"
+    },
+    "zone_outer_distance_m": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "description": "Outer boundary of the zone measured from the inner boundary of the zone (in meters).",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneOuterDistanceM"
+    },
+    "zone_outer_distance_ft": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "description": "Outer boundary of the zone measured from the inner boundary of the zone (in feet).",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneOuterDistanceFt"
+    },
+    "zone_geometry": {
+      "group": "defensible_space",
+      "dtype": "object",
+      "description": "The geometry of the zone, typically a ring or doughnut shape.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneGeometry"
+    },
+    "zone_area_{unit}": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "unit": "{unit_name}",
+      "min": "0",
+      "description": "Total area of zone in {unit_name}.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.zoneAreaSqm + zoneAreaSqft"
+    },
+    "defensible_space_area_{unit}": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "unit": "{unit_name}",
+      "min": "0",
+      "description": "Area within the zone that is considered defensible space, measured in {unit_name}.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.defensibleSpaceAreaSqm + defensibleSpaceAreaSqft"
+    },
+    "total_risk_object_area_{unit}": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "unit": "{unit_name}",
+      "min": "0",
+      "description": "Total area occupied by all risk objects in the zone, in {unit_name}.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.totalRiskObjectAreaSqm + totalRiskObjectAreaSqft"
+    },
+    "defensible_space_coverage_ratio": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "description": "Total area occupied by defensible space with respect to the total zone area.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.defensibleSpaceCoverageRatio"
+    },
+    "total_risk_object_coverage_ratio": {
+      "group": "defensible_space",
+      "dtype": "float",
+      "description": "Ratio of risk object area to total zone area.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.totalRiskObjectCoverageRatio"
+    },
+    "risk_objects": {
+      "group": "defensible_space",
+      "dtype": "array",
+      "description": "List of risk objects detected in the zone.",
+      "source": "base ai model",
+      "_spec_ref": "ZoneDefensibleSpace.riskObjects"
+    },
+    "vulnerability_score": {
+      "group": "hurricane",
+      "dtype": "int",
+      "description": "A 1-5 score representing how well protected the structure is to withstand hurricane force winds, 5 being best protection and 1 being the worst protection / most vulnerable.",
+      "source": "score model",
+      "_spec_ref": "HurricaneScore.vulnerabilityScore"
+    },
+    "vulnerability_probability": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "The probability that the building will be damaged if impacted by hurricane force winds.",
+      "source": "score model",
+      "_spec_ref": "HurricaneScore.vulnerabilityProbability"
+    },
+    "vulnerability_rate_factor": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "The rate we have filed with states that can be used to adjust premium up or down based on the hurricane vulnerability (so a 1.55 for a hurricane vulnerability score of 1 means the insurer can charge 55% more premium due to this score).",
+      "source": "score model",
+      "_spec_ref": "HurricaneScore.vulnerabilityRateFactor"
+    },
+    "fema_annual_hurricane_frequency": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Annualized average of hurricane events for the census tract the building is located in, according to the FEMA National Risk Index model. Only available for US region.",
+      "source": "score model",
+      "_spec_ref": "HurricaneScore.femaAnnualHurricaneFrequency"
+    },
+    "fema_version": {
+      "group": "hurricane",
+      "dtype": "string",
+      "description": "The version of the FEMA model from which the data was taken.",
+      "source": "score model",
+      "_spec_ref": "HurricaneScore.femaVersion"
+    },
+    "defensible_space_weighted_coverage": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Weighted average of defensible space coverage.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.defensibleSpaceWeightedCoverage"
+    },
+    "shingle_present": {
+      "group": "hurricane",
+      "dtype": "int",
+      "description": "Represents if asphalt shingles are detected.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.shinglePresent"
+    },
+    "hip_present": {
+      "group": "hurricane",
+      "dtype": "int",
+      "description": "Represents if hip roof is detected.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.hipPresent"
+    },
+    "flat_present": {
+      "group": "hurricane",
+      "dtype": "int",
+      "description": "Represents if asphalt shingles are present.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.flatPresent"
+    },
+    "roof_staining_ratio": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Ratio of roof covered by staining.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.roofStainingRatio"
+    },
+    "roof_rusting_ratio": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Ratio of roof covered by rust.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.roofRustingRatio"
+    },
+    "worn_shingles_ratio": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Ratio of roof covered by worn shingles.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.wornShinglesRatio"
+    },
+    "missing_roof_tile_or_shingle_ratio": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Ratio of roof covered by missing tiles or shingles.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.missingRoofTileOrShingleRatio"
+    },
+    "tree_overhang_ratio": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Ratio of roof covered by tree overhang.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.treeOverhangRatio"
+    },
+    "roof_patching_ratio": {
+      "group": "hurricane",
+      "dtype": "float",
+      "description": "Ratio of roof covered by patching.",
+      "source": "score model",
+      "_spec_ref": "HurricaneModelInputFeatures.roofPatchingRatio"
+    },
+    "risk_score": {
+      "group": "wind",
+      "dtype": "int",
+      "description": "Combination of wind vulnerability score and FEMA annual wind frequency where 1 is the most likely to experience a wind claim, and 5 is the least likely to experience a wind claim. Only available for US region.",
+      "source": "score model",
+      "_spec_ref": "WindScore.riskScore"
+    },
+    "risk_rate_factor": {
+      "group": "wind",
+      "dtype": "float",
+      "description": "Filed rate factor derived from the wind risk score. This value can be used as a rate multiplier to adjust premiums up or down based on building likelihood of wind claim. Only available for US region.",
+      "source": "score model",
+      "_spec_ref": "WindScore.riskRateFactor"
+    },
+    "fema_annual_wind_frequency": {
+      "group": "wind",
+      "dtype": "float",
+      "description": "Annualized average of strong wind events for the census tract the building is located in, according to the FEMA National Risk Index model. Only available for US region.",
+      "source": "score model",
+      "_spec_ref": "WindScore.femaAnnualWindFrequency"
+    },
+    "pitched_roof_present": {
+      "group": "wind",
+      "dtype": "int",
+      "description": "Boolean: 1 if pitched roof detected.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.pitchedRoofPresent"
+    },
+    "metal_present": {
+      "group": "wind",
+      "dtype": "int",
+      "description": "Boolean: 1 if metal roof detected.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.metalPresent"
+    },
+    "zone1_roof_present": {
+      "group": "wind",
+      "dtype": "int",
+      "description": "Boolean: 1 if roof detected in defensible space zone 1.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.zone1RoofPresent"
+    },
+    "zone1or2_roof_present": {
+      "group": "wind",
+      "dtype": "int",
+      "description": "Boolean: 1 if roof detected in defensible space zone 1 or 2.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.zone1or2RoofPresent"
+    },
+    "compromised_shingles_present": {
+      "group": "wind",
+      "dtype": "int",
+      "description": "Boolean: 1 if compromised shingles detected.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.compromisedShinglesPresent"
+    },
+    "log_footprint_area": {
+      "group": "wind",
+      "dtype": "float",
+      "description": "Log of footprint area.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.logFootprintArea"
+    },
+    "log_compromised_structure": {
+      "group": "wind",
+      "dtype": "float",
+      "description": "Log of sum of compromised structure features.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.logCompromisedStructure"
+    },
+    "log_staining": {
+      "group": "wind",
+      "dtype": "float",
+      "description": "Log-transformed value of roof staining ratio.",
+      "source": "score model",
+      "_spec_ref": "WindModelInputFeatures.logStaining"
+    },
+    "fema_annual_hail_frequency": {
+      "group": "hail",
+      "dtype": "float",
+      "description": "The average annual hail frequency for the census tract the building is located in, according to the FEMA National Risk Index model. Only available for US region.",
+      "source": "score model",
+      "_spec_ref": "HailScore.femaAnnualHailFrequency"
+    },
+    "fema_annual_wildfire_frequency": {
+      "group": "wildfire",
+      "dtype": "float",
+      "description": "The average annual wildfire frequency for the census tract the building is located in, according to the FEMA National Risk Index model. Only available for US region.",
+      "source": "score model",
+      "_spec_ref": "WildfireScore.femaAnnualWildfireFrequency"
+    },
+    "fire_resistant_material_present": {
+      "group": "wildfire",
+      "dtype": "int",
+      "description": "Boolean: 1 if fire resistant materials (e.g. clay tile) are present on the roof.",
+      "source": "score model",
+      "_spec_ref": "WildfireModelInputFeatures.fireResistantMaterialPresent"
+    },
+    "roof_debris_ratio": {
+      "group": "wildfire",
+      "dtype": "float",
+      "description": "Fraction of roof area with roof debris.",
+      "source": "score model",
+      "_spec_ref": "WildfireModelInputFeatures.roofDebrisRatio"
+    },
+    "roof_with_temporary_repair_ratio": {
+      "group": "wildfire",
+      "dtype": "float",
+      "description": "Fraction of roof area with temporary repairs (e.g. tarps, plywood).",
+      "source": "score model",
+      "_spec_ref": "WildfireModelInputFeatures.roofWithTemporaryRepairRatio"
+    },
+    "indefensible_space_weighted_average": {
+      "group": "wildfire",
+      "dtype": "float",
+      "description": "1 - (Weighted average of defensible space ratio across zones).",
+      "source": "score model",
+      "_spec_ref": "WildfireModelInputFeatures.indefensibleSpaceWeightedAverage"
+    },
+    "yard_debris_weighted_average": {
+      "group": "wildfire",
+      "dtype": "float",
+      "description": "Weighted average of yard debris ratio across defensible space zones.",
+      "source": "score model",
+      "_spec_ref": "WildfireModelInputFeatures.yardDebrisWeightedAverage"
+    },
+    "wind_risk_score": {
+      "group": "wind_hail",
+      "dtype": "int",
+      "description": "The wind risk score used as input to the combined wind and hail model.",
+      "source": "score model",
+      "_spec_ref": "WindHailModelInputFeatures.windRiskScore"
+    },
+    "hail_risk_score": {
+      "group": "wind_hail",
+      "dtype": "int",
+      "description": "The hail risk score used as input to the combined wind and hail model.",
+      "source": "score model",
+      "_spec_ref": "WindHailModelInputFeatures.hailRiskScore"
+    }
+  }
+}

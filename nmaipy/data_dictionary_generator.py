@@ -36,6 +36,7 @@ _DD_COLUMNS = [
     "min",
     "max",
     "precision",
+    "example",
 ]
 
 
@@ -217,6 +218,7 @@ class DataDictionaryGenerator:
             "min": meta.min,
             "max": meta.max,
             "precision": meta.precision,
+            "example": meta.example,
         }
 
     @staticmethod

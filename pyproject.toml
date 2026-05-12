@@ -69,7 +69,7 @@ packages = ["nmaipy", "nmaipy.data"]
 
 [tool.setuptools.package-data]
 nmaipy = ["class_descriptions.json"]
-"nmaipy.data" = ["column_metadata.json"]
+"nmaipy.data" = ["column_metadata.json", "spec_raw_fields.json", "column_metadata_overrides.json"]
 
 [tool.setuptools.package-dir]
 "" = "."

@@ -124,6 +124,7 @@ class ColumnMeta:
     max: str = ""
     unit: str = ""
     precision: str = ""
+    example: str = ""
     notes: str = ""
     group: str = ""
 
@@ -234,9 +235,38 @@ def _meta_from_json(entry: dict) -> ColumnMeta:
         max=entry.get("max", ""),
         unit=entry.get("unit", ""),
         precision=entry.get("precision", ""),
+        example=entry.get("example", ""),
         notes=entry.get("notes", ""),
         group=entry.get("group", ""),
     )
+
+
+# Fields on ColumnMeta that an override layer can supply. Updates use
+# ``dataclasses.replace`` so only fields present in the JSON entry overlay
+# the existing base; other fields inherit unchanged.
+_OVERLAY_FIELDS = (
+    "dtype",
+    "description",
+    "allowed_values",
+    "source",
+    "min",
+    "max",
+    "unit",
+    "precision",
+    "example",
+    "notes",
+    "group",
+)
+
+
+def _overlay_meta(base: ColumnMeta, entry: dict) -> ColumnMeta:
+    """Return ``base`` with only the fields present in ``entry`` overridden.
+
+    Keys present in ``entry`` overlay the base. Keys absent (or starting with
+    ``_``, treated as provenance metadata) leave the base value untouched.
+    """
+    updates = {k: entry[k] for k in _OVERLAY_FIELDS if k in entry}
+    return replace(base, **updates) if updates else base
 
 
 def _validate(payload: dict) -> None:
@@ -264,37 +294,105 @@ def _validate(payload: dict) -> None:
 @lru_cache(maxsize=1)
 def load_metadata(
     json_path: Optional[str] = None,
+    spec_raw_fields_path: Optional[str] = None,
+    overrides_path: Optional[str] = None,
 ) -> tuple[dict[str, ColumnMeta], tuple[_CompiledPattern, ...], dict[str, str], dict[str, str]]:
-    """Load and validate the column metadata JSON.
+    """Load and validate the three-file column metadata stack.
+
+    The ``exact_matches`` dict returned is the merge of three sources, in
+    increasing precedence:
+
+      1. ``spec_raw_fields.json`` — auto-generated from the Feature API
+         OpenAPI spec by ``ai_offline_export_pipelines.spec_drift``. Raw API
+         surface descriptions.
+      2. ``column_metadata.json`` — hand-curated, nmaipy-derived columns
+         (linkage, dominant_*, roof_age, geocoding, etc.) and the regex
+         patterns. PM-editable.
+      3. ``column_metadata_overrides.json`` — PM elaborations over generated
+         entries. Wins at lookup time. Same shape as ``exact_matches``.
 
     Returns a 4-tuple of:
-      - exact_matches: dict mapping column name → ColumnMeta.
-      - patterns: tuple of compiled patterns, ordered by config order.
+      - exact_matches: merged dict mapping column name → ColumnMeta.
+      - patterns: tuple of compiled patterns from column_metadata.json,
+        ordered by config order.
       - evidence_type_legend: dict mapping integer code (as string) → description.
       - defensible_space_zone_distances: dict mapping zoneId (as string) → distance band.
 
-    Cached: subsequent calls with the same ``json_path`` reuse the parsed result.
-    Pass an explicit path to load a different config (used by tests).
+    Cached: subsequent calls with the same paths reuse the parsed result.
+    Pass explicit paths to load a different config (used by tests).
     """
-    if json_path is None:
-        # Use importlib.resources so this works in installed packages too.
-        with resources.files("nmaipy.data").joinpath("column_metadata.json").open("r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-    else:
-        with open(json_path, encoding="utf-8") as fh:
-            payload = json.load(fh)
+    column_metadata = _read_json(json_path, "nmaipy.data", "column_metadata.json")
+    _validate(column_metadata)
 
-    _validate(payload)
+    # Generated raw-fields layer is best-effort — older installs without the
+    # file still work, just without spec-sourced descriptions.
+    spec_raw_fields = _read_json_optional(spec_raw_fields_path, "nmaipy.data", "spec_raw_fields.json")
+    overrides = _read_json_optional(overrides_path, "nmaipy.data", "column_metadata_overrides.json")
+    _validate_exact_only(spec_raw_fields, source="spec_raw_fields.json")
+    _validate_exact_only(overrides, source="column_metadata_overrides.json")
 
-    exact: dict[str, ColumnMeta] = {name: _meta_from_json(entry) for name, entry in payload["exact_matches"].items()}
+    # Per-field overlay: an override entry that only carries a `description`
+    # changes only that field; `example`, `source`, etc. inherit from the
+    # spec-sourced base. This matches the design intent of overrides as
+    # elaborations over the generated raw-fields layer, not full replacements.
+    exact: dict[str, ColumnMeta] = {}
+    for layer in (spec_raw_fields, column_metadata, overrides):
+        for name, entry in layer.get("exact_matches", {}).items():
+            base = exact.get(name)
+            exact[name] = _overlay_meta(base, entry) if base else _meta_from_json(entry)
+
     patterns = tuple(
-        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p)) for p in payload["patterns"]
+        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p))
+        for p in column_metadata["patterns"]
     )
-    legend = {k: v for k, v in payload.get("evidence_type_legend", {}).items() if not k.startswith("_")}
+    legend = {k: v for k, v in column_metadata.get("evidence_type_legend", {}).items() if not k.startswith("_")}
     zone_distances = {
-        k: v for k, v in payload.get("defensible_space_zone_distances", {}).items() if not k.startswith("_")
+        k: v for k, v in column_metadata.get("defensible_space_zone_distances", {}).items() if not k.startswith("_")
     }
     return exact, patterns, legend, zone_distances
+
+
+def _read_json(json_path: Optional[str], package: str, default_filename: str) -> dict:
+    """Read a JSON file from an explicit path or the bundled package data."""
+    if json_path is None:
+        with resources.files(package).joinpath(default_filename).open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    with open(json_path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _read_json_optional(json_path: Optional[str], package: str, default_filename: str) -> dict:
+    """Read a JSON file like :func:`_read_json`, but return ``{}`` if absent.
+
+    Used for the spec-sourced and overrides layers, which older installs
+    might not ship. Missing → no contribution to the merged exact_matches.
+    """
+    if json_path is not None:
+        with open(json_path, encoding="utf-8") as fh:
+            return json.load(fh)
+    try:
+        with resources.files(package).joinpath(default_filename).open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ModuleNotFoundError):
+        return {}
+
+
+def _validate_exact_only(payload: dict, *, source: str) -> None:
+    """Validate that ``payload`` either is empty or has a dict ``exact_matches``.
+
+    The spec-sourced + overrides layers don't carry ``patterns`` — only
+    ``exact_matches``. Anything else is unexpected and surfaces clearly.
+    """
+    if not payload:
+        return
+    if not isinstance(payload, dict):
+        raise ValueError(f"{source}: top-level value must be an object/dict.")
+    if "exact_matches" not in payload:
+        # Missing exact_matches is benign for these files (they may carry
+        # only metadata like _doc). Treat as empty.
+        return
+    if not isinstance(payload["exact_matches"], dict):
+        raise ValueError(f"{source}: 'exact_matches' must be an object (column name → metadata).")
 
 
 def reload_metadata() -> None:

@@ -1,0 +1,88 @@
+{
+  "_doc": "Human-edited overrides layered over auto-generated spec_raw_fields.json. Per-field overlay: keys present here override the corresponding field on the spec-sourced base; absent fields inherit (e.g. an entry with only a `description` change leaves spec's `example`/`source` intact). Starts as a conservative full set covering all 12 spec-overlap entries — the comparison tool (planned: `spec_drift compare-overrides`) will surface which can be removed when their content matches the generated base. To elaborate a description, copy the entry from spec_raw_fields.json and edit. Do not invent keys here without a corresponding raw field — those belong in column_metadata.json. The drift checker flags overrides whose keys no longer exist in spec_raw_fields.json (rename/removal signal).",
+  "exact_matches": {
+    "area_{unit}": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Area of the {class_label_primary}, in {unit_name}.",
+      "source": "base ai model"
+    },
+    "attributes": {
+      "group": "feature_meta",
+      "dtype": "JSON",
+      "description": "Raw API attributes payload for this feature (used during processing; preserved on raw feature outputs).",
+      "source": "base ai model"
+    },
+    "belongs_to_parcel": {
+      "group": "feature_meta",
+      "dtype": "binary",
+      "description": "Whether this feature is contained within (rather than spanning beyond) the AOI parcel.",
+      "allowed_values": "Y | N",
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
+    },
+    "class_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "AI feature class UUID for this row.",
+      "source": "model metadata"
+    },
+    "clipped_area_{unit}": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Area of the {class_label_primary} clipped to the parcel boundary, in {unit_name}.",
+      "source": "base ai model"
+    },
+    "confidence": {
+      "group": "feature_meta",
+      "dtype": "float (quantised uint8)",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence in detection of the {class_label_primary} (single feature, not combined).",
+      "source": "base ai model"
+    },
+    "description": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "Human-readable name of this feature's class.",
+      "source": "model metadata"
+    },
+    "geometry": {
+      "group": "feature_meta",
+      "dtype": "WKT \\| GeoParquet",
+      "description": "Feature geometry. WKT in CSVs, native GeoParquet geometry in `_features.parquet`.",
+      "source": "base ai model"
+    },
+    "mesh_date": {
+      "group": "common",
+      "dtype": "date",
+      "description": "Date of the 3D mesh used for 3D attributes (height, pitch, etc.). The mesh is usually comprised of a number of overlapping surveys captured at a similar time of year, so this date represents that capture window rather than a single survey.",
+      "source": "image metadata"
+    },
+    "parent_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "Feature ID of this feature's parent in the API hierarchy. For the new Building class, this points to the Building Lifecycle ancestor.",
+      "source": "base ai model"
+    },
+    "survey_date": {
+      "group": "feature_meta",
+      "dtype": "date",
+      "description": "Capture date of the 2D aerial imagery this feature was extracted from. Use as the canonical 'as-of' date for AI-derived attributes (counts, areas, materials, RSI, damage). May differ from mesh_date when 3D attributes draw on a different survey window.",
+      "source": "image metadata"
+    },
+    "unclipped_area_{unit}": {
+      "group": "feature_meta",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Total area of the {class_label_primary} before parcel clipping, in {unit_name}.",
+      "source": "base ai model"
+    }
+  }
+}
