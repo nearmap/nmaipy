@@ -358,6 +358,19 @@ class TestOutputSchema:
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
         dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv")
         assert list(dd.columns) == _DD_COLUMNS
+        assert "example" in _DD_COLUMNS  # belt-and-braces guard against accidental removal.
+
+    def test_example_column_populated_for_spec_sourced_fields(self, tmp_path):
+        """The example column carries spec-sourced sample values for fields the API documents."""
+        _write_csv(tmp_path / "rollup.csv", ["aoi_id", "survey_date", "class_id"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
+        rows = {r["column_name"]: r for _, r in dd.iterrows()}
+        # Both columns originate from the Feature API spec and have example values.
+        assert rows["survey_date"]["example"] == "2019-09-27"
+        assert rows["class_id"]["example"] == "5a5cb214-eee3-4fdd-bfce-d21e9793cf6a"
+        # nmaipy-only columns have no example.
+        assert rows["aoi_id"]["example"] == ""
 
     def test_does_not_dictionary_unregistered_files(self, tmp_path):
         """Registry-driven discovery skips anything not in output_files."""

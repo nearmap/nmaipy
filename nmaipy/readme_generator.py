@@ -38,17 +38,17 @@ _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
 
 
 def _render_columns_table(column_names: Iterable[str], area_unit: str = "", class_label: str = "parcel") -> list[str]:
-    """Render the named columns as a 6-column markdown table.
+    """Render the named columns as a 7-column markdown table.
 
     Each name is resolved via ``column_metadata.lookup_column`` so that
     ``{unit}`` / ``{class_label}`` / ``{scope_phrase}`` substitution stays
     consistent with the data dictionary. Templated names (``area_{unit}``)
-    are resolved against ``area_unit`` before lookup; empty min/max/unit
-    fields render as ``—``.
+    are resolved against ``area_unit`` before lookup; empty min/max/unit/
+    example fields render as ``—``.
     """
     lines = [
-        "| Column | Type | Min | Max | Unit | Description |",
-        "|--------|------|-----|-----|------|-------------|",
+        "| Column | Type | Min | Max | Unit | Example | Description |",
+        "|--------|------|-----|-----|------|---------|-------------|",
     ]
     for raw_name in column_names:
         resolved_name = raw_name.replace("{unit}", area_unit)
@@ -57,8 +57,9 @@ def _render_columns_table(column_names: Iterable[str], area_unit: str = "", clas
         mn = meta.min or "—"
         mx = meta.max or "—"
         unit = meta.unit or "—"
+        example = meta.example or "—"
         desc = meta.description or ""
-        lines.append(f"| `{resolved_name}` | {dtype} | {mn} | {mx} | {unit} | {desc} |")
+        lines.append(f"| `{resolved_name}` | {dtype} | {mn} | {mx} | {unit} | {example} | {desc} |")
     return lines
 
 

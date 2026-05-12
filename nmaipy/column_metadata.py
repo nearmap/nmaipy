@@ -124,6 +124,7 @@ class ColumnMeta:
     max: str = ""
     unit: str = ""
     precision: str = ""
+    example: str = ""
     notes: str = ""
     group: str = ""
 
@@ -234,9 +235,38 @@ def _meta_from_json(entry: dict) -> ColumnMeta:
         max=entry.get("max", ""),
         unit=entry.get("unit", ""),
         precision=entry.get("precision", ""),
+        example=entry.get("example", ""),
         notes=entry.get("notes", ""),
         group=entry.get("group", ""),
     )
+
+
+# Fields on ColumnMeta that an override layer can supply. Updates use
+# ``dataclasses.replace`` so only fields present in the JSON entry overlay
+# the existing base; other fields inherit unchanged.
+_OVERLAY_FIELDS = (
+    "dtype",
+    "description",
+    "allowed_values",
+    "source",
+    "min",
+    "max",
+    "unit",
+    "precision",
+    "example",
+    "notes",
+    "group",
+)
+
+
+def _overlay_meta(base: ColumnMeta, entry: dict) -> ColumnMeta:
+    """Return ``base`` with only the fields present in ``entry`` overridden.
+
+    Keys present in ``entry`` overlay the base. Keys absent (or starting with
+    ``_``, treated as provenance metadata) leave the base value untouched.
+    """
+    updates = {k: entry[k] for k in _OVERLAY_FIELDS if k in entry}
+    return replace(base, **updates) if updates else base
 
 
 def _validate(payload: dict) -> None:
@@ -301,10 +331,15 @@ def load_metadata(
     _validate_exact_only(spec_raw_fields, source="spec_raw_fields.json")
     _validate_exact_only(overrides, source="column_metadata_overrides.json")
 
+    # Per-field overlay: an override entry that only carries a `description`
+    # changes only that field; `example`, `source`, etc. inherit from the
+    # spec-sourced base. This matches the design intent of overrides as
+    # elaborations over the generated raw-fields layer, not full replacements.
     exact: dict[str, ColumnMeta] = {}
     for layer in (spec_raw_fields, column_metadata, overrides):
         for name, entry in layer.get("exact_matches", {}).items():
-            exact[name] = _meta_from_json(entry)
+            base = exact.get(name)
+            exact[name] = _overlay_meta(base, entry) if base else _meta_from_json(entry)
 
     patterns = tuple(
         _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p))

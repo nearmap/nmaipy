@@ -82,3 +82,25 @@ def test_nmaipy_derived_entries_unaffected():
     # ``aoi_id`` is nmaipy-only; should resolve via column_metadata.json.
     meta = lookup_column("aoi_id")
     assert "Property identifier" in meta.description
+
+
+def test_spec_example_surfaces_through_override():
+    """Per-field overlay: an override that doesn't carry ``example`` inherits it from spec.
+
+    ``survey_date`` is in both ``spec_raw_fields.json`` (with example
+    ``"2019-09-27"``) and ``column_metadata_overrides.json`` (with an
+    elaborated description but no ``example`` field). The merged
+    ColumnMeta should carry both nmaipy's description AND the spec's
+    example.
+    """
+    meta = lookup_column("survey_date")
+    # nmaipy elaboration survives.
+    assert "canonical 'as-of' date" in meta.description
+    # spec example surfaces.
+    assert meta.example == "2019-09-27"
+
+
+def test_spec_example_absent_when_spec_missing():
+    """Columns with no spec counterpart have an empty example."""
+    meta = lookup_column("aoi_id")
+    assert meta.example == ""

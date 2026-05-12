@@ -1,5 +1,5 @@
 {
-  "_doc": "PM-editable overrides over auto-generated spec_raw_fields.json. Same shape as column_metadata.json's `exact_matches`. Any key present here wins at lookup time, regardless of whether spec_raw_fields.json also defines it. Use this to elaborate on terse spec descriptions, fix wording, or add rollup-specific context (e.g. 'single feature, not combined') that doesn't belong in the upstream API spec. The drift checker (in ai-offline-export-pipelines/spec_drift) flags overrides whose keys no longer exist in spec_raw_fields.json (a sign the underlying spec field was renamed/removed). To add an entry: copy the matching key+body from spec_raw_fields.json and edit. Do not invent keys here without a corresponding raw field — those belong in column_metadata.json instead.",
+  "_doc": "Human-edited overrides layered over auto-generated spec_raw_fields.json. Per-field overlay: keys present here override the corresponding field on the spec-sourced base; absent fields inherit (e.g. an entry with only a `description` change leaves spec's `example`/`source` intact). Starts as a conservative full set covering all 12 spec-overlap entries — the comparison tool (planned: `spec_drift compare-overrides`) will surface which can be removed when their content matches the generated base. To elaborate a description, copy the entry from spec_raw_fields.json and edit. Do not invent keys here without a corresponding raw field — those belong in column_metadata.json. The drift checker flags overrides whose keys no longer exist in spec_raw_fields.json (rename/removal signal).",
   "exact_matches": {
     "area_{unit}": {
       "group": "feature_meta",
@@ -14,6 +14,21 @@
       "dtype": "JSON",
       "description": "Raw API attributes payload for this feature (used during processing; preserved on raw feature outputs).",
       "source": "base ai model"
+    },
+    "belongs_to_parcel": {
+      "group": "feature_meta",
+      "dtype": "binary",
+      "description": "Whether this feature is contained within (rather than spanning beyond) the AOI parcel.",
+      "allowed_values": "Y | N",
+      "source": "base ai model",
+      "min": "N",
+      "max": "Y"
+    },
+    "class_id": {
+      "group": "feature_meta",
+      "dtype": "UUID",
+      "description": "AI feature class UUID for this row.",
+      "source": "model metadata"
     },
     "clipped_area_{unit}": {
       "group": "feature_meta",
@@ -30,6 +45,12 @@
       "max": "1.0",
       "description": "Confidence in detection of the {class_label_primary} (single feature, not combined).",
       "source": "base ai model"
+    },
+    "description": {
+      "group": "feature_meta",
+      "dtype": "string",
+      "description": "Human-readable name of this feature's class.",
+      "source": "model metadata"
     },
     "geometry": {
       "group": "feature_meta",

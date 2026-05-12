@@ -10,6 +10,7 @@
       "group": "feature_meta",
       "dtype": "string",
       "description": "The Unique ID of this feature.",
+      "example": "1e88ed3a-abc7-5c34-963e-06df354d39fb",
       "source": "base ai model",
       "_spec_ref": "Feature.id"
     },
@@ -17,6 +18,7 @@
       "group": "feature_meta",
       "dtype": "string",
       "description": "The unique ID for the class of this feature.",
+      "example": "5a5cb214-eee3-4fdd-bfce-d21e9793cf6a",
       "source": "base ai model",
       "_spec_ref": "Feature.classId"
     },
@@ -24,6 +26,7 @@
       "group": "feature_meta",
       "dtype": "string",
       "description": "A description of the class of this feature.",
+      "example": "Roof",
       "source": "base ai model",
       "_spec_ref": "Feature.description"
     },
@@ -31,13 +34,14 @@
       "group": "feature_meta",
       "dtype": "float",
       "description": "The confidence level for this feature.",
+      "example": "0.94140625",
       "source": "base ai model",
       "_spec_ref": "Feature.confidence"
     },
     "parent_id": {
       "group": "feature_meta",
       "dtype": "string",
-      "description": "The feature ID of immediate parent of this feature.",
+      "description": "The feature ID of the immediate parent of this feature.  This field is always present. An empty string indicates that the feature is a root-level feature with no parent.",
       "source": "base ai model",
       "_spec_ref": "Feature.parentId"
     },
@@ -54,6 +58,7 @@
       "unit": "{unit_name}",
       "min": "0",
       "description": "The area of the feature geometry, in {unit_name}. Connected features (e.g. lawn grass, medium and high vegetation, etc.) are clipped to the requested AOI and area computed off this clipped geometry. For connected features, this area will always equal clipped_area_{unit}. Discrete features (e.g. buildings, swimming pools, etc.) are not clipped to the requested AOI, and the area is computed from the entire feature geometry. For discrete features, this area will always equal unclipped_area_{unit}.",
+      "example": "12.8",
       "source": "base ai model",
       "_spec_ref": "Feature.areaSqm + areaSqft"
     },
@@ -63,6 +68,7 @@
       "unit": "{unit_name}",
       "min": "0",
       "description": "The area of the feature geometry, clipped to the requested AOI, in {unit_name}.",
+      "example": "12.8",
       "source": "base ai model",
       "_spec_ref": "Feature.clippedAreaSqm + clippedAreaSqft"
     },
@@ -72,6 +78,7 @@
       "unit": "{unit_name}",
       "min": "0",
       "description": "The unclipped area of the feature geometry in {unit_name}.",
+      "example": "15.8",
       "source": "base ai model",
       "_spec_ref": "Feature.unclippedAreaSqm + unclippedAreaSqft"
     },
@@ -79,13 +86,15 @@
       "group": "feature_meta",
       "dtype": "date",
       "description": "The date of the survey capture.",
+      "example": "2019-09-27",
       "source": "image metadata",
       "_spec_ref": "Feature.surveyDate"
     },
     "mesh_date": {
       "group": "feature_meta",
-      "dtype": "date",
-      "description": "The date of the 3D mesh used to generate the resource (if applicable).",
+      "dtype": "string",
+      "description": "The date of the 3D mesh used to generate the resource (if applicable).  This field is always present. An empty string indicates that the feature was not generated from a 3D mesh; a date string indicates the capture date of the mesh.",
+      "example": "2019-09-27",
       "source": "image metadata",
       "_spec_ref": "Feature.meshDate"
     },
@@ -125,17 +134,18 @@
       "source": "base ai model",
       "_spec_ref": "Attribute.components"
     },
-    "has3_d": {
+    "has3d_attributes": {
       "group": "feature_meta",
       "dtype": "binary",
       "description": "Indicates if the attribute has 3D attribute data, such as roof pitch and building height.  Only available for `Building 3d attributes` and `Roof 3d attributes` attribute classes, omitted if not available.",
       "source": "base ai model",
-      "_spec_ref": "Attribute.has3D"
+      "_spec_ref": "Attribute.has3dAttributes"
     },
     "pitch": {
       "group": "feature_meta",
       "dtype": "float",
       "description": "The pitch of the roof in degrees.  Only available for `Roof 3d attributes` class, omitted if not available.",
+      "example": "30.0",
       "source": "base ai model",
       "_spec_ref": "Attribute.pitch"
     },
@@ -143,6 +153,7 @@
       "group": "feature_meta",
       "dtype": "float",
       "description": "The height of the building in meters.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "example": "5.0",
       "source": "base ai model",
       "_spec_ref": "Attribute.height"
     },
@@ -150,6 +161,7 @@
       "group": "feature_meta",
       "dtype": "float",
       "description": "The height of the building in meters.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "example": "5.0",
       "source": "base ai model",
       "_spec_ref": "Attribute.heightM"
     },
@@ -157,6 +169,7 @@
       "group": "feature_meta",
       "dtype": "float",
       "description": "The height of the building in feet.  Only available for `Building 3d attributes` class, omitted if not available.",
+      "example": "16.4",
       "source": "base ai model",
       "_spec_ref": "Attribute.heightFt"
     },
@@ -178,6 +191,7 @@
       "group": "feature_meta",
       "dtype": "float",
       "description": "The value of the attribute.  Only available for `Ground height` and `Building pitch` attribute classes, omitted if not available.",
+      "example": "5.0",
       "source": "base ai model",
       "_spec_ref": "Attribute.value"
     },
@@ -185,6 +199,7 @@
       "group": "feature_meta",
       "dtype": "float",
       "description": "The ratio of the attribute component area to the parent feature area.",
+      "example": "0.13075127",
       "source": "base ai model",
       "_spec_ref": "AttributeComponent.ratio"
     },
@@ -220,7 +235,7 @@
     "skipped": {
       "group": "damage",
       "dtype": "binary",
-      "description": "Indicates whether the damage classification was skipped for this feature. This happens when the feature footprint exceeds the maximum size for damage classification of 10,000sqm.",
+      "description": "Indicates whether the damage classification was skipped for this feature. This happens when the feature footprint exceeds the maximum size for damage classification of 100,000sqm.  This field is omitted when processing was not skipped.",
       "source": "base ai model",
       "_spec_ref": "Damage.skipped"
     },
