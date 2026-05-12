@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import geopandas as gpd
+import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
@@ -245,6 +246,43 @@ def test_clone_for_2d_fallback_preserves_config(tmp_path):
     # Cache dir is converted to str by BaseApiClient.__init__
     assert str(sibling.cache_dir) == str(tmp_path)
     assert sibling.threads == 3
+
+
+def test_prefer3d_wholesale_fallback_when_threshold_exceeded(tmp_path, real_feature_payload):
+    """When the 3D-only pass exceeds max_allowed_error_pct, the whole bulk should
+    fall back to standard 2D rather than aborting the export."""
+    api = FeatureApi(
+        api_key="dummy",
+        prefer3d=True,
+        cache_dir=tmp_path,
+        threads=1,
+    )
+
+    captured_urls: list[str] = []
+
+    def fake_post(self, url, *args, **kwargs):
+        captured_urls.append(url)
+        if "3dCoverage=true" in url:
+            # Both AOIs 404 in 3D-only mode
+            return _MockResponse(404, {"message": "no 3D"})
+        return _MockResponse(200, real_feature_payload)
+
+    # Two AOIs; with max_allowed_error_pct=0, even one 3D error trips the threshold.
+    gdf1 = _aoi_gdf("aoi-1", _square(-111.926, 33.414))
+    gdf2 = _aoi_gdf("aoi-2", _square(-111.927, 33.415))
+    gdf = gpd.GeoDataFrame(pd.concat([gdf1, gdf2]), crs=API_CRS)
+
+    with patch("requests.Session.post", new=fake_post):
+        features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us", max_allowed_error_pct=0)
+
+    # Both AOIs should resolve via the wholesale 2D fallback — no AOIs in errors.
+    assert "aoi-1" in metadata.index
+    assert "aoi-2" in metadata.index
+    assert len(errors) == 0
+    # The first pass aborts as soon as the threshold trips, so we should see far fewer
+    # 3dCoverage=true calls than the 2 the per-AOI fallback path would have made.
+    two_d_calls = [u for u in captured_urls if "3dCoverage=true" not in u]
+    assert len(two_d_calls) == 2, "wholesale fallback should issue one 2D call per AOI"
 
 
 def test_prefer3d_bypassed_when_in_gridding_mode(tmp_path, real_feature_payload):

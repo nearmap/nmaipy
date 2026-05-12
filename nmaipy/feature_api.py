@@ -1560,22 +1560,53 @@ class FeatureApi(GriddedApiClient):
         fail_hard_regrid: Optional[bool] = False,
         disable_parcel_mode: bool = False,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
-        """Two-pass prefer3d orchestrator: 3D-only, then 2D fallback for 404s."""
+        """Two-pass prefer3d orchestrator: 3D-only, then 2D fallback.
+
+        Per-AOI fallback handles the common case where most AOIs have 3D coverage and
+        only a few need 2D. The wholesale fallback (when the 3D-only pass exceeds
+        ``max_allowed_error_pct``) catches the case where 3D coverage is too patchy to
+        be useful at all — rather than abort the entire export, we discard the 3D
+        attempt and run the bulk as a standard 2D query.
+        """
         # Pass 1: 3D-only. self.only3d is already True (set in __init__ when prefer3d).
-        features_3d, meta_3d, errors_3d = self._get_features_gdf_bulk_inner(
-            gdf=gdf,
-            region=region,
-            packs=packs,
-            classes=classes,
-            include=include,
-            since_bulk=since_bulk,
-            until_bulk=until_bulk,
-            survey_resource_id_bulk=survey_resource_id_bulk,
-            max_allowed_error_pct=max_allowed_error_pct,
-            fail_hard_regrid=fail_hard_regrid,
-            in_gridding_mode=False,
-            disable_parcel_mode=disable_parcel_mode,
-        )
+        # If 3D coverage is too patchy and exceeds max_allowed_error_pct, the inner
+        # method raises AIFeatureAPIError mid-flight — catch it and degrade to a
+        # wholesale 2D run for the entire bulk.
+        try:
+            features_3d, meta_3d, errors_3d = self._get_features_gdf_bulk_inner(
+                gdf=gdf,
+                region=region,
+                packs=packs,
+                classes=classes,
+                include=include,
+                since_bulk=since_bulk,
+                until_bulk=until_bulk,
+                survey_resource_id_bulk=survey_resource_id_bulk,
+                max_allowed_error_pct=max_allowed_error_pct,
+                fail_hard_regrid=fail_hard_regrid,
+                in_gridding_mode=False,
+                disable_parcel_mode=disable_parcel_mode,
+            )
+        except AIFeatureAPIError as e:
+            logger.info(
+                f"prefer3d: 3D-only pass exceeded max_allowed_error_pct={max_allowed_error_pct}% "
+                f"(status {e.status_code}); falling back to standard 2D for the whole bulk."
+            )
+            fallback_api = self._clone_for_2d_fallback()
+            return fallback_api._get_features_gdf_bulk_inner(
+                gdf=gdf,
+                region=region,
+                packs=packs,
+                classes=classes,
+                include=include,
+                since_bulk=since_bulk,
+                until_bulk=until_bulk,
+                survey_resource_id_bulk=survey_resource_id_bulk,
+                max_allowed_error_pct=max_allowed_error_pct,
+                fail_hard_regrid=fail_hard_regrid,
+                in_gridding_mode=False,
+                disable_parcel_mode=disable_parcel_mode,
+            )
 
         if len(errors_3d) == 0 or survey_resource_id_bulk is not None:
             # Either nothing failed, or the bulk run is pinned to a specific survey

@@ -131,7 +131,7 @@ def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
 @pytest.mark.live_api
 def test_prefer3d_end_to_end(test_output_dir, salt_lake_aoi):
     """End-to-end run with --prefer3d. Confirms the unified export path produces
-    a 3d_date column and the AOI is resolved (either from 3D or 2D)."""
+    a mesh_date column and the AOI is resolved (either from 3D or 2D)."""
 
     exporter = AOIExporter(
         aoi_file=str(salt_lake_aoi),
