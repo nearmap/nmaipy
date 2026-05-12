@@ -2066,6 +2066,15 @@ def parse_arguments():
         action="store_true",
     )
     parser.add_argument(
+        "--prefer3d",
+        help=(
+            "Prefer 3D surveys but fall back to 2D per AOI when no 3D coverage is "
+            "available in the date window. Mutually exclusive with --only3d. "
+            "No-op for AOIs pinned to a survey_resource_id."
+        ),
+        action="store_true",
+    )
+    parser.add_argument(
         "--since",
         help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
         required=False,
@@ -2137,6 +2146,9 @@ def parse_arguments():
         type=str,
     )
     args = parser.parse_args()
+
+    if args.only3d and args.prefer3d:
+        parser.error("--only3d and --prefer3d are mutually exclusive")
 
     if args.roof_age:
         resolved = resolve_roof_age_dataset(args.roof_age_dataset)
@@ -2230,6 +2242,7 @@ class NearmapAIExporter(BaseExporter):
         beta=False,
         prerelease=False,
         only3d=False,
+        prefer3d=False,
         since=None,
         until=None,
         url_root=DEFAULT_URL_ROOT,
@@ -2276,7 +2289,10 @@ class NearmapAIExporter(BaseExporter):
         self.alpha = alpha
         self.beta = beta
         self.prerelease = prerelease
+        if only3d and prefer3d:
+            raise ValueError("only3d and prefer3d are mutually exclusive")
         self.only3d = only3d
+        self.prefer3d = prefer3d
         self.since = since
         self.until = until
         self.url_root = url_root
@@ -2345,6 +2361,7 @@ class NearmapAIExporter(BaseExporter):
             "beta": beta,
             "prerelease": prerelease,
             "only3d": only3d,
+            "prefer3d": prefer3d,
             "since": since,
             "until": until,
             "url_root": url_root,
@@ -2930,6 +2947,7 @@ class NearmapAIExporter(BaseExporter):
                 beta=self.beta,
                 prerelease=self.prerelease,
                 only3d=self.only3d,
+                prefer3d=self.prefer3d,
                 url_root=self.url_root,
                 system_version_prefix=self.system_version_prefix,
                 system_version=self.system_version,
@@ -3235,6 +3253,7 @@ class NearmapAIExporter(BaseExporter):
                 "survey_resource_id",
                 "perspective",
                 "postcat",
+                "mesh_date",
             ]
             # Rename metadata columns that clash with user's AOI columns
             conflicting_columns = [c for c in meta_data_columns if c in aoi_gdf.columns]
@@ -3279,10 +3298,11 @@ class NearmapAIExporter(BaseExporter):
                     f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
                 )
                 self.logger.error(f"Error: {type(e).__name__}: {str(e)}")
-            # Drop survey_date from metadata_df to avoid collision with features_gdf
-            # (features_gdf has per-feature survey_date which is more accurate for gridded AOIs)
+            # Drop survey_date/mesh_date from metadata_df to avoid collision with features_gdf
+            # (features_gdf has per-feature survey_date/mesh_date which is more accurate for gridded AOIs).
+            # The AOI-level mesh_date in metadata acts as a fallback for AOIs with zero features.
             metadata_cols_to_drop = [
-                c for c in ["survey_date"] if c in metadata_df.columns and c in features_gdf.columns
+                c for c in ["survey_date", "mesh_date"] if c in metadata_df.columns and c in features_gdf.columns
             ]
             if metadata_cols_to_drop:
                 metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
@@ -4220,6 +4240,7 @@ def main():
         beta=args.beta,
         prerelease=args.prerelease,
         only3d=args.only3d,
+        prefer3d=args.prefer3d,
         since=args.since,
         until=args.until,
         url_root=args.url_root,

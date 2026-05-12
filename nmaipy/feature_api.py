@@ -145,6 +145,7 @@ class FeatureApi(GriddedApiClient):
         beta: Optional[bool] = False,
         prerelease: Optional[bool] = False,
         only3d: Optional[bool] = False,
+        prefer3d: Optional[bool] = False,
         url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: Optional[str] = "gen6-",
         system_version: Optional[str] = None,
@@ -170,7 +171,11 @@ class FeatureApi(GriddedApiClient):
             alpha: Include alpha features
             beta: Include beta features
             prerelease: Include prerelease features
-            only3d: Only return features with 3D coverage
+            only3d: Only return features with 3D coverage. Mutually exclusive with prefer3d.
+            prefer3d: Prefer 3D surveys but fall back to 2D per-AOI when no 3D coverage is
+                available in the date window. Implies only3d=True for the first pass; AOIs that
+                return 404 are retried with only3d=False via a sibling FeatureApi. Mutually
+                exclusive with only3d. No-op for AOIs pinned to a survey_resource_id.
             url_root: The root URL for the API. Default is the bulk API.
             system_version_prefix: Prefix for the system version (e.g. "gen6-" to restrict to gen 6 results)
             system_version: System version to use (e.g. "gen6-glowing_grove-1.0" to restrict to exact version matches)
@@ -204,6 +209,9 @@ class FeatureApi(GriddedApiClient):
         if not bulk_mode:
             url_root = "api.nearmap.com/ai/features/v4"
 
+        # Preserve resolved url_root so _clone_for_2d_fallback can construct a sibling
+        # FeatureApi that talks to the same endpoint as self.
+        self.url_root = url_root
         URL_ROOT = f"https://{url_root}"
         self.FEATURES_URL = URL_ROOT + "/features.json"
         self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
@@ -215,7 +223,12 @@ class FeatureApi(GriddedApiClient):
         self.alpha = alpha
         self.beta = beta
         self.prerelease = prerelease
-        self.only3d = only3d
+        if only3d and prefer3d:
+            raise ValueError("only3d and prefer3d are mutually exclusive")
+        self.prefer3d = prefer3d
+        # When prefer3d is set, the first pass behaves as only3d=True; the bulk method
+        # constructs a sibling FeatureApi with only3d=False for the 2D fallback pass.
+        self.only3d = only3d or prefer3d
         self.system_version_prefix = system_version_prefix
         self.system_version = system_version
         self.aoi_grid_min_pct = aoi_grid_min_pct
@@ -865,6 +878,7 @@ class FeatureApi(GriddedApiClient):
             "survey_resource_id": payload["resourceId"],
             "perspective": payload["perspective"],
             "postcat": payload["postcat"],
+            "mesh_date": payload.get("3dDate", ""),
             "aggregate": payload.get("aggregate"),
         }
 
@@ -1060,6 +1074,7 @@ class FeatureApi(GriddedApiClient):
                 "survey_resource_id": metadata_df["survey_resource_id"],
                 "perspective": metadata_df["perspective"],
                 "postcat": metadata_df["postcat"],
+                "mesh_date": metadata_df.get("mesh_date", ""),
             }
 
             # Return grid cell errors as 4th element (may include geometry for failed grid squares)
@@ -1492,6 +1507,200 @@ class FeatureApi(GriddedApiClient):
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
         """
         Get features data for many AOIs.
+
+        When ``self.prefer3d`` is set, this method orchestrates a two-pass run: first
+        with only3d=True (3D coverage required), then a 2D fallback for AOIs that 404'd
+        in pass 1 (no 3D survey available in the date window). Gridded recursion from
+        ``get_features_gdf_gridded`` (``in_gridding_mode=True``) bypasses the prefer3d
+        dispatch — grid cells always run in the same mode as their parent pass.
+
+        See :py:meth:`_get_features_gdf_bulk_inner` for the underlying single-pass
+        implementation.
+        """
+        if not self.prefer3d or in_gridding_mode:
+            return self._get_features_gdf_bulk_inner(
+                gdf=gdf,
+                region=region,
+                packs=packs,
+                classes=classes,
+                include=include,
+                since_bulk=since_bulk,
+                until_bulk=until_bulk,
+                survey_resource_id_bulk=survey_resource_id_bulk,
+                max_allowed_error_pct=max_allowed_error_pct,
+                fail_hard_regrid=fail_hard_regrid,
+                in_gridding_mode=in_gridding_mode,
+                disable_parcel_mode=disable_parcel_mode,
+            )
+        return self._run_prefer3d_passes(
+            gdf=gdf,
+            region=region,
+            packs=packs,
+            classes=classes,
+            include=include,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            survey_resource_id_bulk=survey_resource_id_bulk,
+            max_allowed_error_pct=max_allowed_error_pct,
+            fail_hard_regrid=fail_hard_regrid,
+            disable_parcel_mode=disable_parcel_mode,
+        )
+
+    def _run_prefer3d_passes(
+        self,
+        gdf: gpd.GeoDataFrame,
+        region: str,
+        packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
+        since_bulk: Optional[str] = None,
+        until_bulk: Optional[str] = None,
+        survey_resource_id_bulk: Optional[str] = None,
+        max_allowed_error_pct: Optional[int] = 100,
+        fail_hard_regrid: Optional[bool] = False,
+        disable_parcel_mode: bool = False,
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
+        """Two-pass prefer3d orchestrator: 3D-only, then 2D fallback for 404s."""
+        # Pass 1: 3D-only. self.only3d is already True (set in __init__ when prefer3d).
+        features_3d, meta_3d, errors_3d = self._get_features_gdf_bulk_inner(
+            gdf=gdf,
+            region=region,
+            packs=packs,
+            classes=classes,
+            include=include,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            survey_resource_id_bulk=survey_resource_id_bulk,
+            max_allowed_error_pct=max_allowed_error_pct,
+            fail_hard_regrid=fail_hard_regrid,
+            in_gridding_mode=False,
+            disable_parcel_mode=disable_parcel_mode,
+        )
+
+        if len(errors_3d) == 0 or survey_resource_id_bulk is not None:
+            # Either nothing failed, or the bulk run is pinned to a specific survey
+            # resource (so 3D-vs-2D isn't a choice we can make).
+            return features_3d, meta_3d, errors_3d
+
+        # Retry candidates: AOIs that 404'd (no 3D coverage in window). Includes both
+        # plain 404s (single-AOI, no gridding) and grid failures where insufficient
+        # cells had 3D coverage to pass aoi_grid_min_pct — the grid error propagates
+        # the underlying 404 status_code.
+        retry_mask = errors_3d["status_code"] == 404
+        retry_ids = errors_3d.index[retry_mask].unique().tolist()
+
+        # Exclude any AOIs pinned to a survey_resource_id via per-row column.
+        if SURVEY_RESOURCE_ID_COL_NAME in gdf.columns and retry_ids:
+            retry_ids = [
+                aoi_id
+                for aoi_id in retry_ids
+                if aoi_id in gdf.index and not isinstance(gdf.loc[aoi_id, SURVEY_RESOURCE_ID_COL_NAME], str)
+            ]
+
+        if not retry_ids:
+            return features_3d, meta_3d, errors_3d
+
+        logger.info(f"prefer3d: retrying {len(retry_ids)} AOI(s) with only3d=False after 3D-only 404s.")
+
+        # Bump progress total to cover the extra 2D requests (mirrors the dynamic-total
+        # adjustment in get_features_gdf_gridded).
+        if self.progress_counters is not None:
+            with self.progress_counters["lock"]:
+                self.progress_counters["total"] += len(retry_ids)
+
+        fallback_api = self._clone_for_2d_fallback()
+        retry_gdf = gdf.loc[gdf.index.isin(retry_ids)]
+
+        features_2d, meta_2d, errors_2d = fallback_api._get_features_gdf_bulk_inner(
+            gdf=retry_gdf,
+            region=region,
+            packs=packs,
+            classes=classes,
+            include=include,
+            since_bulk=since_bulk,
+            until_bulk=until_bulk,
+            survey_resource_id_bulk=survey_resource_id_bulk,
+            max_allowed_error_pct=max_allowed_error_pct,
+            fail_hard_regrid=fail_hard_regrid,
+            in_gridding_mode=False,
+            disable_parcel_mode=disable_parcel_mode,
+        )
+
+        # Merge: drop 3D errors for AOIs that have been retried; carry forward the rest;
+        # append 2D-pass errors (AOIs that failed both passes).
+        surviving_errors_3d = errors_3d.drop(index=retry_ids, errors="ignore")
+        merged_errors_parts = [df for df in [surviving_errors_3d, errors_2d] if len(df) > 0]
+        if merged_errors_parts:
+            merged_errors = pd.concat(merged_errors_parts)
+        else:
+            merged_errors = pd.DataFrame([])
+            merged_errors.index.name = AOI_ID_COLUMN_NAME
+
+        if len(features_2d) > 0 and len(features_3d) > 0:
+            merged_features = gpd.GeoDataFrame(pd.concat([features_3d, features_2d]), geometry="geometry", crs=API_CRS)
+        elif len(features_2d) > 0:
+            merged_features = features_2d
+        else:
+            merged_features = features_3d
+
+        if len(meta_2d) > 0 and len(meta_3d) > 0:
+            merged_meta = pd.concat([meta_3d, meta_2d])
+        elif len(meta_2d) > 0:
+            merged_meta = meta_2d
+        else:
+            merged_meta = meta_3d
+
+        return merged_features, merged_meta, merged_errors
+
+    def _clone_for_2d_fallback(self) -> "FeatureApi":
+        """Return a sibling FeatureApi configured for the 2D fallback pass of prefer3d.
+
+        Shares cache_dir, api_key, progress_counters etc. with self, but with
+        only3d=False and prefer3d=False so the fallback runs as a normal 2D query.
+        """
+        return FeatureApi(
+            api_key=self.api_key,
+            bulk_mode=self.bulk_mode,
+            cache_dir=self.cache_dir,
+            overwrite_cache=self.overwrite_cache,
+            compress_cache=self.compress_cache,
+            threads=self.threads,
+            alpha=self.alpha,
+            beta=self.beta,
+            prerelease=self.prerelease,
+            only3d=False,
+            prefer3d=False,
+            url_root=self.url_root,
+            system_version_prefix=self.system_version_prefix,
+            system_version=self.system_version,
+            aoi_grid_min_pct=self.aoi_grid_min_pct,
+            aoi_grid_inexact=self.aoi_grid_inexact,
+            parcel_mode=self.parcel_mode,
+            maxretry=self.maxretry,
+            rapid=self.rapid,
+            order=self.order,
+            exclude_tiles_with_occlusion=self.exclude_tiles_with_occlusion,
+            progress_counters=self.progress_counters,
+            grid_size=self.grid_size,
+        )
+
+    def _get_features_gdf_bulk_inner(
+        self,
+        gdf: gpd.GeoDataFrame,
+        region: str,
+        packs: Optional[List[str]] = None,
+        classes: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
+        since_bulk: Optional[str] = None,
+        until_bulk: Optional[str] = None,
+        survey_resource_id_bulk: Optional[str] = None,
+        max_allowed_error_pct: Optional[int] = 100,
+        fail_hard_regrid: Optional[bool] = False,
+        in_gridding_mode: bool = False,
+        disable_parcel_mode: bool = False,
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
+        """Single-pass bulk feature fetch — see ``get_features_gdf_bulk`` for the
+        public, prefer3d-aware wrapper.
 
         Args:
             gdf: GeoDataFrame with AOIs

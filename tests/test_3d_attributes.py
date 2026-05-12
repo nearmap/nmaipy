@@ -129,6 +129,39 @@ def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
 
 @pytest.mark.integration
 @pytest.mark.live_api
+def test_prefer3d_end_to_end(test_output_dir, salt_lake_aoi):
+    """End-to-end run with --prefer3d. Confirms the unified export path produces
+    a 3d_date column and the AOI is resolved (either from 3D or 2D)."""
+
+    exporter = AOIExporter(
+        aoi_file=str(salt_lake_aoi),
+        output_dir=str(test_output_dir),
+        country="us",
+        packs=["building"],
+        save_features=True,
+        no_cache=True,
+        processes=1,
+        prefer3d=True,
+    )
+
+    exporter.run()
+
+    rollup_files = list((test_output_dir / "final").glob("rollup.*"))
+    assert rollup_files, "rollup file should be created"
+
+    # Read whichever format was produced.
+    rollup_path = rollup_files[0]
+    if rollup_path.suffix == ".parquet":
+        rollup = pd.read_parquet(rollup_path)
+    else:
+        rollup = pd.read_csv(rollup_path)
+
+    assert "mesh_date" in rollup.columns, "rollup must expose the mesh_date metadata column"
+    assert len(rollup) == 1, "single AOI should produce a single rollup row"
+
+
+@pytest.mark.integration
+@pytest.mark.live_api
 def test_attributes_list_handling():
     """Test that attributes list is properly handled in the flattening process."""
 
