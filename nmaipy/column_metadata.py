@@ -44,6 +44,22 @@ _SCOPE_PHRASES: dict[str, str] = {
 }
 _DEFAULT_SCOPE_PHRASE = "across the entire parcel"
 
+# Suffix-stripping rules applied to pattern-matched ``{class}`` values inside
+# ``_substitute``. Order is significant — longer suffixes must come first so
+# ``_total_clipped`` is preferred over ``_clipped``. Each entry pairs a suffix
+# to strip with a parenthetical to append to the humanised class phrase so the
+# clipped/unclipped distinction survives without doubling up the word "area".
+# Exposed as a module-level constant so downstream tooling (e.g. the
+# ai-offline-export-pipelines spec_drift audit) can introspect which spec
+# fields a pattern's ``{class}`` capture would route to.
+_SUFFIX_STRIP_RULES: tuple[tuple[str, str], ...] = (
+    ("_total_clipped", " (clipped to parcel boundary)"),
+    ("_total_unclipped", " (before parcel clipping)"),
+    ("_clipped", " (clipped to parcel boundary)"),
+    ("_unclipped", " (before parcel clipping)"),
+    ("_total", ""),
+)
+
 # Terse labels for scope-stripped lookup, appended in parens to the resolved
 # description (e.g. "Estimated roof installation date (primary roof's roof
 # age)."). Used only when the underlying template doesn't already carry scope
@@ -177,29 +193,17 @@ def _substitute(
         return value
     unit_long = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
     scope_phrase = scope_phrase_override or _format_scope_phrase(scope)
-    # Render {class} as a human-readable phrase. Three stages:
-    #  1. Strip the rollup-internal ``_total`` suffix (sometimes paired with
-    #     ``_clipped`` / ``_unclipped``) so e.g. ``roof_total_area_sqft`` reads
-    #     "Total area of roof detected …" rather than "roof total".
-    #  2. Map ``_clipped`` / ``_unclipped`` suffixes to a parenthetical so the
-    #     distinction survives without doubling up the word "area".
-    #  3. Replace remaining underscores with spaces.
+    # Render {class} as a human-readable phrase by applying the
+    # suffix-stripping rules (see ``_SUFFIX_STRIP_RULES`` above), then
+    # replacing remaining underscores with spaces. The first matching
+    # suffix wins — order in the constant is load-bearing.
     cls_phrase = cls
     suffix_phrase = ""
-    if cls_phrase.endswith("_total_clipped"):
-        cls_phrase = cls_phrase[: -len("_total_clipped")]
-        suffix_phrase = " (clipped to parcel boundary)"
-    elif cls_phrase.endswith("_total_unclipped"):
-        cls_phrase = cls_phrase[: -len("_total_unclipped")]
-        suffix_phrase = " (before parcel clipping)"
-    elif cls_phrase.endswith("_clipped"):
-        cls_phrase = cls_phrase[: -len("_clipped")]
-        suffix_phrase = " (clipped to parcel boundary)"
-    elif cls_phrase.endswith("_unclipped"):
-        cls_phrase = cls_phrase[: -len("_unclipped")]
-        suffix_phrase = " (before parcel clipping)"
-    elif cls_phrase.endswith("_total"):
-        cls_phrase = cls_phrase[: -len("_total")]
+    for suffix, parenthetical in _SUFFIX_STRIP_RULES:
+        if cls_phrase.endswith(suffix):
+            cls_phrase = cls_phrase[: -len(suffix)]
+            suffix_phrase = parenthetical
+            break
     cls_phrase = cls_phrase.replace("_", " ") + suffix_phrase
     # {class_label_primary} falls back to plain {class_label} when no scope-aware
     # primary phrase is supplied.
