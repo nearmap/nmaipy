@@ -3266,6 +3266,13 @@ class NearmapAIExporter(BaseExporter):
                 columns=[c for c in metadata_df.columns if c not in meta_data_columns + [AOI_ID_COLUMN_NAME]],
                 errors="ignore",
             )
+            # rollup_df already carries mesh_date when features exist (set by parcels.parcel_rollup
+            # from per-feature meshDate) — same value as the top-level 3dDate in metadata. Drop the
+            # metadata copy before the rollup merge to avoid a _x/_y suffix collision; the rollup's
+            # mesh_date wins. For AOIs without features (no rollup mesh_date column), metadata's
+            # mesh_date stays and serves as the AOI-level 3D/2D signal.
+            if "mesh_date" in rollup_df.columns and "mesh_date" in metadata_df.columns:
+                metadata_df = metadata_df.drop(columns=["mesh_date"])
             # Use rollup_df as base to preserve all AOIs (including those where Feature API
             # failed but Roof Age API succeeded). Left-merge with metadata_df to add
             # survey metadata where available.
