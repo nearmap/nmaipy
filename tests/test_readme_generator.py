@@ -286,7 +286,9 @@ class TestColumnMetadataTables:
         # through the per-field overlay (even though both are also overridden
         # for description).
         assert any("2019-09-27" in row for row in rendered), "spec example for survey_date missing"
-        assert any("5a5cb214-eee3-4fdd-bfce-d21e9793cf6a" in row for row in rendered), "spec example for class_id missing"
+        assert any(
+            "5a5cb214-eee3-4fdd-bfce-d21e9793cf6a" in row for row in rendered
+        ), "spec example for class_id missing"
 
     def test_render_columns_table_substitutes_unit_placeholders(self):
         """`{unit}` in column names is resolved to the area suffix; `{unit_name}` is filled by lookup_column."""

@@ -346,8 +346,7 @@ def load_metadata(
             exact[name] = _overlay_meta(base, entry) if base else _meta_from_json(entry)
 
     patterns = tuple(
-        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p))
-        for p in column_metadata["patterns"]
+        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p)) for p in column_metadata["patterns"]
     )
     legend = {k: v for k, v in column_metadata.get("evidence_type_legend", {}).items() if not k.startswith("_")}
     zone_distances = {
