@@ -18,6 +18,9 @@
       "dtype": "UUID",
       "source": "model metadata"
     },
+    "clipped_area_{unit}": {
+      "description": "Area of the {class_label_primary} clipped to the parcel boundary, in {unit_name}."
+    },
     "confidence": {
       "dtype": "float (quantised uint8)",
       "min": "0.0",
@@ -42,6 +45,9 @@
     },
     "survey_date": {
       "description": "Capture date of the 2D aerial imagery this feature was extracted from. Use as the canonical 'as-of' date for AI-derived attributes (counts, areas, materials, RSI, damage). May differ from mesh_date when 3D attributes draw on a different survey window."
+    },
+    "unclipped_area_{unit}": {
+      "description": "Total area of the {class_label_primary} before parcel clipping, in {unit_name}."
     }
   }
 }
