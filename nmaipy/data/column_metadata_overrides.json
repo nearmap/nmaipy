@@ -1,6 +1,9 @@
 {
   "_doc": "Human-edited overrides layered over auto-generated spec_raw_fields.json. Per-field overlay: keys present here override the corresponding field on the spec-sourced base; absent fields inherit (e.g. an entry with only a `description` change leaves spec's `example`/`source` intact). Audit redundancy with `python -m ai_offline_export_pipelines.spec_drift compare-overrides` — every remaining entry should genuinely improve on spec (richer dtype, override-only min/max, customer-facing terminology). To elaborate a description, copy the entry from spec_raw_fields.json and edit. Do not invent keys here without a corresponding raw field — those belong in column_metadata.json. The drift checker flags overrides whose keys no longer exist in spec_raw_fields.json (rename/removal signal).",
   "exact_matches": {
+    "area_{unit}": {
+      "description": "Area of the {class_label_primary}, in {unit_name}."
+    },
     "attributes": {
       "dtype": "JSON",
       "description": "Raw API attributes payload for this feature (used during processing; preserved on raw feature outputs)."
