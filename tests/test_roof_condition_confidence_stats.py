@@ -285,3 +285,46 @@ def test_handles_missing_rccs_gracefully():
     assert (
         "roof_condition_confidence_stats" not in result
     ), "roof_condition_confidence_stats should not be present when not in source data"
+
+
+def test_flatten_roof_attributes_handles_null_histograms():
+    """Regression: API can return confidenceStats.histograms (or histogram.ratios) as null.
+
+    dict.get's default only fires when the key is absent — a present-but-null value
+    returns None. flatten_roof_attributes must coalesce to [] before iterating.
+    """
+    roof = {
+        "feature_id": "test-roof-null-histograms",
+        "class_id": ROOF_ID,
+        "attributes": [
+            {
+                "description": "Roof Condition",
+                "components": [
+                    {
+                        "description": "Structural Damage",
+                        "confidence": None,
+                        "areaSqm": 0,
+                        "areaSqft": 0,
+                        "ratio": 0,
+                        "confidenceStats": {"histograms": None},
+                    },
+                    {
+                        "description": "Tile Discolouration",
+                        "confidence": None,
+                        "areaSqm": 0,
+                        "areaSqft": 0,
+                        "ratio": 0,
+                        "confidenceStats": {
+                            "histograms": [{"binType": "default", "ratios": None}]
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+    result = flatten_roof_attributes([roof], country="us")
+
+    assert not any("confidence_stats_" in k for k in result), (
+        "No histogram bin columns should be emitted when histograms/ratios are null"
+    )

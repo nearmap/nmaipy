@@ -833,10 +833,13 @@ def flatten_roof_attributes(
                         component_columns[f"{name}_dominant"] = TRUE_STRING if component["dominant"] else FALSE_STRING
                     if "confidenceStats" in component:
                         confidence_stats = component["confidenceStats"]
-                        histograms = confidence_stats.get("histograms", [])
+                        # API may return histograms/ratios as null (key present, value None) for
+                        # features without confidence data; dict.get's default only fires when the
+                        # key is absent, so coalesce None to [].
+                        histograms = confidence_stats.get("histograms") or []
                         for histogram in histograms:
                             bin_type = histogram.get("binType", "unknown")
-                            ratios = histogram.get("ratios", [])
+                            ratios = histogram.get("ratios") or []
                             for bin_idx, ratio_value in enumerate(ratios):
                                 component_columns[f"{name}_confidence_stats_{bin_type}_bin_{bin_idx}"] = ratio_value
 
