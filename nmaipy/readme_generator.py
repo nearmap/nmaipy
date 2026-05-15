@@ -121,7 +121,10 @@ class ReadmeGenerator:
         content = self._generate()
         readme_path = storage.join_path(self.final_dir, "README.md")
         tmp_path = readme_path + ".tmp"
-        with storage.open_file(tmp_path, "w") as f:
+        # encoding="utf-8" is required: README content contains em-dashes and
+        # other non-ASCII characters, and on Windows open() defaults to cp1252
+        # which can't encode them — would crash with UnicodeEncodeError.
+        with storage.open_file(tmp_path, "w", encoding="utf-8") as f:
             f.write(content)
         storage.move_file(tmp_path, readme_path)
         return readme_path

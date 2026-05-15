@@ -14,8 +14,16 @@ import logging
 import multiprocessing
 import pstats
 import re
-import resource
 import sys
+import tempfile
+
+# resource is a Unix-only stdlib module; on Windows we set the attribute to None
+# and gate every call site behind sys.platform != "win32" (or `resource is not None`).
+try:
+    import resource
+except ImportError:  # pragma: no cover — Windows
+    resource = None
+
 import traceback
 import warnings
 from pathlib import Path
@@ -3222,8 +3230,8 @@ class NearmapAIExporter(BaseExporter):
             )
             if chunk_id == _profile_chunk:
                 _pr.disable()
-                _profile_path = f"/tmp/nmaipy_profile_chunk_{chunk_id}.txt"
-                with open(_profile_path, "w") as _pf:
+                _profile_path = os.path.join(tempfile.gettempdir(), f"nmaipy_profile_chunk_{chunk_id}.txt")
+                with open(_profile_path, "w", encoding="utf-8") as _pf:
                     pstats.Stats(_pr, stream=_pf).sort_stats("cumulative").print_stats(40)
                 self.logger.info(f"CHUNK_PROFILE parcel_rollup stats saved to {_profile_path}")
             _t_rollup_end = time.monotonic()

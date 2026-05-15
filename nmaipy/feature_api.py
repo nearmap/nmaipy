@@ -458,7 +458,7 @@ class FeatureApi(GriddedApiClient):
                     with gzip.open(temp_path, "wb") as f:
                         f.write(json.dumps(payload).encode("utf-8"))
                 else:
-                    with open(temp_path, "w") as f:
+                    with open(temp_path, "w", encoding="utf-8") as f:
                         json.dump(payload, f)
                 temp_path.replace(path)
             finally:
