@@ -14,8 +14,15 @@ import logging
 import multiprocessing
 import pstats
 import re
-import resource
 import sys
+
+# resource is a Unix-only stdlib module; on Windows we set the attribute to None
+# and gate every call site behind sys.platform != "win32" (or `resource is not None`).
+try:
+    import resource
+except ImportError:  # pragma: no cover — Windows
+    resource = None
+
 import traceback
 import warnings
 from pathlib import Path

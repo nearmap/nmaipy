@@ -23,6 +23,13 @@ import tempfile
 import time
 import traceback
 import warnings
+
+# resource is a Unix-only stdlib module; on Windows we set the attribute to None
+# and gate every call site below.
+try:
+    import resource
+except ImportError:  # pragma: no cover — Windows
+    resource = None
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
@@ -742,18 +749,17 @@ class BaseExporter(ABC):
             max_retries: Maximum number of retry attempts
             retry_delay: Seconds to wait before retrying
         """
-        import resource
-
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
 
-        # Get resource limits
-        soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+        # Get resource limits (Unix only — `resource` is None on Windows).
+        if resource is not None:
+            soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+        else:
+            soft_limit = "unknown"
 
-        # Count open file descriptors (Linux/Mac)
+        # Count open file descriptors (Linux only — /proc is absent on macOS and Windows)
         try:
-            import os
-
             pid = os.getpid()
             if os.path.exists(f"/proc/{pid}/fd"):
                 fd_count = len(os.listdir(f"/proc/{pid}/fd"))
