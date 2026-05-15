@@ -418,7 +418,7 @@ def refresh_class_descriptions(api_key: str = None):
 def _write_class_descriptions(descriptions: dict):
     """Write class descriptions dict to the JSON file."""
     try:
-        with open(_CLASS_DESCRIPTIONS_PATH, "w") as f:
+        with open(_CLASS_DESCRIPTIONS_PATH, "w", encoding="utf-8") as f:
             json.dump(descriptions, f, indent=2, sort_keys=True)
             f.write("\n")
     except OSError:

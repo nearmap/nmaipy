@@ -310,7 +310,7 @@ def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
             with gzip.GzipFile(fileobj=raw_f) as gz_f:
                 return json.loads(gz_f.read().decode("utf-8"))
     else:
-        with open_file(path, "r") as f:
+        with open_file(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
 
@@ -336,7 +336,7 @@ def write_json(
             with gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
                 gz_f.write(json.dumps(data, default=default).encode("utf-8"))
     else:
-        with open_file(path, "w") as f:
+        with open_file(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=indent, default=default)
 
 

@@ -5,13 +5,15 @@ Run the fixture generator first (remove the skip decorator), then run the perfor
 
     NMAIPY_PROFILE_CHUNK=0 pytest tests/test_parcel_rollup_performance.py::test_parcel_rollup_performance -s
 
-cProfile output (if env var is set) is written to /tmp/nmaipy_profile_parcel_rollup.txt.
+cProfile output (if env var is set) is written to `<tempdir>/nmaipy_profile_parcel_rollup.txt`
+(via `tempfile.gettempdir()` so it works on Windows too).
 """
 
 import ast
 import cProfile
 import os
 import pstats
+import tempfile
 import time
 from pathlib import Path
 
@@ -95,7 +97,7 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
     Set NMAIPY_PROFILE_CHUNK=1 to enable cProfile around parcel_rollup():
         NMAIPY_PROFILE_CHUNK=1 pytest tests/test_parcel_rollup_performance.py::test_parcel_rollup_performance -s
 
-    cProfile output is written to /tmp/nmaipy_profile_parcel_rollup.txt.
+    cProfile output is written to `<tempdir>/nmaipy_profile_parcel_rollup.txt`.
     """
     if not PERF_FIXTURE.exists():
         pytest.skip(f"Perf fixture not generated yet — run test_gen_perf_fixture first: {PERF_FIXTURE}")
@@ -157,8 +159,8 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
 
     if do_profile:
         pr.disable()
-        profile_path = "/tmp/nmaipy_profile_parcel_rollup.txt"
-        with open(profile_path, "w") as pf:
+        profile_path = os.path.join(tempfile.gettempdir(), "nmaipy_profile_parcel_rollup.txt")
+        with open(profile_path, "w", encoding="utf-8") as pf:
             pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
             pf.write("\n=== Top 40 by self (tottime) ===\n")
@@ -236,8 +238,8 @@ def test_parcel_rollup_performance_au(parcels_gdf: gpd.GeoDataFrame):
 
     if do_profile:
         pr.disable()
-        profile_path = "/tmp/nmaipy_profile_parcel_rollup_au.txt"
-        with open(profile_path, "w") as pf:
+        profile_path = os.path.join(tempfile.gettempdir(), "nmaipy_profile_parcel_rollup_au.txt")
+        with open(profile_path, "w", encoding="utf-8") as pf:
             pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
             pf.write("\n=== Top 40 by self (tottime) ===\n")
