@@ -1657,9 +1657,23 @@ class FeatureApi(GriddedApiClient):
             disable_parcel_mode=disable_parcel_mode,
         )
 
-        # Merge: drop 3D errors for AOIs that have been retried; carry forward the rest;
-        # append 2D-pass errors (AOIs that failed both passes).
+        # Merge: drop 3D results for AOIs that have been retried (errors, metadata, and
+        # features alike); carry forward the rest; append the 2D-pass results.
+        #
+        # Dropping retry_ids from meta_3d/features_3d is essential when an AOI is
+        # gridded with partial 3D coverage: some cells return 3D data (populating
+        # meta_3d and features_3d for that aoi_id) while others 404 (populating
+        # errors_3d for the same aoi_id, which lands the AOI in retry_ids). Without
+        # this drop, pd.concat([meta_3d, meta_2d]) produces duplicate aoi_id index
+        # entries, which later breaks rollup-merge code paths like
+        # `rollup_df["mesh_date"].fillna(metadata_df["mesh_date"])`. Semantically,
+        # the 2D fallback supersedes the partial 3D coverage for that AOI.
         surviving_errors_3d = errors_3d.drop(index=retry_ids, errors="ignore")
+        surviving_meta_3d = meta_3d.drop(index=retry_ids, errors="ignore") if len(meta_3d) > 0 else meta_3d
+        surviving_features_3d = (
+            features_3d.drop(index=retry_ids, errors="ignore") if len(features_3d) > 0 else features_3d
+        )
+
         merged_errors_parts = [df for df in [surviving_errors_3d, errors_2d] if len(df) > 0]
         if merged_errors_parts:
             merged_errors = pd.concat(merged_errors_parts)
@@ -1667,19 +1681,21 @@ class FeatureApi(GriddedApiClient):
             merged_errors = pd.DataFrame([])
             merged_errors.index.name = AOI_ID_COLUMN_NAME
 
-        if len(features_2d) > 0 and len(features_3d) > 0:
-            merged_features = gpd.GeoDataFrame(pd.concat([features_3d, features_2d]), geometry="geometry", crs=API_CRS)
+        if len(features_2d) > 0 and len(surviving_features_3d) > 0:
+            merged_features = gpd.GeoDataFrame(
+                pd.concat([surviving_features_3d, features_2d]), geometry="geometry", crs=API_CRS
+            )
         elif len(features_2d) > 0:
             merged_features = features_2d
         else:
-            merged_features = features_3d
+            merged_features = surviving_features_3d
 
-        if len(meta_2d) > 0 and len(meta_3d) > 0:
-            merged_meta = pd.concat([meta_3d, meta_2d])
+        if len(meta_2d) > 0 and len(surviving_meta_3d) > 0:
+            merged_meta = pd.concat([surviving_meta_3d, meta_2d])
         elif len(meta_2d) > 0:
             merged_meta = meta_2d
         else:
-            merged_meta = meta_3d
+            merged_meta = surviving_meta_3d
 
         return merged_features, merged_meta, merged_errors
 
