@@ -56,6 +56,33 @@ def salt_lake_aoi(test_output_dir):
     return aoi_file
 
 
+@pytest.fixture
+def salt_lake_aoi_large(test_output_dir):
+    """A ~1.2km x 1.2km AOI centered on (40.7611, -111.8904).
+
+    Area ≈ 1.44 sqkm, comfortably above MAX_AOI_AREA_SQM_BEFORE_GRIDDING (1 sqkm),
+    so any export of this AOI triggers gridding (~3x3 = 9 cells at the default
+    GRID_SIZE_DEGREES). Used to exercise the gridded prefer3d code path that the
+    unit-test suite (single-AOI, no gridding) doesn't reach.
+    """
+    test_polygon = Polygon(
+        [
+            (-111.8975, 40.7557),
+            (-111.8833, 40.7557),
+            (-111.8833, 40.7665),
+            (-111.8975, 40.7665),
+            (-111.8975, 40.7557),
+        ]
+    )
+
+    test_aoi = gpd.GeoDataFrame({"aoi_id": ["salt_lake_3d_test_large"], "geometry": [test_polygon]}, crs="EPSG:4326")
+
+    aoi_file = test_output_dir / "test_aoi_large.geojson"
+    test_aoi.to_file(aoi_file, driver="GeoJSON")
+
+    return aoi_file
+
+
 @pytest.mark.integration
 @pytest.mark.live_api
 def test_3d_attributes_flattening(test_output_dir, salt_lake_aoi):
@@ -205,6 +232,54 @@ def test_prefer3d_end_to_end_2d_fallback(test_output_dir, salt_lake_aoi):
     assert "survey_date" in rollup.columns
     survey_date = str(rollup["survey_date"].iloc[0])
     assert survey_date.startswith("2026-03-04"), f"expected the 2026-03-04 2D survey, got survey_date={survey_date!r}"
+
+
+@pytest.mark.integration
+@pytest.mark.live_api
+def test_prefer3d_end_to_end_gridded(test_output_dir, salt_lake_aoi_large):
+    """End-to-end gridded prefer3d run on a ~1.44 sqkm Salt Lake AOI.
+
+    Exercises the gridded prefer3d code path that the unit-test suite (all single
+    AOIs, no gridding) doesn't reach — gridded sub-requests bypassing the prefer3d
+    dispatch via `in_gridding_mode=True`, the multi-cell metadata reconstruction in
+    `_attempt_gridding`, and the merged-rollup write through `exporter._process_chunk`.
+
+    Uses the 2D-only date window from `test_prefer3d_end_to_end_2d_fallback` so the
+    3D-only first pass produces a wholesale grid failure for the AOI and the entire
+    bulk falls back to a gridded 2D run. This catches regressions in the broader
+    gridded prefer3d flow.
+
+    Note: this does NOT exercise the specific partial-3D-coverage case that the
+    unit-test `test_prefer3d_dedupes_partial_gridded_aoi_across_passes` covers —
+    reproducing it live would require a region known to have mixed coverage AND
+    `aoi_grid_min_pct < 100`, which we don't have a reliable fixture for.
+    """
+    exporter = AOIExporter(
+        aoi_file=str(salt_lake_aoi_large),
+        output_dir=str(test_output_dir),
+        country="us",
+        packs=["building"],
+        save_features=True,
+        no_cache=True,
+        processes=1,
+        prefer3d=True,
+        since="2025-09-04",
+        until="2026-03-31",
+    )
+
+    exporter.run()
+
+    rollup_files = list((test_output_dir / "final").glob("rollup.*"))
+    assert rollup_files, "rollup file should be created"
+    rollup_path = rollup_files[0]
+    rollup = pd.read_parquet(rollup_path) if rollup_path.suffix == ".parquet" else pd.read_csv(rollup_path)
+
+    assert "mesh_date" in rollup.columns
+    assert len(rollup) == 1, "single gridded AOI should produce a single rollup row, not duplicates"
+    # 2D-only window → mesh_date must be empty (no 3D survey could be returned).
+    mesh_date = rollup["mesh_date"].iloc[0]
+    is_empty = (mesh_date == "") or pd.isna(mesh_date)
+    assert is_empty, f"window contains only 2D coverage; mesh_date should be empty, got {mesh_date!r}"
 
 
 @pytest.mark.integration

@@ -1668,11 +1668,11 @@ class FeatureApi(GriddedApiClient):
         # entries, which later breaks rollup-merge code paths like
         # `rollup_df["mesh_date"].fillna(metadata_df["mesh_date"])`. Semantically,
         # the 2D fallback supersedes the partial 3D coverage for that AOI.
+        # .drop(errors="ignore") is a no-op on an empty DataFrame and preserves type,
+        # so no len() guard is needed.
         surviving_errors_3d = errors_3d.drop(index=retry_ids, errors="ignore")
-        surviving_meta_3d = meta_3d.drop(index=retry_ids, errors="ignore") if len(meta_3d) > 0 else meta_3d
-        surviving_features_3d = (
-            features_3d.drop(index=retry_ids, errors="ignore") if len(features_3d) > 0 else features_3d
-        )
+        surviving_meta_3d = meta_3d.drop(index=retry_ids, errors="ignore")
+        surviving_features_3d = features_3d.drop(index=retry_ids, errors="ignore")
 
         merged_errors_parts = [df for df in [surviving_errors_3d, errors_2d] if len(df) > 0]
         if merged_errors_parts:
