@@ -311,3 +311,98 @@ def test_prefer3d_bypassed_when_in_gridding_mode(tmp_path, real_feature_payload)
     # With prefer3d bypassed, the single only3d=True attempt 404s and there is NO 2D retry.
     assert all("3dCoverage=true" in u for u in captured_urls)
     assert "aoi-1" in errors.index
+
+
+def test_prefer3d_dedupes_partial_gridded_aoi_across_passes(tmp_path):
+    """A gridded AOI with partial 3D coverage shows up in BOTH meta_3d (some cells
+    returned 3D data) and errors_3d (other cells 404'd). The 2D fallback retries
+    that AOI and produces its own meta_2d row. The merged metadata must not have
+    duplicate aoi_id entries — otherwise downstream rollup code that calls
+    metadata_df["mesh_date"].reindex(...) (e.g. via fillna) blows up with
+    "cannot reindex on an axis with duplicate labels".
+    """
+    api = FeatureApi(api_key="dummy", prefer3d=True, cache_dir=tmp_path, threads=1)
+
+    aoi_id = "aoi-partial-3d"
+    geom = _square(-111.926, 33.414)
+    gdf = _aoi_gdf(aoi_id, geom)
+
+    def _meta_row(survey_date: str) -> pd.DataFrame:
+        df = pd.DataFrame(
+            [
+                {
+                    "system_version": "gen6-test",
+                    "link": "https://example/",
+                    "survey_date": survey_date,
+                    "survey_id": f"s-{survey_date}",
+                    "survey_resource_id": f"r-{survey_date}",
+                    "perspective": "Vert",
+                    "postcat": False,
+                    "mesh_date": "2025-09-03" if "2025" in survey_date else "",
+                }
+            ],
+            index=pd.Index([aoi_id], name=AOI_ID_COLUMN_NAME),
+        )
+        return df
+
+    def _features_row(survey_date: str) -> gpd.GeoDataFrame:
+        return gpd.GeoDataFrame(
+            [{"feature_id": f"f-{survey_date}", "class_id": "x", "geometry": geom}],
+            index=pd.Index([aoi_id], name=AOI_ID_COLUMN_NAME),
+            crs=API_CRS,
+        )
+
+    # 3D pass: AOI has metadata + features (some cells succeeded) AND a 404 error row
+    # in errors_3d (the failed cells were collapsed under the parent aoi_id with
+    # status_code=404, mirroring get_features_gdf_gridded's behaviour at the seam
+    # where failed grid cells get the parent AOI's aoi_id reassigned).
+    features_3d = _features_row("2025-09-03")
+    meta_3d = _meta_row("2025-09-03")
+    errors_3d = pd.DataFrame(
+        [
+            {
+                "status_code": 404,
+                "message": "No 3D coverage at this grid cell",
+                "text": "",
+                "request": "grid",
+                "failure_type": "grid",
+            }
+        ],
+        index=pd.Index([aoi_id], name=AOI_ID_COLUMN_NAME),
+    )
+
+    # 2D pass: AOI resolves fully via the 2D fallback.
+    features_2d = _features_row("2026-03-04")
+    meta_2d = _meta_row("2026-03-04")
+    errors_2d = pd.DataFrame()
+    errors_2d.index.name = AOI_ID_COLUMN_NAME
+
+    call_count = {"n": 0}
+
+    def fake_inner(self, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return features_3d, meta_3d, errors_3d
+        return features_2d, meta_2d, errors_2d
+
+    with patch.object(FeatureApi, "_get_features_gdf_bulk_inner", new=fake_inner):
+        merged_features, merged_meta, merged_errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
+
+    assert call_count["n"] == 2, "should have run a 2D fallback pass after the 3D 404"
+    assert merged_meta.index.is_unique, (
+        f"metadata index must not contain duplicates after prefer3d merge — got " f"{merged_meta.index.tolist()!r}"
+    )
+    # 2D fallback wins for the retried AOI.
+    assert aoi_id in merged_meta.index
+    assert merged_meta.loc[aoi_id, "survey_date"] == "2026-03-04"
+    # The 404 error from the 3D pass is dropped (the AOI was successfully retried).
+    assert aoi_id not in merged_errors.index
+    # The retried AOI's 3D features are also dropped — 2D supersedes.
+    assert len(merged_features) == 1
+    assert merged_features["feature_id"].iloc[0] == "f-2026-03-04"
+
+    # Sanity check that the downstream fillna pattern from exporter.py works on the
+    # merged metadata — this is the operation that was throwing
+    # "cannot reindex on an axis with duplicate labels" in production.
+    rollup_mesh = pd.Series([None], index=pd.Index([aoi_id], name=AOI_ID_COLUMN_NAME))
+    rollup_mesh.fillna(merged_meta["mesh_date"])
