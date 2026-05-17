@@ -20,7 +20,7 @@ Requires Python 3.12 or later.
 export API_KEY=your_api_key_here
 ```
 
-Contact Nearmap if you don't have one.
+Contact your account administrator if you don't have one.
 
 ### 3. Run your first extraction
 
@@ -72,16 +72,17 @@ exporter = NearmapAIExporter(
     aoi_file='affected_areas.geojson',
     output_dir='damage_assessment',
     country='us',
-    packs=['building', 'damage'],   # geometry + damage classification
+    packs=['building', 'damage_classifications', 'damage'],   # geometry + damage classes
     since='2024-07-08',             # date range of the event
     until='2024-07-11',
-    rapid=True,                     # consider rapid post-catastrophe imagery
+    rapid=True,                     # Permit use of rapid post-catastrophe imagery (e.g. during an event)
+    include=['damage'],             # Adds the damage classification score (FEMA-style damage classification levels on a 5-point scale)
     save_features=True,
 )
 exporter.run()
 ```
 
-`rapid=True` enables consideration of post-catastrophe rapid-response surveys (when available). The damage pack has variants (`damage_postcat`, `damage_non_postcat`) — see the auto-generated README in your export's `final/` directory for what each one provides.
+`rapid=True` enables consideration of post-catastrophe rapid-response surveys (when available). The damage pack has variants (`damage_postcat`, `damage_non_postcat`) for damage-related feature classes; `damage_classifications` is the richer pack used here, exposing ten damage feature classes (Roof, Missing Roof Tile or Shingle, Vegetation Debris, Junk and Wreckage, Building Structural Loss, Roof with Temporary Repair, Structural Damage, Building Damage by Tree, Building with Structural Damage, Building lifecycle). The damage classification *score* is a separate quantity, retrieved by passing `include=['damage']` — see the auto-generated README in your export's `final/` directory for what each emitted column contains.
 
 ### Roof Age Analysis (US Only)
 
@@ -92,7 +93,7 @@ exporter = NearmapAIExporter(
     aoi_file='properties.geojson',
     output_dir='unified_results',
     country='us',
-    packs=['building'],
+    packs=['building', 'building_structures'],
     roof_age=True,                # add Roof Age API predictions
     save_features=True,
 )
@@ -151,14 +152,14 @@ exporter = NearmapAIExporter(
     aoi_file='properties.geojson',
     output_dir='rsi_results',
     country='us',
-    packs=['building', 'damage_non_postcat'],
+    packs=['building', 'building_structures'],
     include=['roofSpotlightIndex'],
     save_features=True,
 )
 exporter.run()
 ```
 
-The `damage_non_postcat` pack provides the Building Lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
+The `building_structures` pack provides the Building Lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
 
 ### 3D-first exports with 2D fallback (`prefer3d`)
 
