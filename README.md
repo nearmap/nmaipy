@@ -1,60 +1,18 @@
 # nmaipy - Nearmap AI Python Library
 
-Extract building footprints, vegetation, damage assessments, and other AI features from Nearmap's aerial imagery using simple Python code.
-
-## What is nmaipy?
-
-nmaipy (pronounced "en-my-pie") is a Python library that makes it easy for data scientists to access Nearmap's AI-powered geospatial data. Whether you're analyzing a few properties or processing millions of buildings across entire cities, nmaipy handles the complexity so you can focus on your analysis.
+Extract building footprints, vegetation, damage assessments, roof condition, and other AI features from Nearmap's aerial imagery using simple Python code.
 
 **Supported countries:** `au` (Australia), `us` (United States), `nz` (New Zealand), `ca` (Canada)
 
-## Quick Start for Data Scientists
+## Quick Start
 
 ### 1. Install
 
-#### Option A: Install from PyPI
 ```bash
 pip install nmaipy
 ```
 
-#### Option B: Install from source (for development)
-```bash
-git clone https://github.com/nearmap/nmaipy.git
-cd nmaipy
-pip install -e .
-```
-
-#### Option C: Using conda
-
-Minimal installation (core features only):
-```bash
-conda env create -f environment-minimal.yaml
-conda activate nmaipy
-```
-
-Full installation (includes development and notebook tools):
-```bash
-conda env create -f environment.yaml
-conda activate nmaipy
-```
-
-#### Option D: Install into existing conda environment
-```bash
-conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
-pip install -e .
-```
-
-#### Additional options
-
-For running notebooks with pip:
-```bash
-pip install -e ".[notebooks]"
-```
-
-For development with pip:
-```bash
-pip install -e ".[dev]"
-```
+Requires Python 3.12 or later.
 
 ### 2. Set your API key
 
@@ -62,89 +20,72 @@ pip install -e ".[dev]"
 export API_KEY=your_api_key_here
 ```
 
+Contact Nearmap if you don't have one.
+
 ### 3. Run your first extraction
+
+The repository ships with a 10-property smoke-test script (`run_10_test.py`) that extracts building features and roof age predictions for 10 US properties. It's the fastest way to verify your setup end-to-end:
+
+```bash
+python run_10_test.py
+```
+
+Output is written to `data/outputs/quick_test/final/`. Open `rollup.csv`, browse the rollup row per property, then have a look at `README.md` in the same directory — every export now ships an auto-generated, customer-readable data dictionary explaining every column.
+
+The script itself is short — read it (`run_10_test.py`) to see the full call signature.
+
+## Common Use Cases
+
+### Population-scale analysis with mesh blocks / census blocks
+
+`nmaipy` doesn't only consume parcel polygons. **Mesh blocks (AU), census blocks (US/CA), suburbs, statistical areas — anything you can express as polygons** can be passed in as AOIs. This gives you a **contiguous** map of AI features you can directly merge with demographic, economic, or other reference data on the same geographic units.
+
+Pull a representative time-window (e.g. 12 months) for the latest snapshot:
 
 ```python
 from nmaipy.exporter import NearmapAIExporter
 
-# Extract building and vegetation data
 exporter = NearmapAIExporter(
-    aoi_file='my_parcels.geojson',  # Your areas of interest
-    output_dir='results',            # Where to save outputs
-    country='au',                     # au, us, nz, or ca
-    packs=['building', 'vegetation'], # What features to extract
-    processes=4                       # Parallel processing
+    aoi_file='melbourne_mesh_blocks.geojson',  # or census blocks, suburbs, etc.
+    output_dir='melbourne_2025',
+    country='au',
+    packs=['building', 'vegetation', 'surfaces', 'solar'],
+    since='2025-01-01',
+    until='2025-12-31',
+    save_features=True,            # per-class GeoParquet with feature geometries
+    include_parcel_geometry=True,  # keep block boundaries for GIS joins
+    processes=8,
 )
-
 exporter.run()
 ```
 
-That's it! Your results will be saved as CSV or Parquet files in the output directory.
+**For change detection**, repeat the same call with a different `since` / `until` window and diff the resulting rollups. Each AOI gets a `survey_date` and `system_version` so you know exactly which capture / model version produced each row — useful when comparing vintages.
 
-> **Note:** `AOIExporter` is available as a backward-compatible alias for `NearmapAIExporter`.
-
-## Common Use Cases
-
-### Urban Planning
-Extract comprehensive data about buildings, vegetation coverage, and surface materials:
-
-```python
-exporter = NearmapAIExporter(
-    aoi_file='city_blocks.geojson',
-    output_dir='urban_analysis',
-    country='au',
-    packs=['building', 'vegetation', 'surfaces', 'solar'],
-    save_features=True,  # Get individual features, not just summaries
-    include_parcel_geometry=True  # Keep boundaries for GIS analysis
-)
-```
+> **Tip:** if your input has a `since` or `until` column (string-typed `YYYY-MM-DD`), it overrides the bulk values per row, so you can mix windows in a single export.
 
 ### Disaster Response
-Assess damage after natural disasters like hurricanes or floods:
+
+Damage classification is a separate pack family. For a post-event sweep, request the buildings together with damage so you get the building footprint + the damage attributes on the same parcels:
 
 ```python
 exporter = NearmapAIExporter(
     aoi_file='affected_areas.geojson',
     output_dir='damage_assessment',
     country='us',
-    packs=['damage'],
-    since='2024-07-08',  # Date range of the event
+    packs=['building', 'damage'],   # geometry + damage classification
+    since='2024-07-08',             # date range of the event
     until='2024-07-11',
-    rapid=True,  # Use rapid post-catastrophe imagery
-    save_features=True
+    rapid=True,                     # consider rapid post-catastrophe imagery
+    save_features=True,
 )
+exporter.run()
 ```
 
-### Environmental Analysis
-Study vegetation coverage and tree canopy:
-
-```python
-exporter = NearmapAIExporter(
-    aoi_file='study_area.geojson',
-    output_dir='vegetation_study',
-    country='au',
-    packs=['vegetation'],
-    save_features=True  # Get individual tree polygons
-)
-```
-
-### Market Research
-Find properties with pools or solar panels:
-
-```python
-exporter = NearmapAIExporter(
-    aoi_file='suburbs.geojson',
-    output_dir='market_analysis',
-    country='au',
-    packs=['pools', 'solar'],
-    include_parcel_geometry=True
-)
-```
+`rapid=True` enables consideration of post-catastrophe rapid-response surveys (when available). The damage pack has variants (`damage_postcat`, `damage_non_postcat`) — see the auto-generated README in your export's `final/` directory for what each one provides.
 
 ### Roof Age Analysis (US Only)
-Predict roof installation dates using AI analysis of historical imagery.
 
-**Unified approach** (recommended) - combines Feature API and Roof Age in one export:
+Predict roof installation dates using AI analysis of historical imagery, combined with building permits and climate data. Recommended approach — unified with the Feature API in one export:
 
 ```python
 exporter = NearmapAIExporter(
@@ -152,13 +93,13 @@ exporter = NearmapAIExporter(
     output_dir='unified_results',
     country='us',
     packs=['building'],
-    roof_age=True,  # Include Roof Age API data
-    save_features=True
+    roof_age=True,                # add Roof Age API predictions
+    save_features=True,
 )
 exporter.run()
 ```
 
-**Standalone approach** - for roof age data only:
+You can also use the standalone exporter if you only need roof age data (no Feature API calls):
 
 ```python
 from nmaipy.roof_age_exporter import RoofAgeExporter
@@ -168,25 +109,24 @@ exporter = RoofAgeExporter(
     output_dir='roof_age_results',
     country='us',
     threads=10,
-    output_format='both'  # Generate both GeoParquet and CSV
+    output_format='both',         # GeoParquet and CSV
 )
 exporter.run()
 ```
 
-The Roof Age API uses machine learning to analyze multiple imagery captures over time, combined with building permit data and climate information, to predict when roofs were last installed or significantly renovated. Each roof feature includes:
-- Predicted installation date
-- Confidence score (trust score)
-- Evidence type and number of captures analyzed
-- Timeline of all imagery used in analysis
+**Dataset selection:** pass `roof_age_dataset='latest'` (default — pointer maintained by the Nearmap team), `'A.0'`, `'A.1'`, or any raw resource UUID. **Historical "as-of" queries:** combine with `since` / `until` to ask "what was this roof like in the past?" — these drive the API's `sinceAsOfDate` / `untilAsOfDate` body parameters. Note: `--until` / `--since` are not supported on the `A.0` dataset and are rejected client-side with a clear error.
 
-This is valuable for:
-- Insurance underwriting and risk assessment
-- Property valuation and market analysis
-- Maintenance planning and capital budgeting
-- Real estate due diligence
+Each roof carries:
+- Predicted installation date
+- Confidence score (trust signal)
+- Evidence type and number of imagery captures analysed
+- Timeline of all imagery used
+
+Useful for insurance underwriting, property valuation, maintenance planning, and real-estate due diligence.
 
 ### Wildfire Risk & Defensible Space
-Assess wildfire vulnerability with defensible space analysis around structures, including per-class risk object breakdowns (vegetation, neighbouring roofs, yard debris) across three concentric zones:
+
+Assess wildfire vulnerability with defensible space analysis around structures — per-zone metrics and per-class risk object breakdowns (vegetation, neighbouring roofs, yard debris) across three concentric zones (0-indexed, matching the CalFire convention):
 
 ```python
 exporter = NearmapAIExporter(
@@ -195,15 +135,16 @@ exporter = NearmapAIExporter(
     country='us',
     packs=['building'],
     include=['defensibleSpace', 'wildfireScore'],
-    save_features=True
+    save_features=True,
 )
 exporter.run()
 ```
 
-Output includes per-zone metrics (zone area, defensible space area, coverage ratio) and per-class risk object breakdowns for both the primary roof and the aggregate parcel level.
+Output includes per-zone metrics (zone area, defensible-space area, coverage ratio) and per-class risk-object breakdowns for both the primary roof and the aggregate parcel.
 
 ### Roof Condition (RSI) with Structural Damage Fallback
-Extract Roof Spotlight Index scores that automatically resolve the best RSI per roof — using the roof's own score when available, or falling back to the building lifecycle score when structural damage is present:
+
+Extract Roof Spotlight Index scores that automatically resolve the best RSI per roof — using the roof's own score when available, or falling back to the Building Lifecycle score when structural damage is present:
 
 ```python
 exporter = NearmapAIExporter(
@@ -212,61 +153,104 @@ exporter = NearmapAIExporter(
     country='us',
     packs=['building', 'damage_non_postcat'],
     include=['roofSpotlightIndex'],
-    save_features=True
+    save_features=True,
 )
 exporter.run()
 ```
 
-The `damage_non_postcat` pack provides building lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
+The `damage_non_postcat` pack provides the Building Lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
 
-## Available AI Features
+### 3D-first exports with 2D fallback (`prefer3d`)
 
-Some of the more common AI packs are below - there are more and growing, available via API request or on the Nearmap help.nearmap.com page.
+When you want **maximum 3D attribute coverage** in a single unified export — without losing AOIs that only have 2D coverage in your date window — use `prefer3d=True`. The exporter runs the bulk request as if `only3d=True`, then transparently retries each AOI that returned no 3D survey with `only3d=False`:
 
-| Pack | Description | Example Use Cases |
-|------|-------------|-------------------|
-| `building` | Building footprints and heights | Urban planning, property analysis |
-| `vegetation` | Trees and vegetation coverage | Environmental studies, urban forestry |
-| `surfaces` | Ground surface materials | Permeability studies, heat mapping |
-| `pools` | Swimming pool detection | Compliance, market research |
-| `solar` | Solar panel detection | Renewable energy assessment |
-| `damage` | Post-disaster damage classification | Insurance, emergency response |
-| `building_characteristics` | Detailed roof types, materials | Detailed property analysis |
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='unified_3d_results',
+    country='us',
+    packs=['building', 'building_char', 'roof_char'],
+    prefer3d=True,
+    save_features=True,
+)
+exporter.run()
+```
+
+The output rollup carries a `mesh_date` column — non-empty when the row used a 3D survey, empty when it fell back to 2D. Mutually exclusive with `only3d`. No-op for AOIs pinned to a `survey_resource_id` (the survey is already chosen).
+
+## Discovering available AI Features
+
+Packs and feature classes are not hard-coded — your account's available packs (and their classes) are returned by the API. List them programmatically:
+
+```python
+from nmaipy.feature_api import FeatureApi
+
+api = FeatureApi()  # uses API_KEY env var
+
+# Dict of pack code -> list of feature class UUIDs your account can query
+packs = api.get_packs()
+print(sorted(packs.keys()))
+
+# DataFrame of feature classes (rich metadata: description, type, perspective, etc.)
+classes = api.get_feature_classes()
+print(classes[["description", "type"]].head())
+
+# Filter to a specific pack
+building_classes = api.get_feature_classes(packs=["building"])
+```
+
+Commonly available packs (this list is not exhaustive):
+
+| Pack | Description |
+|------|-------------|
+| `building` | Building footprints and heights |
+| `building_char` | Detailed building characteristics |
+| `roof_char` | Detailed roof characteristics (material, shape, etc.) |
+| `vegetation` | Trees and vegetation coverage |
+| `surfaces` | Ground surface materials |
+| `pools` | Swimming pool detection |
+| `solar` | Solar panel detection |
+| `damage` / `damage_postcat` / `damage_non_postcat` | Damage classification (post-catastrophe and lifecycle) |
+
+For the full catalog and access details, use the snippet above or check the [Nearmap help site](https://help.nearmap.com).
 
 ## Input Data Formats
 
-nmaipy accepts areas of interest (AOIs) in several formats:
+`nmaipy` accepts AOIs in:
 
-- **GeoJSON**: Standard geospatial format with polygons
-- **GeoPackage** (GPKG): OGC standard for geospatial data
-- **Parquet / GeoParquet**: Efficient columnar format for large datasets
-- **CSV**: Simple format with WKT geometries (also supports TSV and PSV)
+- **GeoJSON** — standard geospatial polygons
+- **GeoPackage** (`.gpkg`) — OGC standard
+- **Parquet / GeoParquet** — efficient columnar format for large datasets
+- **CSV / TSV / PSV** — text format with a `geometry` column containing WKT polygons
 
-Your input file should contain polygon geometries representing the areas you want to analyze (parcels, census blocks, suburbs, etc.).
+Your file should contain polygons representing the areas you want to analyse — parcels, mesh blocks, census blocks, suburbs, statistical areas, custom regions, etc. An `aoi_id` column identifies each row; if absent, sequential IDs are generated. Optional per-row `since` / `until` (string-typed) and `survey_resource_id` columns override bulk values per-AOI.
 
 ## Output Data
 
-The exporter writes results to `{output_dir}/final/` with the following structure:
+The exporter writes results to `{output_dir}/final/`:
 
 | File | Description |
 |------|-------------|
-| `rollup.csv` or `.parquet` | One row per AOI with summary statistics (counts, areas, confidences) |
-| `{class}.csv` | Per-class attribute tables (e.g. `roof.csv`, `building.csv`) |
+| `rollup.csv` or `.parquet` | One row per AOI with summary statistics (counts, areas, primary-feature attributes, scores, metadata) |
+| `rollup_data_dictionary.csv` | Customer-readable data dictionary for every column in `rollup` |
+| `{class}.csv` | Per-class attribute tables (e.g. `roof.csv`, `building.csv`, `swimming_pool.csv`, `solar_panel.csv`, `roof_instance.csv`, `building_lifecycle.csv`) |
+| `{class}_data_dictionary.csv` | Data dictionary for each per-class file |
 | `{class}_features.parquet` | Per-class GeoParquet with feature geometries (when `save_features=True`) |
 | `features.parquet` | All features combined as GeoParquet (when `save_features=True`) |
-| `feature_api_errors.csv` | AOIs where the Feature API returned errors |
+| `feature_api_errors.csv` | AOIs where the Feature API returned errors (with status code and message) |
 | `roof_age_errors.csv` | AOIs where the Roof Age API returned errors (US only) |
-| `latency_stats.csv` | API timing diagnostics |
-| `export_config.json` | Full record of export parameters and nmaipy version |
-| `README.md` | Auto-generated data dictionary describing all output files and columns |
+| `classes_availability.json` | Per-class availability metadata for the resolved system version |
+| `latency_stats.csv` | API latency diagnostics (P50, P90, P95, P99) |
+| `export_config.json` | Full record of export parameters and `nmaipy` version, used by the fast-path re-invocation detector |
+| `README.md` | **Auto-generated, customer-readable README** — column tables grouped by section, class hierarchy diagram, primary-feature selection explainer, full data dictionary for the export |
 
-A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing, enabling resume after interruption.
+A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing and enables resume after interruption.
 
-For detailed column-level documentation, refer to the auto-generated `README.md` inside each export's `final/` directory.
+For column-level documentation, open `final/README.md` from your export — it always reflects exactly what's in the files (including any 3D / prefer3d / pack-specific columns).
 
 ## S3 Output Support
 
-nmaipy can write output directly to Amazon S3. Pass an `s3://` URI as the output directory:
+Pass an `s3://` URI as `output_dir` to write directly to Amazon S3:
 
 ```python
 exporter = NearmapAIExporter(
@@ -278,41 +262,11 @@ exporter = NearmapAIExporter(
 exporter.run()
 ```
 
-AWS credentials are resolved automatically from environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`) or `~/.aws/credentials`. No additional nmaipy configuration is needed.
-
-The `cache_dir` parameter also accepts S3 URIs for cloud-native workflows, though local caching is faster for iterative development.
-
-## Examples
-
-**Quick start** — verify your setup with 10 US properties covering buildings, features, and roof age:
-```bash
-export API_KEY=your_api_key_here
-python run_10_test.py
-```
-
-**More examples** — see `examples.py` for complete, working examples covering:
-- Basic building/vegetation extraction
-- Damage assessment (Hurricane Beryl)
-- Urban planning (multi-pack)
-- Vegetation analysis
-- Pool detection
-- Large area gridding
-- Time series extraction
-- Unified roof age + feature export
-
-Example AOI files are provided in `data/examples/`:
-- `sydney_parcels.geojson` — Sydney CBD, Australia
-- `us_parcels.geojson` — Austin, Texas, USA
-- `large_area.geojson` — 2km x 2km Melbourne area (triggers auto-gridding)
+AWS credentials are resolved from environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`) or `~/.aws/credentials`. The `cache_dir` parameter also accepts S3 URIs, though local caching is faster for iterative development.
 
 ## Working with Large Areas
 
-nmaipy automatically handles large areas by:
-- Splitting them into manageable grid cells
-- Processing in parallel
-- Combining results seamlessly
-
-For areas larger than 1 sq km, the library will automatically use gridding:
+Any AOI larger than 1 km² is **automatically gridded** — split into ~200 m cells, processed in parallel, then recombined and deduplicated. No configuration needed for the common case:
 
 ```python
 exporter = NearmapAIExporter(
@@ -320,21 +274,24 @@ exporter = NearmapAIExporter(
     output_dir='large_area_results',
     country='us',
     packs=['building'],
-    aoi_grid_inexact=True,  # Allow mixing survey dates if needed
-    processes=16  # Use more processes for speed
+    processes=16,
 )
+exporter.run()
 ```
+
+By default, gridded AOIs require **every cell to succeed** (`aoi_grid_min_pct=100`). Use a lower value to allow partial coverage at the cost of mixing survey dates within an AOI; set `aoi_grid_inexact=True` to silence the multi-date warning.
 
 ## Performance Tips
 
-1. **Use parallel processing**: Set `processes` to the number of CPU cores available.
-2. **Tune chunk size**: `chunk_size` controls how many AOIs are grouped into each parallel work unit (default: 500). Smaller values give finer-grained parallelism and cheaper resume after interruption; larger values reduce overhead.
-3. **Cache API responses**: Use `cache_dir` to persist API responses to a directory. On subsequent runs with different parameters (e.g. different packs), cached responses are reused without re-fetching. By default, cache is stored in `{output_dir}/cache/`.
-4. **Filter by date**: Use `since` and `until` to restrict to specific time periods, reducing data volume.
+1. **Parallel processing**: set `processes` to roughly the number of CPU cores available.
+2. **Tune chunk size**: `chunk_size` (default 500) groups AOIs per parallel work unit. Smaller = finer parallelism and cheaper resume; larger = lower overhead.
+3. **Cache API responses**: `cache_dir` persists API responses to a directory. Re-runs with the same parameters reuse the cache. Defaults to `{output_dir}/cache/`.
+4. **Filter by date**: `since` / `until` restrict to specific time periods and reduce data volume.
+5. **Fast-path re-invocation**: if `final/README.md` and `export_config.json` already exist and the config matches the current call, the exporter returns in ~1s instead of rebuilding. Pure perf knobs (`processes`, `threads`, `chunk_size`, `cache_dir`) are ignored when comparing configs.
 
 ## Command Line Interface
 
-### Feature API Export
+Every Python API option has a CLI equivalent. See `python nmaipy/exporter.py --help` for the full list. Highlights:
 
 ```bash
 python nmaipy/exporter.py \
@@ -347,20 +304,29 @@ python nmaipy/exporter.py \
 ```
 
 Key options:
-- `--packs`: AI packs to extract (building, vegetation, surfaces, pools, solar, damage, etc.)
-- `--roof-age`: Include Roof Age API data (US only)
-- `--roof-age-dataset`: Roof Age dataset to query when `--roof-age` is set. Aliases `latest` (default — pointer maintained by the API team, currently serving A.0), `A.0`, `A.1`; any other value is sent to the API as a literal resource UUID, so newly published datasets can be targeted without a code change. Note that the dataset alias is not the same thing as the model version: each row's `model_version` field records which model produced that record, and is the source of truth when reasoning about model behaviour
-- `--save-features`: Save per-class GeoParquet files with feature geometries
-- `--tabular-file-format`: Format for tabular output files — rollup and per-class attribute files (`csv` or `parquet`, default: `csv`)
-- `--cache-dir`: Directory for caching API responses
-- `--no-cache`: Disable caching entirely
-- `--primary-decision`: Feature selection method (`largest_intersection`, `nearest`, `optimal`)
-- `--since` / `--until`: Filter by survey date range. When `--roof-age` is set, these also drive the Roof Age API's `sinceAsOfDate` / `untilAsOfDate` parameters (returns roof state restricted to the date range). Per-AOI `since` / `until` string columns in the input file override the bulk values per row, matching Feature API semantics. Cutoff parameters are not supported on the A.0 dataset — combining either with `--roof-age-dataset A.0` is rejected with a friendly error. Per-AOI columns must be **string-typed** `YYYY-MM-DD` (parsed-as-datetime columns are rejected loudly at AOI-load)
-- `--max-retries`: Maximum API retry attempts (default: 10)
 
-Run `python nmaipy/exporter.py --help` for all options.
+| Flag | What it does |
+|------|--------------|
+| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pools`, `solar`, `damage`, etc.) |
+| `--include` | Additional calculated includes (`roofSpotlightIndex`, `defensibleSpace`, `hurricaneScore`, `windScore`, `hailScore`, `wildfireScore`, `windHailRisk`) |
+| `--roof-age` | Include Roof Age API data (US only) |
+| `--roof-age-dataset` | `latest` (default), `A.0`, `A.1`, or any raw resource UUID |
+| `--prefer3d` | Prefer 3D surveys, fall back to 2D per AOI when no 3D coverage exists in the window. Mutually exclusive with `--only3d` |
+| `--only3d` | Restrict every query to 3D surveys (no fallback) |
+| `--system-version-prefix` | Restrict to a specific AI generation (e.g. `gen6-`) |
+| `--system-version` | Pin to an exact version (e.g. `gen6-glowing_grove-1.0`) |
+| `--rapid` | Consider rapid post-catastrophe surveys (damage workflows) |
+| `--since` / `--until` | Filter by survey date range (`YYYY-MM-DD`). Per-AOI columns override per-row. With `--roof-age`, drives `sinceAsOfDate` / `untilAsOfDate` for historical roof state |
+| `--save-features` | Save per-class GeoParquet files with feature geometries |
+| `--tabular-file-format` | `csv` (default) or `parquet` for rollup and per-class attribute files |
+| `--primary-decision` | Feature selection method: `largest_intersection`, `nearest`, or `optimal` |
+| `--cache-dir` / `--no-cache` | Persist API responses to a directory / disable caching |
+| `--max-retries` | Maximum API retry attempts (default 10) |
+| `--api-key` | Override the `API_KEY` env var |
 
 ### Standalone Roof Age Export (US Only)
+
+If you only need roof age data with no Feature API calls:
 
 ```bash
 python -m nmaipy.roof_age_exporter \
@@ -371,35 +337,31 @@ python -m nmaipy.roof_age_exporter \
     --output-format both
 ```
 
-The standalone exporter accepts the same `--roof-age-dataset`, `--until`, and `--since` flags (with the same A.0-dataset rejection rule and per-AOI string-column overrides) as the unified exporter — useful when you only need roof age data without any Feature API calls.
+Accepts the same `--roof-age-dataset`, `--until`, `--since` flags as the unified exporter (with the same A.0-dataset rejection rule). See `python -m nmaipy.roof_age_exporter --help` for all options.
 
-Run `python -m nmaipy.roof_age_exporter --help` for all options.
+## Examples
 
-## Getting Help
-
-- **Examples**: See `examples.py` for common use cases
-- **Installation**: See `INSTALL.md` for detailed installation options
-- **Notebooks**: Check the `notebooks/` directory for Jupyter notebook tutorials
-- **Issues**: Report bugs or request features on [GitHub](https://github.com/nearmap/nmaipy)
+- **`run_10_test.py`** — the 10-property smoke test described in Quick Start.
+- **`examples.py`** — working examples covering building / vegetation extraction, damage assessment, multi-pack urban planning, vegetation analysis, pool detection, large-area gridding, time-series, and unified roof age.
+- **`data/examples/`** — sample AOI files:
+  - `sydney_parcels.geojson` — Sydney CBD, AU
+  - `us_parcels.geojson` — Austin, TX
+  - `large_area.geojson` — 2 km × 2 km Melbourne (triggers auto-gridding)
+- **`notebooks/Coverage_Checker.ipynb`** — Jupyter notebook for coverage checking.
 
 ## Requirements
 
-- Python 3.12+
-- Nearmap API key (contact Nearmap for access)
-- 4GB+ RAM recommended for large extractions
-- AWS credentials for S3 output (optional)
+- **Python 3.12+**
+- **Nearmap API key** (contact Nearmap for access)
+- **Memory**: assume ~1 GB per process for large exports. The default `processes=N` (CPU count) on a 16-core box with `chunk_size=500` typically uses 10–20 GB.
+- **AWS credentials** (only if writing to S3)
 
-## Advanced: Building a Conda Package
+## Getting Help
 
-For system administrators who want to create a local conda package:
-
-```bash
-conda build conda.recipe
-conda install --use-local nmaipy
-```
-
-This will create a conda package that can be shared internally or uploaded to a conda channel.
+- **Issues / feature requests**: [GitHub](https://github.com/nearmap/nmaipy/issues)
+- **API key & access**: contact Nearmap
+- **Column-level documentation**: open `final/README.md` inside your export's output directory
 
 ## License
 
-See LICENSE file for details.
+See `LICENSE` for details.
