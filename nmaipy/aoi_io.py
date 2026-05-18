@@ -214,6 +214,24 @@ def read_from_file(
     if len(parcels_gdf) == 0:
         raise RuntimeError(f"No valid parcels in {path=}")
 
+    # Resolve "aoi_id is both an index level and a column label" up-front: a
+    # downstream merge(on=id_column) would raise ValueError on this shape, and
+    # pandas commonly produces it via parquet round-trip — pandas writes the
+    # index name into parquet metadata even for a RangeIndex carrying no values,
+    # and the read back materialises a named-but-data-less index alongside the
+    # real column. The two ways to produce this shape need opposite resolutions:
+    #   * RangeIndex named id_column: the index has no information, the column
+    #     is authoritative — drop the index.
+    #   * Real-data index named id_column with a same-named column: the index
+    #     has values that may differ from the column; preserving the index is
+    #     the only conservative choice — drop the column. (No known producer
+    #     hits this path; if you find one, please open an issue.)
+    if parcels_gdf.index.name == id_column and id_column in parcels_gdf.columns:
+        if isinstance(parcels_gdf.index, pd.RangeIndex):
+            parcels_gdf = parcels_gdf.reset_index(drop=True)
+        else:
+            parcels_gdf = parcels_gdf.drop(columns=[id_column])
+
     # Check that identifier is unique
     if parcels_gdf.index.name != id_column:
         if parcels_gdf.index.name is not None:
