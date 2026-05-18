@@ -17,6 +17,8 @@ from typing import Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely import make_valid
+from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
 
@@ -148,6 +150,67 @@ def _compute_iou(geom_a, geom_b) -> float:
         return 0.0
 
 
+def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> float:
+    """
+    Sum the area of children.intersection(parent), tolerating invalid geometries.
+
+    The Feature API occasionally returns geometries that GEOS rejects with
+    ``GEOSException`` (e.g., self-intersecting rings, "side location conflict")
+    when used directly in topological operations. A single bad geometry will
+    fail the vectorized ``GeoSeries.intersection`` call and, in worker
+    contexts, kill the surrounding chunk. We retry such cases per-row with
+    ``shapely.make_valid`` on both operands and skip any row that still
+    fails, logging a warning so callers can see how often this fires.
+
+    Args:
+        children: GeoSeries of child geometries (already filtered to those
+                  that intersect the parent).
+        parent: Single parent geometry.
+        class_id: Optional class id, included in the warning for debuggability.
+
+    Returns:
+        Total intersection area in the input CRS units (square meters when
+        called from ``calculate_child_feature_attributes``).
+    """
+    try:
+        return float(children.intersection(parent).area.sum())
+    except GEOSException:
+        pass
+
+    parent_fixed = parent
+    if not parent.is_valid:
+        try:
+            parent_fixed = make_valid(parent)
+        except GEOSException:
+            log.warning(
+                "Could not make parent geometry valid (class_id=%s); skipping intersection.",
+                class_id,
+            )
+            return 0.0
+
+    total = 0.0
+    skipped = 0
+    for child in children.values:
+        if child is None or child.is_empty:
+            continue
+        try:
+            total += child.intersection(parent_fixed).area
+        except GEOSException:
+            try:
+                fixed = make_valid(child)
+                total += fixed.intersection(parent_fixed).area
+            except GEOSException:
+                skipped += 1
+    if skipped:
+        log.warning(
+            "Skipped %d child geometr%s in intersection (class_id=%s) due to invalid topology after make_valid.",
+            skipped,
+            "y" if skipped == 1 else "ies",
+            class_id,
+        )
+    return total
+
+
 def calculate_child_feature_attributes(
     parent_geometry,
     components: list,
@@ -242,7 +305,9 @@ def calculate_child_feature_attributes(
         total_intersection_area = 0.0
         max_confidence = None
         if mask.any():
-            total_intersection_area = matching_projected[mask].intersection(parent_projected).area.sum()
+            total_intersection_area = _safe_intersection_area(
+                matching_projected[mask], parent_projected, class_id=class_id
+            )
             if "confidence" in matching_features.columns:
                 conf = matching_features["confidence"].values[mask.values]
                 valid = conf[pd.notna(conf)]
