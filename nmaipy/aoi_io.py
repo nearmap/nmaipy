@@ -214,15 +214,23 @@ def read_from_file(
     if len(parcels_gdf) == 0:
         raise RuntimeError(f"No valid parcels in {path=}")
 
-    # Parquet round-trip artifact: pandas writes the index name into the parquet's
-    # pandas metadata even for a RangeIndex carrying no data. Reading the file back
-    # then yields index.name == id_column AND a separate id_column carrying the
-    # actual values — and any downstream merge(on=id_column) raises
-    # "is both an index level and a column label, which is ambiguous". The column
-    # is authoritative; drop the misleading index name so the block below
-    # promotes the column to the index cleanly.
+    # Resolve "aoi_id is both an index level and a column label" up-front: a
+    # downstream merge(on=id_column) would raise ValueError on this shape, and
+    # pandas commonly produces it via parquet round-trip — pandas writes the
+    # index name into parquet metadata even for a RangeIndex carrying no values,
+    # and the read back materialises a named-but-data-less index alongside the
+    # real column. The two ways to produce this shape need opposite resolutions:
+    #   * RangeIndex named id_column: the index has no information, the column
+    #     is authoritative — drop the index.
+    #   * Real-data index named id_column with a same-named column: the index
+    #     has values that may differ from the column; preserving the index is
+    #     the only conservative choice — drop the column. (No known producer
+    #     hits this path; if you find one, please open an issue.)
     if parcels_gdf.index.name == id_column and id_column in parcels_gdf.columns:
-        parcels_gdf = parcels_gdf.reset_index(drop=True)
+        if isinstance(parcels_gdf.index, pd.RangeIndex):
+            parcels_gdf = parcels_gdf.reset_index(drop=True)
+        else:
+            parcels_gdf = parcels_gdf.drop(columns=[id_column])
 
     # Check that identifier is unique
     if parcels_gdf.index.name != id_column:

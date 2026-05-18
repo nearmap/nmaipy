@@ -352,6 +352,44 @@ class TestRobustFileReading:
         finally:
             Path(parquet_path).unlink()
 
+    def test_parquet_with_real_aoi_id_index_and_same_named_column_prefers_index(self):
+        """Companion to the RangeIndex case: if the index is NOT a RangeIndex but
+        is named aoi_id AND there's also an aoi_id column, the index carries real
+        values that may not match the column. The conservative resolution is to
+        keep the index and drop the column. No known producer hits this path, but
+        the explicit branch documents the asymmetric handling."""
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [999, 999, 999],  # deliberately wrong values
+                "name": ["A", "B", "C"],
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        )
+        # Int64Index (real data, not a RangeIndex) named aoi_id, alongside a column
+        # of the same name carrying different values.
+        gdf.index = pd.Index([100, 200, 300], name=AOI_ID_COLUMN_NAME)
+
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+            parquet_path = f.name
+
+        try:
+            gdf.to_parquet(parquet_path)
+
+            result = parcels.read_from_file(Path(parquet_path))
+
+            assert result.index.name == AOI_ID_COLUMN_NAME
+            assert AOI_ID_COLUMN_NAME not in result.columns
+            # Index values (real data) preferred over column values (which might
+            # have been clobbered by a separate operation).
+            assert list(result.index) == [100, 200, 300]
+        finally:
+            Path(parquet_path).unlink()
+
     def test_parquet_with_user_index_column_preserved(self):
         """If the input has an unnamed RangeIndex AND a pre-existing column called
         'index' (e.g. from a lazy pd.to_parquet()), the user's column must survive
