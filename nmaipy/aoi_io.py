@@ -214,6 +214,16 @@ def read_from_file(
     if len(parcels_gdf) == 0:
         raise RuntimeError(f"No valid parcels in {path=}")
 
+    # Parquet round-trip artifact: pandas writes the index name into the parquet's
+    # pandas metadata even for a RangeIndex carrying no data. Reading the file back
+    # then yields index.name == id_column AND a separate id_column carrying the
+    # actual values — and any downstream merge(on=id_column) raises
+    # "is both an index level and a column label, which is ambiguous". The column
+    # is authoritative; drop the misleading index name so the block below
+    # promotes the column to the index cleanly.
+    if parcels_gdf.index.name == id_column and id_column in parcels_gdf.columns:
+        parcels_gdf = parcels_gdf.reset_index(drop=True)
+
     # Check that identifier is unique
     if parcels_gdf.index.name != id_column:
         if parcels_gdf.index.name is not None:
