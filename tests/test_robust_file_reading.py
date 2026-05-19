@@ -301,6 +301,95 @@ class TestRobustFileReading:
         finally:
             Path(parquet_path).unlink()
 
+    def test_parquet_with_aoi_id_as_both_index_name_and_column(self):
+        """Regression: a parquet whose pandas metadata names the RangeIndex 'aoi_id'
+        AND also stores an aoi_id column must not pass through with both. The downstream
+        merge(on='aoi_id') in process_chunk would raise
+        'aoi_id is both an index level and a column label, which is ambiguous'.
+
+        This shape is produced by callers that forget to reset_index(drop=True) before
+        to_parquet when the GeoDataFrame inherited a named RangeIndex (e.g. reusing an
+        nmaipy output as the next input, or pipelines that add aoi_id as a column on
+        top of an already-named index).
+        """
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [10, 20, 30],
+                "name": ["A", "B", "C"],
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        )
+        # Named RangeIndex that shares the name of an existing column — the exact
+        # shape parquet preserves verbatim through the round-trip.
+        gdf.index = pd.RangeIndex(0, 3, name=AOI_ID_COLUMN_NAME)
+
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+            parquet_path = f.name
+
+        try:
+            gdf.to_parquet(parquet_path)
+
+            # Confirm the parquet has the broken shape we're guarding against
+            roundtrip = pd.read_parquet(parquet_path)
+            assert roundtrip.index.name == AOI_ID_COLUMN_NAME
+            assert AOI_ID_COLUMN_NAME in roundtrip.columns
+
+            result = parcels.read_from_file(Path(parquet_path))
+
+            assert result.index.name == AOI_ID_COLUMN_NAME, "aoi_id should be the index"
+            assert AOI_ID_COLUMN_NAME not in result.columns, (
+                "aoi_id must appear only as the index, not also as a column"
+            )
+            assert list(result.index) == [10, 20, 30], "aoi_id values should be preserved"
+            # And the merge that previously raised must now succeed.
+            other = pd.DataFrame({"extra": [1, 2, 3]}, index=pd.Index([10, 20, 30], name=AOI_ID_COLUMN_NAME))
+            result.merge(other, on=AOI_ID_COLUMN_NAME, how="left")
+        finally:
+            Path(parquet_path).unlink()
+
+    def test_parquet_with_real_aoi_id_index_and_same_named_column_prefers_index(self):
+        """Companion to the RangeIndex case: if the index is NOT a RangeIndex but
+        is named aoi_id AND there's also an aoi_id column, the index carries real
+        values that may not match the column. The conservative resolution is to
+        keep the index and drop the column. No known producer hits this path, but
+        the explicit branch documents the asymmetric handling."""
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [999, 999, 999],  # deliberately wrong values
+                "name": ["A", "B", "C"],
+                "geometry": [
+                    Polygon([(144.9, -37.8), (145.0, -37.8), (145.0, -37.9), (144.9, -37.9)]),
+                    Polygon([(144.9, -37.7), (145.0, -37.7), (145.0, -37.8), (144.9, -37.8)]),
+                    Polygon([(144.9, -37.6), (145.0, -37.6), (145.0, -37.7), (144.9, -37.7)]),
+                ],
+            },
+            crs="EPSG:4326",
+        )
+        # Int64Index (real data, not a RangeIndex) named aoi_id, alongside a column
+        # of the same name carrying different values.
+        gdf.index = pd.Index([100, 200, 300], name=AOI_ID_COLUMN_NAME)
+
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+            parquet_path = f.name
+
+        try:
+            gdf.to_parquet(parquet_path)
+
+            result = parcels.read_from_file(Path(parquet_path))
+
+            assert result.index.name == AOI_ID_COLUMN_NAME
+            assert AOI_ID_COLUMN_NAME not in result.columns
+            # Index values (real data) preferred over column values (which might
+            # have been clobbered by a separate operation).
+            assert list(result.index) == [100, 200, 300]
+        finally:
+            Path(parquet_path).unlink()
+
     def test_parquet_with_user_index_column_preserved(self):
         """If the input has an unnamed RangeIndex AND a pre-existing column called
         'index' (e.g. from a lazy pd.to_parquet()), the user's column must survive
