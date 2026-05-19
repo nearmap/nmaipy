@@ -8,7 +8,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 from shapely.wkt import loads
 
 from nmaipy import parcels
@@ -1466,8 +1466,6 @@ class TestCalculateChildFeatureAttributes:
         per-row with ``shapely.make_valid``; this test pins that behavior end
         to end through ``calculate_child_feature_attributes``.
         """
-        from shapely.geometry import Polygon
-
         parent = self._parent_box()
         components = self._make_components([(self.STAINING_CLASS_ID, "Roof Staining")])
 
