@@ -342,9 +342,9 @@ class TestRobustFileReading:
             result = parcels.read_from_file(Path(parquet_path))
 
             assert result.index.name == AOI_ID_COLUMN_NAME, "aoi_id should be the index"
-            assert AOI_ID_COLUMN_NAME not in result.columns, (
-                "aoi_id must appear only as the index, not also as a column"
-            )
+            assert (
+                AOI_ID_COLUMN_NAME not in result.columns
+            ), "aoi_id must appear only as the index, not also as a column"
             assert list(result.index) == [10, 20, 30], "aoi_id values should be preserved"
             # And the merge that previously raised must now succeed.
             other = pd.DataFrame({"extra": [1, 2, 3]}, index=pd.Index([10, 20, 30], name=AOI_ID_COLUMN_NAME))

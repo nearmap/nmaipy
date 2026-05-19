@@ -314,9 +314,7 @@ def test_flatten_roof_attributes_handles_null_histograms():
                         "areaSqm": 0,
                         "areaSqft": 0,
                         "ratio": 0,
-                        "confidenceStats": {
-                            "histograms": [{"binType": "default", "ratios": None}]
-                        },
+                        "confidenceStats": {"histograms": [{"binType": "default", "ratios": None}]},
                     },
                 ],
             }
@@ -325,6 +323,6 @@ def test_flatten_roof_attributes_handles_null_histograms():
 
     result = flatten_roof_attributes([roof], country="us")
 
-    assert not any("confidence_stats_" in k for k in result), (
-        "No histogram bin columns should be emitted when histograms/ratios are null"
-    )
+    assert not any(
+        "confidence_stats_" in k for k in result
+    ), "No histogram bin columns should be emitted when histograms/ratios are null"
