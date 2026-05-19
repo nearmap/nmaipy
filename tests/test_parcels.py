@@ -8,7 +8,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 from shapely.wkt import loads
 
 from nmaipy import parcels
@@ -1456,6 +1456,42 @@ class TestCalculateChildFeatureAttributes:
         # Ratio should be ~0.5 (half coverage)
         assert 0.45 <= result["roof_staining_ratio"] <= 0.55
         assert result["roof_staining_confidence"] == 0.85
+
+    def test_invalid_child_geometry_survives_via_make_valid(self):
+        """A self-intersecting child polygon must not crash the rollup.
+
+        The Feature API occasionally returns invalid topology (e.g., a bowtie).
+        GEOS rejects ``GeoSeries.intersection(parent)`` on these inputs with
+        ``GEOSException``. The wrapper in ``_safe_intersection_area`` retries
+        per-row with ``shapely.make_valid``; this test pins that behavior end
+        to end through ``calculate_child_feature_attributes``.
+        """
+        parent = self._parent_box()
+        components = self._make_components([(self.STAINING_CLASS_ID, "Roof Staining")])
+
+        # Bowtie spanning the parent box — invalid topology, but make_valid
+        # splits it into two triangles whose intersection with the parent has
+        # well-defined area.
+        bowtie = Polygon(
+            [
+                (self.SYD_LON, self.SYD_LAT),
+                (self.SYD_LON + self.D, self.SYD_LAT),
+                (self.SYD_LON, self.SYD_LAT + self.D),
+                (self.SYD_LON + self.D, self.SYD_LAT + self.D),
+                (self.SYD_LON, self.SYD_LAT),
+            ]
+        )
+        assert not bowtie.is_valid
+
+        child_features = self._make_child_features([(self.STAINING_CLASS_ID, bowtie, 0.7)])
+
+        result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+
+        assert result is not None
+        assert result["roof_staining_present"] == "Y"
+        assert result["roof_staining_area_sqm"] > 0
+        # make_valid'd bowtie covers exactly half the parent box (two triangles).
+        assert 0.45 <= result["roof_staining_ratio"] <= 0.55
 
     def test_matching_children_no_intersection(self):
         """When matching child features exist but don't intersect, emit zeros."""
