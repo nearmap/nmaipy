@@ -181,6 +181,35 @@ class TestGenericPatterns:
         assert f"RCCS `{bin_type}` histogram" in meta.description
         assert f"bin {expected_bin_idx}" in meta.description
 
+    @pytest.mark.parametrize(
+        "name, expected_scope_phrase, expected_class_phrase",
+        [
+            # Regression: short-first alternation in the regex would let
+            # ``primary_roof_`` match a ``primary_roof_instance_`` column,
+            # splitting class as ``instance_structural_damage`` and rendering
+            # the wrong scope_phrase. Longest-first alternation prevents this.
+            (
+                "primary_roof_instance_structural_damage_confidence_stats_default_bin_0",
+                "on the primary roof age instance of the parcel",
+                "structural damage",
+            ),
+            (
+                "primary_building_lifecycle_structural_damage_confidence_stats_extreme_bin_2",
+                "on the primary building lifecycle of the parcel",
+                "structural damage",
+            ),
+            (
+                "primary_child_roof_age_zinc_staining_confidence_stats_default_bin_9",
+                "on the primary linked roof age instance of the parent feature",
+                "zinc staining",
+            ),
+        ],
+    )
+    def test_rccs_bin_pattern_resolves_longest_scope_first(self, name, expected_scope_phrase, expected_class_phrase):
+        meta = lookup_column(name, area_unit="sqft", class_label="parcel")
+        assert expected_scope_phrase in meta.description
+        assert expected_class_phrase in meta.description
+
 
 # ---------------------------------------------------------------------------
 # 4. Unknown columns

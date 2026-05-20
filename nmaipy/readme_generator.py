@@ -656,13 +656,18 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
         # The component name lives between an optional scope prefix and the
         # ``_confidence_stats_..._bin_N`` suffix; recover it so we can list
         # exactly which components RCCS was returned for in this export.
+        # SCOPE_PREFIXES is iterated longest-first so e.g.
+        # ``primary_roof_instance_`` is matched before its ``primary_roof_``
+        # substring — otherwise we'd record component ``instance_<x>`` for any
+        # column scoped to the roof-instance / building-lifecycle scopes.
+        scopes_longest_first = sorted(SCOPE_PREFIXES, key=len, reverse=True)
         components: set[str] = set()
         for col in rollup_columns:
             for marker in ("_confidence_stats_default_bin_", "_confidence_stats_extreme_bin_"):
                 if marker not in col:
                     continue
                 prefix = col.split(marker, 1)[0]
-                for scope in SCOPE_PREFIXES:
+                for scope in scopes_longest_first:
                     if prefix.startswith(scope):
                         prefix = prefix[len(scope) :]
                         break

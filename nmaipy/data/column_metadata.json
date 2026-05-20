@@ -797,7 +797,7 @@
       "source": "base ai model"
     },
     {
-      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_confidence_stats_default_bin_(?P<bin_idx>\\d+)$",
+      "regex": "^(?P<scope>primary_building_lifecycle_|primary_child_roof_age_|primary_roof_instance_|primary_swimming_pool_|primary_child_roof_|primary_solar_panel_|primary_building_|primary_roof_)?(?P<class>.+?)_confidence_stats_default_bin_(?P<bin_idx>\\d+)$",
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",
@@ -805,7 +805,7 @@
       "source": "base ai model"
     },
     {
-      "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_confidence_stats_extreme_bin_(?P<bin_idx>\\d+)$",
+      "regex": "^(?P<scope>primary_building_lifecycle_|primary_child_roof_age_|primary_roof_instance_|primary_swimming_pool_|primary_child_roof_|primary_solar_panel_|primary_building_|primary_roof_)?(?P<class>.+?)_confidence_stats_extreme_bin_(?P<bin_idx>\\d+)$",
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",

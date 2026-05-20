@@ -189,6 +189,41 @@ class TestHasRccsColumns:
         assert gen._has_rccs_columns(columns) is False
 
 
+class TestGenerateRccsSection:
+    """The RCCS section recovers component names from scoped column names."""
+
+    def test_strips_primary_roof_scope(self):
+        gen = ReadmeGenerator(output_dir=Path("."))
+        columns = {"primary_roof_structural_damage_confidence_stats_default_bin_0"}
+        section = gen._generate_rccs_section(columns)
+        assert "- `structural_damage`" in section
+
+    def test_strips_longest_scope_prefix(self):
+        # Regression: short-first scope iteration would match ``primary_roof_``
+        # on a ``primary_roof_instance_…`` column and record component
+        # ``instance_structural_damage`` instead of ``structural_damage``.
+        gen = ReadmeGenerator(output_dir=Path("."))
+        columns = {
+            "primary_roof_instance_structural_damage_confidence_stats_default_bin_0",
+            "primary_building_lifecycle_structural_damage_confidence_stats_extreme_bin_2",
+            "primary_child_roof_age_zinc_staining_confidence_stats_default_bin_9",
+        }
+        section = gen._generate_rccs_section(columns)
+        assert "- `structural_damage`" in section
+        assert "- `zinc_staining`" in section
+        # Make sure the prefix-eating bug doesn't reappear.
+        assert "instance_structural_damage" not in section
+        assert "lifecycle_structural_damage" not in section
+        assert "age_zinc_staining" not in section
+
+    def test_strips_low_conf_prefix(self):
+        gen = ReadmeGenerator(output_dir=Path("."))
+        columns = {"primary_roof_low_conf_roof_ponding_confidence_stats_extreme_bin_1"}
+        section = gen._generate_rccs_section(columns)
+        assert "- `roof_ponding`" in section
+        assert "low_conf_roof_ponding" not in section
+
+
 class TestRoofAgeDatasetSection:
     """The roof age section surfaces dataset / untilAsOfDate selection from export_config.json."""
 
