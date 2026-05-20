@@ -161,6 +161,26 @@ class TestGenericPatterns:
         assert meta.dtype == "float (quantised uint8)"
         assert "Null when the corresponding area is 0" in meta.description
 
+    @pytest.mark.parametrize(
+        "name, bin_type, expected_bin_idx",
+        [
+            ("primary_roof_structural_damage_confidence_stats_default_bin_0", "default", "0"),
+            ("primary_roof_structural_damage_confidence_stats_default_bin_17", "default", "17"),
+            ("primary_roof_zinc_staining_confidence_stats_extreme_bin_2", "extreme", "2"),
+            # Per-class (unscoped) and low_conf variants must also resolve.
+            ("structural_damage_confidence_stats_default_bin_5", "default", "5"),
+            ("low_conf_roof_ponding_confidence_stats_extreme_bin_1", "extreme", "1"),
+        ],
+    )
+    def test_rccs_bin_pattern(self, name, bin_type, expected_bin_idx):
+        meta = lookup_column(name, area_unit="sqft", class_label="parcel")
+        assert meta.dtype == "float"
+        assert meta.min == "0.0"
+        assert meta.max == "1.0"
+        assert meta.source == "base ai model"
+        assert f"RCCS `{bin_type}` histogram" in meta.description
+        assert f"bin {expected_bin_idx}" in meta.description
+
 
 # ---------------------------------------------------------------------------
 # 4. Unknown columns

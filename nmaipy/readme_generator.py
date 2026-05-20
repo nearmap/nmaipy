@@ -23,6 +23,7 @@ from nmaipy.column_metadata import (
     DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
+    SCOPE_PREFIXES,
     evidence_type_legend,
     lookup_column,
 )
@@ -140,6 +141,7 @@ class ReadmeGenerator:
         has_rsi = self._has_rsi_columns(rollup_columns)
         has_roof_age = self._has_roof_age_columns(rollup_columns)
         has_defensible_space = self._has_defensible_space_columns(rollup_columns)
+        has_rccs = self._has_rccs_columns(rollup_columns)
         area_unit = self._detect_area_unit()
 
         sections = []
@@ -160,6 +162,8 @@ class ReadmeGenerator:
             sections.append(self._generate_roof_age_section())
         if has_defensible_space:
             sections.append(self._generate_defensible_space_section(area_unit))
+        if has_rccs:
+            sections.append(self._generate_rccs_section(rollup_columns))
 
         sections.append(self._generate_data_notes(area_unit))
         sections.append(self._generate_footer())
@@ -322,6 +326,16 @@ class ReadmeGenerator:
     def _has_defensible_space_columns(self, columns: set[str]) -> bool:
         """Check if defensible space columns are present."""
         return any("defensible_space_zone_" in c for c in columns)
+
+    def _has_rccs_columns(self, columns: set[str]) -> bool:
+        """Check if Roof Condition Confidence Stats (RCCS) histogram columns are present.
+
+        RCCS columns are emitted only when the export was run with
+        ``include=roofConditionConfidenceStats``; the suffix
+        ``_confidence_stats_default_bin_`` or ``_confidence_stats_extreme_bin_``
+        is unique to RCCS.
+        """
+        return any("_confidence_stats_default_bin_" in c or "_confidence_stats_extreme_bin_" in c for c in columns)
 
     def _generate_header(self) -> str:
         """Generate the README header."""
@@ -631,6 +645,103 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
         )
 
         return "\n".join(lines)
+
+    def _generate_rccs_section(self, rollup_columns: set[str]) -> str:
+        """Generate the Roof Condition Confidence Stats (RCCS) section.
+
+        Lists the roof condition components for which RCCS histograms are
+        present in the rollup, then explains the per-bin column shape and how
+        to interpret the `default` / `extreme` histograms.
+        """
+        # The component name lives between an optional scope prefix and the
+        # ``_confidence_stats_..._bin_N`` suffix; recover it so we can list
+        # exactly which components RCCS was returned for in this export.
+        components: set[str] = set()
+        for col in rollup_columns:
+            for marker in ("_confidence_stats_default_bin_", "_confidence_stats_extreme_bin_"):
+                if marker not in col:
+                    continue
+                prefix = col.split(marker, 1)[0]
+                for scope in SCOPE_PREFIXES:
+                    if prefix.startswith(scope):
+                        prefix = prefix[len(scope) :]
+                        break
+                if prefix.startswith("low_conf_"):
+                    prefix = prefix[len("low_conf_") :]
+                components.add(prefix)
+                break
+
+        component_lines = ["", "**Roof condition components with RCCS histograms in this export:**", ""]
+        for comp in sorted(components):
+            component_lines.append(f"- `{comp}`")
+
+        # Wrapper-level prose comes from spec_raw_fields.json so API team
+        # edits to the RCCS schema description auto-flow into this README.
+        # Falls back to the local explainer if the spec hasn't been
+        # regenerated since RCCS was added to the API.
+        rccs_meta = lookup_column("rccs")
+        spec_paragraph = "" if rccs_meta.is_unknown() else rccs_meta.description
+
+        return "\n".join(
+            [
+                "## Roof Condition Confidence Stats (RCCS) Columns",
+                "",
+                spec_paragraph
+                or (
+                    "Present only when the export was run with "
+                    "`include=roofConditionConfidenceStats` (Gen6 only; available in the US, AU, NZ)."
+                ),
+                "",
+                "RCCS surfaces the per-pixel confidence distribution that underlies each roof "
+                "condition detection (ponding, rusting, staining, structural damage, repairs, "
+                "zinc staining, etc.). The single `*_confidence` score these components also "
+                "carry collapses that distribution to one number; RCCS exposes the full shape so "
+                "downstream consumers can apply their own thresholds or roll their own scoring. "
+                "Gen6 only; available in the US, AU, NZ.",
+                *component_lines,
+                "",
+                "Note: RCCS covers all roof condition attributes — not just structural damage. "
+                "Cosmetic / maintenance components like staining, ponding, worn shingles and "
+                "repair patches each get their own histogram, with the same `condition is "
+                "present` axis interpreted relative to that component.",
+                "",
+                "### Column shape",
+                "",
+                "For each roof condition component `<component>`, RCCS emits two histograms:",
+                "",
+                "- **`<component>_confidence_stats_default_bin_{0..17}`** — 18 bins ordered from "
+                "least to most evidence that the component condition is present. Bins are evenly "
+                "spaced except the outer two edges, which are narrower so that high- and "
+                "low-extreme detail isn't lost in a wide bucket.",
+                "- **`<component>_confidence_stats_extreme_bin_{0..2}`** — 3 bins isolating the "
+                "tails of the same distribution. Bin 0 is the high-confidence-absent extreme, "
+                "bin 1 is the wide middle band covering ~0.992 of the confidence range, bin 2 is "
+                "the high-confidence-present extreme.",
+                "",
+                "Each bin value is a fraction in `[0, 1]` — the share of roof pixels whose "
+                "per-pixel confidence that the component is present fell into that bin. Bin "
+                "values within one `binType` for one component sum to ~1.0.",
+                "",
+                "In the rollup, RCCS columns are scoped to the parcel's primary roof "
+                "(`primary_roof_<component>_confidence_stats_...`); per-class files (e.g. "
+                "`roof.csv`) carry the same columns unscoped, one row per feature.",
+                "",
+                "### Interpreting the histograms",
+                "",
+                "- Mass concentrated in **low-index `default` bins** (or in `extreme_bin_0`) "
+                "indicates strong evidence the condition is **absent** across the roof.",
+                "- Mass concentrated in **high-index `default` bins** (or in `extreme_bin_2`) "
+                "indicates strong evidence the condition is **present**.",
+                "- Mass piled into the middle (e.g. `extreme_bin_1` ≈ 1.0) means the model is "
+                "**not committed** — useful as a low-confidence flag.",
+                "",
+                "For more details, see:",
+                "- https://help.nearmap.com/kb/articles/1749-roof-condition-confidence-stats-rccs",
+                "- https://help.nearmap.com/kb/articles/1752-rccs-output",
+                "- https://help.nearmap.com/kb/articles/1765-rccs-frequently-asked-questions-faq",
+                "",
+            ]
+        )
 
     def _generate_roof_age_section(self) -> str:
         """Generate the Roof Age columns section."""
