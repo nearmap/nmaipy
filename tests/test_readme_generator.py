@@ -169,6 +169,26 @@ class TestHasRoofAgeColumns:
         assert gen._has_roof_age_columns(columns) is False
 
 
+class TestHasRccsColumns:
+    """Tests for Roof Condition Confidence Stats (RCCS) column detection."""
+
+    def test_has_rccs_columns_with_default_bin(self):
+        gen = ReadmeGenerator(output_dir=Path("."))
+        columns = {"primary_roof_structural_damage_confidence_stats_default_bin_0", "other_col"}
+        assert gen._has_rccs_columns(columns) is True
+
+    def test_has_rccs_columns_with_extreme_bin(self):
+        gen = ReadmeGenerator(output_dir=Path("."))
+        columns = {"primary_roof_zinc_staining_confidence_stats_extreme_bin_2", "other_col"}
+        assert gen._has_rccs_columns(columns) is True
+
+    def test_has_rccs_columns_without(self):
+        gen = ReadmeGenerator(output_dir=Path("."))
+        # `*_confidence` alone is not RCCS — only the histogram bin suffix counts.
+        columns = {"aoi_id", "roof_count", "structural_damage_confidence"}
+        assert gen._has_rccs_columns(columns) is False
+
+
 class TestRoofAgeDatasetSection:
     """The roof age section surfaces dataset / untilAsOfDate selection from export_config.json."""
 

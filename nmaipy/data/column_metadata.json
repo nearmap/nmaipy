@@ -801,7 +801,7 @@
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",
-      "description": "Roof Condition Confidence Stats (RCCS) `default` histogram, bin {bin_idx} — fraction of roof pixels {scope_phrase} whose per-pixel damage-confidence score for {class} falls in this bin. The `default` histogram has 18 bins (0–17) ordered from least to most evidence of damage; bins are evenly spaced except the outer two edges, which are narrower to surface high- and low-extreme detail. Bin ratios for one `binType` on one component sum to ~1.0. RCCS is opt-in via `include=roofConditionConfidenceStats` (Gen6, US/AU/NZ). A higher confidence indicates a higher likelihood of damage being present, but the relationship between confidence and damage severity is not quantitatively measurable. See https://help.nearmap.com/kb/articles/1749-roof-condition-confidence-stats-rccs and https://help.nearmap.com/kb/articles/1752-rccs-output.",
+      "description": "RCCS `default` histogram, bin {bin_idx} of 18 (0–17, ordered from lowest to highest confidence) — fraction of roof pixels {scope_phrase} whose per-pixel confidence that {class} is present falls in this bin. See README for the full RCCS interpretation guide.",
       "source": "base ai model"
     },
     {
@@ -809,7 +809,7 @@
       "dtype": "float",
       "min": "0.0",
       "max": "1.0",
-      "description": "Roof Condition Confidence Stats (RCCS) `extreme` histogram, bin {bin_idx} — fraction of roof pixels {scope_phrase} whose per-pixel damage-confidence score for {class} falls in this bin. The `extreme` histogram has 3 bins (0 = high-confidence not-damaged extreme, 1 = wide middle band covering ~0.992 of the confidence range, 2 = high-confidence damaged extreme); bins 0 and 2 are the narrow tails that isolate strongly confident detections at either end. Bin ratios for one `binType` on one component sum to ~1.0. RCCS is opt-in via `include=roofConditionConfidenceStats` (Gen6, US/AU/NZ). See https://help.nearmap.com/kb/articles/1749-roof-condition-confidence-stats-rccs and https://help.nearmap.com/kb/articles/1752-rccs-output.",
+      "description": "RCCS `extreme` histogram, bin {bin_idx} of 3 (0 = lowest-confidence extreme, 1 = wide middle band, 2 = highest-confidence extreme) — fraction of roof pixels {scope_phrase} whose per-pixel confidence that {class} is present falls in this bin. See README for the full RCCS interpretation guide.",
       "source": "base ai model"
     }
   ],

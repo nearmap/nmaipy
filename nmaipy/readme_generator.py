@@ -23,6 +23,7 @@ from nmaipy.column_metadata import (
     DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
+    SCOPE_PREFIXES,
     evidence_type_legend,
     lookup_column,
 )
@@ -655,20 +656,13 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
         # The component name lives between an optional scope prefix and the
         # ``_confidence_stats_..._bin_N`` suffix; recover it so we can list
         # exactly which components RCCS was returned for in this export.
-        scope_prefixes = (
-            "primary_roof_",
-            "primary_building_",
-            "primary_roof_instance_",
-            "primary_building_lifecycle_",
-            "primary_child_roof_",
-        )
         components: set[str] = set()
         for col in rollup_columns:
             for marker in ("_confidence_stats_default_bin_", "_confidence_stats_extreme_bin_"):
                 if marker not in col:
                     continue
                 prefix = col.split(marker, 1)[0]
-                for scope in scope_prefixes:
+                for scope in SCOPE_PREFIXES:
                     if prefix.startswith(scope):
                         prefix = prefix[len(scope) :]
                         break
@@ -692,7 +686,8 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             [
                 "## Roof Condition Confidence Stats (RCCS) Columns",
                 "",
-                spec_paragraph or (
+                spec_paragraph
+                or (
                     "Present only when the export was run with "
                     "`include=roofConditionConfidenceStats` (Gen6 only; available in the US, AU, NZ)."
                 ),
@@ -705,22 +700,27 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
                 "Gen6 only; available in the US, AU, NZ.",
                 *component_lines,
                 "",
+                "Note: RCCS covers all roof condition attributes — not just structural damage. "
+                "Cosmetic / maintenance components like staining, ponding, worn shingles and "
+                "repair patches each get their own histogram, with the same `condition is "
+                "present` axis interpreted relative to that component.",
+                "",
                 "### Column shape",
                 "",
                 "For each roof condition component `<component>`, RCCS emits two histograms:",
                 "",
                 "- **`<component>_confidence_stats_default_bin_{0..17}`** — 18 bins ordered from "
-                "least to most evidence of damage. Bins are evenly spaced except the outer two "
-                "edges, which are narrower so that high- and low-extreme detail isn't lost in a "
-                "wide bucket.",
+                "least to most evidence that the component condition is present. Bins are evenly "
+                "spaced except the outer two edges, which are narrower so that high- and "
+                "low-extreme detail isn't lost in a wide bucket.",
                 "- **`<component>_confidence_stats_extreme_bin_{0..2}`** — 3 bins isolating the "
-                "tails of the same distribution. Bin 0 is the high-confidence not-damaged "
-                "extreme, bin 1 is the wide middle band covering ~0.992 of the confidence range, "
-                "bin 2 is the high-confidence damaged extreme.",
+                "tails of the same distribution. Bin 0 is the high-confidence-absent extreme, "
+                "bin 1 is the wide middle band covering ~0.992 of the confidence range, bin 2 is "
+                "the high-confidence-present extreme.",
                 "",
                 "Each bin value is a fraction in `[0, 1]` — the share of roof pixels whose "
-                "damage-confidence score for that component fell into that bin. Bin values "
-                "within one `binType` for one component sum to ~1.0.",
+                "per-pixel confidence that the component is present fell into that bin. Bin "
+                "values within one `binType` for one component sum to ~1.0.",
                 "",
                 "In the rollup, RCCS columns are scoped to the parcel's primary roof "
                 "(`primary_roof_<component>_confidence_stats_...`); per-class files (e.g. "
@@ -734,9 +734,6 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
                 "indicates strong evidence the condition is **present**.",
                 "- Mass piled into the middle (e.g. `extreme_bin_1` ≈ 1.0) means the model is "
                 "**not committed** — useful as a low-confidence flag.",
-                "- A higher confidence indicates a higher likelihood that damage is present, but "
-                "the relationship between confidence and damage severity is **not quantitatively "
-                "measurable**.",
                 "",
                 "For more details, see:",
                 "- https://help.nearmap.com/kb/articles/1749-roof-condition-confidence-stats-rccs",

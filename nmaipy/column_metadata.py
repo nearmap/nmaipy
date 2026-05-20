@@ -44,6 +44,13 @@ _SCOPE_PHRASES: dict[str, str] = {
 }
 _DEFAULT_SCOPE_PHRASE = "across the entire parcel"
 
+# Public tuple of scope prefixes in declaration order. Downstream code that
+# needs to recognise primary-feature scope on a column name (e.g. README
+# generation, audit tooling) should import this rather than maintaining its
+# own copy — keeps the recognised scope set in lock-step with ``_SCOPE_PHRASES``
+# above.
+SCOPE_PREFIXES: tuple[str, ...] = tuple(_SCOPE_PHRASES.keys())
+
 # Suffix-stripping rules applied to pattern-matched ``{class}`` values inside
 # ``_substitute``. Order is significant — longer suffixes must come first so
 # ``_total_clipped`` is preferred over ``_clipped``. Each entry pairs a suffix
