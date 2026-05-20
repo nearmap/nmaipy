@@ -213,7 +213,7 @@
     "rccs": {
       "group": "rccs",
       "dtype": "object",
-      "description": "Top-level ``RCCS`` payload (the OpenAPI spec defines the schema but with no properties — see API team).",
+      "description": "A collection of statistics that summarize the confidence levels of AI predictions for the condition of a roof.  To include this supplementary data in the response, add `roofConditionConfidenceStats` to the `include` query parameter.  This property is only present in `Roof Condition` feature attributes.  Roof features with a footprint area exceeding 100,000sqm will be skipped and be marked as such. No roof condition confidence statistics will be produced in these cases.",
       "source": "score model",
       "_spec_ref": "RCCS",
       "_warning": "spec schema has no properties; see API team"

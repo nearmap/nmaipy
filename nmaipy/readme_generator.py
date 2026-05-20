@@ -681,18 +681,28 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
         for comp in sorted(components):
             component_lines.append(f"- `{comp}`")
 
+        # Wrapper-level prose comes from spec_raw_fields.json so API team
+        # edits to the RCCS schema description auto-flow into this README.
+        # Falls back to the local explainer if the spec hasn't been
+        # regenerated since RCCS was added to the API.
+        rccs_meta = lookup_column("rccs")
+        spec_paragraph = "" if rccs_meta.is_unknown() else rccs_meta.description
+
         return "\n".join(
             [
                 "## Roof Condition Confidence Stats (RCCS) Columns",
+                "",
+                spec_paragraph or (
+                    "Present only when the export was run with "
+                    "`include=roofConditionConfidenceStats` (Gen6 only; available in the US, AU, NZ)."
+                ),
                 "",
                 "RCCS surfaces the per-pixel confidence distribution that underlies each roof "
                 "condition detection (ponding, rusting, staining, structural damage, repairs, "
                 "zinc staining, etc.). The single `*_confidence` score these components also "
                 "carry collapses that distribution to one number; RCCS exposes the full shape so "
-                "downstream consumers can apply their own thresholds or roll their own scoring.",
-                "",
-                "Present only when the export was run with `include=roofConditionConfidenceStats` "
-                "(Gen6 only; available in the US, AU, NZ).",
+                "downstream consumers can apply their own thresholds or roll their own scoring. "
+                "Gen6 only; available in the US, AU, NZ.",
                 *component_lines,
                 "",
                 "### Column shape",
