@@ -1063,8 +1063,12 @@ class FeatureApi(GriddedApiClient):
             if len(metadata_df) == 0:
                 raise AIFeatureAPIGridError(404, message="All grid cells failed - no coverage or data available")
 
-            # Create metadata
-            metadata_df = metadata_df.drop_duplicates().iloc[0]
+            # Create metadata.
+            # Drop `aggregate` before dedup: it is a nested dict (populated when
+            # include=defensibleSpace is set) and drop_duplicates() with no subset
+            # hashes every column, raising TypeError: unhashable type: 'dict'.
+            # The aggregate value is not consumed below.
+            metadata_df = metadata_df.drop(columns=["aggregate"], errors="ignore").drop_duplicates().iloc[0]
             metadata = {
                 AOI_ID_COLUMN_NAME: metadata_df[AOI_ID_COLUMN_NAME],
                 "system_version": metadata_df["system_version"],
