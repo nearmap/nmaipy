@@ -41,6 +41,14 @@ import shapely.geometry
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
+# The exporter computes geometry centroids in EPSG:4326 to feed mapbrowser URL
+# pins (see export_feature_class). For building-sized features the geographic-vs-
+# projected centroid bias is decimetric — invisible at the URL's zoom level — so
+# this warning is cosmetic. Suppression must be module-level: the in-flight
+# `with warnings.catch_warnings(): ...` form around the centroid call is not
+# thread-safe (Python docs), and concurrent ThreadPoolExecutor workers in the
+# flatten path were racing on warnings.filters, leaking this warning per export.
+warnings.filterwarnings("ignore", message=".*Geometry is in a geographic CRS.*centroid.*")
 
 import atexit
 import signal
@@ -1737,11 +1745,10 @@ def _compute_feature_class_data(
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
     if "geometry" in class_features.columns:
-        # Vectorized centroid extraction (geographic CRS is fine for URL link coordinates)
+        # Geographic CRS is fine for URL link coordinates; the corresponding
+        # "Geometry is in a geographic CRS" UserWarning is suppressed at module level.
         geom_valid = class_features.geometry.notna() & ~class_features.geometry.is_empty
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*geographic CRS.*centroid.*")
-            centroids = class_features.geometry.centroid
+        centroids = class_features.geometry.centroid
         lats = centroids.y.astype(str)
         lons = centroids.x.astype(str)
 
