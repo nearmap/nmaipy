@@ -1064,13 +1064,33 @@ class FeatureApi(GriddedApiClient):
                 raise AIFeatureAPIGridError(404, message="All grid cells failed - no coverage or data available")
 
             # Create metadata.
-            # Drop `aggregate` before dedup: it is a nested dict (populated when
-            # include=defensibleSpace is set) and drop_duplicates() with no subset
-            # hashes every column, raising TypeError: unhashable type: 'dict'.
-            # The aggregate value is not consumed below.
-            metadata_df = metadata_df.drop(columns=["aggregate"], errors="ignore").drop_duplicates().iloc[0]
+            # Whitelist guaranteed-scalar columns for dedup. Payload metadata can
+            # carry nested-dict fields — `aggregate` is populated whenever
+            # include=defensibleSpace, and per the v4 API spec `postcat` can
+            # return as an object describing post-catastrophe imagery rather than
+            # a boolean. An un-subsetted drop_duplicates() would hash those and
+            # raise TypeError: unhashable type: 'dict'. Only the strings below
+            # are guaranteed hashable; the consumer reads other fields via
+            # iloc[0] which works for any value type.
+            metadata_df = metadata_df.drop_duplicates(
+                subset=[
+                    "system_version",
+                    "link",
+                    "survey_date",
+                    "survey_id",
+                    "survey_resource_id",
+                    "perspective",
+                    "mesh_date",
+                ]
+            ).iloc[0]
+            # Use the outer aoi_id (the AOI being processed) rather than reading a
+            # column from metadata_df. After set_index(AOI_ID_COLUMN_NAME) in
+            # get_features_gdf_gridded, aoi_id is the DataFrame's index, not a
+            # column — and after iloc[0] above the values left in metadata_df are
+            # per-grid-cell temp integer IDs anyway. The outer aoi_id is what the
+            # caller wants attached to the returned metadata.
             metadata = {
-                AOI_ID_COLUMN_NAME: metadata_df[AOI_ID_COLUMN_NAME],
+                AOI_ID_COLUMN_NAME: aoi_id,
                 "system_version": metadata_df["system_version"],
                 "link": metadata_df["link"],
                 "survey_date": metadata_df["survey_date"],
@@ -1099,7 +1119,12 @@ class FeatureApi(GriddedApiClient):
             }
             return features_gdf, metadata, error, None
         except Exception as grid_error:
-            logger.error(f"Gridding failed for AOI (id {aoi_id}): {grid_error}")
+            # exc_info=True so unexpected exceptions surface with a full
+            # traceback in logs instead of just a message. This is the catch-all
+            # that swallowed the dict-aggregate TypeError and a latent KeyError
+            # on aoi_id for years — silent feature loss with only a one-line
+            # message gave no clue where the failure originated.
+            logger.error(f"Gridding failed for AOI (id {aoi_id}): {grid_error}", exc_info=True)
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": None,
