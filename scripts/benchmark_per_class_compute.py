@@ -95,9 +95,7 @@ def _microbench_roof_attrs(chunk_gdf: gpd.GeoDataFrame, country: str, runs: int 
         return
 
     child_by_aoi = _group_children_by_aoi(non_roof_chunk, None)
-    roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(
-        roof_features_chunk, child_by_aoi, country
-    )
+    roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(roof_features_chunk, child_by_aoi, country)
     roof_records = _dataframe_to_records_with_index(roof_features_chunk)
 
     def _one_roof(ridx, row):
@@ -115,12 +113,11 @@ def _microbench_roof_attrs(chunk_gdf: gpd.GeoDataFrame, country: str, runs: int 
             _one_roof(ridx, row)
 
     def _parallel(threads: int) -> None:
+        # .result() surfaces worker exceptions; without it the bench would
+        # time silent failures as legitimate parallel work.
         with ThreadPoolExecutor(max_workers=threads) as ex:
-            list(
-                as_completed(
-                    ex.submit(_one_roof, ridx, row) for ridx, row in enumerate(roof_records)
-                )
-            )
+            for fut in as_completed(ex.submit(_one_roof, ridx, row) for ridx, row in enumerate(roof_records)):
+                fut.result()
 
     print(f"roof_attrs build microbench ({len(roof_records):,} roofs, min of {runs} runs):")
     t_seq = min(_time(lambda: _seq()) for _ in range(runs))

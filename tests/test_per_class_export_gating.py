@@ -196,13 +196,14 @@ def test_building_per_class_export_has_both_columns(cross_class_chunk_gdf, prima
     assert "fidelity" in tabular_cols
 
 
-def test_groupby_path_matches_default(cross_class_chunk_gdf, primary_ids_df):
-    """Confirms _compute_all_per_class_data returns the same per-class
-    schemas / row counts whether we go through the groupby cache or not.
+def test_per_class_results_present_for_classes_in_chunk(cross_class_chunk_gdf, primary_ids_df):
+    """Smoke test for the class_groups dict lookup path: every whitelisted
+    class that has rows in the chunk should produce a result entry with
+    both tabular and geo tables.
 
-    This is the equivalence test for the class-id-groupby optimisation —
-    the function should be input/output equivalent to the prior boolean-
-    filter implementation.
+    This exercises the groupby-based lookup added in TRO-4385 — if the
+    dict misses a class that is present in chunk_gdf (e.g. a NaN-handling
+    or sort=False regression), the assertion below will fail.
     """
     chunk_gdf = _add_is_primary_column(cross_class_chunk_gdf.copy(), primary_ids_df)
     whitelisted = [ROOF_ID, BUILDING_NEW_ID, POOL_ID, SOLAR_ID]
@@ -214,8 +215,6 @@ def test_groupby_path_matches_default(cross_class_chunk_gdf, primary_ids_df):
         whitelisted_classes=whitelisted,
     )
 
-    # Sanity: every requested class with at least one row in the chunk
-    # produces a result, and each result carries both tables.
     for cid in whitelisted:
         n_class_rows = int((chunk_gdf["class_id"] == cid).sum())
         if n_class_rows > 0:
