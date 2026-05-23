@@ -885,12 +885,23 @@ def feature_attributes(
     # Add present, object count, area, and confidence for all used feature classes
     parcel = {}
 
+    # Pre-group features by class_id once and route every class lookup through
+    # this dict. Avoids repeated `features_gdf[features_gdf.class_id == X]`
+    # boolean scans for the primary-roof / Building(New) / Building Lifecycle
+    # pre-selects and the per-class loop further down. Same pattern we use at
+    # the chunk level in `_compute_all_per_class_data`. `observed=True` keeps
+    # the dict free of empty Categorical bins.
+    features_by_class: dict = (
+        dict(iter(features_gdf.groupby("class_id", observed=True))) if len(features_gdf) > 0 else {}
+    )
+    _empty_features = features_gdf.iloc[0:0]
+
     # Pre-select primary roof for two purposes:
     # 1. Derive IoU-linked roof instance ID for primary roof instance selection
     # 2. Reuse when processing roofs in the loop (avoid redundant select_primary call)
     _primary_roof = None
     _primary_roof_child_ri_id = None
-    roof_features = features_gdf[features_gdf.class_id == ROOF_ID]
+    roof_features = features_by_class.get(ROOF_ID, _empty_features)
     if len(roof_features) > 0:
         _primary_roof = select_primary(
             roof_features,
@@ -925,7 +936,7 @@ def feature_attributes(
     # the correct path to BL is Roof →(IoU)→ Building(New) →(parent_id)→ BL.
     _roof_to_building = {}
     if len(roof_features) > 0:
-        bn_features = features_gdf[features_gdf.class_id == BUILDING_NEW_ID]
+        bn_features = features_by_class.get(BUILDING_NEW_ID, _empty_features)
         if len(bn_features) > 0:
             # features_gdf may have geometry_feature/geometry_aoi columns (post-spatial-join);
             # link_roofs_to_buildings accesses row.geometry via iterrows which requires a
@@ -956,7 +967,7 @@ def feature_attributes(
 
     # Pre-select primary building lifecycle for reuse in the class loop
     _primary_bl = None
-    bl_features = features_gdf[features_gdf.class_id == BUILDING_LIFECYCLE_ID]
+    bl_features = features_by_class.get(BUILDING_LIFECYCLE_ID, _empty_features)
     if len(bl_features) > 0:
         _primary_bl = select_primary(
             bl_features,
@@ -971,10 +982,6 @@ def feature_attributes(
             geometry_projected_col=geometry_projected_col,
             projected_crs=projected_crs,
         )
-
-    # Pre-group by class_id to replace O(n) boolean scan per class with O(1) dict lookup
-    features_by_class = dict(iter(features_gdf.groupby("class_id", observed=True))) if len(features_gdf) > 0 else {}
-    _empty_features = features_gdf.iloc[0:0]
 
     for class_id, name in classes_df.description.items():
         name = name.lower().replace(" ", "_")
