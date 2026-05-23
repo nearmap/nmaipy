@@ -770,6 +770,16 @@ def _compute_all_per_class_data(
 
     chunk_class_ids = set(chunk_gdf["class_id"].dropna().unique()) if "class_id" in chunk_gdf.columns else set()
 
+    # Group rows by class_id once so per-class lookups become O(1) dict access
+    # instead of O(N) boolean scans over the full chunk. For a chunk with N
+    # rows and K classes (e.g. 25 packs => K ~= 25), this turns ~K full-frame
+    # scans plus K transient copies into a single groupby. The transient-copy
+    # reduction is the bigger win at peak memory: feature-heavy chunks for
+    # many-pack exports were producing 25 × N-row intermediate views.
+    class_groups: dict = {}
+    if "class_id" in chunk_gdf.columns and len(chunk_gdf) > 0:
+        class_groups = dict(iter(chunk_gdf.groupby("class_id", sort=False)))
+
     # Build parent lookup once for all classes in this chunk
     shared_parent_lookup = (
         build_parent_lookup(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
@@ -797,14 +807,10 @@ def _compute_all_per_class_data(
     buildings_linked_chunk = None
     has_dependent = any(c in chunk_class_ids for c in dependent_class_ids)
     if has_dependent:
-        if ROOF_ID in chunk_class_ids:
-            roof_features_chunk = chunk_gdf[chunk_gdf["class_id"] == ROOF_ID]
-        else:
-            roof_features_chunk = gpd.GeoDataFrame()
-        if ROOF_INSTANCE_CLASS_ID in chunk_class_ids:
-            roof_instance_chunk = chunk_gdf[chunk_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID]
-        else:
-            roof_instance_chunk = gpd.GeoDataFrame()
+        roof_features_chunk = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
+        roof_instance_chunk = class_groups.get(ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame())
+        # non_roof_chunk is "all rows except roof" — can't be served by the
+        # class_groups dict without a concat scan, so keep the boolean mask.
         non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
 
         # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
@@ -812,7 +818,7 @@ def _compute_all_per_class_data(
         # the correct path to BL is Roof →(IoU)→ Building(New) →(parent_id)→ BL.
         # Results are reused in _compute_feature_class_data for Building(New) class output.
         if len(roof_features_chunk) > 0 and BUILDING_NEW_ID in chunk_class_ids:
-            building_new_chunk = chunk_gdf[chunk_gdf["class_id"] == BUILDING_NEW_ID]
+            building_new_chunk = class_groups.get(BUILDING_NEW_ID, gpd.GeoDataFrame())
             if len(building_new_chunk) > 0:
                 roofs_linked_chunk, buildings_linked_chunk = link_roofs_to_buildings(
                     roof_features_chunk, building_new_chunk
@@ -861,8 +867,10 @@ def _compute_all_per_class_data(
     def _process_one_class(cid):
         if cid not in chunk_class_ids:
             return None
-        class_feats = chunk_gdf[chunk_gdf["class_id"] == cid]
-        if len(class_feats) == 0:
+        # O(1) lookup into the pre-built class_groups dict instead of a
+        # full-chunk boolean scan for every class iteration.
+        class_feats = class_groups.get(cid)
+        if class_feats is None or len(class_feats) == 0:
             return None
         desc = chunk_class_descriptions.get(cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}"))
         try:

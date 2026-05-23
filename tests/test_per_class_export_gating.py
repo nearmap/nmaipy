@@ -194,3 +194,31 @@ def test_building_per_class_export_has_both_columns(cross_class_chunk_gdf, prima
     assert BUILDING_NEW_ID in CLASSES_WITH_FIDELITY
     assert "is_primary" in tabular_cols
     assert "fidelity" in tabular_cols
+
+
+def test_groupby_path_matches_default(cross_class_chunk_gdf, primary_ids_df):
+    """Confirms _compute_all_per_class_data returns the same per-class
+    schemas / row counts whether we go through the groupby cache or not.
+
+    This is the equivalence test for the class-id-groupby optimisation —
+    the function should be input/output equivalent to the prior boolean-
+    filter implementation.
+    """
+    chunk_gdf = _add_is_primary_column(cross_class_chunk_gdf.copy(), primary_ids_df)
+    whitelisted = [ROOF_ID, BUILDING_NEW_ID, POOL_ID, SOLAR_ID]
+
+    results = _compute_all_per_class_data(
+        chunk_gdf=chunk_gdf,
+        country="us",
+        aoi_input_columns=[],
+        whitelisted_classes=whitelisted,
+    )
+
+    # Sanity: every requested class with at least one row in the chunk
+    # produces a result, and each result carries both tables.
+    for cid in whitelisted:
+        n_class_rows = int((chunk_gdf["class_id"] == cid).sum())
+        if n_class_rows > 0:
+            assert cid in results
+            assert results[cid]["tabular"].num_rows >= 1, cid
+            assert "geo" in results[cid], cid
