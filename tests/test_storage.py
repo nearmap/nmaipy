@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from nmaipy import storage
@@ -419,7 +420,24 @@ class TestWriteParquet:
         df = MagicMock()
         storage.write_parquet(df, "s3://bucket/test.parquet", index=False)
         mock_fs.open.assert_called_with("s3://bucket/test.parquet", "wb")
-        df.to_parquet.assert_called_once_with(mock_file, index=False)
+        df.to_parquet.assert_called_once()
+        call_args, call_kwargs = df.to_parquet.call_args
+        assert call_args == (mock_file,)
+        assert call_kwargs.get("index") is False
+
+    def test_default_compression_is_zstd(self, tmp_path):
+        df = pd.DataFrame({"a": list(range(100))})
+        fpath = str(tmp_path / "test.parquet")
+        storage.write_parquet(df, fpath)
+        md = pq.read_metadata(fpath)
+        assert md.row_group(0).column(0).compression == "ZSTD"
+
+    def test_explicit_compression_overrides_default(self, tmp_path):
+        df = pd.DataFrame({"a": list(range(100))})
+        fpath = str(tmp_path / "test.parquet")
+        storage.write_parquet(df, fpath, compression="snappy")
+        md = pq.read_metadata(fpath)
+        assert md.row_group(0).column(0).compression == "SNAPPY"
 
 
 # ---------------------------------------------------------------------------
