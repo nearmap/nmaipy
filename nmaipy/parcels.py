@@ -269,6 +269,14 @@ def calculate_child_feature_attributes(
     flattened = {}
     child_features_empty = len(child_features) == 0
 
+    # Pre-group children by class_id once and look up per component. Same
+    # idiom as `feature_attributes` (per-AOI) and `_compute_all_per_class_data`
+    # (per-chunk): replaces a boolean comparison-op over the object-dtype
+    # class_id column for every component with a single groupby + dict gets.
+    children_by_class: dict = {}
+    if not child_features_empty and "class_id" in child_features.columns:
+        children_by_class = dict(iter(child_features.groupby("class_id", sort=False)))
+
     for component in components:
         class_id = component.get("classId")
         description = component.get("description", "unknown")
@@ -285,8 +293,8 @@ def calculate_child_feature_attributes(
                 flattened[f"{name}_area_sqm"] = 0.0
             flattened[f"{name}_ratio"] = 0.0
             continue
-        matching_features = child_features[child_features.class_id == class_id]
-        if len(matching_features) == 0:
+        matching_features = children_by_class.get(class_id)
+        if matching_features is None or len(matching_features) == 0:
             flattened[f"{name}_present"] = FALSE_STRING
             if country in IMPERIAL_COUNTRIES:
                 flattened[f"{name}_area_sqft"] = 0.0
