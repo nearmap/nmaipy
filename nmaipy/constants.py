@@ -160,14 +160,17 @@ DUMMY_STATUS_CODE = -1
 # ============================================================================
 # API Warmup Configuration
 # ============================================================================
-# When running with many parallel workers (e.g. 40+), submitting all chunks
-# simultaneously can overwhelm the API before autoscaling kicks in. This
-# setting staggers initial chunk submissions to allow gradual warmup.
+# When running with many parallel workers, submitting all chunks simultaneously
+# can overwhelm the API before its autoscaling has time to respond. This
+# setting staggers initial chunk submissions so the API sees a gradually
+# rising load and can scale backend capacity along with it.
 
-# Seconds to wait between initial chunk submissions during warmup period.
-# Applied to first N chunks where N = number of parallel processes.
-# Set to 0 to disable warmup delays.
-API_WARMUP_INTERVAL_SECONDS = 20.0
+# Seconds to wait between adding each parallel worker during the warmup
+# period. Applied to the first N chunks, where N = number of parallel
+# processes. With the current 40s value, a 12-process run reaches full
+# concurrency at 7:20 and an 8-process run at 4:40 — both well within the
+# API's typical autoscale response window. Set to 0 to disable warmup.
+API_WARMUP_INTERVAL_SECONDS = 40.0
 
 # ============================================================================
 # Post-Processing Parallelism Configuration
