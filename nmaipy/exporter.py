@@ -2923,6 +2923,8 @@ class NearmapAIExporter(BaseExporter):
         _t_rollup_start = None
         _t_rollup_end = None
         _t_post_merge = None
+        _t_prep_merges = None
+        _t_prep_geom_attr = None
         _t_features_prep = None
         _t_features_write = None
         _t_per_class_start = None
@@ -3344,6 +3346,17 @@ class NearmapAIExporter(BaseExporter):
             # Check for column name collisions between any two dataframes
             final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
 
+            # Convert aoi_geometry to WKT now — once per AOI, before the merges
+            # duplicate it across every feature row. On dense chunks (e.g. ~17k
+            # features in a single parcel) this avoids tens of thousands of
+            # redundant per-row shapely → WKT calls. Cast to plain DataFrame so
+            # geopandas doesn't try to keep the (now string-typed) column as the
+            # active geometry; the GeoDataFrame is re-established after the merge.
+            if "aoi_geometry" in final_features_df.columns:
+                aoi_wkt = final_features_df["aoi_geometry"].to_wkt()
+                final_features_df = pd.DataFrame(final_features_df)
+                final_features_df["aoi_geometry"] = aoi_wkt
+
             metadata_cols = set(metadata_df.columns)
             features_cols = set(features_gdf.columns)
             aoi_cols = set(final_features_df.columns)
@@ -3362,6 +3375,7 @@ class NearmapAIExporter(BaseExporter):
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
+            _t_prep_merges = time.monotonic()
 
             # Check what geometry columns we have after the merge
             geom_cols = [col for col in merged2.columns if "geometry" in col.lower()]
@@ -3385,8 +3399,8 @@ class NearmapAIExporter(BaseExporter):
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
-            if "aoi_geometry" in final_features_df.columns:
-                final_features_df["aoi_geometry"] = final_features_df.aoi_geometry.to_wkt()
+            # aoi_geometry was converted to WKT before the merge (above) — no
+            # second pass needed here.
 
             # Apply flattening to attributes if present
             if "attributes" in final_features_df.columns:
@@ -3411,6 +3425,7 @@ class NearmapAIExporter(BaseExporter):
                 final_features_df["damage"] = final_features_df["damage"].apply(
                     lambda x: json.dumps(x) if isinstance(x, dict) else x
                 )
+            _t_prep_geom_attr = time.monotonic()
             if len(final_features_df) > 0:
                 try:
                     if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
@@ -3624,7 +3639,9 @@ class NearmapAIExporter(BaseExporter):
                 _tp0 = _t_rollup_start
                 _tp1 = _t_rollup_end if _t_rollup_end is not None else _tp0
                 _tp2 = _t_post_merge if _t_post_merge is not None else _tp1
-                _tp3 = _t_features_prep if _t_features_prep is not None else _tp2
+                _tp2a = _t_prep_merges if _t_prep_merges is not None else _tp2
+                _tp2b = _t_prep_geom_attr if _t_prep_geom_attr is not None else _tp2a
+                _tp3 = _t_features_prep if _t_features_prep is not None else _tp2b
                 _tp4 = _t_features_write if _t_features_write is not None else _tp3
                 _tp5 = _t_per_class_start if _t_per_class_start is not None else _tp4
                 _tp6 = _t_per_class_compute if _t_per_class_compute is not None else _tp5
@@ -3634,6 +3651,9 @@ class NearmapAIExporter(BaseExporter):
                     f"parcel_rollup={_tp1 - _tp0:.1f}s "
                     f"post_rollup_merge={_tp2 - _tp1:.1f}s "
                     f"features_prep={_tp3 - _tp2:.1f}s "
+                    f"(prep_merges={_tp2a - _tp2:.1f}s "
+                    f"prep_geom_attr={_tp2b - _tp2a:.1f}s "
+                    f"prep_obj_json={_tp3 - _tp2b:.1f}s) "
                     f"features_write={_tp4 - _tp3:.1f}s "
                     f"per_class_compute={_tp6 - _tp5:.1f}s "
                     f"per_class_writes={_tp7 - _tp6:.1f}s "
