@@ -422,12 +422,13 @@ class BaseExporter(ABC):
                                 )
 
                             chunks_submitted = 0
-                            for i, batch in chunks_to_process:
+                            for position, (i, batch) in enumerate(chunks_to_process):
                                 chunk_id = str(i).zfill(4)
 
-                                # API warmup: gradually ramp up concurrency to allow API autoscaling
-                                # Start with 1 worker, add 1 more every warmup_interval seconds
-                                if API_WARMUP_INTERVAL_SECONDS > 0 and i < self.processes:
+                                # API warmup: ramp up concurrency one worker at a time. Gate on
+                                # position (not the original chunk index `i`) so resumed runs,
+                                # where `i` skips past cached chunks, still warm up.
+                                if API_WARMUP_INTERVAL_SECONDS > 0 and position < self.processes:
                                     while True:
                                         elapsed = time.time() - warmup_start_time
                                         # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
