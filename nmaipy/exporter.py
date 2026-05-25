@@ -3375,6 +3375,7 @@ class NearmapAIExporter(BaseExporter):
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
+            del merged1  # peak-memory cleanup — no later refs in chunk loop
             _t_prep_merges = time.monotonic()
 
             # Check what geometry columns we have after the merge
@@ -3398,6 +3399,7 @@ class NearmapAIExporter(BaseExporter):
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
+            del merged2  # peak-memory cleanup — data is now in final_features_df
 
             # aoi_geometry was converted to WKT before the merge (above) — no
             # second pass needed here.
