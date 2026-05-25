@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover — Windows
 import traceback
 import warnings
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import geopandas as gpd
 import numpy as np
@@ -3643,13 +3643,11 @@ class NearmapAIExporter(BaseExporter):
             except Exception as e:
                 self.logger.debug(f"Chunk {chunk_id}: skip-counter log failed (non-blocking): {e}")
 
-            # Emit structured timing breakdown for profiling the closeout stage.
-            # Grep for CHUNK_TIMING in the export log to analyse the dead-zone split.
-            # Phases that didn't run (e.g. class_level_files=False skips per-class) report
-            # 0.0s because start==end for that segment.
+            # Per-phase timings, appended to the latency parquet via extra_columns
+            # below. Linear-chain fallback: each timer falls back to the previous so
+            # skipped phases contribute 0s rather than corrupting later deltas.
+            phase_timings: Dict[str, float] = {}
             if _t_rollup_start is not None:
-                # Build a linear chain: each timer falls back to the previous one so
-                # skipped phases contribute 0s rather than corrupting later deltas.
                 _tp0 = _t_rollup_start
                 _tp1 = _t_rollup_end if _t_rollup_end is not None else _tp0
                 _tp2 = _t_post_merge if _t_post_merge is not None else _tp1
@@ -3660,19 +3658,18 @@ class NearmapAIExporter(BaseExporter):
                 _tp5 = _t_per_class_start if _t_per_class_start is not None else _tp4
                 _tp6 = _t_per_class_compute if _t_per_class_compute is not None else _tp5
                 _tp7 = _t_per_class_writes if _t_per_class_writes is not None else _tp6
-                self.logger.info(
-                    f"CHUNK_TIMING chunk_id={chunk_id} "
-                    f"parcel_rollup={_tp1 - _tp0:.1f}s "
-                    f"post_rollup_merge={_tp2 - _tp1:.1f}s "
-                    f"features_prep={_tp3 - _tp2:.1f}s "
-                    f"(prep_merges={_tp2a - _tp2:.1f}s "
-                    f"prep_geom_attr={_tp2b - _tp2a:.1f}s "
-                    f"prep_obj_json={_tp3 - _tp2b:.1f}s) "
-                    f"features_write={_tp4 - _tp3:.1f}s "
-                    f"per_class_compute={_tp6 - _tp5:.1f}s "
-                    f"per_class_writes={_tp7 - _tp6:.1f}s "
-                    f"rollup_write={_t_rollup_write - _tp7:.1f}s"
-                )
+                phase_timings = {
+                    "parcel_rollup_s": _tp1 - _tp0,
+                    "post_rollup_merge_s": _tp2 - _tp1,
+                    "prep_merges_s": _tp2a - _tp2,
+                    "prep_geom_attr_s": _tp2b - _tp2a,
+                    "prep_obj_json_s": _tp3 - _tp2b,
+                    "features_prep_s": _tp3 - _tp2,
+                    "features_write_s": _tp4 - _tp3,
+                    "per_class_compute_s": _tp6 - _tp5,
+                    "per_class_writes_s": _tp7 - _tp6,
+                    "rollup_write_s": _t_rollup_write - _tp7,
+                }
 
             chunk_end_time = datetime.now(timezone.utc).isoformat()
             total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
@@ -3684,7 +3681,9 @@ class NearmapAIExporter(BaseExporter):
                 total_duration_ms,
             )
             if latency_stats is not None:
-                save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                save_chunk_latency_stats(
+                    latency_stats, self.chunk_path, chunk_id, extra_columns=phase_timings or None
+                )
 
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}

@@ -1114,6 +1114,22 @@ def _stats_to_row(stats: Dict) -> Dict:
     return row
 
 
+# Per-phase chunk-processing timings (seconds) appended to latency rows via
+# `save_chunk_latency_stats(..., extra_columns=...)` from exporter closeout.
+CHUNK_PHASE_TIMING_COLUMNS: List[str] = [
+    "parcel_rollup_s",
+    "post_rollup_merge_s",
+    "prep_merges_s",
+    "prep_geom_attr_s",
+    "prep_obj_json_s",
+    "features_prep_s",
+    "features_write_s",
+    "per_class_compute_s",
+    "per_class_writes_s",
+    "rollup_write_s",
+]
+
+
 def _get_latency_csv_columns() -> List[str]:
     """Get the ordered list of columns for latency CSV files."""
     bucket_names = _get_latency_bucket_names()
@@ -1122,6 +1138,7 @@ def _get_latency_csv_columns() -> List[str]:
         + ["retry_count", "timeout_count", "cache_hits", "cache_misses"]
         + ["start_time", "end_time", "total_duration_ms", "rps"]
         + bucket_names
+        + CHUNK_PHASE_TIMING_COLUMNS
     )
 
 
@@ -1139,11 +1156,14 @@ def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
 
     df = pd.DataFrame(rows)
     columns = _get_latency_csv_columns()
-    df = df[columns]
+    available_columns = [c for c in columns if c in df.columns]
+    df = df[available_columns]
     df.to_csv(csv_path, index=False)
 
 
-def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> None:
+def save_chunk_latency_stats(
+    stats: Dict, chunk_path: Path, chunk_id: str, extra_columns: Optional[Dict] = None
+) -> None:
     """
     Save latency stats for a single chunk to a sidecar parquet file.
 
@@ -1151,6 +1171,10 @@ def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> No
         stats: Dict with latency stats from a single chunk
         chunk_path: Path to the chunk directory
         chunk_id: Identifier for this chunk
+        extra_columns: Optional dict of additional fields to append to the
+            row (e.g. per-phase processing timings from process_chunk).
+            Columns must also be listed in `_get_latency_csv_columns()` for
+            them to survive the combine-to-CSV step.
     """
     if stats is None:
         return
@@ -1158,6 +1182,9 @@ def save_chunk_latency_stats(stats: Dict, chunk_path: Path, chunk_id: str) -> No
     row = _stats_to_row(stats)
     if row is None:
         return
+
+    if extra_columns:
+        row.update(extra_columns)
 
     df = pd.DataFrame([row])
     outfile = storage.join_path(str(chunk_path), f"latency_{chunk_id}.parquet")
