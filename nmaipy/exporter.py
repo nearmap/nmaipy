@@ -3378,7 +3378,7 @@ class NearmapAIExporter(BaseExporter):
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
-            del merged1  # peak-memory cleanup — no later refs in chunk loop
+            del merged1  # frees the merge intermediate — multi-GB on dense chunks
             _t_prep_merges = time.monotonic()
 
             # Check what geometry columns we have after the merge
@@ -3402,7 +3402,7 @@ class NearmapAIExporter(BaseExporter):
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
-            del merged2  # peak-memory cleanup — data is now in final_features_df
+            del merged2  # wrapper cleanup; array buffers are shared with final_features_df
 
             # aoi_geometry was converted to WKT before the merge (above) — no
             # second pass needed here.
@@ -3557,8 +3557,9 @@ class NearmapAIExporter(BaseExporter):
                     )
                     _t_per_class_compute = time.monotonic()
 
-                    # Parallel S3 PUTs hide network latency. max_workers=4 + per-result
-                    # del keep the in-flight serialized-bytes peak bounded.
+                    # Parallel S3 PUTs hide network latency; max_workers=4 caps in-flight
+                    # memory. Thread-safe: each worker reads only its own (cid, tables);
+                    # del runs from the main thread after the worker returns.
                     def _write_one(cid_tables):
                         cid, tables = cid_tables
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
@@ -3578,10 +3579,7 @@ class NearmapAIExporter(BaseExporter):
                         return cid
 
                     with ThreadPoolExecutor(max_workers=4) as _pcw_ex:
-                        _pcw_futures = [
-                            _pcw_ex.submit(_write_one, item)
-                            for item in per_class_results.items()
-                        ]
+                        _pcw_futures = [_pcw_ex.submit(_write_one, item) for item in per_class_results.items()]
                         for _fut in as_completed(_pcw_futures):
                             _completed_cid = _fut.result()
                             del per_class_results[_completed_cid]
@@ -3684,9 +3682,7 @@ class NearmapAIExporter(BaseExporter):
                 total_duration_ms,
             )
             if latency_stats is not None:
-                save_chunk_latency_stats(
-                    latency_stats, self.chunk_path, chunk_id, extra_columns=phase_timings or None
-                )
+                save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id, extra_columns=phase_timings or None)
 
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
