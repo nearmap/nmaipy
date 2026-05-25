@@ -3554,10 +3554,12 @@ class NearmapAIExporter(BaseExporter):
                     )
                     _t_per_class_compute = time.monotonic()
 
-                    for cid, tables in per_class_results.items():
+                    # Parallel S3 PUTs hide network latency. max_workers=4 + per-result
+                    # del keep the in-flight serialized-bytes peak bounded.
+                    def _write_one(cid_tables):
+                        cid, tables = cid_tables
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
                         cname = _description_to_cname(desc)
-
                         storage.write_parquet(
                             tables["tabular"],
                             storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
@@ -3570,6 +3572,16 @@ class NearmapAIExporter(BaseExporter):
                                     f"{cname}_features_{chunk_id}.parquet",
                                 ),
                             )
+                        return cid
+
+                    with ThreadPoolExecutor(max_workers=4) as _pcw_ex:
+                        _pcw_futures = [
+                            _pcw_ex.submit(_write_one, item)
+                            for item in per_class_results.items()
+                        ]
+                        for _fut in as_completed(_pcw_futures):
+                            _completed_cid = _fut.result()
+                            del per_class_results[_completed_cid]
                     _t_per_class_writes = time.monotonic()
                     del chunk_gdf, per_class_results
                 except Exception as e:
