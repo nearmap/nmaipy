@@ -185,8 +185,11 @@ PARALLEL_READ_WORKERS = 8
 S3_PARALLEL_READ_WORKERS = 24
 
 # Feature streaming prefetch: number of worker threads to read chunks ahead
-# while the main thread processes and writes the current chunk.
-# Memory bounded: at most FEATURE_PREFETCH_WORKERS + 1 chunks in memory.
+# while the main thread processes and writes the current chunk. Used for both
+# local-disk and S3 streaming — the higher S3_PARALLEL_READ_WORKERS value is
+# reserved for one-shot parallel reads where results don't accumulate.
+# Memory bounded: at most FEATURE_PREFETCH_WORKERS + 1 dense-chunk feature
+# tables in memory at once (multi-GB each on heavy workloads).
 FEATURE_PREFETCH_WORKERS = 8
 
 # ============================================================================

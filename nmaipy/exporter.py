@@ -2537,8 +2537,11 @@ class NearmapAIExporter(BaseExporter):
 
         # Set up prefetch buffer: read chunks ahead in background threads
         # while the main thread processes and writes the current chunk.
-        # Use higher concurrency for S3 to overlap network round-trips.
-        prefetch_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else FEATURE_PREFETCH_WORKERS
+        # Memory-bounded — see FEATURE_PREFETCH_WORKERS in constants.py. Used
+        # for both local and S3 paths; the S3-read-workers count is too high
+        # to use as a streaming buffer because each prefetched table stays in
+        # memory until the writer consumes it.
+        prefetch_workers = FEATURE_PREFETCH_WORKERS
         executor = ThreadPoolExecutor(max_workers=prefetch_workers)
         prefetch_futures = {}
         initial_submit = min(prefetch_workers, total)
