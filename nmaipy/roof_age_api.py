@@ -149,14 +149,6 @@ class RoofAgeApi(BaseApiClient):
             f"since_as_of_date: {since_as_of_date}, bulk_mode: {bulk_mode}"
         )
 
-    def _increment_progress(self):
-        """Increment progress counter immediately after each request completes."""
-        if self.progress_counters is None:
-            return
-
-        with self.progress_counters["lock"]:
-            self.progress_counters["completed"] += 1
-
     def _qualifier_subdir(self, until_as_of_date: Optional[str], since_as_of_date: Optional[str]) -> str:
         """Build the cache sub-directory that scopes a request by dataset and cutoffs.
 

@@ -241,14 +241,6 @@ class FeatureApi(GriddedApiClient):
         # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
 
-    def _increment_progress(self):
-        """Increment progress counter immediately after each request completes"""
-        if self.progress_counters is None:
-            return
-
-        with self.progress_counters["lock"]:
-            self.progress_counters["completed"] += 1
-
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
         """Context manager for session lifecycle — delegates to base class with appropriate retry config.
