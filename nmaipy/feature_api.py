@@ -241,44 +241,6 @@ class FeatureApi(GriddedApiClient):
         # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
 
-    # Per-thread batching cap. Increments are accumulated in thread-local
-    # state and flushed opportunistically (without blocking) on each call,
-    # plus unconditionally when the local buffer hits this size. This keeps
-    # the shared Manager.Lock from being a contention bottleneck under burst
-    # patterns (gridding fan-outs, prefer3d retries). The reported count can
-    # drift from the true count by up to (batch_size - 1) per active worker
-    # thread until the next flush — that's an accepted approximation for a
-    # diagnostic counter.
-    _PROGRESS_BATCH_SIZE = 50
-
-    def _increment_progress(self):
-        """Increment progress counter after each request, batched per-thread."""
-        if self.progress_counters is None:
-            return
-
-        tl = self._thread_local
-        pending = getattr(tl, "progress_buffer", 0) + 1
-
-        if pending >= self._PROGRESS_BATCH_SIZE:
-            # Buffer is full — flush unconditionally (blocking).
-            with self.progress_counters["lock"]:
-                self.progress_counters["completed"] += pending
-            tl.progress_buffer = 0
-            return
-
-        # Opportunistic flush — if the lock is free right now, dump the buffer
-        # so the displayed counter tracks reality. If it's contended, accumulate
-        # and try again on the next increment.
-        lock = self.progress_counters["lock"]
-        if lock.acquire(blocking=False):
-            try:
-                self.progress_counters["completed"] += pending
-                tl.progress_buffer = 0
-            finally:
-                lock.release()
-        else:
-            tl.progress_buffer = pending
-
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
         """Context manager for session lifecycle — delegates to base class with appropriate retry config.

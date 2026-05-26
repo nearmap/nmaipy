@@ -382,6 +382,17 @@ def clean_api_key_from_string(text: str) -> str:
     return text
 
 
+# Per-thread batching cap for `_increment_progress`. Increments accumulate in
+# thread-local state and flush opportunistically (non-blocking) on each call,
+# then unconditionally when the local buffer hits this size. Keeps the shared
+# Manager.Lock() from being a contention bottleneck under burst patterns
+# (gridding fan-outs, prefer3d retries). The drift between batched local count
+# and the shared counter is bounded above by (PROGRESS_BATCH_SIZE - 1) per
+# active thread; `flush_progress()` is called at chunk-end via `cleanup()` so
+# the displayed total catches up before the worker process exits.
+PROGRESS_BATCH_SIZE = 50
+
+
 class BaseApiClient:
     """
     Base class for Nearmap AI API clients.
@@ -391,6 +402,7 @@ class BaseApiClient:
     - Request retry logic
     - Caching infrastructure
     - API key handling
+    - Per-thread batched progress accounting (see PROGRESS_BATCH_SIZE)
     """
 
     def __init__(
@@ -417,6 +429,14 @@ class BaseApiClient:
         self._sessions = []
         self._thread_local = threading.local()
         self._lock = threading.Lock()
+
+        # Progress-counter plumbing. `progress_counters` is overridden by
+        # subclasses that accept it as a constructor arg. The registry holds
+        # one (buffer, lock) tuple per thread that has called
+        # `_increment_progress`; `flush_progress()` drains them.
+        self.progress_counters: Optional[dict] = None
+        self._progress_buffers: List = []
+        self._progress_buffers_registry_lock = threading.Lock()
 
         # API key handling
         if api_key:
@@ -463,6 +483,14 @@ class BaseApiClient:
 
     def cleanup(self):
         """Clean up all sessions and cached adapters"""
+        # Drain any pending per-thread progress buffers first so the displayed
+        # counter catches up before the worker process exits. Diagnostic only —
+        # never let it fail cleanup if the shared Manager.Lock is already gone.
+        try:
+            self.flush_progress()
+        except Exception:
+            pass
+
         if hasattr(self, "_lock") and hasattr(self, "_sessions"):
             with self._lock:
                 for session in self._sessions:
@@ -483,6 +511,78 @@ class BaseApiClient:
         # but other threads' adapters are already closed via self._sessions above)
         if hasattr(self, "_thread_local") and hasattr(self._thread_local, "adapters"):
             self._thread_local.adapters.clear()
+
+    def _increment_progress(self):
+        """Increment progress counter after each request, batched per-thread.
+
+        Hot path. Acquires only the per-thread `buf_lock` (uncontested in
+        steady state) and attempts a non-blocking acquire of the shared
+        Manager.Lock. When the local buffer hits PROGRESS_BATCH_SIZE the
+        flush becomes blocking; `flush_progress()` drains everything at
+        chunk end.
+
+        Thread safety: each worker thread reads/writes only its own buffer
+        (under its own lock). `flush_progress()` acquires the same per-buf
+        locks one at a time. Lock ordering: buf_lock → shared_lock in both
+        increment and forced flush; flush_progress acquires buf_locks then
+        shared_lock separately (no overlap).
+        """
+        if self.progress_counters is None:
+            return
+
+        if not hasattr(self._thread_local, "progress_buffer"):
+            buf = [0]
+            buf_lock = threading.Lock()
+            self._thread_local.progress_buffer = (buf, buf_lock)
+            with self._progress_buffers_registry_lock:
+                self._progress_buffers.append((buf, buf_lock))
+
+        buf, buf_lock = self._thread_local.progress_buffer
+        shared_lock = self.progress_counters["lock"]
+
+        with buf_lock:
+            buf[0] += 1
+            pending = buf[0]
+
+            if pending >= PROGRESS_BATCH_SIZE:
+                # Forced flush — blocking acquire of shared lock.
+                with shared_lock:
+                    self.progress_counters["completed"] += pending
+                buf[0] = 0
+                return
+
+            # Opportunistic flush — non-blocking. If contested, accumulate
+            # and try again on the next increment.
+            if shared_lock.acquire(blocking=False):
+                try:
+                    self.progress_counters["completed"] += pending
+                    buf[0] = 0
+                finally:
+                    shared_lock.release()
+
+    def flush_progress(self):
+        """Drain all per-thread progress buffers into the shared counter.
+
+        Called from `cleanup()` at chunk end so any residue from threads
+        whose last increment was during a contention burst makes it into
+        the displayed total. Safe to call from any thread.
+        """
+        if self.progress_counters is None:
+            return
+        if not hasattr(self, "_progress_buffers"):
+            return  # __del__ paths during partial construction
+        with self._progress_buffers_registry_lock:
+            buffers = list(self._progress_buffers)
+
+        total = 0
+        for buf, buf_lock in buffers:
+            with buf_lock:
+                total += buf[0]
+                buf[0] = 0
+
+        if total > 0:
+            with self.progress_counters["lock"]:
+                self.progress_counters["completed"] += total
 
     @contextlib.contextmanager
     def _session_scope(self, status_forcelist=None):

@@ -149,34 +149,6 @@ class RoofAgeApi(BaseApiClient):
             f"since_as_of_date: {since_as_of_date}, bulk_mode: {bulk_mode}"
         )
 
-    # Per-thread batching cap. See FeatureApi._increment_progress for the
-    # rationale; same approach mirrored here.
-    _PROGRESS_BATCH_SIZE = 50
-
-    def _increment_progress(self):
-        """Increment progress counter after each request, batched per-thread."""
-        if self.progress_counters is None:
-            return
-
-        tl = self._thread_local
-        pending = getattr(tl, "progress_buffer", 0) + 1
-
-        if pending >= self._PROGRESS_BATCH_SIZE:
-            with self.progress_counters["lock"]:
-                self.progress_counters["completed"] += pending
-            tl.progress_buffer = 0
-            return
-
-        lock = self.progress_counters["lock"]
-        if lock.acquire(blocking=False):
-            try:
-                self.progress_counters["completed"] += pending
-                tl.progress_buffer = 0
-            finally:
-                lock.release()
-        else:
-            tl.progress_buffer = pending
-
     def _qualifier_subdir(self, until_as_of_date: Optional[str], since_as_of_date: Optional[str]) -> str:
         """Build the cache sub-directory that scopes a request by dataset and cutoffs.
 

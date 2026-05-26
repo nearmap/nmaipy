@@ -668,9 +668,7 @@ class BaseExporter(ABC):
 
                     # Update position and description
                     pbar.n = requests_completed
-                    pbar.set_description(
-                        self._format_progress_description(completed_jobs, num_jobs, lat_str=lat_str)
-                    )
+                    pbar.set_description(self._format_progress_description(completed_jobs, num_jobs, lat_str=lat_str))
                     pbar.refresh()
                     last_progress_check = current_time
 

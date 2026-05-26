@@ -13,6 +13,27 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import pytest
 
+from nmaipy.api_common import PROGRESS_BATCH_SIZE, BaseApiClient
+
+
+class _ProgressOnlyClient:
+    """Minimal stub exposing BaseApiClient's progress methods.
+
+    Constructing a full FeatureApi/BaseApiClient requires API key plumbing
+    and pulls in unrelated init. This stub binds only the attributes the
+    progress methods actually read, so we can exercise the real batched
+    code path without standing up the rest of the client.
+    """
+
+    _increment_progress = BaseApiClient._increment_progress
+    flush_progress = BaseApiClient.flush_progress
+
+    def __init__(self, progress_counters):
+        self._thread_local = threading.local()
+        self.progress_counters = progress_counters
+        self._progress_buffers = []
+        self._progress_buffers_registry_lock = threading.Lock()
+
 
 def worker_increment_counter(progress_counters, num_increments=5, simulate_gridding=False):
     """
@@ -177,6 +198,7 @@ def _writer_blast(progress_counters, num_threads, increments_per_thread):
     increments — the *unbatched* worst case for lock contention. Used by the
     blocking-reader regression test below.
     """
+
     def thread_loop():
         for _ in range(increments_per_thread):
             with progress_counters["lock"]:
@@ -246,6 +268,103 @@ def test_blocking_reader_not_starved_under_burst_writes():
         f"reader observed only {len(distinct)} distinct values "
         f"({distinct[:5]}..{distinct[-5:]}) — blocking-acquire reader appears starved"
     )
+
+
+def test_flush_progress_drains_residue_per_thread_buffers():
+    """flush_progress must drain pending per-thread buffers into the shared counter.
+
+    Forces every opportunistic flush in `_increment_progress` to fail by
+    holding the shared lock externally for the duration of the writes. With
+    per-thread increments kept below PROGRESS_BATCH_SIZE, the forced flush
+    inside `_increment_progress` never fires either, so all 50 increments
+    end up trapped in per-thread buffers. The shared counter stays at 0
+    until `flush_progress()` runs.
+
+    This is the exact failure mode that produces "tqdm bar jumps to 100%
+    at the end" on real exports — and the test that protects the fix
+    from regressing.
+    """
+    manager = multiprocessing.Manager()
+    progress_counters = manager.dict({"total": 100, "completed": 0, "lock": manager.Lock()})
+    client = _ProgressOnlyClient(progress_counters)
+
+    shared_lock = progress_counters["lock"]
+    held = threading.Event()
+    release = threading.Event()
+
+    def holder():
+        shared_lock.acquire()
+        held.set()
+        release.wait()
+        shared_lock.release()
+
+    holder_thread = threading.Thread(target=holder)
+    holder_thread.start()
+    held.wait()
+
+    NUM_THREADS = 5
+    # Stay strictly below PROGRESS_BATCH_SIZE so the forced flush inside
+    # _increment_progress never fires (it would block on the held lock).
+    INC_PER_THREAD = PROGRESS_BATCH_SIZE - 1
+    expected = NUM_THREADS * INC_PER_THREAD
+
+    try:
+
+        def worker():
+            for _ in range(INC_PER_THREAD):
+                client._increment_progress()
+
+        threads = [threading.Thread(target=worker) for _ in range(NUM_THREADS)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        release.set()
+        holder_thread.join()
+
+    # All increments are trapped in per-thread buffers — shared counter is still 0.
+    assert progress_counters["completed"] == 0, (
+        f"expected all {expected} increments to be buffered, but shared counter is " f"{progress_counters['completed']}"
+    )
+
+    client.flush_progress()
+
+    # After flush: every increment is accounted for.
+    assert progress_counters["completed"] == expected
+
+    # And buffers are empty (calling flush again is a no-op).
+    client.flush_progress()
+    assert progress_counters["completed"] == expected
+
+
+def test_increment_progress_eventually_consistent_under_contention():
+    """Under realistic contention, batched writers + per-call opportunistic flush
+    eventually account for every increment after flush_progress.
+
+    Doesn't assert anything about the running drift (timing-dependent) — only
+    that the post-flush total is exact. Validates the batched-writer path
+    end-to-end through the actual BaseApiClient methods.
+    """
+    manager = multiprocessing.Manager()
+    NUM_THREADS = 12
+    INC_PER_THREAD = 200
+    expected = NUM_THREADS * INC_PER_THREAD
+    progress_counters = manager.dict({"total": expected, "completed": 0, "lock": manager.Lock()})
+    client = _ProgressOnlyClient(progress_counters)
+
+    def worker():
+        for _ in range(INC_PER_THREAD):
+            client._increment_progress()
+
+    threads = [threading.Thread(target=worker) for _ in range(NUM_THREADS)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    client.flush_progress()
+    assert progress_counters["completed"] == expected
 
 
 def test_progress_counters_with_skipped_work():
