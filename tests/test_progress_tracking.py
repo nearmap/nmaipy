@@ -7,8 +7,9 @@ across process boundaries on all platforms (both fork and spawn modes).
 
 import multiprocessing
 import pickle
+import threading
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import pytest
 
@@ -169,6 +170,82 @@ def test_progress_counters_picklable():
         assert unpickled["completed"] == 0
     except Exception as e:
         pytest.fail(f"Progress counters should be picklable: {e}")
+
+
+def _writer_blast(progress_counters, num_threads, increments_per_thread):
+    """Worker that runs num_threads × increments_per_thread plain `lock + +=1`
+    increments — the *unbatched* worst case for lock contention. Used by the
+    blocking-reader regression test below.
+    """
+    def thread_loop():
+        for _ in range(increments_per_thread):
+            with progress_counters["lock"]:
+                progress_counters["completed"] += 1
+            time.sleep(0.0005)
+
+    with ThreadPoolExecutor(max_workers=num_threads) as pool:
+        futures = [pool.submit(thread_loop) for _ in range(num_threads)]
+        for f in futures:
+            f.result()
+    return True
+
+
+def test_blocking_reader_not_starved_under_burst_writes():
+    """Regression test for the displayed-counter freeze.
+
+    The previous implementation read the counter via
+    ``progress_counters["lock"].acquire(timeout=0.1)`` and skipped the update
+    when the bounded timeout expired. Under realistic export load (many
+    writer threads across multiple worker processes hammering a shared
+    Manager.Lock()) the bounded acquire consistently lost — the displayed
+    counter froze at the same value for many minutes despite work continuing,
+    catching up only when worker pressure dropped at the end of the run.
+
+    The fix switches the monitor to a blocking acquire (no timeout). It may
+    wait a few seconds during burst windows but always eventually gets a
+    fresh value. This test drives the worst-case unbatched write pattern
+    from multiple processes and asserts the reader (using blocking acquire)
+    observes many intermediate values and the final tally is exact.
+    """
+    manager = multiprocessing.Manager()
+    NUM_WRITER_PROCESSES = 4
+    THREADS_PER_PROCESS = 20
+    INC_PER_THREAD = 50
+    expected = NUM_WRITER_PROCESSES * THREADS_PER_PROCESS * INC_PER_THREAD
+    progress_counters = manager.dict({"total": expected, "completed": 0, "lock": manager.Lock()})
+
+    observed: list = []
+    stop = threading.Event()
+
+    def reader():
+        while not stop.is_set():
+            with progress_counters["lock"]:
+                observed.append(progress_counters["completed"])
+            time.sleep(0.02)
+        with progress_counters["lock"]:
+            observed.append(progress_counters["completed"])
+
+    reader_thread = threading.Thread(target=reader)
+    reader_thread.start()
+    try:
+        with ProcessPoolExecutor(max_workers=NUM_WRITER_PROCESSES) as pool:
+            futures = [
+                pool.submit(_writer_blast, progress_counters, THREADS_PER_PROCESS, INC_PER_THREAD)
+                for _ in range(NUM_WRITER_PROCESSES)
+            ]
+            for f in futures:
+                assert f.result() is True
+    finally:
+        stop.set()
+        reader_thread.join()
+
+    assert progress_counters["completed"] == expected
+    distinct = sorted(set(observed))
+    assert observed == sorted(observed), "counter must be monotonic from reader's view"
+    assert len(distinct) >= 20, (
+        f"reader observed only {len(distinct)} distinct values "
+        f"({distinct[:5]}..{distinct[-5:]}) — blocking-acquire reader appears starved"
+    )
 
 
 def test_progress_counters_with_skipped_work():

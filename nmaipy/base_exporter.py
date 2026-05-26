@@ -531,21 +531,20 @@ class BaseExporter(ABC):
         Called while waiting to submit more chunks during API warmup.
         Shows current progress even though not all chunks are submitted yet.
         """
-        lock_acquired = progress_counters["lock"].acquire(timeout=0.01)
-        if lock_acquired:
-            try:
-                requests_completed = progress_counters["completed"]
-                requests_total = progress_counters["total"]
-            finally:
-                progress_counters["lock"].release()
+        # Blocking acquire — under burst write pressure the reader may wait
+        # briefly for the lock, which is better than the previous bounded
+        # timeout that consistently lost and left the displayed counter stale.
+        with progress_counters["lock"]:
+            requests_completed = progress_counters["completed"]
+            requests_total = progress_counters["total"]
 
-            if pbar.total != requests_total:
-                pbar.total = requests_total
-            pbar.n = requests_completed
+        if pbar.total != requests_total:
+            pbar.total = requests_total
+        pbar.n = requests_completed
 
-            warmup_str = f"Warmup ({chunks_submitted}/{self.processes})"
-            pbar.set_description(self._format_progress_description(chunks_completed, total_chunks, lat_str=warmup_str))
-            pbar.refresh()
+        warmup_str = f"Warmup ({chunks_submitted}/{self.processes})"
+        pbar.set_description(self._format_progress_description(chunks_completed, total_chunks, lat_str=warmup_str))
+        pbar.refresh()
 
     def _monitor_progress_with_tqdm(
         self,
@@ -609,18 +608,16 @@ class BaseExporter(ABC):
                                     all_latency_stats.append(latency_stats)
                                     latest_latency_stats = latency_stats
 
-                            # Update progress bar immediately
-                            lock_acquired = progress_counters["lock"].acquire(timeout=0.01)
-                            if lock_acquired:
-                                try:
-                                    requests_completed = progress_counters["completed"]
-                                    requests_total = progress_counters["total"]
-                                finally:
-                                    progress_counters["lock"].release()
+                            # Update progress bar immediately. Blocking acquire
+                            # so the displayed counter actually tracks the
+                            # shared state under burst write pressure.
+                            with progress_counters["lock"]:
+                                requests_completed = progress_counters["completed"]
+                                requests_total = progress_counters["total"]
 
-                                if pbar.total != requests_total:
-                                    pbar.total = requests_total
-                                pbar.n = requests_completed
+                            if pbar.total != requests_total:
+                                pbar.total = requests_total
+                            pbar.n = requests_completed
 
                             # Build latency string for progress bar
                             if latest_latency_stats:
@@ -648,36 +645,32 @@ class BaseExporter(ABC):
                         finally:
                             jobs.remove(j)  # Remove from pending jobs list
 
-                # Periodically check shared counters and update progress bar
+                # Periodically check shared counters and update progress bar.
+                # Blocking acquire — under burst writes the monitor may wait a
+                # few seconds for the lock, but that's strictly better than the
+                # previous bounded-timeout that lost the race and left the
+                # displayed counter frozen for minutes.
                 current_time = time.time()
                 if current_time - last_progress_check >= PROGRESS_CHECK_INTERVAL:
-                    # Try to acquire lock with timeout
-                    lock_acquired = progress_counters["lock"].acquire(timeout=0.1)
+                    with progress_counters["lock"]:
+                        requests_completed = progress_counters["completed"]
+                        requests_total = progress_counters["total"]
 
-                    if lock_acquired:
-                        try:
-                            requests_completed = progress_counters["completed"]
-                            requests_total = progress_counters["total"]
-                        finally:
-                            progress_counters["lock"].release()
+                    # Update total if it changed (due to gridding)
+                    if pbar.total != requests_total:
+                        pbar.total = requests_total
 
-                        # Update total if it changed (due to gridding)
-                        if pbar.total != requests_total:
-                            pbar.total = requests_total
+                    # Build latency string for progress bar
+                    if latest_latency_stats:
+                        lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
+                    else:
+                        lat_str = "Lat: ---"
 
-                        # Build latency string for progress bar
-                        if latest_latency_stats:
-                            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
-                        else:
-                            lat_str = "Lat: ---"
-
-                        # Update position and description
-                        pbar.n = requests_completed
-                        pbar.set_description(
-                            self._format_progress_description(completed_jobs, num_jobs, lat_str=lat_str)
-                        )
-
-                    # Always refresh, even if we couldn't get the lock
+                    # Update position and description
+                    pbar.n = requests_completed
+                    pbar.set_description(
+                        self._format_progress_description(completed_jobs, num_jobs, lat_str=lat_str)
+                    )
                     pbar.refresh()
                     last_progress_check = current_time
 
