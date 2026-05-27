@@ -2160,9 +2160,7 @@ def parse_arguments():
         "--api-warmup-interval",
         help=(
             f"Seconds between adding each parallel worker during API warmup "
-            f"(default: {API_WARMUP_INTERVAL_SECONDS}). Set to 0 to disable warmup. "
-            f"Increase if the autoscaler still sees burst HTTP 500s; decrease "
-            f"to spend less wall-clock in the ramp."
+            f"(default: {API_WARMUP_INTERVAL_SECONDS}). Set to 0 to disable warmup."
         ),
         type=float,
         required=False,

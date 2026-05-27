@@ -135,6 +135,11 @@ class BaseExporter(ABC):
                 to API_WARMUP_INTERVAL_SECONDS from constants — override here
                 or via the CLI flag to experiment without rebuilding.
         """
+        if api_warmup_interval_seconds < 0:
+            raise ValueError(
+                f"api_warmup_interval_seconds must be >= 0 (got {api_warmup_interval_seconds}). "
+                f"Use 0 to disable warmup."
+            )
         self.output_dir = str(output_dir)
         self.is_s3_output = storage.is_s3_path(self.output_dir)
         self.processes = processes
