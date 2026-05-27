@@ -75,6 +75,7 @@ from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    API_WARMUP_INTERVAL_SECONDS,
     AREA_CRS,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
@@ -2156,6 +2157,18 @@ def parse_arguments():
         default=MAX_RETRIES,
     )
     parser.add_argument(
+        "--api-warmup-interval",
+        help=(
+            f"Seconds between adding each parallel worker during API warmup "
+            f"(default: {API_WARMUP_INTERVAL_SECONDS}). Set to 0 to disable warmup. "
+            f"Increase if the autoscaler still sees burst HTTP 500s; decrease "
+            f"to spend less wall-clock in the ramp."
+        ),
+        type=float,
+        required=False,
+        default=API_WARMUP_INTERVAL_SECONDS,
+    )
+    parser.add_argument(
         "--api-key",
         help="API key to use (overrides API_KEY environment variable)",
         type=str,
@@ -2281,6 +2294,7 @@ class NearmapAIExporter(BaseExporter):
         roof_age_dataset="latest",  # Roof Age dataset alias or resource UUID
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
+        api_warmup_interval_seconds=API_WARMUP_INTERVAL_SECONDS,  # Seconds between worker ramp-up; 0 disables
     ):
         # Initialize base exporter first
         super().__init__(
@@ -2288,6 +2302,7 @@ class NearmapAIExporter(BaseExporter):
             processes=processes,
             chunk_size=chunk_size,
             log_level=log_level,
+            api_warmup_interval_seconds=api_warmup_interval_seconds,
         )
 
         # Assign NearmapAIExporter-specific parameters to instance variables
@@ -4332,6 +4347,7 @@ def main():
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
         max_retries=args.max_retries,
+        api_warmup_interval_seconds=args.api_warmup_interval,
     )
     exporter.run()
 
