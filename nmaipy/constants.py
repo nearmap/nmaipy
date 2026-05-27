@@ -167,10 +167,12 @@ DUMMY_STATUS_CODE = -1
 
 # Seconds to wait between adding each parallel worker during the warmup
 # period. Applied to the first N chunks, where N = number of parallel
-# processes. With the current 40s value, a 12-process run reaches full
-# concurrency at 7:20 and an 8-process run at 4:40 — both well within the
-# API's typical autoscale response window. Set to 0 to disable warmup.
-API_WARMUP_INTERVAL_SECONDS = 40.0
+# processes. With the current 60s value, a 12-process run reaches full
+# concurrency at 11:00 and an 8-process run at 7:00. Bumped from 40s
+# after observing sustained HTTP 500s past the 6-minute mark on larger
+# workloads — the API autoscaler needed more headroom before saturation.
+# Set to 0 to disable warmup.
+API_WARMUP_INTERVAL_SECONDS = 60.0
 
 # ============================================================================
 # Post-Processing Parallelism Configuration

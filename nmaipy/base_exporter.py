@@ -120,6 +120,7 @@ class BaseExporter(ABC):
         processes: int = 4,
         chunk_size: int = 500,
         log_level: str = "INFO",
+        api_warmup_interval_seconds: float = API_WARMUP_INTERVAL_SECONDS,
     ):
         """
         Initialize BaseExporter.
@@ -129,12 +130,22 @@ class BaseExporter(ABC):
             processes: Number of parallel processes for chunk processing
             chunk_size: Number of AOIs to process in a single chunk
             log_level: Logging level
+            api_warmup_interval_seconds: Seconds between adding each parallel
+                worker during API warmup. Set to 0 to disable warmup. Defaults
+                to API_WARMUP_INTERVAL_SECONDS from constants — override here
+                or via the CLI flag to experiment without rebuilding.
         """
+        if api_warmup_interval_seconds < 0:
+            raise ValueError(
+                f"api_warmup_interval_seconds must be >= 0 (got {api_warmup_interval_seconds}). "
+                f"Use 0 to disable warmup."
+            )
         self.output_dir = str(output_dir)
         self.is_s3_output = storage.is_s3_path(self.output_dir)
         self.processes = processes
         self.chunk_size = chunk_size
         self.log_level = log_level
+        self.api_warmup_interval_seconds = api_warmup_interval_seconds
 
         # Configure logging
         log.configure_logger(self.log_level)
@@ -399,8 +410,8 @@ class BaseExporter(ABC):
                             warmup_start_time = time.time()
 
                             # Log warmup plan once at the start
-                            if API_WARMUP_INTERVAL_SECONDS > 0 and self.processes > 1:
-                                warmup_duration = (self.processes - 1) * API_WARMUP_INTERVAL_SECONDS
+                            if self.api_warmup_interval_seconds > 0 and self.processes > 1:
+                                warmup_duration = (self.processes - 1) * self.api_warmup_interval_seconds
                                 self.logger.info(
                                     f"API warmup: ramping parallel workers from 1 to {self.processes} "
                                     f"over {warmup_duration:.0f}s"
@@ -428,12 +439,12 @@ class BaseExporter(ABC):
                                 # API warmup: ramp up concurrency one worker at a time. Gate on
                                 # position (not the original chunk index `i`) so resumed runs,
                                 # where `i` skips past cached chunks, still warm up.
-                                if API_WARMUP_INTERVAL_SECONDS > 0 and position < self.processes:
+                                if self.api_warmup_interval_seconds > 0 and position < self.processes:
                                     while True:
                                         elapsed = time.time() - warmup_start_time
                                         # Max allowed concurrent = 1 + floor(elapsed / interval), capped at processes
                                         max_concurrent = min(
-                                            1 + int(elapsed // API_WARMUP_INTERVAL_SECONDS),
+                                            1 + int(elapsed // self.api_warmup_interval_seconds),
                                             self.processes,
                                         )
                                         active_jobs = sum(1 for j in jobs if not j.done())

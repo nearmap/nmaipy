@@ -43,6 +43,7 @@ from nmaipy.base_exporter import BaseExporter
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    API_WARMUP_INTERVAL_SECONDS,
     ROOF_AGE_NO_CUTOFF_RESOURCE_IDS,
     ROOF_AGE_PREFIX_COLUMNS,
     SINCE_COL_NAME,
@@ -132,6 +133,15 @@ def parse_arguments():
         help="Number of AOIs to process in a single chunk (default: 500)",
         type=int,
         default=500,
+    )
+    parser.add_argument(
+        "--api-warmup-interval",
+        help=(
+            f"Seconds between adding each parallel worker during API warmup "
+            f"(default: {API_WARMUP_INTERVAL_SECONDS}). Set to 0 to disable warmup."
+        ),
+        type=float,
+        default=API_WARMUP_INTERVAL_SECONDS,
     )
     parser.add_argument(
         "--country",
@@ -226,6 +236,7 @@ class RoofAgeExporter(BaseExporter):
         roof_age_dataset: str = "latest",
         until: str = None,
         since: str = None,
+        api_warmup_interval_seconds: float = API_WARMUP_INTERVAL_SECONDS,
     ):
         """
         Initialize RoofAgeExporter.
@@ -257,6 +268,7 @@ class RoofAgeExporter(BaseExporter):
             processes=processes,
             chunk_size=chunk_size,
             log_level=log_level,
+            api_warmup_interval_seconds=api_warmup_interval_seconds,
         )
 
         # RoofAgeExporter-specific attributes
@@ -703,6 +715,7 @@ def main():
             roof_age_dataset=args.roof_age_dataset,
             until=args.until,
             since=args.since,
+            api_warmup_interval_seconds=args.api_warmup_interval,
         )
         exporter.run()
     except Exception as e:
