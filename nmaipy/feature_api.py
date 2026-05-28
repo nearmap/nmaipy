@@ -104,6 +104,37 @@ def is_class_returnable_at_version(
     return False
 
 
+def _response_has_include_skips(features_gdf, metadata) -> Tuple[bool, List[str]]:
+    """Detect whether the API's per-parcel CPU cutoff fired on any include.
+
+    The Feature API returns ``{"skipped": true}`` for include sections (RSI,
+    hurricane / wind / hail / wildfire / wind-hail risk scores, defensible
+    space) when a parcel exceeds the backend per-parcel CPU budget — currently
+    triggered around ~100 buildings on the parcel. nmaipy surfaces these as
+    boolean ``*_skipped`` columns on the per-roof rows, plus the parcel-mode
+    aggregate-DS skip on ``metadata["aggregate"]["defensibleSpace"]["skipped"]``.
+
+    Returns (any_skipped, list_of_skipped_includes) so the caller can log which
+    includes triggered the reactive grid.
+    """
+    skipped: List[str] = []
+    if features_gdf is not None and len(features_gdf) > 0:
+        for col in features_gdf.columns:
+            if not col.endswith("_skipped"):
+                continue
+            series = features_gdf[col]
+            # Bool-coerce-then-OR: missing/None entries become False, then any() detects a True.
+            if (series == True).any():  # noqa: E712 - explicit equality avoids dtype coercion warning
+                skipped.append(col)
+    if isinstance(metadata, dict):
+        agg = metadata.get("aggregate")
+        if isinstance(agg, dict):
+            ds = agg.get("defensibleSpace")
+            if isinstance(ds, dict) and ds.get("skipped") is True:
+                skipped.append("aggregate_defensible_space")
+    return (len(skipped) > 0, skipped)
+
+
 class FeatureApi(GriddedApiClient):
     """
     Client for the Nearmap AI Feature API.
@@ -158,6 +189,7 @@ class FeatureApi(GriddedApiClient):
         exclude_tiles_with_occlusion: Optional[bool] = False,
         progress_counters: Optional[dict] = None,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
+        regrid_on_skip: Optional[bool] = True,
     ):
         """
         Initialize FeatureApi class
@@ -188,6 +220,13 @@ class FeatureApi(GriddedApiClient):
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
+            regrid_on_skip: When True (default), if any include in the response is marked
+                ``{"skipped": true}`` by the API's per-parcel CPU cutoff (currently triggered
+                around ~100 buildings on a parcel), reactively re-issue the AOI as a gridded
+                query. Sub-AOIs appear to the API as mini-parcels that fall under the cutoff
+                and return populated scores / per-roof DS. Aggregate DS columns
+                (parcel-mode-only) stay null in the gridded path; we flag them as skipped to
+                preserve the existing contract.
         """
         # Call parent class initialization
         # GriddedApiClient handles: thread-safety (_sessions, _thread_local, _lock),
@@ -240,6 +279,9 @@ class FeatureApi(GriddedApiClient):
 
         # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
+
+        # When True, reactive gridding fires on per-parcel include skips (RSI, peril scores, DS).
+        self.regrid_on_skip = regrid_on_skip
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
@@ -1229,6 +1271,47 @@ class FeatureApi(GriddedApiClient):
                 disable_parcel_mode=disable_parcel_mode,
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
+
+            # Reactive gridding on per-parcel include skips. The Feature API returns
+            # {"skipped": true} for includes (RSI, peril scores, defensible space) when
+            # the parcel exceeds the backend's per-parcel CPU budget. Gridding disables
+            # parcel mode in sub-queries, so the API sees mini-parcels under the cutoff
+            # and returns populated scores. See _response_has_include_skips for detection.
+            if (
+                self.regrid_on_skip
+                and not in_gridding_mode
+                and not fail_hard_regrid
+                and geometry is not None
+            ):
+                any_skipped, skipped_includes = _response_has_include_skips(features_gdf, metadata)
+                if any_skipped:
+                    logger.info(
+                        f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
+                        f"triggering reactive gridding"
+                    )
+                    features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
+                        geometry=geometry,
+                        region=region,
+                        packs=packs,
+                        classes=classes,
+                        include=include,
+                        aoi_id=aoi_id,
+                        since=since,
+                        until=until,
+                        survey_resource_id=survey_resource_id,
+                        aoi_grid_inexact=self.aoi_grid_inexact,
+                        reason="reactive - include skip",
+                    )
+                    # Aggregate DS is parcel-mode-only — the gridded path disables parcel
+                    # mode, so the API doesn't return aggregate values. Synthesize the
+                    # skipped flag so parcels.parcel_rollup populates
+                    # aggregate_defensible_space_skipped=True via its existing code path.
+                    if (
+                        metadata is not None
+                        and include is not None
+                        and "defensibleSpace" in include
+                    ):
+                        metadata.setdefault("aggregate", {})["defensibleSpace"] = {"skipped": True}
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
