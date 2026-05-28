@@ -15,10 +15,12 @@ The selection logic is independent of the specific feature type (roof, building,
 and operates purely on geometric and attribute criteria.
 """
 
+from functools import lru_cache
 from typing import Optional, Union
 
 import geopandas as gpd
 import pandas as pd
+from pyproj import Transformer
 from shapely.geometry import Point
 
 from nmaipy import log
@@ -26,6 +28,18 @@ from nmaipy.constants import API_CRS, NEAREST_TOLERANCE_METERS
 from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = log.get_logger()
+
+
+@lru_cache(maxsize=8)
+def _get_point_transformer(src_crs: str, dst_crs: str) -> Transformer:
+    """Cached per-(src,dst) Transformer for projecting a single point.
+
+    Avoids the `gpd.GeoSeries([pt]).to_crs(...)` idiom, which routes
+    length-1 arrays through pyproj's scalar fast-path and emits a numpy
+    2.x DeprecationWarning under `_transform_point`.
+    """
+    return Transformer.from_crs(src_crs, dst_crs, always_xy=True)
+
 
 # Default high confidence threshold for nearest selection
 DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.9
@@ -135,8 +149,10 @@ def select_primary_by_nearest(
         )
 
     # Create target point in EPSG:4326, then convert to projected CRS for distance calculation
-    target_point = Point(target_lon, target_lat)
-    target_point_projected = gpd.GeoSeries([target_point], crs=API_CRS).to_crs(projected_crs)[0]
+    px, py = _get_point_transformer(API_CRS, projected_crs).transform(
+        float(target_lon), float(target_lat)
+    )
+    target_point_projected = Point(px, py)
 
     # Use pre-projected geometry
     gdf_projected = gdf.set_geometry(geometry_projected_col)
