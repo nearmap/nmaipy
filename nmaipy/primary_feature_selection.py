@@ -30,7 +30,7 @@ from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 logger = log.get_logger()
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=32)
 def _get_point_transformer(src_crs: str, dst_crs: str) -> Transformer:
     """Cached per-(src,dst) Transformer for projecting a single point.
 
