@@ -149,9 +149,7 @@ def select_primary_by_nearest(
         )
 
     # Create target point in EPSG:4326, then convert to projected CRS for distance calculation
-    px, py = _get_point_transformer(API_CRS, projected_crs).transform(
-        float(target_lon), float(target_lat)
-    )
+    px, py = _get_point_transformer(API_CRS, projected_crs).transform(float(target_lon), float(target_lat))
     target_point_projected = Point(px, py)
 
     # Use pre-projected geometry
