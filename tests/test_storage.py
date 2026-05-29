@@ -158,6 +158,34 @@ class TestGlobFiles:
         ]
         mock_fs.glob.assert_called_with("s3://bucket/prefix/chunks/rollup_*.parquet")
 
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_glob_invalidates_cache_before_listing(self, mock_get_fs):
+        # A stale s3fs dircache can make glob miss present files (it dropped all
+        # feature/per-class chunks from the merge, producing an empty
+        # features.parquet). glob_files must drop the cache before listing.
+        manager = MagicMock()
+        mock_get_fs.return_value = manager.fs
+        manager.fs.glob.return_value = ["bucket/prefix/chunks/features_0001.parquet"]
+
+        results = storage.glob_files("s3://bucket/prefix/chunks", "features_*.parquet")
+
+        manager.fs.invalidate_cache.assert_called_once_with("s3://bucket/prefix/chunks")
+        # invalidate_cache must happen *before* glob.
+        call_names = [c[0] for c in manager.fs.mock_calls if c[0] in ("invalidate_cache", "glob")]
+        assert call_names == ["invalidate_cache", "glob"], call_names
+        assert results == ["s3://bucket/prefix/chunks/features_0001.parquet"]
+
+    @patch("nmaipy.storage.time.sleep", lambda *_: None)
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_glob_retries_transient_then_succeeds(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_fs.glob.side_effect = [OSError("timeout"), ["bucket/p/chunks/features_0001.parquet"]]
+        mock_get_fs.return_value = mock_fs
+
+        results = storage.glob_files("s3://bucket/p/chunks", "features_*.parquet")
+        assert results == ["s3://bucket/p/chunks/features_0001.parquet"]
+        assert mock_fs.glob.call_count == 2
+
 
 # ---------------------------------------------------------------------------
 # open_file
