@@ -11,7 +11,6 @@ from shapely.geometry import Polygon
 
 from nmaipy.feature_api import FeatureApi, _response_has_include_skips
 
-
 SMALL_AOI = Polygon(
     [
         [144.9, -37.8],
