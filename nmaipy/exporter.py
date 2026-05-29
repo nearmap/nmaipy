@@ -1997,6 +1997,11 @@ def parse_arguments():
         default=GRID_SIZE_DEGREES,
     )
     parser.add_argument(
+        "--no-regrid-on-skip",
+        help="Disable reactive gridding when the API marks any include as skipped. Default is to regrid so the AOI is re-queried as sub-AOIs and populated scores come back.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--processes",
         help="Number of processes",
         type=int,
@@ -2261,6 +2266,7 @@ class NearmapAIExporter(BaseExporter):
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         aoi_grid_cell_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
+        regrid_on_skip=True,
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
@@ -2312,6 +2318,7 @@ class NearmapAIExporter(BaseExporter):
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.aoi_grid_cell_size = aoi_grid_cell_size
+        self.regrid_on_skip = regrid_on_skip
         # Note: processes, chunk_size, log_level handled by BaseExporter
         self.threads = threads
         self.include_parcel_geometry = include_parcel_geometry
@@ -2382,6 +2389,7 @@ class NearmapAIExporter(BaseExporter):
             "aoi_grid_min_pct": aoi_grid_min_pct,
             "aoi_grid_inexact": aoi_grid_inexact,
             "aoi_grid_cell_size": aoi_grid_cell_size,
+            "regrid_on_skip": regrid_on_skip,
             "processes": processes,
             "threads": threads,
             "chunk_size": chunk_size,
@@ -2997,6 +3005,7 @@ class NearmapAIExporter(BaseExporter):
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
                 grid_size=self.aoi_grid_cell_size,
+                regrid_on_skip=self.regrid_on_skip,
                 maxretry=self.max_retries,
                 rapid=self.rapid,
                 order=self.order,
@@ -4351,6 +4360,7 @@ def main():
         roof_age_dataset=args.roof_age_dataset,
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
+        regrid_on_skip=not args.no_regrid_on_skip,
         max_retries=args.max_retries,
         api_warmup_interval_seconds=args.api_warmup_interval,
     )

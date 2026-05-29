@@ -104,6 +104,18 @@ def is_class_returnable_at_version(
     return False
 
 
+def _response_has_include_skips(features_gdf) -> Tuple[bool, List[str]]:
+    """Return (any_skipped, names) for any per-roof ``*_skipped`` columns set True."""
+    skipped: List[str] = []
+    if features_gdf is not None and len(features_gdf) > 0:
+        for col in features_gdf.columns:
+            if not col.endswith("_skipped"):
+                continue
+            if (features_gdf[col] == True).any():  # noqa: E712 - avoid pandas dtype coercion warning
+                skipped.append(col)
+    return (len(skipped) > 0, skipped)
+
+
 class FeatureApi(GriddedApiClient):
     """
     Client for the Nearmap AI Feature API.
@@ -158,6 +170,7 @@ class FeatureApi(GriddedApiClient):
         exclude_tiles_with_occlusion: Optional[bool] = False,
         progress_counters: Optional[dict] = None,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
+        regrid_on_skip: Optional[bool] = True,
     ):
         """
         Initialize FeatureApi class
@@ -188,6 +201,10 @@ class FeatureApi(GriddedApiClient):
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
+            regrid_on_skip: When True (default), reactively grid the AOI if any include
+                comes back ``{"skipped": true}`` from the API's per-parcel CPU cutoff.
+                Gridded sub-queries disable parcel mode, so the API sees mini-parcels and
+                returns populated scores. Aggregate DS is parcel-mode-only and stays null.
         """
         # Call parent class initialization
         # GriddedApiClient handles: thread-safety (_sessions, _thread_local, _lock),
@@ -240,6 +257,8 @@ class FeatureApi(GriddedApiClient):
 
         # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
+
+        self.regrid_on_skip = regrid_on_skip
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
@@ -996,10 +1015,13 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = None,
         reason: Optional[str] = None,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
         """
         Helper method to attempt gridding large AOIs and handle the common pattern of gridding,
         combining results, and creating metadata.
+
+        Returns a 4-tuple of (features_gdf, metadata, error, grid_errors_df), where the last
+        is a DataFrame of per-grid-cell failures (may be None on a complete grid failure).
 
         This method is called when an AOI is too large for a single API request, either
         proactively (when area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING) or reactively
@@ -1229,6 +1251,38 @@ class FeatureApi(GriddedApiClient):
                 disable_parcel_mode=disable_parcel_mode,
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
+
+            # Detect per-parcel CPU-cutoff skips. If reactive gridding is enabled,
+            # discard the just-parsed response and re-issue as a gridded query so
+            # sub-AOIs come back as mini-parcels with populated scores. Otherwise,
+            # surface the skip at INFO so the operator who opted out of regridding
+            # still sees what the API dropped.
+            if not in_gridding_mode and geometry is not None:
+                any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
+                if any_skipped:
+                    if self.regrid_on_skip and not fail_hard_regrid:
+                        logger.debug(
+                            f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
+                            f"triggering reactive gridding"
+                        )
+                        features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
+                            geometry=geometry,
+                            region=region,
+                            packs=packs,
+                            classes=classes,
+                            include=include,
+                            aoi_id=aoi_id,
+                            since=since,
+                            until=until,
+                            survey_resource_id=survey_resource_id,
+                            aoi_grid_inexact=self.aoi_grid_inexact,
+                            reason="reactive - include skip",
+                        )
+                    else:
+                        logger.info(
+                            f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
+                            f"reactive gridding disabled — scores will remain null"
+                        )
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
