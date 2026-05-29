@@ -225,6 +225,13 @@ def glob_files(directory: str, pattern: str) -> List[str]:
     """
     Glob for files in a directory. Works for both local and S3.
 
+    For S3, the s3fs directory-listing cache is invalidated before globbing.
+    A stale or partially-populated dircache (e.g. cached early in a run, before
+    the chunk files were written) makes ``fs.glob`` silently miss files that are
+    present — which previously dropped feature / per-class chunks from the merge
+    phase, yielding an empty ``features.parquet`` (0 chunks discovered) and
+    breaking the CV Apps geodatabase export. Transient read errors are retried.
+
     Args:
         directory: Directory to search in
         pattern: Glob pattern (e.g. "rollup_*.parquet")
@@ -232,14 +239,24 @@ def glob_files(directory: str, pattern: str) -> List[str]:
     Returns:
         List of matching file paths as strings
     """
-    if is_s3_path(directory):
-        fs = _get_s3_filesystem()
-        full_pattern = join_path(directory, pattern)
-        # fsspec glob returns paths without the s3:// prefix
-        results = fs.glob(full_pattern)
-        return ["s3://" + r for r in results]
-    else:
+    if not is_s3_path(directory):
         return [str(p) for p in Path(directory).glob(pattern)]
+
+    fs = _get_s3_filesystem()
+    full_pattern = join_path(directory, pattern)
+    last_exc: Optional[Exception] = None
+    for attempt in range(_S3_READ_RETRIES + 1):
+        try:
+            # Force a fresh listing — never trust a possibly-stale dircache here.
+            fs.invalidate_cache(directory)
+            # fsspec glob returns paths without the s3:// prefix
+            results = fs.glob(full_pattern)
+            return ["s3://" + r for r in results]
+        except Exception as e:  # transient S3/network error — retry
+            last_exc = e
+            if attempt < _S3_READ_RETRIES:
+                time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
+    raise last_exc
 
 
 def open_file(path: str, mode: str = "r", **kwargs):
