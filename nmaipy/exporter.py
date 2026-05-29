@@ -1998,7 +1998,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--no-regrid-on-skip",
-        help="Disable reactive gridding when the Feature API marks any include as skipped due to its per-parcel CPU cutoff. Default is enabled — when a parcel exceeds ~100 buildings and the API returns {'skipped': true} for scores or defensible space, the AOI is automatically re-issued as a gridded query so the sub-AOIs appear as mini-parcels and return populated data. Pass this flag to keep the legacy behaviour where the skipped includes stay null with the *_skipped flag set.",
+        help="Disable reactive gridding when the API marks any include as skipped. Default is to regrid so the AOI is re-queried as sub-AOIs and populated scores come back.",
         action="store_true",
     )
     parser.add_argument(
@@ -2266,7 +2266,7 @@ class NearmapAIExporter(BaseExporter):
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         aoi_grid_cell_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
-        regrid_on_skip=True,  # Reactive gridding when API marks any include as skipped
+        regrid_on_skip=True,
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
