@@ -298,6 +298,11 @@ class BaseExporter(ABC):
         if check_cache:
             # Parallelize cache checking — each check is an S3 HEAD + footer read,
             # so running them concurrently overlaps network latency.
+            # TODO: like the rollup-merge phase in exporter._run_inner, this could
+            # call storage.invalidate_cache(chunk_dir) up front so a stale s3fs
+            # listing doesn't false-negative a present chunk and trigger an
+            # unnecessary reprocess. Wasted work only, not a fail-out — separate
+            # impact from the merge case fixed in PR #191.
             def _check_cache(i_batch):
                 i, batch = i_batch
                 chunk_id = str(i).zfill(4)

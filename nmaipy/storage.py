@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # merge; a transient read or a stale s3fs directory listing must not be mistaken
 # for a missing/corrupt chunk (which aborts the whole export — see
 # AOIExporter rollup consolidation).
+# Total worst-case wait: ~3.5s per call (0.5 + 1.0 + 2.0 — exponential backoff).
 _S3_READ_RETRIES = 3
 _S3_READ_BACKOFF_SECONDS = 0.5
 
@@ -154,7 +155,12 @@ def file_exists(path: str) -> bool:
         path: File path to check
 
     Returns:
-        True if the file exists
+        True if the file exists, False if it does not.
+
+    Raises:
+        The underlying S3 error if reads still fail after retries. By design —
+        a persistent outage surfaces as itself rather than masquerading as
+        "file missing" to callers that proceed on a False return.
     """
     if not is_s3_path(path):
         return Path(path).exists()
@@ -199,7 +205,7 @@ def validate_parquet(path: str) -> bool:
             with open_file(path, "rb") as f:
                 pq.ParquetFile(f)
             return True
-        except (pa.lib.ArrowInvalid, FileNotFoundError):
+        except (pa.ArrowInvalid, FileNotFoundError):
             # Genuinely corrupt/truncated, or genuinely absent — retrying won't help.
             return False
         except Exception as e:  # transient read error — retry before giving up
