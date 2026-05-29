@@ -1015,10 +1015,13 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = None,
         reason: Optional[str] = None,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
         """
         Helper method to attempt gridding large AOIs and handle the common pattern of gridding,
         combining results, and creating metadata.
+
+        Returns a 4-tuple of (features_gdf, metadata, error, grid_errors_df), where the last
+        is a DataFrame of per-grid-cell failures (may be None on a complete grid failure).
 
         This method is called when an AOI is too large for a single API request, either
         proactively (when area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING) or reactively
@@ -1249,34 +1252,37 @@ class FeatureApi(GriddedApiClient):
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
 
-            # Discard the just-parsed response and grid when any include hit the
-            # per-parcel CPU cutoff — gridded sub-queries disable parcel mode and
-            # come back populated.
-            if (
-                self.regrid_on_skip
-                and not in_gridding_mode
-                and not fail_hard_regrid
-                and geometry is not None
-            ):
+            # Detect per-parcel CPU-cutoff skips. If reactive gridding is enabled,
+            # discard the just-parsed response and re-issue as a gridded query so
+            # sub-AOIs come back as mini-parcels with populated scores. Otherwise,
+            # surface the skip at INFO so the operator who opted out of regridding
+            # still sees what the API dropped.
+            if not in_gridding_mode and geometry is not None:
                 any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
                 if any_skipped:
-                    logger.info(
-                        f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
-                        f"triggering reactive gridding"
-                    )
-                    features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
-                        geometry=geometry,
-                        region=region,
-                        packs=packs,
-                        classes=classes,
-                        include=include,
-                        aoi_id=aoi_id,
-                        since=since,
-                        until=until,
-                        survey_resource_id=survey_resource_id,
-                        aoi_grid_inexact=self.aoi_grid_inexact,
-                        reason="reactive - include skip",
-                    )
+                    if self.regrid_on_skip and not fail_hard_regrid:
+                        logger.debug(
+                            f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
+                            f"triggering reactive gridding"
+                        )
+                        features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
+                            geometry=geometry,
+                            region=region,
+                            packs=packs,
+                            classes=classes,
+                            include=include,
+                            aoi_id=aoi_id,
+                            since=since,
+                            until=until,
+                            survey_resource_id=survey_resource_id,
+                            aoi_grid_inexact=self.aoi_grid_inexact,
+                            reason="reactive - include skip",
+                        )
+                    else:
+                        logger.info(
+                            f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
+                            f"reactive gridding disabled — scores will remain null"
+                        )
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
