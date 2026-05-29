@@ -12,8 +12,10 @@ or ~/.aws/credentials.
 
 import gzip
 import json
+import logging
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -23,6 +25,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
+
+logger = logging.getLogger(__name__)
+
+# Bounded retry for transient S3 reads. file_exists / validate_parquet are used
+# both to skip already-processed chunks and to gather chunks during the final
+# merge; a transient read or a stale s3fs directory listing must not be mistaken
+# for a missing/corrupt chunk (which aborts the whole export — see
+# AOIExporter rollup consolidation).
+# Total worst-case wait: ~3.5s per call (0.5 + 1.0 + 2.0 — exponential backoff).
+_S3_READ_RETRIES = 3
+_S3_READ_BACKOFF_SECONDS = 0.5
 
 # Tuned transfer config for large files (>1GB).
 # Default boto3 uses 8MB parts / 10 threads — too conservative for multi-GB files.
@@ -117,21 +130,54 @@ def ensure_directory(path: str) -> None:
         Path(path).mkdir(parents=True, exist_ok=True)
 
 
+def invalidate_cache(path: str) -> None:
+    """Drop any cached s3fs directory listing for ``path``.
+
+    s3fs caches directory listings; a stale or partially-populated listing can
+    make an object that exists look absent. Call this before an existence sweep
+    that must be authoritative (e.g. the chunk-merge phase). No-op for local
+    paths.
+    """
+    if is_s3_path(path):
+        _get_s3_filesystem().invalidate_cache(path)
+
+
 def file_exists(path: str) -> bool:
     """
     Check if file exists. Works for both local and S3.
+
+    For S3, a transient read error (throttle, timeout, connection reset) is
+    retried rather than propagated — only a clean negative from s3fs is taken
+    as "absent". This prevents a flaky read from being mistaken for a missing
+    file by callers that treat absence as fatal.
 
     Args:
         path: File path to check
 
     Returns:
-        True if the file exists
+        True if the file exists, False if it does not.
+
+    Raises:
+        The underlying S3 error if reads still fail after retries. By design —
+        a persistent outage surfaces as itself rather than masquerading as
+        "file missing" to callers that proceed on a False return.
     """
-    if is_s3_path(path):
-        fs = _get_s3_filesystem()
-        return fs.exists(path)
-    else:
+    if not is_s3_path(path):
         return Path(path).exists()
+
+    fs = _get_s3_filesystem()
+    last_exc: Optional[Exception] = None
+    for attempt in range(_S3_READ_RETRIES + 1):
+        try:
+            return fs.exists(path)
+        except Exception as e:  # transient S3/network error — retry
+            last_exc = e
+            if attempt < _S3_READ_RETRIES:
+                time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
+                fs.invalidate_cache(path)
+    # Exhausted retries: re-raise rather than silently returning False, so a
+    # genuine, persistent S3 outage surfaces as itself instead of "file missing".
+    raise last_exc
 
 
 def validate_parquet(path: str) -> bool:
@@ -142,18 +188,37 @@ def validate_parquet(path: str) -> bool:
     which reads only the footer.  This is a lightweight integrity check that
     detects truncated or corrupted files without reading column data.
 
+    A genuinely corrupt/truncated file (``pyarrow.ArrowInvalid``) returns
+    ``False`` immediately. A transient read error (S3 throttle/timeout, stale
+    s3fs listing) is retried — it must not be silently reported as corruption,
+    because callers treat an invalid chunk as missing and may abort the export.
+
     Args:
         path: File path (local or S3 URI).
 
     Returns:
         True if the file has a valid parquet footer, False otherwise.
     """
-    try:
-        with open_file(path, "rb") as f:
-            pq.ParquetFile(f)
-        return True
-    except Exception:
-        return False
+    last_exc: Optional[Exception] = None
+    for attempt in range(_S3_READ_RETRIES + 1):
+        try:
+            with open_file(path, "rb") as f:
+                pq.ParquetFile(f)
+            return True
+        except (pa.ArrowInvalid, FileNotFoundError):
+            # Genuinely corrupt/truncated, or genuinely absent — retrying won't help.
+            return False
+        except Exception as e:  # transient read error — retry before giving up
+            last_exc = e
+            if attempt < _S3_READ_RETRIES:
+                time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
+                if is_s3_path(path):
+                    _get_s3_filesystem().invalidate_cache(path)
+    logger.warning(
+        f"validate_parquet: treating {path} as invalid after "
+        f"{_S3_READ_RETRIES + 1} read attempts (last error: {last_exc})"
+    )
+    return False
 
 
 def glob_files(directory: str, pattern: str) -> List[str]:

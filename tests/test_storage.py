@@ -476,3 +476,110 @@ class TestMoveFile:
             storage.move_file(local, "s3://bucket/dst")
         with pytest.raises(ValueError, match="cross-scheme"):
             storage.move_file("s3://bucket/src", local)
+
+
+# ---------------------------------------------------------------------------
+# Transient-read resilience (file_exists / validate_parquet / invalidate_cache)
+#
+# A transient S3 read or a stale s3fs directory listing must not be mistaken for
+# a missing/corrupt chunk — that previously aborted the whole export during the
+# rollup merge even though the chunk was present and valid on S3.
+# ---------------------------------------------------------------------------
+
+
+class TestFileExistsResilience:
+    @patch("nmaipy.storage.time.sleep", lambda *_: None)
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_retries_transient_then_succeeds(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_fs.exists.side_effect = [OSError("connection reset"), OSError("timeout"), True]
+        mock_get_fs.return_value = mock_fs
+
+        assert storage.file_exists("s3://bucket/key.parquet") is True
+        assert mock_fs.exists.call_count == 3
+        assert mock_fs.invalidate_cache.call_count == 2  # once per retry
+
+    @patch("nmaipy.storage.time.sleep", lambda *_: None)
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_persistent_error_raises_not_false(self, mock_get_fs):
+        # A persistent outage must surface as the real error, never be silently
+        # reported as "file absent".
+        mock_fs = MagicMock()
+        mock_fs.exists.side_effect = OSError("s3 down")
+        mock_get_fs.return_value = mock_fs
+
+        with pytest.raises(OSError, match="s3 down"):
+            storage.file_exists("s3://bucket/key.parquet")
+
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_clean_negative_is_not_retried(self, mock_get_fs):
+        # A clean False from s3fs is a genuine "absent" — return immediately.
+        mock_fs = MagicMock()
+        mock_fs.exists.return_value = False
+        mock_get_fs.return_value = mock_fs
+
+        assert storage.file_exists("s3://bucket/missing.parquet") is False
+        assert mock_fs.exists.call_count == 1
+
+
+class TestValidateParquetResilience:
+    @patch("nmaipy.storage.time.sleep", lambda *_: None)
+    def test_transient_read_retries_then_true(self, tmp_path, monkeypatch):
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        path = str(tmp_path / "valid.parquet")
+        df.to_parquet(path)
+
+        real_open = storage.open_file
+        calls = {"n": 0}
+
+        def flaky_open(p, mode="r", **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("transient read")
+            return real_open(p, mode, **kw)
+
+        monkeypatch.setattr(storage, "open_file", flaky_open)
+        assert storage.validate_parquet(path) is True
+        assert calls["n"] == 2  # failed once, succeeded on retry
+
+    @patch("nmaipy.storage.time.sleep", lambda *_: None)
+    def test_persistent_transient_returns_false_after_retrying(self, monkeypatch):
+        calls = {"n": 0}
+
+        def always_raise(p, mode="r", **kw):
+            calls["n"] += 1
+            raise OSError("s3 unreadable")
+
+        monkeypatch.setattr(storage, "open_file", always_raise)
+        # Persistent transient error → False, but only after exhausting retries
+        # (not silently on the first read).
+        assert storage.validate_parquet("s3://bucket/x.parquet") is False
+        assert calls["n"] == storage._S3_READ_RETRIES + 1
+
+    def test_corruption_is_not_retried(self, tmp_path, monkeypatch):
+        path = str(tmp_path / "corrupt.parquet")
+        Path(path).write_text("not a parquet")
+        calls = {"n": 0}
+        real_open = storage.open_file
+
+        def counting_open(p, mode="r", **kw):
+            calls["n"] += 1
+            return real_open(p, mode, **kw)
+
+        monkeypatch.setattr(storage, "open_file", counting_open)
+        assert storage.validate_parquet(path) is False
+        assert calls["n"] == 1  # ArrowInvalid → no retry
+
+
+class TestInvalidateCache:
+    def test_local_is_noop(self):
+        with patch("nmaipy.storage._get_s3_filesystem") as mock_get_fs:
+            storage.invalidate_cache("/tmp/some/dir")
+            mock_get_fs.assert_not_called()
+
+    @patch("nmaipy.storage._get_s3_filesystem")
+    def test_s3_invalidates(self, mock_get_fs):
+        mock_fs = MagicMock()
+        mock_get_fs.return_value = mock_fs
+        storage.invalidate_cache("s3://bucket/dir")
+        mock_fs.invalidate_cache.assert_called_once_with("s3://bucket/dir")

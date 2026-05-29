@@ -3975,6 +3975,13 @@ class NearmapAIExporter(BaseExporter):
         errors = []
         self.logger.debug(f"Saving rollup data as {self.tabular_file_format} file to {outpath}")
 
+        # Drop any cached s3fs directory listing for the chunk dir so the
+        # existence sweep below reads S3 fresh. Earlier phases (cache-check,
+        # latency combine) may have cached a listing that predates some chunk
+        # writes; a stale listing would make a present chunk look missing and
+        # abort the merge (sys.exit below).
+        storage.invalidate_cache(self.chunk_path)
+
         # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
         def _check_chunk_files(i):
             chunk_filename = f"rollup_{str(i).zfill(4)}.parquet"
