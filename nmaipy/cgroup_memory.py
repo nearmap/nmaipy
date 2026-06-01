@@ -7,6 +7,12 @@ the actual container resource limits from cgroup files.
 
 Supports both cgroup v1 and v2 (unified hierarchy).
 Currently covers memory and CPU resources.
+
+Cross-platform: cgroup files live under /sys/fs/cgroup, which only exists on
+Linux. On Windows, macOS, and Linux outside a container, `is_running_in_container`
+returns False (the cgroup paths don't exist) and `get_*_cgroup_aware` functions
+fall back to psutil for the host's view. Each helper that touches a cgroup file
+guards on `os.path.exists` first.
 """
 
 import logging
@@ -21,11 +27,13 @@ logger = logging.getLogger(__name__)
 # Cgroup v2 paths (unified hierarchy, newer K8s)
 CGROUP_V2_MEMORY_MAX = "/sys/fs/cgroup/memory.max"
 CGROUP_V2_MEMORY_CURRENT = "/sys/fs/cgroup/memory.current"
+CGROUP_V2_MEMORY_STAT = "/sys/fs/cgroup/memory.stat"
 CGROUP_V2_CPU_MAX = "/sys/fs/cgroup/cpu.max"
 
 # Cgroup v1 paths (legacy, older K8s)
 CGROUP_V1_MEMORY_LIMIT = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
 CGROUP_V1_MEMORY_USAGE = "/sys/fs/cgroup/memory/memory.usage_in_bytes"
+CGROUP_V1_MEMORY_STAT = "/sys/fs/cgroup/memory/memory.stat"
 CGROUP_V1_CPU_QUOTA = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us"
 CGROUP_V1_CPU_PERIOD = "/sys/fs/cgroup/cpu/cpu.cfs_period_us"
 
@@ -116,6 +124,74 @@ def get_cgroup_memory_usage_bytes() -> Optional[int]:
     return None
 
 
+def _read_memory_stat_field(stat_path: str, field: str) -> Optional[int]:
+    """
+    Read a single ``key value`` field (in bytes) from a cgroup memory.stat file.
+
+    The Linux cgroup memory.stat format guarantees exactly two whitespace-
+    separated tokens per line (one key, one numeric value in bytes). Returns
+    None on any non-Linux platform (sysfs absent), missing field, or parse
+    error — callers are expected to fall back gracefully.
+
+    Args:
+        stat_path: Path to the memory.stat file.
+        field: The leading key to match (e.g. "inactive_file").
+
+    Returns:
+        The field value in bytes, or None if the file/field is unavailable.
+    """
+    if not os.path.exists(stat_path):
+        return None
+    try:
+        with open(stat_path, "r") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 2 and parts[0] == field:
+                    return int(parts[1])
+    except (IOError, ValueError) as e:
+        logger.debug(f"Could not read {field} from {stat_path}: {e}")
+    return None
+
+
+def get_cgroup_inactive_file_bytes() -> Optional[int]:
+    """
+    Get the reclaimable file-backed page cache (inactive_file) from cgroup files.
+
+    This is clean page cache the kernel can evict for free under memory pressure,
+    so it does NOT count toward an OOM kill. Tries cgroup v2 first, then v1.
+
+    Returns:
+        Inactive file cache in bytes, or None if not in a container / unavailable.
+    """
+    # cgroup v2 reports this as "inactive_file"; v1 as "total_inactive_file".
+    inactive = _read_memory_stat_field(CGROUP_V2_MEMORY_STAT, "inactive_file")
+    if inactive is not None:
+        return inactive
+    return _read_memory_stat_field(CGROUP_V1_MEMORY_STAT, "total_inactive_file")
+
+
+def get_cgroup_working_set_bytes() -> Optional[int]:
+    """
+    Get the container's working-set memory in bytes.
+
+    working_set = memory.current - inactive_file (the reclaimable page cache).
+    This is the figure kubelet and the kernel OOM killer key off: raw
+    memory.current includes reclaimable page cache and so overstates how close
+    the container is to being killed. If inactive_file can't be read we fall back
+    to raw usage (conservative: overcounts rather than understating OOM risk).
+
+    Returns:
+        Working-set memory in bytes, or None if not in a container.
+    """
+    usage = get_cgroup_memory_usage_bytes()
+    if usage is None:
+        return None
+    inactive = get_cgroup_inactive_file_bytes()
+    if inactive is None:
+        return usage
+    return max(0, usage - inactive)
+
+
 def get_cgroup_memory_limit_gb() -> Optional[float]:
     """
     Get the container's memory limit in GB.
@@ -133,6 +209,9 @@ def get_cgroup_memory_usage_gb() -> Optional[float]:
     """
     Get the container's current memory usage in GB.
 
+    This is raw memory.current and includes reclaimable page cache. For an
+    OOM-risk figure prefer get_cgroup_working_set_gb().
+
     Returns:
         Current memory usage in GB, or None if not in a container.
     """
@@ -142,19 +221,40 @@ def get_cgroup_memory_usage_gb() -> Optional[float]:
     return usage_bytes / (1024**3)
 
 
+def get_cgroup_working_set_gb() -> Optional[float]:
+    """
+    Get the container's working-set memory in GB (the OOM-relevant figure).
+
+    See get_cgroup_working_set_bytes(): this is memory.current minus reclaimable
+    page cache, matching kubelet's working_set_bytes.
+
+    Returns:
+        Working-set memory in GB, or None if not in a container.
+    """
+    working_set_bytes = get_cgroup_working_set_bytes()
+    if working_set_bytes is None:
+        return None
+    return working_set_bytes / (1024**3)
+
+
 def get_memory_info_cgroup_aware() -> Tuple[float, float]:
     """
     Get memory usage and total, respecting cgroup limits when in a container.
+
+    The "used" figure is the working set (memory.current minus reclaimable page
+    cache), so it reflects the memory that actually drives an OOM kill rather
+    than raw usage inflated by evictable cache. This also matches the bare-metal
+    psutil fallback (total - available), which already excludes reclaimable cache.
 
     Returns:
         Tuple of (used_gb, total_gb) - uses cgroup values in containers,
         falls back to psutil for bare metal.
     """
     if is_running_in_container():
-        usage_gb = get_cgroup_memory_usage_gb()
+        used_gb = get_cgroup_working_set_gb()
         limit_gb = get_cgroup_memory_limit_gb()
-        if usage_gb is not None and limit_gb is not None:
-            return (usage_gb, limit_gb)
+        if used_gb is not None and limit_gb is not None:
+            return (used_gb, limit_gb)
 
     # Fall back to psutil
     mem = psutil.virtual_memory()
