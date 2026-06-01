@@ -7,6 +7,12 @@ the actual container resource limits from cgroup files.
 
 Supports both cgroup v1 and v2 (unified hierarchy).
 Currently covers memory and CPU resources.
+
+Cross-platform: cgroup files live under /sys/fs/cgroup, which only exists on
+Linux. On Windows, macOS, and Linux outside a container, `is_running_in_container`
+returns False (the cgroup paths don't exist) and `get_*_cgroup_aware` functions
+fall back to psutil for the host's view. Each helper that touches a cgroup file
+guards on `os.path.exists` first.
 """
 
 import logging
@@ -121,6 +127,11 @@ def get_cgroup_memory_usage_bytes() -> Optional[int]:
 def _read_memory_stat_field(stat_path: str, field: str) -> Optional[int]:
     """
     Read a single ``key value`` field (in bytes) from a cgroup memory.stat file.
+
+    The Linux cgroup memory.stat format guarantees exactly two whitespace-
+    separated tokens per line (one key, one numeric value in bytes). Returns
+    None on any non-Linux platform (sysfs absent), missing field, or parse
+    error — callers are expected to fall back gracefully.
 
     Args:
         stat_path: Path to the memory.stat file.

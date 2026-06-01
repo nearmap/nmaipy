@@ -82,6 +82,11 @@ class TestGetCgroupWorkingSetBytes:
         assert get_cgroup_working_set_bytes() == 0
 
     def test_no_usage_returns_none(self, monkeypatch):
+        """Windows / macOS / Linux outside a container: no sysfs cgroup files → None.
+
+        The caller (`get_memory_info_cgroup_aware`) handles None by falling back
+        to psutil, so the host's view is reported on those platforms.
+        """
         monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_MEMORY_CURRENT", "/nonexistent")
         monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V1_MEMORY_USAGE", "/nonexistent")
         assert get_cgroup_working_set_bytes() is None
