@@ -10,6 +10,8 @@ from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 from urllib3.util.retry import Retry
 
+logger = logging.getLogger(__name__)
+
 s = requests.Session()
 
 AI_COVERAGE = "ai"
@@ -17,36 +19,32 @@ STANDARD_COVERAGE = "standard"
 FORBIDDEN_403 = 403
 DATETIMEDTYPE = "datetime64[ns]"  # Datetime type for pandas
 
+# (connect, read) timeout in seconds. Without this a hung connection blocks a
+# worker thread indefinitely — a real hazard under heavy threaded per-point load.
+DEFAULT_TIMEOUT = (10, 60)
+
 retries = Retry(total=20, backoff_factor=0.1, status_forcelist=[408, 429, 500, 502, 503, 504])
 s.mount("https://", HTTPAdapter(max_retries=retries, pool_maxsize=100, pool_connections=100))
 
 
-def get_payload(request_string):
+def get_payload(request_string, timeout=DEFAULT_TIMEOUT):
     """
     Basic wrapper code to retrieve the JSON payload from the API, and raise an error if no response is given.
     Using urllib3, this also implements exponential backoff and retries for robustness.
+
+    Per-request logging is at debug level: at 10k+ points an info line per call
+    floods the logs. Failures are logged at warning/error.
     """
-    response = s.get(
-        request_string,
-    )
+    response = s.get(request_string, timeout=timeout)
 
     if response.ok:
-        logging.info(f"Status Code: {response.status_code}")
-        logging.info(f"Status Message: {response.reason}")
-        payload = response.json()
-        return payload
+        logger.debug(f"Status Code: {response.status_code} ({response.reason})")
+        return response.json()
     elif response.status_code == FORBIDDEN_403:
-        logging.info(f"Status Code: {response.status_code}")
-        logging.info(f"Status Message: {response.reason}")
-        payload = response.content
-        logging.info(str(payload))
+        logger.debug(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
         return FORBIDDEN_403
     else:
-        logging.error(f"Status Code: {response.status_code}")
-        logging.error(f"Status Message: {response.reason}")
-        logging.error(str(response))
-        payload = response.content
-        logging.error(str(payload))
+        logger.error(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
         return response.status_code
 
 
@@ -71,6 +69,7 @@ def get_surveys_from_point(
     has_3d=False,
     prerelease=False,
     limit=100,
+    timeout=DEFAULT_TIMEOUT,
 ):
     fields = "id,captureDate,resources,tags"
     if coverage_type == STANDARD_COVERAGE:
@@ -90,7 +89,7 @@ def get_surveys_from_point(
     if prerelease:
         url += "&prerelease=true"
     url += f"&apikey={apikey}"
-    response = get_payload(url)
+    response = get_payload(url, timeout=timeout)
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
@@ -99,10 +98,10 @@ def get_surveys_from_point(
         else:
             raise ValueError(f"Unknown coverage type {coverage_type}")
     elif response == FORBIDDEN_403:
-        logging.info(f"Unauthorised area request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
+        logger.debug(f"Unauthorised area request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
         return None, None
     else:
-        logging.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
+        logger.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
         return None, None
 
 
@@ -158,59 +157,58 @@ def threaded_get_coverage_from_point_results(
     latitude_col="latitude",
     since_col="since",
     until_col="until",
+    since=None,
+    until=None,
     threads=20,
     coverage_type=STANDARD_COVERAGE,
     include_disaster=False,
     has_3d=False,
     prerelease=False,
     limit=100,
+    timeout=DEFAULT_TIMEOUT,
 ):
     """
-    Wrapper function to get coverage from a dataframe of points, using a thread pool.
+    Get coverage for a dataframe of points using a thread pool.
+
+    The query window is resolved per row: a present ``since_col`` / ``until_col``
+    column overrides the global ``since`` / ``until`` argument. When the column is
+    absent (or ``*_col`` is ``None``), the global value is used for every row — so
+    callers can pass a single window without synthesising per-row columns.
     """
-    jobs = []
-
-    if since_col is None:
-        since = None
-    if until_col is None:
-        until = None
-
     df = df.copy()
 
-    # Send each parcel to a thread worker
-    with concurrent.futures.ThreadPoolExecutor(threads) as executor:
-        # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
-        if df[since_col].dtype == DATETIMEDTYPE:
-            df[since_col] = df[since_col].dt.strftime("%Y-%m-%d").astype(str)
-        if df[until_col].dtype == DATETIMEDTYPE:
-            df[until_col] = df[until_col].dt.strftime("%Y-%m-%d").astype(str)
+    # A column overrides the global window only when it actually exists.
+    has_since_col = since_col is not None and since_col in df.columns
+    has_until_col = until_col is not None and until_col in df.columns
+    # Normalise datetime columns to "yyyy-mm-dd" strings (the API wants strings).
+    if has_since_col and df[since_col].dtype == DATETIMEDTYPE:
+        df[since_col] = df[since_col].dt.strftime("%Y-%m-%d")
+    if has_until_col and df[until_col].dtype == DATETIMEDTYPE:
+        df[until_col] = df[until_col].dt.strftime("%Y-%m-%d")
 
-        for i, row in df.iterrows():
-            if since_col is not None:
-                since = str(row[since_col])
-            if until_col is not None:
-                until = str(row[until_col])
+    jobs = []
+    with concurrent.futures.ThreadPoolExecutor(threads) as executor:
+        for _, row in df.iterrows():
+            row_since = str(row[since_col]) if has_since_col else since
+            row_until = str(row[until_col]) if has_until_col else until
             jobs.append(
                 executor.submit(
                     get_surveys_from_point,
                     row[longitude_col],
                     row[latitude_col],
-                    since,
-                    until,
+                    row_since,
+                    row_until,
                     apikey,
                     coverage_type,
                     include_disaster,
                     has_3d,
                     prerelease,
                     limit,
+                    timeout,
                 )
             )
 
-    results = []
-    for job in jobs:
-        df_job, _ = job.result()
-        results.append(pd.DataFrame(df_job))
-    return results
+    return [pd.DataFrame(job.result()[0]) for job in jobs]
 
 
 def get_coverage_from_points(
@@ -221,10 +219,13 @@ def get_coverage_from_points(
     threads=20,
     coverage_chunk_cache_dir="coverage_chunks",
     id_col="id",
+    since=None,
+    until=None,
     include_disaster=False,
     has_3d=False,
     prerelease=False,
     limit=100,
+    timeout=DEFAULT_TIMEOUT,
 ):
     """
     Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
@@ -239,7 +240,7 @@ def get_coverage_from_points(
     api_key : str
         The Nearmap API key to use for authentication.
     coverage_type : str, optional
-        The type of coverage to retrieve. Must be one of "standard", "oblique", or "all". Default is "standard".
+        The type of coverage to retrieve. One of "standard" or "ai". Default "standard".
     chunk_size : int, optional
         The number of points to process in each chunk. Default is 10000.
     threads : int, optional
@@ -248,6 +249,9 @@ def get_coverage_from_points(
         The directory to cache coverage chunks. Default is "coverage_chunks".
     id_col : str, optional
         The name of the column in `df_points` that contains the unique identifier for each point.
+    since, until : str, optional
+        Global date window (YYYY-MM-DD) applied to every point. Overridden per-row by
+        `since` / `until` columns when those are present in `df_points`.
 
     Returns:
     --------
@@ -263,12 +267,14 @@ def get_coverage_from_points(
         f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
         if not f.exists():
             df_point_chunk = df_points.iloc[i : i + chunk_size, :]
-            logging.debug(f"Pulling chunk from API for {f}.")
+            logger.debug(f"Pulling chunk from API for {f}.")
             # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
             c = threaded_get_coverage_from_point_results(
                 df_point_chunk,
                 since_col="since",
                 until_col="until",
+                since=since,
+                until=until,
                 apikey=api_key,
                 threads=threads,
                 coverage_type=coverage_type,
@@ -276,6 +282,7 @@ def get_coverage_from_points(
                 has_3d=has_3d,
                 prerelease=prerelease,
                 limit=limit,
+                timeout=timeout,
             )
             c_with_idx = []
             for j in range(len(c)):
@@ -302,38 +309,35 @@ def get_coverage_from_points(
                 c.to_parquet(f)
 
         else:
-            logging.debug(f"Reading chunk from parquet for {f}.")
+            logger.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
         if c is not None:
             if len(c) > 0:
                 if coverage_type == STANDARD_COVERAGE:
-                    c = c.loc[
-                        :,
-                        [
-                            id_col,
-                            "captureDate",
-                            "survey_id",
-                            "survey_resource_id",
-                            "tiles",
-                            "aifeatures",
-                            "3d",
-                            "tags",
-                        ],
-                    ].set_index(id_col)
+                    cols = [
+                        id_col,
+                        "captureDate",
+                        "survey_id",
+                        "survey_resource_id",
+                        "tiles",
+                        "aifeatures",
+                        "3d",
+                        "tags",
+                    ]
                 elif coverage_type == AI_COVERAGE:
-                    c = c.loc[
-                        :,
-                        [
-                            id_col,
-                            "captureDate",
-                            "survey_id",
-                            "survey_resource_id",
-                            "systemVersion",
-                            "postcat",
-                            "perspective",
-                        ],
-                    ].set_index(id_col)
+                    cols = [
+                        id_col,
+                        "captureDate",
+                        "survey_id",
+                        "survey_resource_id",
+                        "systemVersion",
+                        "postcat",
+                        "perspective",
+                    ]
+                # reindex (not .loc[…]) so a survey response missing an optional
+                # field (e.g. tags / 3d) yields a NaN column instead of KeyError.
+                c = c.reindex(columns=cols).set_index(id_col)
                 c["captureDate"] = pd.to_datetime(c["captureDate"])
                 df_coverage.append(c)
     if len(df_coverage) > 0:
@@ -379,18 +383,22 @@ def threaded_get_coverage_from_survey_ids(
     return results
 
 
-def get_surveys_from_id(survey_id, apikey, limit=100):
+def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT):
+    # NOTE: this references `id_check_response_to_dataframe`, which is not defined
+    # anywhere in the package — the survey-ids path is pre-existing dead code with
+    # no callers. Left in place (out of scope for this cleanup); flagged so a
+    # future reviver knows the response parser still needs implementing.
     fields = "id,captureDate,resources"
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
     url += f"&apikey={apikey}"
-    response = get_payload(url)
+    response = get_payload(url, timeout=timeout)
     if not isinstance(response, int):
-        return id_check_response_to_dataframe(response), response
+        return id_check_response_to_dataframe(response), response  # noqa: F821 (see NOTE above)
     elif response == FORBIDDEN_403:
-        logging.info(f"Unauthorised area request at {survey_id=} with code {response}")
+        logger.debug(f"Unauthorised area request at {survey_id=} with code {response}")
         return None, None
     else:
-        logging.error(f"Failed request at {survey_id=} with code {response}")
+        logger.error(f"Failed request at {survey_id=} with code {response}")
         return None, None
 
 
@@ -435,7 +443,7 @@ def get_coverage_from_survey_ids(
         f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
         if not f.exists():
             df_point_chunk = df.iloc[i : i + chunk_size, :]
-            logging.debug(f"Pulling chunk from API for {f}.")
+            logger.debug(f"Pulling chunk from API for {f}.")
             # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
             c = threaded_get_coverage_from_survey_ids(
                 df_point_chunk,
@@ -455,32 +463,23 @@ def get_coverage_from_survey_ids(
                 c = pd.concat(c_with_idx)
                 c["survey_resource_id"] = c["resources"].apply(get_survey_resource_id_from_survey_id_query)
                 c = c.rename(columns={"id": "survey_id"})
-            if (
-                df_coverage_empty is None
-            ):  # Set an empty dataframe with the right columns for writing dummy parquet cache files
-                df_coverage_empty = pd.DataFrame([], columns=c.columns).astype(c.dtypes)
+                # Set an empty dataframe with the right columns for dummy cache files.
+                # NB: must be nested here — previously this else clobbered a real
+                # `c` with the empty frame on every chunk after the first.
+                if df_coverage_empty is None:
+                    df_coverage_empty = pd.DataFrame([], columns=c.columns).astype(c.dtypes)
             else:
                 c = df_coverage_empty
             if c is not None:
                 c.to_parquet(f)
         else:
-            logging.debug(f"Reading chunk from parquet for {f}.")
+            logger.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
         if c is not None:
             if len(c) > 0:
-                c = c.loc[
-                    :,
-                    [
-                        id_col,
-                        "captureDate",
-                        "survey_id",
-                        "survey_resource_id",
-                        "tiles",
-                        "aifeatures",
-                        "3d",
-                    ],
-                ].set_index(id_col)
+                cols = [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
+                c = c.reindex(columns=cols).set_index(id_col)
                 c["captureDate"] = pd.to_datetime(c["captureDate"])
                 df_coverage.append(c)
     if len(df_coverage) > 0:
