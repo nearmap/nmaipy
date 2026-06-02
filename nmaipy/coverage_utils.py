@@ -1,5 +1,4 @@
 import concurrent.futures
-import logging
 from pathlib import Path
 
 import geopandas as gpd
@@ -10,7 +9,18 @@ from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 from urllib3.util.retry import Retry
 
-logger = logging.getLogger(__name__)
+from nmaipy import (  # noqa: F401 — import side effect: installs APIKeyFilter on the "nmaipy" / urllib3 / requests loggers.
+    api_common,
+    log,
+)
+
+# Use the project-level nmaipy logger so emissions are scrubbed by APIKeyFilter.
+# A child logger via logging.getLogger(__name__) would propagate to nmaipy's
+# handlers but bypass its filter — empirically verified to leak apikey=... values
+# into log output. The api_common import above is what installs the filter; without
+# it, even routing through log.get_logger() leaks (the filter is set up as a module
+# side effect in api_common).
+logger = log.get_logger()
 
 s = requests.Session()
 
@@ -37,6 +47,10 @@ def get_payload(request_string, timeout=DEFAULT_TIMEOUT):
     """
     response = s.get(request_string, timeout=timeout)
 
+    # response.content is server-controlled. The Nearmap coverage API doesn't
+    # echo apikeys in response bodies, and the nmaipy-logger APIKeyFilter would
+    # scrub them if it did — so this is safe today. Worth knowing if either
+    # assumption changes.
     if response.ok:
         logger.debug(f"Status Code: {response.status_code} ({response.reason})")
         return response.json()
@@ -218,7 +232,7 @@ def get_coverage_from_points(
     chunk_size=10000,
     threads=20,
     coverage_chunk_cache_dir="coverage_chunks",
-    id_col="id",
+    id_col=None,
     since=None,
     until=None,
     include_disaster=False,
@@ -247,8 +261,10 @@ def get_coverage_from_points(
         The number of threads to use for making API calls. Default is 20.
     coverage_chunk_cache_dir : str, optional
         The directory to cache coverage chunks. Default is "coverage_chunks".
-    id_col : str, optional
-        The name of the column in `df_points` that contains the unique identifier for each point.
+    id_col : str
+        The name of the column in `df_points` that contains the unique identifier
+        for each point. Required — must NOT be `"id"` (collides with each survey
+        response's own `id` field).
     since, until : str, optional
         Global date window (YYYY-MM-DD) applied to every point. Overridden per-row by
         `since` / `until` columns when those are present in `df_points`.
@@ -258,6 +274,17 @@ def get_coverage_from_points(
     df_coverage : DataFrame
         A DataFrame containing the coverage data for each point.
     """
+    if id_col is None:
+        raise ValueError(
+            "id_col is required. Pass the name of the column in df_points that "
+            "uniquely identifies each point (e.g. 'aoi_id'). It must NOT be 'id', "
+            "which collides with each survey response's own 'id' field."
+        )
+    if id_col == "id":
+        raise ValueError(
+            "id_col='id' collides with the per-survey 'id' field returned by the "
+            "coverage API. Use a distinct column name (e.g. 'aoi_id')."
+        )
     df_coverage = []
     df_coverage_empty = None
     coverage_chunk_cache_dir = Path(coverage_chunk_cache_dir)

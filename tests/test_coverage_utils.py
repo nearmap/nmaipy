@@ -99,9 +99,25 @@ def test_threaded_per_row_columns_override_global():
     assert seen == [("2018-01-01", "2018-12-31")]  # per-row wins
 
 
+def test_get_coverage_from_points_rejects_missing_id_col(tmp_path):
+    """id_col is required — and explicitly must not be 'id' (collides with the
+    per-survey 'id' field). Both omission and the 'id' literal must fail loud."""
+    points = gpd.GeoDataFrame(
+        {"aoi_id": ["u1"], "longitude": [151.0], "latitude": [-33.0]},
+        geometry=[Point(151.0, -33.0)],
+        crs="EPSG:4326",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="id_col is required"):
+        cu.get_coverage_from_points(points, api_key="KEY", coverage_chunk_cache_dir=str(tmp_path / "cov1"))
+    with pytest.raises(ValueError, match="collides"):
+        cu.get_coverage_from_points(points, api_key="KEY", id_col="id", coverage_chunk_cache_dir=str(tmp_path / "cov2"))
+
+
 def test_get_coverage_from_points_standard_tolerant(tmp_path):
-    # id_col="aoi_id" mirrors real callers; the default "id" collides with the
-    # survey's own "id" field (a pre-existing footgun, out of scope here).
+    # id_col="aoi_id" mirrors real callers (must NOT be "id" — that collides with
+    # the survey's own "id" field and is rejected at the boundary above).
     points = gpd.GeoDataFrame(
         {"aoi_id": ["u1", "u2"], "longitude": [151.0, 151.1], "latitude": [-33.0, -33.1]},
         geometry=[Point(151.0, -33.0), Point(151.1, -33.1)],
