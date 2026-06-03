@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,7 @@ from nmaipy.constants import (
 )
 from nmaipy.exporter import (
     AOIExporter,
+    _add_missing_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
     _per_class_chunk_regexes,
@@ -29,6 +31,74 @@ from nmaipy.exporter import (
     _write_errors_parquet,
 )
 from nmaipy.feature_api import FeatureApi
+
+
+class TestAddMissingColumns:
+    """``_add_missing_columns`` backfills absent columns without the per-column fragmentation warning.
+
+    Regression guard for the no-coverage chunk path: a chunk that returns no survey resources has an
+    empty ``metadata_df``, so all metadata columns are absent from the (very wide) ``final_df`` and must
+    be added. Doing that one column at a time floods the logs with pandas PerformanceWarnings.
+    """
+
+    META_COLUMNS = [
+        "system_version",
+        "link",
+        "survey_date",
+        "survey_id",
+        "survey_resource_id",
+        "perspective",
+        "postcat",
+        "mesh_date",
+    ]
+
+    @staticmethod
+    def _fragmented_frame(n_cols: int = 300, n_rows: int = 5) -> pd.DataFrame:
+        """Build a deliberately block-fragmented frame, mirroring the wide per-chunk rollup."""
+        df = pd.DataFrame({AOI_ID_COLUMN_NAME: range(n_rows)})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # the fragmenting inserts warn too; not what we're testing
+            for i in range(n_cols):
+                df[f"col_{i}"] = i
+        return df
+
+    def test_adds_all_missing_columns_as_null(self):
+        df = self._fragmented_frame()
+        result = _add_missing_columns(df, self.META_COLUMNS)
+        for col in self.META_COLUMNS:
+            assert col in result.columns, f"{col} should have been added"
+            assert result[col].isna().all(), f"{col} should be all-null"
+        assert len(result) == len(df)
+
+    def test_no_fragmentation_warning_on_wide_frame(self):
+        # Sanity: the naive per-column approach DOES warn on a wide frame, so the regression
+        # assertion below is meaningful (it fails if anyone reverts to that loop).
+        naive = self._fragmented_frame()
+        with pytest.warns(pd.errors.PerformanceWarning):
+            for col in self.META_COLUMNS:
+                naive[col] = None
+
+        # The helper must add the same columns to an equally-wide frame without warning.
+        df = self._fragmented_frame()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", pd.errors.PerformanceWarning)
+            result = _add_missing_columns(df, self.META_COLUMNS)
+        assert all(col in result.columns for col in self.META_COLUMNS)
+
+    def test_returns_input_unchanged_when_nothing_missing(self):
+        df = pd.DataFrame({AOI_ID_COLUMN_NAME: [1], "system_version": ["gen6-"]})
+        result = _add_missing_columns(df, ["system_version"])
+        assert result is df  # no-op, no needless copy
+
+    def test_partial_backfill_preserves_present_values(self):
+        df = self._fragmented_frame()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # setup-only insert on the fragmented frame
+            df["system_version"] = "gen6-"
+        result = _add_missing_columns(df, self.META_COLUMNS)
+        assert (result["system_version"] == "gen6-").all()
+        for col in (c for c in self.META_COLUMNS if c != "system_version"):
+            assert result[col].isna().all()
 
 
 class TestExporter:

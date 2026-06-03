@@ -238,6 +238,31 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
+def _add_missing_columns(df: pd.DataFrame, columns: list, fill=None) -> pd.DataFrame:
+    """
+    Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
+
+    The per-chunk ``final_df`` is frequently very wide (hundreds of rollup columns). Adding
+    absent columns one at a time with ``df[col] = fill`` trips pandas' "DataFrame is highly
+    fragmented" PerformanceWarning once per column, which floods the logs with thousands of
+    identical lines on a no-coverage export (one burst per chunk that returned no survey
+    resources). Building all missing columns at once and concatenating avoids that.
+
+    Args:
+        df: Frame to extend.
+        columns: Column names that must exist on the returned frame.
+        fill: Value used to populate any newly-added columns.
+
+    Returns:
+        ``df`` unchanged when all columns already exist, otherwise a new frame with the
+        missing columns appended.
+    """
+    missing = [col for col in columns if col not in df.columns]
+    if not missing:
+        return df
+    return pd.concat([df, pd.DataFrame({col: fill for col in missing}, index=df.index)], axis=1)
+
+
 def _add_is_primary_column(
     features_gdf: gpd.GeoDataFrame,
     rollup_df: pd.DataFrame,
@@ -3334,10 +3359,8 @@ class NearmapAIExporter(BaseExporter):
                 aoi_gdf, on=AOI_ID_COLUMN_NAME
             )
             # Ensure metadata columns exist even when metadata_df was empty
-            # (e.g. all Feature API requests failed) for consistent schema
-            for col in meta_data_columns:
-                if col not in final_df.columns:
-                    final_df[col] = None
+            # (e.g. no survey resources found for the chunk) for consistent schema.
+            final_df = _add_missing_columns(final_df, meta_data_columns)
             parcel_columns = [c for c in aoi_gdf.columns if c != "geometry"]
             columns = (
                 parcel_columns
