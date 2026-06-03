@@ -238,7 +238,7 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
-def _add_missing_columns(df: pd.DataFrame, columns: list, fill=None) -> pd.DataFrame:
+def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
 
@@ -247,6 +247,14 @@ def _add_missing_columns(df: pd.DataFrame, columns: list, fill=None) -> pd.DataF
     fragmented" PerformanceWarning once per column, which floods the logs with thousands of
     identical lines on a no-coverage export (one burst per chunk that returned no survey
     resources). Building all missing columns at once and concatenating avoids that.
+
+    The concat runs on a positional index, so it is safe regardless of ``df``'s index:
+    ``final_df`` is indexed by AOI id, and a left-merge against metadata carrying duplicate
+    AOI ids would make that index non-unique — aligning the additions on it would
+    cartesian-explode the rows. The original index (duplicate labels and name included) is
+    restored on the result. Missing columns are filled with ``fill`` (default ``None``),
+    preserving the object dtype the downstream cross-chunk parquet schema unification relies
+    on (a float ``NaN`` column would clash with string metadata from populated chunks).
 
     Args:
         df: Frame to extend.
@@ -260,7 +268,10 @@ def _add_missing_columns(df: pd.DataFrame, columns: list, fill=None) -> pd.DataF
     missing = [col for col in columns if col not in df.columns]
     if not missing:
         return df
-    return pd.concat([df, pd.DataFrame({col: fill for col in missing}, index=df.index)], axis=1)
+    additions = pd.DataFrame({col: fill for col in missing}, index=range(len(df)))
+    result = pd.concat([df.reset_index(drop=True), additions], axis=1)
+    result.index = df.index
+    return result
 
 
 def _add_is_primary_column(
