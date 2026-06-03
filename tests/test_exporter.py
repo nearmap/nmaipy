@@ -90,6 +90,29 @@ class TestAddMissingColumns:
         result = _add_missing_columns(df, ["system_version"])
         assert result is df  # no-op, no needless copy
 
+    def test_non_unique_index_does_not_explode(self):
+        # final_df is indexed by aoi_id; a left-merge against metadata carrying duplicate
+        # aoi_ids makes that index non-unique. Backfill must not cartesian-explode the rows,
+        # and must preserve the original index (duplicate labels and name included).
+        df = pd.DataFrame(
+            {"area": [1, 2, 3, 4]},
+            index=pd.Index(["a", "a", "b", "c"], name=AOI_ID_COLUMN_NAME),
+        )
+        result = _add_missing_columns(df, self.META_COLUMNS)
+        assert len(result) == 4
+        assert list(result.index) == ["a", "a", "b", "c"]
+        assert result.index.name == AOI_ID_COLUMN_NAME
+        assert result["area"].tolist() == [1, 2, 3, 4]
+        for col in self.META_COLUMNS:
+            assert result[col].isna().all()
+
+    def test_added_columns_are_object_none_not_nan(self):
+        # Object None (not float NaN) keeps a no-coverage chunk schema-compatible with chunks
+        # that carry string metadata, so cross-chunk parquet unification doesn't clash.
+        result = _add_missing_columns(pd.DataFrame({"area": [1, 2]}), ["survey_id"])
+        assert result["survey_id"].dtype == object
+        assert result["survey_id"].iloc[0] is None
+
     def test_partial_backfill_preserves_present_values(self):
         df = self._fragmented_frame()
         with warnings.catch_warnings():
