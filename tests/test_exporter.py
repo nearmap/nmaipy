@@ -113,6 +113,15 @@ class TestAddMissingColumns:
         assert result["survey_id"].dtype == object
         assert result["survey_id"].iloc[0] is None
 
+    def test_empty_frame_gets_columns_with_zero_rows(self):
+        # A fully-failed chunk (all Feature API requests errored) can reach the backfill with
+        # zero rows; the metadata columns must still be added so the chunk's schema is consistent.
+        df = pd.DataFrame({"area": pd.Series([], dtype="float64")})
+        result = _add_missing_columns(df, ["survey_id", "link"])
+        assert len(result) == 0
+        assert "survey_id" in result.columns
+        assert "link" in result.columns
+
     def test_partial_backfill_preserves_present_values(self):
         df = self._fragmented_frame()
         with warnings.catch_warnings():
