@@ -248,18 +248,20 @@ def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.
     identical lines on a no-coverage export (one burst per chunk that returned no survey
     resources). Building all missing columns at once and concatenating avoids that.
 
-    The concat runs on a positional index, so it is safe regardless of ``df``'s index:
-    ``final_df`` is indexed by AOI id, and a left-merge against metadata carrying duplicate
-    AOI ids would make that index non-unique — aligning the additions on it would
-    cartesian-explode the rows. The original index (duplicate labels and name included) is
-    restored on the result. Missing columns are filled with ``fill`` (default ``None``),
-    preserving the object dtype the downstream cross-chunk parquet schema unification relies
-    on (a float ``NaN`` column would clash with string metadata from populated chunks).
+    The concat runs on a positional index, so the result is correct for any input index —
+    unique or not, named or not — and the caller's original index (labels and name) is
+    restored unchanged. This matters because the caller may pass a frame whose index is
+    non-unique (``final_df`` is keyed by AOI id, which can repeat after a left-merge against
+    metadata carrying duplicate AOI ids); aligning the additions on a non-unique index
+    directly would cartesian-explode the rows. Missing columns are filled with ``fill``
+    (default ``None``), preserving the object dtype the downstream cross-chunk parquet schema
+    unification relies on (a float ``NaN`` column would clash with string metadata from
+    populated chunks).
 
     Args:
         df: Frame to extend.
         columns: Column names that must exist on the returned frame.
-        fill: Value used to populate any newly-added columns.
+        fill: Scalar value broadcast into any newly-added columns (default ``None``).
 
     Returns:
         ``df`` unchanged when all columns already exist, otherwise a new frame with the
