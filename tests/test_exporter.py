@@ -29,6 +29,7 @@ from nmaipy.exporter import (
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
     _resolve_prefetch_workers,
+    _staged_file_needs_upload,
     _unify_and_concat_tables,
     _write_errors_parquet,
 )
@@ -64,6 +65,28 @@ class TestResolvePrefetchWorkers:
     def test_scales_with_processes(self):
         # Dropping --processes shrinks the buffer; raising it reads further ahead.
         assert _resolve_prefetch_workers(4) < _resolve_prefetch_workers(8) < _resolve_prefetch_workers(16)
+
+
+class TestStagedFileNeedsUpload:
+    """``_staged_file_needs_upload`` skips staged files already in S3 at the same size.
+
+    Guards the per-class staging sweep against re-uploading features.parquet (streamed +
+    uploaded earlier, shares the staging dir) while still uploading new/changed files.
+    Pure function, no live API.
+    """
+
+    def test_absent_remote_uploads(self):
+        # No remote object yet -> must upload.
+        assert _staged_file_needs_upload(1000, None) is True
+
+    def test_same_size_skips(self):
+        # Identical size already in S3 -> skip (the features.parquet case).
+        assert _staged_file_needs_upload(636658449520, 636658449520) is False
+
+    def test_different_size_uploads(self):
+        # Size differs -> re-upload (changed / incomplete remote object).
+        assert _staged_file_needs_upload(1000, 999) is True
+        assert _staged_file_needs_upload(1000, 0) is True
 
 
 class TestAddMissingColumns:
