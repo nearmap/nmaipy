@@ -657,6 +657,19 @@ def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=ref_schema)
 
 
+def _staged_file_needs_upload(local_size: int, remote_size: Optional[int]) -> bool:
+    """Whether a staged output file must be (re)uploaded to S3.
+
+    True unless an object of identical size already exists at the destination
+    (``remote_size`` is None when absent). This skips files that were uploaded
+    earlier but happen to share the per-class staging dir — notably
+    ``features.parquet``, which is streamed and uploaded during consolidation;
+    without the check, the per-class staging sweep re-pushes it in full
+    (multi-hundred-GB) every run.
+    """
+    return remote_size is None or remote_size != local_size
+
+
 # Raw RSI columns excluded from per-class output; the resolved
 # roof_spotlight_index/confidence/model_version columns are added separately.
 _EXCLUDE_RSI = {
@@ -2951,6 +2964,13 @@ class NearmapAIExporter(BaseExporter):
             for fname in staged_files:
                 local_path = os.path.join(staging_dir, fname)
                 s3_path = storage.join_path(self.final_path, fname)
+                # Skip files already in S3 at the same size. features.parquet is
+                # streamed + uploaded earlier but shares this staging dir, so an
+                # unconditional sweep would re-upload the whole file every run.
+                remote_size = storage.file_size(s3_path) if storage.file_exists(s3_path) else None
+                if not _staged_file_needs_upload(os.path.getsize(local_path), remote_size):
+                    self.logger.info(f"  Skipped {fname} (already in S3, same size)")
+                    continue
                 storage.upload_file(local_path, s3_path)
                 self.logger.info(f"  Uploaded {fname}")
         else:
