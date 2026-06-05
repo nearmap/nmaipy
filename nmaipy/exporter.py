@@ -679,12 +679,14 @@ def _resolve_prefetch_workers(processes: int) -> int:
     Defaults to ``round(FEATURE_PREFETCH_MULTIPLIER * processes)`` so the
     read-ahead buffer tracks ``--processes`` (the dial used to cap RAM): dropping
     processes shrinks the buffer in step, and a bigger box (more processes) reads
-    further ahead. Floored at ``FEATURE_PREFETCH_FLOOR`` so low-process runs still
-    read one chunk ahead and ``ThreadPoolExecutor(max_workers=...)`` is always >= 1.
+    further ahead. Floored at ``FEATURE_PREFETCH_FLOOR`` so a ``--processes 1`` run
+    still reads one chunk ahead of the writer.
 
     No upper cap: ``processes`` is CPU-bounded by the host and prefetch RAM scales
     with the same host, so a ceiling would only fight a deliberate ``--processes``
     choice.
+
+    Precondition: ``processes >= 1`` (enforced by BaseExporter.__init__).
     """
     return max(FEATURE_PREFETCH_FLOOR, round(FEATURE_PREFETCH_MULTIPLIER * processes))
 

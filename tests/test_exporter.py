@@ -45,20 +45,20 @@ class TestResolvePrefetchWorkers:
     @pytest.mark.parametrize(
         "processes,expected",
         [
-            (1, 2),  # round(1.5) -> 2, equals the floor
+            (1, 2),  # round(1.5) -> 2, equals the floor — minimum valid input
             (2, 3),  # round(3.0) -> 3
             (4, 6),  # nmaipy CLI default 4 -> 6
             (8, 12),
+            (12, 18),  # current operational default on a 23-CPU box -> 18
             (16, 24),  # AI Exporter's 16 processes -> 24
-            (0, 2),  # degenerate -> floored
         ],
     )
     def test_derivation(self, processes, expected):
         assert _resolve_prefetch_workers(processes) == expected
 
-    def test_never_below_floor(self):
-        # Floor guarantees max_workers >= 1 for ThreadPoolExecutor at any low/zero count.
-        assert _resolve_prefetch_workers(0) >= FEATURE_PREFETCH_FLOOR
+    def test_floor_holds_at_minimum_input(self):
+        # processes=1 is the smallest valid input (BaseExporter rejects < 1).
+        # The floor guarantees ThreadPoolExecutor(max_workers=...) is >= 1 even there.
         assert _resolve_prefetch_workers(1) >= FEATURE_PREFETCH_FLOOR
 
     def test_scales_with_processes(self):

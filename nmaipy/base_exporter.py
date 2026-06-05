@@ -140,6 +140,12 @@ class BaseExporter(ABC):
                 f"api_warmup_interval_seconds must be >= 0 (got {api_warmup_interval_seconds}). "
                 f"Use 0 to disable warmup."
             )
+        if processes < 1:
+            raise ValueError(
+                f"processes must be >= 1 (got {processes}). This is the dial for both "
+                f"chunk-processing concurrency and closeout streaming prefetch — 0 has no "
+                f"meaningful behaviour."
+            )
         self.output_dir = str(output_dir)
         self.is_s3_output = storage.is_s3_path(self.output_dir)
         self.processes = processes
