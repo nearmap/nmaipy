@@ -84,7 +84,8 @@ from nmaipy.constants import (
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
     FEATURE_CLASS_DESCRIPTIONS,
-    FEATURE_PREFETCH_WORKERS,
+    FEATURE_PREFETCH_FLOOR,
+    FEATURE_PREFETCH_MULTIPLIER,
     GRID_SIZE_DEGREES,
     IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
@@ -670,6 +671,22 @@ _RSI_COLUMNS = (
     "roof_spotlight_index_confidence",
     "roof_spotlight_index_model_version",
 )
+
+
+def _resolve_prefetch_workers(processes: int) -> int:
+    """Resolve the feature-streaming prefetch worker count from ``processes``.
+
+    Defaults to ``round(FEATURE_PREFETCH_MULTIPLIER * processes)`` so the
+    read-ahead buffer tracks ``--processes`` (the dial used to cap RAM): dropping
+    processes shrinks the buffer in step, and a bigger box (more processes) reads
+    further ahead. Floored at ``FEATURE_PREFETCH_FLOOR`` so low-process runs still
+    read one chunk ahead and ``ThreadPoolExecutor(max_workers=...)`` is always >= 1.
+
+    No upper cap: ``processes`` is CPU-bounded by the host and prefetch RAM scales
+    with the same host, so a ceiling would only fight a deliberate ``--processes``
+    choice.
+    """
+    return max(FEATURE_PREFETCH_FLOOR, round(FEATURE_PREFETCH_MULTIPLIER * processes))
 
 
 def _resolve_rsi_batch(n_rows, resolve_fn):
@@ -2594,13 +2611,14 @@ class NearmapAIExporter(BaseExporter):
                 f"({len(extra_sorted)} not present in first chunk)"
             )
 
-        # Set up prefetch buffer: read chunks ahead in background threads
-        # while the main thread processes and writes the current chunk.
-        # Memory-bounded — see FEATURE_PREFETCH_WORKERS in constants.py. Used
-        # for both local and S3 paths; the S3-read-workers count is too high
-        # to use as a streaming buffer because each prefetched table stays in
-        # memory until the writer consumes it.
-        prefetch_workers = FEATURE_PREFETCH_WORKERS
+        # Set up prefetch buffer: read chunks ahead in background threads while
+        # the main thread processes and writes the current chunk. Memory-bounded —
+        # the worker count is derived from --processes (see _resolve_prefetch_workers
+        # / FEATURE_PREFETCH_MULTIPLIER) so the buffer scales with fetch parallelism.
+        # The S3-read-workers count is too high to use here because each prefetched
+        # table stays resident until the writer consumes it.
+        prefetch_workers = _resolve_prefetch_workers(self.processes)
+        self.logger.info(f"Feature prefetch workers: {prefetch_workers} (processes={self.processes})")
         executor = ThreadPoolExecutor(max_workers=prefetch_workers)
         prefetch_futures = {}
         initial_submit = min(prefetch_workers, total)

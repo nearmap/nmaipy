@@ -17,6 +17,7 @@ from nmaipy.constants import (
     API_CRS,
     BUILDING_NEW_ID,
     FEATURE_CLASS_DESCRIPTIONS,
+    FEATURE_PREFETCH_FLOOR,
     PER_CLASS_FILE_CLASS_IDS,
     ROOF_ID,
 )
@@ -27,10 +28,42 @@ from nmaipy.exporter import (
     _description_to_cname,
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
+    _resolve_prefetch_workers,
     _unify_and_concat_tables,
     _write_errors_parquet,
 )
 from nmaipy.feature_api import FeatureApi
+
+
+class TestResolvePrefetchWorkers:
+    """``_resolve_prefetch_workers`` derives the feature-streaming prefetch count from --processes.
+
+    round(1.5 x processes), floored at FEATURE_PREFETCH_FLOOR, so the read-ahead buffer tracks
+    --processes (the RAM dial) and never drops below a one-ahead buffer. Pure function, no live API.
+    """
+
+    @pytest.mark.parametrize(
+        "processes,expected",
+        [
+            (1, 2),  # round(1.5) -> 2, equals the floor
+            (2, 3),  # round(3.0) -> 3
+            (4, 6),  # nmaipy CLI default 4 -> 6
+            (8, 12),
+            (16, 24),  # AI Exporter's 16 processes -> 24
+            (0, 2),  # degenerate -> floored
+        ],
+    )
+    def test_derivation(self, processes, expected):
+        assert _resolve_prefetch_workers(processes) == expected
+
+    def test_never_below_floor(self):
+        # Floor guarantees max_workers >= 1 for ThreadPoolExecutor at any low/zero count.
+        assert _resolve_prefetch_workers(0) >= FEATURE_PREFETCH_FLOOR
+        assert _resolve_prefetch_workers(1) >= FEATURE_PREFETCH_FLOOR
+
+    def test_scales_with_processes(self):
+        # Dropping --processes shrinks the buffer; raising it reads further ahead.
+        assert _resolve_prefetch_workers(4) < _resolve_prefetch_workers(8) < _resolve_prefetch_workers(16)
 
 
 class TestAddMissingColumns:
