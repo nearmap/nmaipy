@@ -186,13 +186,19 @@ PARALLEL_READ_WORKERS = 8
 # Memory impact is negligible (thread stacks only, no extra data in flight).
 S3_PARALLEL_READ_WORKERS = 24
 
-# Feature streaming prefetch: number of worker threads to read chunks ahead
-# while the main thread processes and writes the current chunk. Used for both
-# local-disk and S3 streaming — the higher S3_PARALLEL_READ_WORKERS value is
-# reserved for one-shot parallel reads where results don't accumulate.
-# Memory bounded: at most FEATURE_PREFETCH_WORKERS + 1 dense-chunk feature
-# tables in memory at once (multi-GB each on heavy workloads).
-FEATURE_PREFETCH_WORKERS = 8
+# Feature streaming prefetch: worker threads that read chunks ahead while the
+# main thread processes and writes the current chunk. Used for both local-disk
+# and S3 streaming — the higher S3_PARALLEL_READ_WORKERS value is reserved for
+# one-shot parallel reads where results don't accumulate.
+#
+# The count is derived per run as round(FEATURE_PREFETCH_MULTIPLIER * processes),
+# floored at FEATURE_PREFETCH_FLOOR (see _resolve_prefetch_workers in exporter.py),
+# so it tracks --processes: dropping processes to cap RAM also shrinks the prefetch
+# buffer in step, and a bigger box (more processes) reads further ahead. Memory
+# bounded: at most (workers + 1) dense-chunk feature tables resident at once
+# (multi-GB each on heavy workloads).
+FEATURE_PREFETCH_MULTIPLIER = 1.5
+FEATURE_PREFETCH_FLOOR = 2
 
 # ============================================================================
 # Primary Feature Selection Configuration

@@ -295,6 +295,22 @@ When adding new columns derived from API descriptions, always use the programmat
 9. For S3 output, per-process local staging is used for formats requiring local I/O before uploading
 10. A `README.md` data dictionary is auto-generated in `final/` by `ReadmeGenerator`
 
+### Resource tuning (`--processes` and `--chunk-size`)
+
+These are the two operator-facing dials for RAM. Both stages of the export scale with them:
+
+- **`--processes`** (default `4`; must be `>= 1`) sets the parallel worker count for chunk processing AND derives the closeout streaming prefetch buffer:
+  - Chunk-processing peak ≈ `processes × per-chunk feature tables` resident at once (one per worker).
+  - Closeout-streaming peak ≈ `round(1.5 × processes) × dense-chunk-size` resident at once (see `_resolve_prefetch_workers` in `exporter.py`).
+  - Both stages scale linearly with this dial. If memory pressure shows in either phase, drop `--processes`.
+- **`--chunk-size`** (default `500`) sets how many AOIs each worker processes per chunk. Larger chunks → larger per-chunk feature tables → bigger per-process working set AND bigger per-table footprint at the streaming stage. Smaller chunks shrink both at the cost of more chunk-boundary overhead and more files to combine at the end.
+
+Memory monitoring reports the working set (`memory.current − inactive_file`), matching kubelet / OOM-killer semantics. The displayed figure ignores reclaimable page cache. See `nmaipy/cgroup_memory.py` and the "Container memory display" notes in the v5.0.16 release.
+
+Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`.
+
+For the retry / backoff / gridding strategy these dials sit on top of, see `docs/retry-and-gridding.md`.
+
 ### API Authentication
 
 API access requires a Nearmap API key which should be set as an environment variable:
