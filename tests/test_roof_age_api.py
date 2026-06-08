@@ -403,6 +403,33 @@ def test_parse_response(roof_age_api, test_roof_age_response):
     assert url.endswith("?locationMarker"), f"URL should end with ?locationMarker, got: {url}"
 
 
+def test_parse_response_serializes_details_lists(roof_age_api, test_roof_age_response):
+    """Nested details lists must be JSON strings, not raw lists.
+
+    Regression: relevantPermitsDetails / assessorDataDetails arrive as lists of
+    dicts. Left raw, they reach the rollup as NumPy object arrays whose str() is
+    single-quoted with a newline between elements (invalid JSON, breaks
+    line-based ETL). They must be json.dumps()'d at parse time like timeline.
+    """
+    response = json.loads(json.dumps(test_roof_age_response))  # deep copy
+    props = response["features"][0]["properties"]
+    props["relevantPermitsDetails"] = [
+        {"permitId": "AAA", "date": "2003-09-02", "score": 85},
+        {"permitId": "BBB", "date": "2002-09-12", "score": 92},
+    ]
+    props["assessorDataDetails"] = [2004, 2004, 2005]
+
+    gdf = roof_age_api._parse_response(response, "test_aoi")
+
+    for col in ("relevant_permits_details", "assessor_data_details"):
+        val = gdf[col].iloc[0]
+        assert isinstance(val, str), f"{col} should be a JSON string, got {type(val)}"
+        assert "\n" not in val, f"{col} must not contain a newline: {val!r}"
+        json.loads(val)  # must be valid JSON (raises otherwise)
+
+    assert len(json.loads(gdf["relevant_permits_details"].iloc[0])) == 2
+
+
 def test_parse_empty_response(roof_age_api):
     """Test parsing response with no features"""
     empty_response = {

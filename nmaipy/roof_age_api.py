@@ -395,9 +395,21 @@ class RoofAgeApi(BaseApiClient):
             props["class_id"] = ROOF_INSTANCE_CLASS_ID
             props["description"] = FEATURE_CLASS_DESCRIPTIONS.get(ROOF_INSTANCE_CLASS_ID, "Roof Instance")
 
-            # Serialize timeline to JSON string if present (for compatibility with CSV/Parquet)
-            if ROOF_AGE_TIMELINE_FIELD in props:
-                props[ROOF_AGE_TIMELINE_FIELD] = json.dumps(props[ROOF_AGE_TIMELINE_FIELD])
+            # Serialize nested list/dict fields to JSON strings for CSV/Parquet
+            # compatibility. timeline, relevantPermitsDetails and
+            # assessorDataDetails arrive as lists of dicts; left raw they reach
+            # the rollup as NumPy object arrays whose str() is single-quoted and
+            # newline-separated (invalid JSON, breaks line-based ETL). Doing it
+            # here — before snakecase conversion and before parcel_rollup maps
+            # these columns — guarantees identical clean JSON on every
+            # downstream path (rollup, per-class files, features.parquet).
+            for nested_field in (
+                ROOF_AGE_TIMELINE_FIELD,
+                "relevantPermitsDetails",
+                "assessorDataDetails",
+            ):
+                if isinstance(props.get(nested_field), (list, dict)):
+                    props[nested_field] = json.dumps(props[nested_field])
 
             # Append ?locationMarker to mapBrowserUrl if not present
             if ROOF_AGE_MAPBROWSER_URL_FIELD in props:
