@@ -1930,14 +1930,13 @@ class FeatureApi(GriddedApiClient):
                     if len(aoi_metadata) > 0:
                         metadata.append(aoi_metadata)
                 if aoi_error is not None:
+                    errors.append(aoi_error)
                     if len(errors) > max_allowed_error_count:
                         executor.shutdown(wait=True)
                         logger.debug(
                             f"Exceeded maximum error count of {max_allowed_error_count} out of {len(gdf)} AOIs."
                         )
                         raise AIFeatureAPIError(aoi_error, aoi_error["request"])
-                    else:
-                        errors.append(aoi_error)
                 # Collect grid cell errors (partial failures with geometry)
                 if aoi_grid_errors is not None and len(aoi_grid_errors) > 0:
                     grid_errors.append(aoi_grid_errors)
