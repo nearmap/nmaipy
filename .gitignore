@@ -19,8 +19,7 @@ tests/data/cache/*
 
 # Test artifacts
 test_pip_install.py
-tests/data/integration_test_output/chunks/
-tests/data/integration_test_output/final/
+tests/data/integration_test_output/
 
 # Local run scripts (developer convenience, not tracked)
 run.py

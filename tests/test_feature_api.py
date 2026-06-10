@@ -1256,6 +1256,75 @@ class TestBulkUnexpectedErrorHandling:
         assert "simulated unexpected failure" in failed["message"]
 
 
+class TestMaxAllowedErrorBudget:
+    """Pin the exact error-budget boundary in _get_features_gdf_bulk_inner.
+
+    Regression guard: the budget check used to run before appending the current
+    error, so the effective tolerance was max_allowed_error_count + 1 — with
+    50% allowed errors on 2 AOIs, 100% failure was tolerated, defeating the
+    floor() logic that exists to guarantee at least one success.
+    """
+
+    @staticmethod
+    def _aoi_gdf():
+        aoi_a = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+        aoi_b = Polygon([(1, 1), (1.001, 1), (1.001, 1.001), (1, 1.001), (1, 1)])
+        return gpd.GeoDataFrame(
+            [
+                {AOI_ID_COLUMN_NAME: "a", "geometry": aoi_a},
+                {AOI_ID_COLUMN_NAME: "b", "geometry": aoi_b},
+            ],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    @staticmethod
+    def _error_dict(aoi_id):
+        return {
+            AOI_ID_COLUMN_NAME: aoi_id,
+            "status_code": 404,
+            "message": "No coverage",
+            "text": "No coverage",
+            "request": "http://test/request",
+            "failure_type": "api",
+        }
+
+    def test_errors_within_budget_are_returned(self, monkeypatch):
+        """One failure out of 2 AOIs with 50% allowed (budget = 1) must not raise."""
+        feature_api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+        good_features = gpd.GeoDataFrame(
+            [{AOI_ID_COLUMN_NAME: "a", "geometry": Polygon([(0, 0), (1, 0), (1, 1), (0, 0)]), "class_id": "x"}],
+            crs=API_CRS,
+        ).set_index(AOI_ID_COLUMN_NAME)
+        good_metadata = {AOI_ID_COLUMN_NAME: "a", "survey_date": "2025-01-01"}
+
+        def fake_get_features_gdf(self, *args, **kwargs):
+            if kwargs.get("aoi_id") == "b":
+                return None, None, TestMaxAllowedErrorBudget._error_dict("b"), None
+            return good_features, good_metadata, None, None
+
+        monkeypatch.setattr(FeatureApi, "get_features_gdf", fake_get_features_gdf)
+
+        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+            self._aoi_gdf(), region="au", packs=["building"], max_allowed_error_pct=50
+        )
+        assert "a" in features_gdf.index
+        assert len(errors_df) == 1
+
+    def test_exceeding_budget_raises(self, monkeypatch):
+        """Two failures out of 2 AOIs with 50% allowed (budget = 1) must raise."""
+        feature_api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+
+        def fake_get_features_gdf(self, *args, **kwargs):
+            return None, None, TestMaxAllowedErrorBudget._error_dict(kwargs.get("aoi_id")), None
+
+        monkeypatch.setattr(FeatureApi, "get_features_gdf", fake_get_features_gdf)
+
+        with pytest.raises(AIFeatureAPIError):
+            feature_api.get_features_gdf_bulk(
+                self._aoi_gdf(), region="au", packs=["building"], max_allowed_error_pct=50
+            )
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))

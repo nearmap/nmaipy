@@ -1155,6 +1155,15 @@ def feature_attributes(
                         geometry_projected_col=geometry_projected_col,
                         projected_crs=projected_crs,
                     )
+                if primary_feature is None:
+                    # select_primary with method="nearest" may find no suitable
+                    # feature (all small, or none within tolerance). Fill the
+                    # same defaults as the no-features case above.
+                    parcel[f"primary_{name}_area_{area_units}"] = 0.0
+                    parcel[f"primary_{name}_clipped_area_{area_units}"] = 0.0
+                    parcel[f"primary_{name}_unclipped_area_{area_units}"] = 0.0
+                    parcel[f"primary_{name}_confidence"] = None
+                    continue
                 if country in IMPERIAL_COUNTRIES:
                     parcel[f"primary_{name}_area_sqft"] = round(primary_feature.area_sqft, 1)
                     parcel[f"primary_{name}_clipped_area_sqft"] = round(primary_feature.clipped_area_sqft, 1)
