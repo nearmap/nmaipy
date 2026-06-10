@@ -207,7 +207,7 @@ class FeatureApi(GriddedApiClient):
                 returns populated scores. Aggregate DS is parcel-mode-only and stays null.
         """
         # Call parent class initialization
-        # GriddedApiClient handles: thread-safety (_sessions, _thread_local, _lock),
+        # GriddedApiClient handles: thread-safety (_adapters, _thread_local, _lock),
         # API key validation, cache setup, latency tracking, and gridding semaphore
         super().__init__(
             api_key=api_key,
@@ -1947,7 +1947,7 @@ class FeatureApi(GriddedApiClient):
                 self._thread_local.executor = None
                 # Skip cleanup in gridding mode — gridding runs inside a parent
                 # executor thread, and cleanup() would close all threads' cached
-                # adapters (shared via self._sessions), breaking connection reuse.
+                # adapters (shared via self._adapters), breaking connection reuse.
                 if not in_gridding_mode:
                     self.cleanup()
 
