@@ -45,12 +45,12 @@ def bump_version(bump_type):
     """Bump version based on type (major, minor, patch)"""
     current = read_current_version()
     parts = [int(x) for x in current.split(".")]
-    
+
     if len(parts) != 3:
         raise ValueError(f"Version must be in X.Y.Z format, got: {current}")
-    
+
     major, minor, patch = parts
-    
+
     if bump_type == "major":
         major += 1
         minor = 0
@@ -62,7 +62,7 @@ def bump_version(bump_type):
         patch += 1
     else:
         raise ValueError(f"Unknown bump type: {bump_type}")
-    
+
     return f"{major}.{minor}.{patch}"
 
 
@@ -70,11 +70,11 @@ def main():
     if len(sys.argv) != 2:
         print(__doc__)
         sys.exit(1)
-    
+
     arg = sys.argv[1]
-    
+
     # Check if it's a specific version
-    if re.match(r'^\d+\.\d+\.\d+$', arg):
+    if re.match(r"^\d+\.\d+\.\d+$", arg):
         new_version = arg
         current = read_current_version()
         print(f"Setting version: {current} → {new_version}")
@@ -87,9 +87,9 @@ def main():
         print(f"Error: Invalid argument '{arg}'")
         print(__doc__)
         sys.exit(1)
-    
+
     write_version(new_version)
-    
+
     print("\n📋 Next steps:")
     print("1. Commit the version changes:")
     print(f"   git add -A && git commit -m 'Bump version to {new_version}'")
