@@ -826,8 +826,9 @@ def _compute_all_per_class_data(
     then calls _compute_feature_class_data() for each class. Returns a dict of
     {class_id: {"tabular": pa.Table, "geo": pa.Table}}.
 
-    This is the shared core used by both process_chunk() (in-memory path) and
-    _merge_per_class_chunks() (fallback recomputation path).
+    This is the per-class computation core called from process_chunk() while the
+    chunk's feature data is still in memory; _merge_per_class_chunks() later
+    concatenates the resulting chunk files without recomputing.
 
     Args:
         threads: number of worker threads for the per-class loop. Defaults to 1
@@ -1034,6 +1035,12 @@ def _compute_feature_class_data(
         non_roof_features: Pre-filtered non-roof features
         roof_instance_features: Pre-filtered roof instance features
         roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts
+        parent_lookup: Pre-built dict mapping feature_id to feature record, for parent-chain
+            traversal (rebuilt from features_gdf if not provided)
+        roof_to_building_lookup: Pre-built dict mapping roof feature_id to parent building
+            feature_id (rebuilt via link_roofs_to_buildings if not provided)
+        roofs_linked: Pre-linked roof features (output of link_roofs_to_buildings)
+        buildings_linked: Pre-linked building features (output of link_roofs_to_buildings)
 
     Returns:
         Tuple of (flat_df, geo_gdf) where flat_df is the tabular DataFrame and
@@ -1352,9 +1359,6 @@ def _compute_feature_class_data(
 
         # Resolve best scores (peril scores, defensible space) per roof via BL fallback.
         try:
-            bl_in_features = (
-                BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values if features_gdf is not None else False
-            )
             if bl_in_features:
                 roof_records_for_scores = _dataframe_to_records_with_index(class_features)
 
@@ -2843,8 +2847,6 @@ class NearmapAIExporter(BaseExporter):
 
     def _merge_per_class_chunks(
         self,
-        primary_ids_df: pd.DataFrame,
-        aoi_input_columns: list,
         tabular_file_format: str = "parquet",
         requested_class_ids: set = None,
     ):
@@ -2854,9 +2856,9 @@ class NearmapAIExporter(BaseExporter):
         reads them as Arrow tables, concatenates via _unify_and_concat_tables(),
         and writes the final files to final/.
 
-        If per-class chunk files are missing for some chunks (e.g. old exports,
-        or per-class computation failed), falls back to recomputing from the
-        corresponding feature chunk file.
+        Classes with no per-class chunk files (e.g. old exports, or per-class
+        computation failed) are skipped with a warning; regenerating requires
+        deleting the rollup chunk files and re-running the export.
         """
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
         if requested_class_ids is not None:
@@ -4196,10 +4198,7 @@ class NearmapAIExporter(BaseExporter):
                         data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
 
-        # Extract only the primary feature ID columns needed for is_primary marking,
-        # then free the full rollup DataFrame to reduce peak memory during per-class export.
-        primary_cols = [c for c in PRIMARY_FEATURE_COLUMN_TO_CLASS if c in data.columns]
-        primary_ids_df = data[primary_cols].copy() if primary_cols else pd.DataFrame()
+        # Free the full rollup DataFrame to reduce peak memory during per-class export.
         del data
         gc.collect()
 
@@ -4347,20 +4346,7 @@ class NearmapAIExporter(BaseExporter):
         # Per-class data was computed in process_chunk() while feature data was still
         # in memory, avoiding the expensive re-read of features.parquet.
         if self.class_level_files:
-            # Compute aoi_input_columns from the AOI GeoDataFrame.
-            system_columns = {
-                AOI_ID_COLUMN_NAME,
-                "geometry",
-                SINCE_COL_NAME,
-                UNTIL_COL_NAME,
-                SURVEY_RESOURCE_ID_COL_NAME,
-                "query_aoi_lat",
-                "query_aoi_lon",
-            }
-            aoi_input_columns = [c for c in aoi_gdf.columns if c not in system_columns and c not in ADDRESS_FIELDS]
             self._merge_per_class_chunks(
-                primary_ids_df=primary_ids_df,
-                aoi_input_columns=aoi_input_columns,
                 tabular_file_format=self.tabular_file_format,
                 requested_class_ids=set(classes_df.index),
             )
