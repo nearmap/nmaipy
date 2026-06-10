@@ -478,9 +478,7 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(
-            aoi_gdf, check_cache=True
-        )
+        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
         latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
