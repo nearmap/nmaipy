@@ -25,28 +25,20 @@ def read_current_version():
 
 
 def write_version(version):
-    """Write version to all necessary files"""
-    
-    # Update __version__.py
-    version_file = Path("nmaipy/__version__.py")
-    content = f'''"""Version information for nmaipy."""
+    """Write the new version into __version__.py.
 
-__version__ = "{version}"
-__version_info__ = tuple(int(i) for i in __version__.split("."))'''
-    version_file.write_text(content)
+    Substitutes only the version string in place — the rest of the file
+    (e.g. the pre-release-safe __version_info__ parsing) is preserved.
+    conda.recipe/meta.yaml needs no update: it reads __version__.py
+    directly via load_file_regex.
+    """
+    version_file = Path("nmaipy/__version__.py")
+    content = version_file.read_text()
+    new_content, n = re.subn(r'__version__ = "[^"]+"', f'__version__ = "{version}"', content)
+    if n != 1:
+        raise ValueError(f"Expected exactly one __version__ assignment in {version_file}, found {n}")
+    version_file.write_text(new_content)
     print(f"✓ Updated nmaipy/__version__.py to {version}")
-    
-    # Update conda recipe
-    conda_file = Path("conda.recipe/meta.yaml")
-    if conda_file.exists():
-        content = conda_file.read_text()
-        content = re.sub(
-            r'{% set version = "[^"]+" %}',
-            f'{{% set version = "{version}" %}}',
-            content
-        )
-        conda_file.write_text(content)
-        print(f"✓ Updated conda.recipe/meta.yaml to {version}")
 
 
 def bump_version(bump_type):
