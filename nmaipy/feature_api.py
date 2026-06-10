@@ -1045,6 +1045,8 @@ class FeatureApi(GriddedApiClient):
             - features_gdf: GeoDataFrame with combined features from all grid cells, or None if error
             - metadata: Dictionary with survey metadata, or None if error
             - error: Dictionary with error details if gridding failed, None if successful
+            - grid_errors_df: DataFrame of per-grid-cell errors (with cell geometry) when the AOI
+              succeeded partially, or None
         """
         try:
             # Use the provided aoi_grid_inexact parameter, or fall back to the instance default
@@ -1166,7 +1168,7 @@ class FeatureApi(GriddedApiClient):
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict]]:
+    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
@@ -1188,7 +1190,8 @@ class FeatureApi(GriddedApiClient):
                               AIFeatureAPIRequestSizeError
             param_dic: Optional dictionary of custom parameters to add to the API request
         Returns:
-            API response features GeoDataFrame, metadata dictionary, and an error dictionary
+            API response features GeoDataFrame, metadata dictionary, an error dictionary, and a
+            DataFrame of per-grid-cell errors (None unless the AOI was gridded and partially failed)
         """
         if geometry is None and address_fields is None:
             raise ValueError(
@@ -1432,7 +1435,8 @@ class FeatureApi(GriddedApiClient):
             grid_size: The AOI is gridded in the native projection (constants.API_CRS) to save compute.
 
         Returns:
-            API response features GeoDataFrame, metadata dictionary, and an error dictionary
+            API response features GeoDataFrame, metadata DataFrame, and an errors DataFrame
+            (per-grid-cell errors with cell geometry, marked failure_type="grid")
         """
         # Acquire semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened simultaneously
