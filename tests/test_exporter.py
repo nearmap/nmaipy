@@ -1289,6 +1289,38 @@ class TestSkipRebuildWhenReadmeExists:
             with pytest.raises(RuntimeError, match="got past fast-path"):
                 exporter2.run()
 
+    def test_stale_readme_removed_when_config_changed_rebuild_crashes(self, tmp_path):
+        """A config-change rebuild must remove the old README sentinel up front.
+
+        __init__ overwrites export_config.json with the current params before
+        _run_inner runs, so if the rebuild dies mid-way and the old README were
+        left in place, the next invocation would see an empty config diff plus
+        the README and incorrectly fast-path back to the previous config's output.
+        """
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+        )
+
+        with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("simulated mid-rebuild crash")):
+            with pytest.raises(RuntimeError, match="simulated mid-rebuild crash"):
+                exporter2.run()
+
+        assert not (tmp_path / "final" / "README.md").exists(), (
+            "Stale README sentinel must be removed when a config-change rebuild starts, "
+            "otherwise a crashed rebuild leaves a false 'complete' marker"
+        )
+
     def test_fast_path_skipped_when_packs_changed(self, tmp_path):
         """Packs change → rebuild even though README is present."""
         AOIExporter(

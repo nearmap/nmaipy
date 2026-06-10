@@ -3878,6 +3878,12 @@ class NearmapAIExporter(BaseExporter):
                     f"README.md present at {readme_path} but export config has changed "
                     f"since the prior run ({changed}). Rebuilding."
                 )
+                # Remove the stale sentinel now: __init__ has already overwritten
+                # export_config.json with the current params, so if this rebuild
+                # dies before re-writing README.md, a re-invocation would see an
+                # empty config diff plus the old README and incorrectly fast-path
+                # back to the previous config's output.
+                storage.remove_file(readme_path)
 
         # Process a single AOI file
         aoi_path = self.aoi_file
