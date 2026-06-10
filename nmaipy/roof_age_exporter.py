@@ -24,6 +24,7 @@ Note: The Roof Age API is currently available for US properties only.
 import argparse
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -429,8 +430,6 @@ class RoofAgeExporter(BaseExporter):
 
         except Exception as e:
             logger.error(f"Chunk {chunk_id} failed: {e}")
-            import traceback
-
             traceback.print_exc()
             raise
 
@@ -479,7 +478,9 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois, _ = self.split_into_chunks(aoi_gdf, check_cache=True)
+        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(
+            aoi_gdf, check_cache=True
+        )
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
         latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
@@ -510,9 +511,8 @@ class RoofAgeExporter(BaseExporter):
         metadata_list = []
         errors_list = []
 
-        # Calculate total number of chunks (including cached ones)
-        num_chunks = max(len(aoi_gdf) // self.chunk_size, 1)
-
+        # num_chunks (including cached chunks) comes from split_into_chunks so the
+        # combine loop iterates exactly the chunk count the files were written with.
         for i in range(num_chunks):
             chunk_id = str(i).zfill(4)
 
@@ -675,7 +675,9 @@ class RoofAgeExporter(BaseExporter):
                 columns_to_save = [col for col in public_fields if col in roofs_df.columns]
                 roofs_df = roofs_df[columns_to_save]
 
-                roofs_df.to_csv(roofs_path, index=True)
+                # aoi_id is already a column (matching the geoparquet output above);
+                # the RangeIndex would be a vestigial unnamed column in the CSV.
+                roofs_df.to_csv(roofs_path, index=False)
         else:
             self.logger.warning("No roof data to save")
 
@@ -720,8 +722,6 @@ def main():
         exporter.run()
     except Exception as e:
         logger.error(f"Export failed: {e}")
-        import traceback
-
         traceback.print_exc()
         sys.exit(1)
 
