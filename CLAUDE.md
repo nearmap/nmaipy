@@ -262,23 +262,35 @@ When adding new columns derived from API descriptions, always use the programmat
 ### Output Layer
 
 16. **readme_generator.py**: `ReadmeGenerator` class
-    - Auto-generates a data dictionary `README.md` in export output directories
-    - Discovers files present, generates tables of file descriptions and column patterns
+    - Auto-generates a customer-readable `README.md` in export output directories
+    - Lists files via the `output_files` registry; column descriptions come from `column_metadata.lookup_column()`
     - Reads `export_config.json` to detect country (for area units) and selection method
     - Works with both local and S3 output directories
 
+17. **column_metadata.py**: Column metadata loader and lookup
+    - Single source of truth for column descriptions, used by both the README generator and the data dictionary generator
+    - `lookup_column()`: Resolves a column name (including scope prefixes like `primary_roof_`) to its metadata
+    - Reads from `nmaipy/data/column_metadata.json` (+ `column_metadata_overrides.json`), which the PM edits when descriptions need refining
+
+18. **output_files.py**: Registry of files the exporter produces
+    - `FileSpec` entries describe each output file; `kind` (`ai_data`/`geometry`/`operational`/`config`) drives whether a file gets a data dictionary and/or a README listing
+    - Consumed by `readme_generator` and `data_dictionary_generator` so output file metadata lives in one place
+
+19. **data_dictionary_generator.py**: Per-file data dictionaries
+    - Generates `<filename>_data_dictionary.csv` next to every tabular `ai_data` output in `final/`
+    - Columns looked up via `column_metadata.lookup_column()`; user input columns are recognised by header-matching against the input AOI file
+
 ### Legacy/Internal
 
-17. **coverage_utils.py**: Legacy coverage API utilities
+20. **coverage_utils.py**: Legacy coverage API utilities
     - Survey coverage point queries and threading
     - Not integrated with current `BaseApiClient` architecture (uses its own `requests.Session`)
 
-18. **reference_code.py**: Minimal utility
+21. **reference_code.py**: Minimal utility
     - `is_building_small()`: Checks building area < 30 sqm
 
 ### Configuration Files
 
-- **config.json** (repo root): Per-feature-class filtering thresholds, keyed by class UUID. Fields: `min_size` (m²), `min_confidence`, `min_fidelity`, `min_area_in_parcel` (m²), `min_ratio_in_parcel`. Applied during parcel rollup processing in `parcels.py`.
 - **pyproject.toml**: Package metadata, dependencies, build config. Python >=3.12 required.
 - **environment.yaml** / **environment-minimal.yaml**: Conda environment specifications.
 
@@ -288,12 +300,12 @@ When adding new columns derived from API descriptions, always use the programmat
 2. The exporter loads the AOI file via `aoi_io.read_from_file()` and divides work into chunks
 3. Chunks are processed in parallel via `ProcessPoolExecutor` with API warmup ramp-up
 4. For each AOI, the Feature API (and optionally Roof Age API) fetches relevant AI features
-5. Features are filtered based on intersection with AOI boundaries and `config.json` thresholds
+5. Features are filtered based on intersection with AOI boundaries
 6. For large AOIs (>1 sq km), the system automatically grids them and merges/deduplicates results
 7. Results are summarized into rollup statistics and/or saved as feature data per chunk
 8. Chunks are merged into final output files (rollup CSV/Parquet, per-class files, GeoParquet)
 9. For S3 output, per-process local staging is used for formats requiring local I/O before uploading
-10. A `README.md` data dictionary is auto-generated in `final/` by `ReadmeGenerator`
+10. A customer-readable `README.md` is auto-generated in `final/` by `ReadmeGenerator`, plus a `<filename>_data_dictionary.csv` next to each tabular AI-data output by `data_dictionary_generator`
 
 ### Resource tuning (`--processes` and `--chunk-size`)
 
@@ -309,7 +321,7 @@ Memory monitoring reports the working set (`memory.current − inactive_file`), 
 
 Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`.
 
-For the retry / backoff / gridding strategy these dials sit on top of, see `docs/retry-and-gridding.md`.
+For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` and `GriddedApiClient` in `nmaipy/api_common.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
 
 ### API Authentication
 
