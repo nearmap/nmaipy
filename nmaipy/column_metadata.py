@@ -447,8 +447,11 @@ def lookup_column(
         if templated != name and templated in exact:
             return _instantiate(exact[templated], area_unit=area_unit, class_label=class_label, extra_groups=extras)
 
-    # 2. Scope-stripped exact match.
-    for scope_prefix in _SCOPE_PHRASES:
+    # 2. Scope-stripped exact match. Longest prefix first, so e.g.
+    # "primary_roof_instance_" wins over "primary_roof_" for
+    # primary_roof_instance_* columns rather than relying on the wrong
+    # remainder failing to resolve.
+    for scope_prefix in sorted(_SCOPE_PHRASES, key=len, reverse=True):
         if not name.startswith(scope_prefix):
             continue
         remainder = name[len(scope_prefix) :]

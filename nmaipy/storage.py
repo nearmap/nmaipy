@@ -376,7 +376,7 @@ def move_file(src: str, dst: str) -> None:
         os.replace(src, dst)
 
 
-def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
+def read_json(path: str, compressed: bool = False) -> Dict:
     """
     Read a JSON file, optionally gzip-compressed. Works for both local and S3.
 
@@ -385,7 +385,11 @@ def read_json(path: str, compressed: bool = False) -> Optional[Dict]:
         compressed: If True, read as gzip-compressed JSON
 
     Returns:
-        Parsed JSON data, or None on failure
+        Parsed JSON data.
+
+    Raises:
+        OSError / json.JSONDecodeError on missing or unparseable files —
+        callers that tolerate failure wrap this in their own try/except.
     """
     if compressed:
         with open_file(path, "rb") as raw_f:

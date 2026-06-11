@@ -17,11 +17,9 @@ import logging
 import os
 import random
 import re
-import ssl
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
-from http.client import RemoteDisconnected
 from itertools import takewhile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,7 +28,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
-import urllib3
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -174,40 +171,28 @@ def format_error_summary_table(status_counts, message_counts, max_message_len=16
 
 class RetryRequest(Retry):
     """
-    Extended retry strategy with full-jitter backoff, first-retry logging, and broader exception coverage.
+    Extended retry strategy with full-jitter backoff and first-retry logging.
 
     Implements full jitter: sleep = uniform(0, min(backoff_max, backoff_factor * 2^n)).
     Jitter scales with retry count — fast recovery on early retries, strong desynchronisation
     on late retries (thundering herd prevention for parallel exports).
+
+    Which statuses/exceptions are retried is controlled by the ``status_forcelist``
+    passed at construction (see ``BaseApiClient._session_scope``) plus urllib3's
+    built-in handling of connection/read errors.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Add all connection-related errors to retry on
+        # Statuses whose Retry-After header is honoured (urllib3 consults this in
+        # is_retry/sleep). Deliberately excludes 413 (urllib3's default includes it):
+        # 413 means the AOI is too large and triggers gridding, not a retry.
         self.RETRY_AFTER_STATUS_CODES = frozenset(
             {
                 HTTPStatus.TOO_MANY_REQUESTS,  # 429
                 HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
                 HTTPStatus.BAD_GATEWAY,  # 502
                 HTTPStatus.SERVICE_UNAVAILABLE,  # 503
-            }
-        )
-
-        # Add connection errors that should trigger retries
-        self.RETRY_ON_EXCEPTIONS = frozenset(
-            {
-                requests.exceptions.ChunkedEncodingError,
-                requests.exceptions.ConnectionError,
-                requests.exceptions.ReadTimeout,
-                RemoteDisconnected,  # From http.client
-                requests.exceptions.ProxyError,
-                requests.exceptions.SSLError,
-                urllib3.exceptions.SSLError,  # Added to catch SSL errors from urllib3
-                requests.exceptions.Timeout,
-                urllib3.exceptions.ProtocolError,
-                EOFError,  # Sometimes occurs with RemoteDisconnected
-                ConnectionResetError,  # Python built-in exception
-                ssl.SSLEOFError,  # Explicit SSL EOF error
             }
         )
 
@@ -425,8 +410,10 @@ class BaseApiClient:
             threads: Number of threads for concurrent execution
             maxretry: Number of retries for failed requests
         """
-        # Initialize thread-safety attributes
-        self._sessions = []
+        # Initialize thread-safety attributes. _adapters tracks every pooled
+        # HTTPAdapter handed out by _session_scope (sessions themselves are
+        # created fresh per request and closed in _session_scope's finally).
+        self._adapters = []
         self._thread_local = threading.local()
         self._lock = threading.Lock()
 
@@ -482,7 +469,7 @@ class BaseApiClient:
         self.cleanup()
 
     def cleanup(self):
-        """Clean up all sessions and cached adapters"""
+        """Close all pooled HTTP adapters and clear the thread-local adapter cache"""
         # Drain any pending per-thread progress buffers first so the displayed
         # counter catches up before the worker process exits. Diagnostic only —
         # never let it fail cleanup if the shared Manager.Lock is already gone.
@@ -491,24 +478,24 @@ class BaseApiClient:
         except Exception:
             pass
 
-        if hasattr(self, "_lock") and hasattr(self, "_sessions"):
+        if hasattr(self, "_lock") and hasattr(self, "_adapters"):
             with self._lock:
-                for session in self._sessions:
+                for adapter in self._adapters:
                     try:
-                        session.close()
+                        adapter.close()
                     except Exception:
                         pass
-                self._sessions.clear()
+                self._adapters.clear()
         else:  # Fallback if attributes don't exist
-            if hasattr(self, "_sessions"):
-                for session in self._sessions:
+            if hasattr(self, "_adapters"):
+                for adapter in self._adapters:
                     try:
-                        session.close()
+                        adapter.close()
                     except Exception:
                         pass
-                self._sessions.clear()
+                self._adapters.clear()
         # Clear thread-local adapter cache (only affects calling thread,
-        # but other threads' adapters are already closed via self._sessions above)
+        # but other threads' adapters are already closed via self._adapters above)
         if hasattr(self, "_thread_local") and hasattr(self._thread_local, "adapters"):
             self._thread_local.adapters.clear()
 
@@ -636,7 +623,7 @@ class BaseApiClient:
             )
             self._thread_local.adapters[cache_key] = adapter
             with self._lock:
-                self._sessions.append(adapter)  # Track for cleanup
+                self._adapters.append(adapter)  # Track for cleanup
 
         # Fresh session per request — prevents state accumulation (cookies, auth, etc.)
         session = requests.Session()

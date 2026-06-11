@@ -75,7 +75,7 @@ Execute these steps in order, stopping if any step fails:
    - Use `gh release create` with:
      - Tag name (vX.Y.Z)
      - Title (vX.Y.Z)
-     - The release notes written in step 8 (use `--notes` with a heredoc)
+     - The release notes written in step 9 (use `--notes` with a heredoc)
      - Mark as pre-release if version contains 'a', 'b', or 'rc' (`--prerelease` flag)
 
 11. **Update the conda-forge feedstock** (downstream of PyPI — asynchronous)
