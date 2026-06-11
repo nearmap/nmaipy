@@ -50,12 +50,14 @@ from nmaipy.constants import (
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
     ROOF_AGE_AREA_FIELD,
+    ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
     ROOF_AGE_DEFAULT_PAGE_LIMIT,
     ROOF_AGE_DEFAULT_RESOURCE_ID,
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
     ROOF_AGE_MODEL_VERSION_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
+    ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD,
     ROOF_AGE_RESOURCE_ID_FIELD,
     ROOF_AGE_RESOURCE_PATH,
     ROOF_AGE_TIMELINE_FIELD,
@@ -405,8 +407,8 @@ class RoofAgeApi(BaseApiClient):
             # downstream path (rollup, per-class files, features.parquet).
             for nested_field in (
                 ROOF_AGE_TIMELINE_FIELD,
-                "relevantPermitsDetails",
-                "assessorDataDetails",
+                ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD,
+                ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
             ):
                 if isinstance(props.get(nested_field), (list, dict)):
                     props[nested_field] = json.dumps(props[nested_field])
