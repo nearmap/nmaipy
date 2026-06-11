@@ -69,6 +69,15 @@ def test_roof_age_response(data_directory):
 
 
 @pytest.fixture
+def test_roof_age_fl_response(data_directory):
+    """Real Fort Myers FL API response: roofs with multi-element
+    relevantPermitsDetails and a populated assessorDataDetails."""
+    fixture_path = data_directory / "test_roof_age_fl_response.json"
+    with open(fixture_path, "r") as f:
+        return json.load(f)
+
+
+@pytest.fixture
 def roof_age_api(cache_directory):
     """Create a RoofAgeApi instance for testing with cache enabled"""
     return RoofAgeApi(
@@ -401,6 +410,35 @@ def test_parse_response(roof_age_api, test_roof_age_response):
     assert "map_browser_url" in gdf.columns
     url = gdf["map_browser_url"].iloc[0]
     assert url.endswith("?locationMarker"), f"URL should end with ?locationMarker, got: {url}"
+
+
+def test_parse_response_serializes_details_lists(roof_age_api, test_roof_age_fl_response):
+    """Nested details lists must be JSON strings, not raw lists.
+
+    Regression: relevantPermitsDetails / assessorDataDetails arrive as lists
+    (of dicts and of ints respectively). Left raw, they reach the rollup as
+    NumPy object arrays whose str() is single-quoted with a newline between
+    elements (invalid JSON, breaks line-based ETL). They must be
+    json.dumps()'d at parse time like timeline.
+
+    Uses a real Fort Myers FL API response containing roofs with multi-element
+    relevantPermitsDetails (the corruption only manifests with 2+ elements)
+    and a populated assessorDataDetails.
+    """
+    gdf = roof_age_api._parse_response(test_roof_age_fl_response, "test_aoi")
+
+    for col in ("relevant_permits_details", "assessor_data_details"):
+        vals = gdf[col].dropna()
+        assert len(vals) > 0, f"fixture must exercise {col}"
+        for val in vals:
+            assert isinstance(val, str), f"{col} should be a JSON string, got {type(val)}"
+            assert "\n" not in val, f"{col} must not contain a newline: {val!r}"
+            json.loads(val)  # must be valid JSON (raises otherwise)
+
+    # The multi-element case is the regression trigger: str() of a 2+ element
+    # array inserts a newline between elements.
+    permit_counts = [len(json.loads(v)) for v in gdf["relevant_permits_details"].dropna()]
+    assert max(permit_counts) >= 2, "fixture must contain a multi-element permits list"
 
 
 def test_parse_empty_response(roof_age_api):

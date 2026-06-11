@@ -81,6 +81,8 @@ MIN_ROOF_INSTANCE_IOU_THRESHOLD = 0.005
 # Roof Age API response field names (camelCase, used for pre-conversion logic in roof_age_api.py)
 ROOF_AGE_AREA_FIELD = "area"
 ROOF_AGE_TIMELINE_FIELD = "timeline"
+ROOF_AGE_RELEVANT_PERMITS_DETAILS_FIELD = "relevantPermitsDetails"
+ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD = "assessorDataDetails"
 ROOF_AGE_HILBERT_ID_FIELD = "hilbertId"
 ROOF_AGE_RESOURCE_ID_FIELD = "resourceId"
 ROOF_AGE_MODEL_VERSION_FIELD = "modelVersion"
