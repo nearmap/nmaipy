@@ -1,8 +1,10 @@
+import json
 import logging
 import os
 import sys
 import tempfile
 import warnings
+import weakref
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +12,7 @@ import geopandas as gpd
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyproj
 import pytest
 
 from nmaipy.constants import (
@@ -26,10 +29,12 @@ from nmaipy.exporter import (
     _add_missing_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
+    _parquet_to_csv_streaming,
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
     _resolve_prefetch_workers,
     _staged_file_needs_upload,
+    _stream_merge_chunks_to_parquet,
     _unify_and_concat_tables,
     _write_errors_parquet,
 )
@@ -1173,6 +1178,215 @@ class TestPerClassChunkGlobFiltering:
             tabular_re, _ = _per_class_chunk_regexes(cname)
             geo_file = f"{cname}_features_0.parquet"
             assert not tabular_re.match(geo_file), f"{cname!r} tabular regex must not match geo file {geo_file!r}"
+
+
+def _geo_metadata():
+    """Build the same GeoParquet 1.0.0 metadata dict the exporter writes."""
+    return {
+        "version": "1.0.0",
+        "primary_column": "geometry",
+        "columns": {
+            "geometry": {
+                "encoding": "WKB",
+                "geometry_types": [],
+                "crs": pyproj.CRS(API_CRS).to_json_dict(),
+                "edges": "planar",
+                "orientation": "counterclockwise",
+            }
+        },
+    }
+
+
+def _write_chunks(tmp_path, tables, prefix="roof"):
+    """Write Arrow tables to per-class chunk parquet files; return their paths."""
+    paths = []
+    for i, table in enumerate(tables):
+        p = str(tmp_path / f"{prefix}_{i}.parquet")
+        pq.write_table(table, p)
+        paths.append(p)
+    return paths
+
+
+class TestStreamMergeChunksToParquet:
+    """The streaming per-class merge must reproduce the read-all-then-concat
+    schema/row semantics of _unify_and_concat_tables() while bounding peak
+    memory to a small read-ahead window rather than the whole class."""
+
+    def _mismatched_chunks(self):
+        """Three chunks with deliberately mismatched schemas:
+        int64 vs float64, a missing column, and string vs large_string."""
+        c0 = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "val": pa.array([1.0, 2.0], type=pa.float64()),
+                "name": pa.array(["a", "b"], type=pa.string()),
+            }
+        )
+        c1 = pa.table(
+            {
+                "id": pa.array([3], type=pa.int64()),
+                "val": pa.array([3], type=pa.int64()),  # int64 vs float64
+                "name": pa.array(["c"], type=pa.large_string()),  # large vs string
+            }
+        )
+        c2 = pa.table(
+            {
+                "id": pa.array([4], type=pa.int64()),
+                "name": pa.array(["d"], type=pa.string()),  # missing "val"
+            }
+        )
+        return [c0, c1, c2]
+
+    def test_schema_matches_oracle_and_row_count(self, tmp_path):
+        chunks = self._mismatched_chunks()
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        # Oracle: the read-all-then-concat path this replaces, fed the same files
+        # in the same order so column order is comparable.
+        oracle = _unify_and_concat_tables([pq.read_table(p) for p in paths])
+        result = pq.read_table(out)
+
+        expected_rows = sum(len(c) for c in chunks)
+        assert rows == expected_rows
+        assert result.num_rows == expected_rows
+        # Schema (names + types) must match the oracle; metadata differs trivially.
+        assert result.schema.equals(oracle.schema, check_metadata=False)
+        # Promotions preserved: int64+float64 -> float64, string -> large_string.
+        assert result.schema.field("val").type == pa.float64()
+        assert result.schema.field("name").type == pa.large_string()
+
+    def test_missing_column_null_filled(self, tmp_path):
+        chunks = self._mismatched_chunks()
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+        _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        result = pq.read_table(out).sort_by("id")
+        # id==4 came from the chunk lacking "val"; it must be null, not dropped.
+        by_id = dict(zip(result.column("id").to_pylist(), result.column("val").to_pylist()))
+        assert by_id[4] is None
+        assert by_id[1] == 1.0
+
+    def test_geo_metadata_present_and_wellformed(self, tmp_path):
+        geom = pa.array([b"\x00wkb-a", b"\x00wkb-b"], type=pa.binary())
+        c0 = pa.table({"id": pa.array([1, 2], type=pa.int64()), "geometry": geom})
+        c1 = pa.table({"id": pa.array([3], type=pa.int64()), "geometry": pa.array([b"\x00wkb-c"], type=pa.binary())})
+        paths = _write_chunks(tmp_path, [c0, c1], prefix="roof_features")
+        out = str(tmp_path / "roof_features.parquet")
+
+        rows = _stream_merge_chunks_to_parquet(
+            paths, out, scan_workers=2, prefetch_workers=1, geo_metadata=_geo_metadata()
+        )
+        assert rows == 3
+
+        meta = pq.read_schema(out).metadata
+        assert meta is not None and b"geo" in meta
+        geo = json.loads(meta[b"geo"])
+        assert geo["version"] == "1.0.0"
+        assert geo["primary_column"] == "geometry"
+        assert geo["columns"]["geometry"]["encoding"] == "WKB"
+        assert geo["columns"]["geometry"]["crs"]  # CRS projjson present
+
+    def test_empty_chunks_produce_schema_only_output(self, tmp_path):
+        """Chunks with zero rows still yield a valid output file with the schema."""
+        empty = pa.table({"id": pa.array([], type=pa.int64()), "name": pa.array([], type=pa.string())})
+        paths = _write_chunks(tmp_path, [empty, empty])
+        out = str(tmp_path / "merged.parquet")
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+        assert rows == 0
+        result = pq.read_table(out)
+        assert result.num_rows == 0
+        assert set(result.column_names) == {"id", "name"}
+
+    def test_empty_input_list_returns_zero(self, tmp_path):
+        out = str(tmp_path / "merged.parquet")
+        assert _stream_merge_chunks_to_parquet([], out, scan_workers=2, prefetch_workers=1) == 0
+        assert not os.path.exists(out)
+
+    def test_all_unreadable_chunks_returns_zero(self, tmp_path, caplog):
+        """If no chunk schema can be read, the merge logs and returns 0 rather
+        than crashing — matching the resilience of the previous path."""
+        bad = str(tmp_path / "roof_0.parquet")
+        Path(bad).write_text("not a parquet file")
+        out = str(tmp_path / "merged.parquet")
+        with caplog.at_level(logging.ERROR):
+            rows = _stream_merge_chunks_to_parquet([bad], out, scan_workers=2, prefetch_workers=1)
+        assert rows == 0
+
+    def test_resident_tables_bounded_independent_of_chunk_count(self, tmp_path, monkeypatch):
+        """Peak resident chunk tables stays a small constant regardless of how
+        many chunks are merged — proving memory is decoupled from total class
+        size. Counts live pyarrow Tables via weakref finalizers (deterministic
+        under CPython refcounting), so it needs no RSS sampling."""
+        n_chunks = 24
+        prefetch_workers = 1
+        chunks = [
+            pa.table(
+                {
+                    "id": pa.array(list(range(i * 100, i * 100 + 100)), type=pa.int64()),
+                    "name": pa.array([f"r{i}-{j}" for j in range(100)], type=pa.string()),
+                }
+            )
+            for i in range(n_chunks)
+        ]
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        original_read_table = pq.read_table
+        state = {"live": 0, "peak": 0}
+
+        def tracking_read_table(path, *args, **kwargs):
+            table = original_read_table(path, *args, **kwargs)
+            state["live"] += 1
+            state["peak"] = max(state["peak"], state["live"])
+
+            def _on_collect():
+                state["live"] -= 1
+
+            weakref.finalize(table, _on_collect)
+            return table
+
+        monkeypatch.setattr("nmaipy.exporter.pq.read_table", tracking_read_table)
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=4, prefetch_workers=prefetch_workers)
+
+        assert rows == n_chunks * 100
+        # Resident tables never accumulate: a small constant, not O(n_chunks).
+        assert state["peak"] <= prefetch_workers + 3, state["peak"]
+        assert state["peak"] < n_chunks
+        assert pq.read_table(out).num_rows == n_chunks * 100
+
+
+class TestParquetToCsvStreaming:
+    """The tabular->CSV conversion streams batches instead of loading the whole
+    file, but must still produce a byte-faithful CSV."""
+
+    def test_roundtrip_matches_pandas(self, tmp_path):
+        table = pa.table({"id": [1, 2, 3, 4, 5, 6], "name": ["a", "b", "c", "d", "e", "f"]})
+        parquet_path = str(tmp_path / "t.parquet")
+        # Multiple row groups to exercise the batched read path.
+        pq.write_table(table, parquet_path, row_group_size=2)
+        csv_path = str(tmp_path / "t.csv")
+
+        _parquet_to_csv_streaming(parquet_path, csv_path)
+
+        got = pd.read_csv(csv_path)
+        expected = table.to_pandas()
+        pd.testing.assert_frame_equal(got, expected)
+
+    def test_empty_parquet_produces_header_only_csv(self, tmp_path):
+        table = pa.table({"id": pa.array([], type=pa.int64()), "name": pa.array([], type=pa.string())})
+        parquet_path = str(tmp_path / "empty.parquet")
+        pq.write_table(table, parquet_path)
+        csv_path = str(tmp_path / "empty.csv")
+
+        _parquet_to_csv_streaming(parquet_path, csv_path)
+
+        got = pd.read_csv(csv_path)
+        assert list(got.columns) == ["id", "name"]
+        assert len(got) == 0
 
 
 if __name__ == "__main__":
