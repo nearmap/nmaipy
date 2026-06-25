@@ -657,6 +657,14 @@ def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=ref_schema)
 
 
+def _safe_unlink(path: str) -> None:
+    """Remove a file if it exists, ignoring a concurrent/absent removal."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
 def _stream_merge_chunks_to_parquet(
     chunk_paths: List[str],
     output_path: str,
@@ -694,6 +702,15 @@ def _stream_merge_chunks_to_parquet(
     ``as_completed`` behaviour) but the target schema's column order is derived in
     sorted ``chunk_paths`` order so it is stable across runs.
 
+    The write is atomic: rows are streamed into ``output_path + ".tmp"`` and that
+    file is ``os.replace``-d into ``output_path`` only after the writer closes
+    cleanly. A failed/interrupted write (e.g. disk-full, OOM, KeyboardInterrupt)
+    leaves no readable file at ``output_path`` — without this, the incremental
+    writer's ``close()`` in ``finally`` would finalise a valid-but-silently-
+    truncated parquet that the staging→final sweep could promote. If every chunk's
+    *data* read fails (footers were readable, so a target schema exists), no file
+    is written at all, matching the old read-all-then-concat path.
+
     Args:
         chunk_paths: Per-class chunk parquet paths (local or S3 URIs).
         output_path: Local path for the merged parquet (ParquetWriter cannot take
@@ -705,7 +722,8 @@ def _stream_merge_chunks_to_parquet(
         logger: Optional logger; falls back to the module logger.
 
     Returns:
-        Number of rows written (0 if no chunk could be read).
+        Number of rows written. 0 (and no file at ``output_path``) when there were
+        no chunks, no footer was readable, or every data read failed.
     """
     logger = logger or log.get_logger()
     total = len(chunk_paths)
@@ -729,6 +747,9 @@ def _stream_merge_chunks_to_parquet(
     valid_schemas = [s for s in schemas if s is not None]
     if not valid_schemas:
         logger.error("All chunk schemas failed to read — cannot merge")
+        # Drop any stale file so the caller's existence check can't mistake a
+        # prior run's output for this one.
+        _safe_unlink(output_path)
         return 0
 
     unified = pa.unify_schemas(valid_schemas, promote_options="permissive")
@@ -740,9 +761,13 @@ def _stream_merge_chunks_to_parquet(
 
     # Pass 2 — stream each chunk through the reconcile helper onto the fixed
     # writer schema. A bounded prefetch pool keeps reads ahead of the writer
-    # while capping the number of resident tables at prefetch_workers.
+    # while capping the number of resident tables at prefetch_workers. Rows are
+    # written to a temp file and atomically promoted only on clean completion.
     n = len(valid_paths)
+    tmp_path = output_path + ".tmp"
     rows_written = 0
+    data_reads_succeeded = 0
+    completed = False
     writer = None
     executor = ThreadPoolExecutor(max_workers=prefetch_workers)
     prefetch_futures = {}
@@ -752,7 +777,7 @@ def _stream_merge_chunks_to_parquet(
     next_submit_idx = initial_submit
 
     try:
-        writer = pq.ParquetWriter(output_path, target)
+        writer = pq.ParquetWriter(tmp_path, target)
         for i in range(n):
             future = prefetch_futures.pop(i)
             # Submit the next read before processing the current chunk so a read
@@ -766,17 +791,34 @@ def _stream_merge_chunks_to_parquet(
             except Exception as e:
                 logger.error(f"Failed reading {valid_paths[i]}: {e}")
                 continue
+            data_reads_succeeded += 1
             table = _reconcile_table_schema(table, target)
             writer.write_table(table)
             rows_written += table.num_rows
             del table
+        completed = True
     finally:
         # Cancel queued futures and wait for running ones so no background thread
         # keeps a pyarrow table or S3 connection alive past this call.
         executor.shutdown(wait=True, cancel_futures=True)
         if writer is not None:
             writer.close()
+        if not completed:
+            # Write failed or was interrupted: the closed writer left a valid but
+            # truncated temp file. Drop it; output_path is never touched. The
+            # exception (if any) keeps propagating after this finally.
+            _safe_unlink(tmp_path)
 
+    if data_reads_succeeded == 0:
+        # Every chunk's footer read but its data did not (e.g. corrupt pages).
+        # The old read-all-then-concat path wrote nothing here; match that and
+        # surface the total-loss-of-class rather than promoting an empty file.
+        logger.warning(f"All {n} chunk data reads failed for {output_path}; no per-class file written")
+        _safe_unlink(tmp_path)
+        _safe_unlink(output_path)
+        return 0
+
+    os.replace(tmp_path, output_path)
     return rows_written
 
 
@@ -788,11 +830,11 @@ def _parquet_to_csv_streaming(parquet_path: str, csv_path: str) -> None:
     converted and appended; only the first batch writes the header. An empty
     parquet (no batches) still produces a header-only CSV.
     """
-    parquet_file = pq.ParquetFile(parquet_path)
     first = True
-    for batch in parquet_file.iter_batches():
-        batch.to_pandas().to_csv(csv_path, index=False, mode="w" if first else "a", header=first)
-        first = False
+    with pq.ParquetFile(parquet_path) as parquet_file:
+        for batch in parquet_file.iter_batches():
+            batch.to_pandas().to_csv(csv_path, index=False, mode="w" if first else "a", header=first)
+            first = False
     if first:
         # Zero-batch (empty) file: emit headers with no rows.
         pd.read_parquet(parquet_path).to_csv(csv_path, index=False)
