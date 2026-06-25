@@ -618,6 +618,12 @@ def _cast_table_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table
 def _unify_and_concat_tables(tables: list[pa.Table]) -> pa.Table:
     """Concatenate tables after unifying their schemas.
 
+    Retained as the test parity oracle: it has no production caller since the
+    per-class merge moved to the streaming _stream_merge_chunks_to_parquet (which
+    reuses _promote_schema_types and _reconcile_table_schema). The streaming path's
+    schema semantics are pinned to this function's output in the test suite, so do
+    not delete it.
+
     Uses ``pa.unify_schemas(promote_options="permissive")`` to resolve type
     mismatches across chunks (e.g. int64 vs float64 when nullable integers
     are inferred as float, int32 vs int64, timestamp unit differences, etc.),
