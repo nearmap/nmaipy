@@ -313,7 +313,7 @@ These are the two operator-facing dials for RAM. Both stages of the export scale
 
 - **`--processes`** (default `4`; must be `>= 1`) sets the parallel worker count for chunk processing AND derives the closeout streaming prefetch buffer:
   - Chunk-processing peak ≈ `processes × per-chunk feature tables` resident at once (one per worker).
-  - Closeout-streaming peak ≈ `round(1.5 × processes) × dense-chunk-size` resident at once (see `_resolve_prefetch_workers` in `exporter.py`).
+  - Closeout-streaming peak ≈ `(round(1.5 × processes) + 1) × dense-chunk-size` resident at once — the prefetch read-ahead window plus the one chunk currently being reconciled/written (see `_resolve_prefetch_workers` in `exporter.py`). This applies to both the combined `features.parquet` stream and the per-class chunk merge.
   - Both stages scale linearly with this dial. If memory pressure shows in either phase, drop `--processes`.
 - **`--chunk-size`** (default `500`) sets how many AOIs each worker processes per chunk. Larger chunks → larger per-chunk feature tables → bigger per-process working set AND bigger per-table footprint at the streaming stage. Smaller chunks shrink both at the cost of more chunk-boundary overhead and more files to combine at the end.
 
