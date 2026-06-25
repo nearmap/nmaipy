@@ -1,8 +1,12 @@
+import json
 import logging
 import os
 import sys
 import tempfile
+import threading
+import time
 import warnings
+import weakref
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,8 +14,11 @@ import geopandas as gpd
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyproj
 import pytest
+from shapely.geometry import Polygon
 
+import nmaipy.exporter as exporter_mod
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -26,10 +33,12 @@ from nmaipy.exporter import (
     _add_missing_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
+    _parquet_to_csv_streaming,
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
     _resolve_prefetch_workers,
     _staged_file_needs_upload,
+    _stream_merge_chunks_to_parquet,
     _unify_and_concat_tables,
     _write_errors_parquet,
 )
@@ -1173,6 +1182,458 @@ class TestPerClassChunkGlobFiltering:
             tabular_re, _ = _per_class_chunk_regexes(cname)
             geo_file = f"{cname}_features_0.parquet"
             assert not tabular_re.match(geo_file), f"{cname!r} tabular regex must not match geo file {geo_file!r}"
+
+
+def _geo_metadata():
+    """Build the same GeoParquet 1.0.0 metadata dict the exporter writes."""
+    return {
+        "version": "1.0.0",
+        "primary_column": "geometry",
+        "columns": {
+            "geometry": {
+                "encoding": "WKB",
+                "geometry_types": [],
+                "crs": pyproj.CRS(API_CRS).to_json_dict(),
+                "edges": "planar",
+                "orientation": "counterclockwise",
+            }
+        },
+    }
+
+
+def _write_chunks(tmp_path, tables, prefix="roof"):
+    """Write Arrow tables to per-class chunk parquet files; return their paths."""
+    paths = []
+    for i, table in enumerate(tables):
+        p = str(tmp_path / f"{prefix}_{i}.parquet")
+        pq.write_table(table, p)
+        paths.append(p)
+    return paths
+
+
+class TestStreamMergeChunksToParquet:
+    """The streaming per-class merge must reproduce the read-all-then-concat
+    schema/row semantics of _unify_and_concat_tables() while bounding peak
+    memory to a small read-ahead window rather than the whole class."""
+
+    def _mismatched_chunks(self):
+        """Three chunks with deliberately mismatched schemas:
+        int64 vs float64, a missing column, and string vs large_string."""
+        c0 = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "val": pa.array([1.0, 2.0], type=pa.float64()),
+                "name": pa.array(["a", "b"], type=pa.string()),
+            }
+        )
+        c1 = pa.table(
+            {
+                "id": pa.array([3], type=pa.int64()),
+                "val": pa.array([3], type=pa.int64()),  # int64 vs float64
+                "name": pa.array(["c"], type=pa.large_string()),  # large vs string
+            }
+        )
+        c2 = pa.table(
+            {
+                "id": pa.array([4], type=pa.int64()),
+                "name": pa.array(["d"], type=pa.string()),  # missing "val"
+            }
+        )
+        return [c0, c1, c2]
+
+    def test_schema_matches_oracle_and_row_count(self, tmp_path):
+        chunks = self._mismatched_chunks()
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        # Oracle: the read-all-then-concat path this replaces, fed the same files
+        # in the same order so column order is comparable.
+        oracle = _unify_and_concat_tables([pq.read_table(p) for p in paths])
+        result = pq.read_table(out)
+
+        expected_rows = sum(len(c) for c in chunks)
+        assert rows == expected_rows
+        assert result.num_rows == expected_rows
+        # Schema (names + types) must match the oracle; metadata differs trivially.
+        assert result.schema.equals(oracle.schema, check_metadata=False)
+        # Promotions preserved: int64+float64 -> float64, string -> large_string.
+        assert result.schema.field("val").type == pa.float64()
+        assert result.schema.field("name").type == pa.large_string()
+
+    def test_missing_column_null_filled(self, tmp_path):
+        chunks = self._mismatched_chunks()
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+        _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        result = pq.read_table(out).sort_by("id")
+        # id==4 came from the chunk lacking "val"; it must be null, not dropped.
+        by_id = dict(zip(result.column("id").to_pylist(), result.column("val").to_pylist()))
+        assert by_id[4] is None
+        assert by_id[1] == 1.0
+
+    def test_geo_metadata_present_and_wellformed(self, tmp_path):
+        geom = pa.array([b"\x00wkb-a", b"\x00wkb-b"], type=pa.binary())
+        c0 = pa.table({"id": pa.array([1, 2], type=pa.int64()), "geometry": geom})
+        c1 = pa.table({"id": pa.array([3], type=pa.int64()), "geometry": pa.array([b"\x00wkb-c"], type=pa.binary())})
+        paths = _write_chunks(tmp_path, [c0, c1], prefix="roof_features")
+        out = str(tmp_path / "roof_features.parquet")
+
+        rows = _stream_merge_chunks_to_parquet(
+            paths, out, scan_workers=2, prefetch_workers=1, geo_metadata=_geo_metadata()
+        )
+        assert rows == 3
+
+        meta = pq.read_schema(out).metadata
+        assert meta is not None and b"geo" in meta
+        geo = json.loads(meta[b"geo"])
+        assert geo["version"] == "1.0.0"
+        assert geo["primary_column"] == "geometry"
+        assert geo["columns"]["geometry"]["encoding"] == "WKB"
+        assert geo["columns"]["geometry"]["crs"]  # CRS projjson present
+
+    def test_empty_chunks_produce_schema_only_output(self, tmp_path):
+        """Chunks with zero rows still yield a valid output file with the schema."""
+        empty = pa.table({"id": pa.array([], type=pa.int64()), "name": pa.array([], type=pa.string())})
+        paths = _write_chunks(tmp_path, [empty, empty])
+        out = str(tmp_path / "merged.parquet")
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+        assert rows == 0
+        result = pq.read_table(out)
+        assert result.num_rows == 0
+        assert set(result.column_names) == {"id", "name"}
+
+    def test_empty_input_list_returns_zero(self, tmp_path):
+        out = str(tmp_path / "merged.parquet")
+        assert _stream_merge_chunks_to_parquet([], out, scan_workers=2, prefetch_workers=1) == 0
+        assert not os.path.exists(out)
+
+    def test_all_unreadable_chunks_returns_zero(self, tmp_path, caplog):
+        """If no chunk schema can be read, the merge logs and returns 0 rather
+        than crashing — matching the resilience of the previous path."""
+        bad = str(tmp_path / "roof_0.parquet")
+        Path(bad).write_text("not a parquet file")
+        out = str(tmp_path / "merged.parquet")
+        with caplog.at_level(logging.ERROR):
+            rows = _stream_merge_chunks_to_parquet([bad], out, scan_workers=2, prefetch_workers=1)
+        assert rows == 0
+
+    def test_resident_tables_bounded_independent_of_chunk_count(self, tmp_path, monkeypatch):
+        """Peak resident chunk tables stays a small constant regardless of how
+        many chunks are merged — proving memory is decoupled from total class
+        size. Counts live pyarrow Tables via weakref finalizers (deterministic
+        under CPython refcounting), so it needs no RSS sampling."""
+        n_chunks = 24
+        prefetch_workers = 1
+        chunks = [
+            pa.table(
+                {
+                    "id": pa.array(list(range(i * 100, i * 100 + 100)), type=pa.int64()),
+                    "name": pa.array([f"r{i}-{j}" for j in range(100)], type=pa.string()),
+                }
+            )
+            for i in range(n_chunks)
+        ]
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        original_read_table = pq.read_table
+        state = {"live": 0, "peak": 0}
+
+        def tracking_read_table(path, *args, **kwargs):
+            table = original_read_table(path, *args, **kwargs)
+            state["live"] += 1
+            state["peak"] = max(state["peak"], state["live"])
+
+            def _on_collect():
+                state["live"] -= 1
+
+            weakref.finalize(table, _on_collect)
+            return table
+
+        monkeypatch.setattr("nmaipy.exporter.pq.read_table", tracking_read_table)
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=4, prefetch_workers=prefetch_workers)
+
+        assert rows == n_chunks * 100
+        # Resident tables never accumulate: a small constant, not O(n_chunks).
+        assert state["peak"] <= prefetch_workers + 3, state["peak"]
+        assert state["peak"] < n_chunks
+        assert pq.read_table(out).num_rows == n_chunks * 100
+
+    def test_resident_tables_bounded_at_production_prefetch(self, tmp_path, monkeypatch):
+        """At a production-like prefetch_workers (8) with a slow consume step,
+        resident tables stay capped at ~prefetch_workers, not the chunk count.
+        The pw=1 test above can't catch a 'submit all reads up front' OOM mutant
+        (which peaks at 1 there); this regime does (it would peak at n_chunks)."""
+        n_chunks = 24
+        prefetch_workers = 8
+        chunks = [pa.table({"id": pa.array([i], type=pa.int64())}) for i in range(n_chunks)]
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        original_read_table = pq.read_table
+        state = {"live": 0, "peak": 0}
+
+        def tracking_read_table(path, *args, **kwargs):
+            table = original_read_table(path, *args, **kwargs)
+            state["live"] += 1
+            state["peak"] = max(state["peak"], state["live"])
+            weakref.finalize(table, lambda: state.__setitem__("live", state["live"] - 1))
+            return table
+
+        original_reconcile = exporter_mod._reconcile_table_schema
+
+        def slow_reconcile(table, target):
+            time.sleep(0.02)  # let the prefetch window fill while the writer is busy
+            return original_reconcile(table, target)
+
+        monkeypatch.setattr("nmaipy.exporter.pq.read_table", tracking_read_table)
+        monkeypatch.setattr("nmaipy.exporter._reconcile_table_schema", slow_reconcile)
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=8, prefetch_workers=prefetch_workers)
+
+        assert rows == n_chunks
+        assert 2 <= state["peak"] <= prefetch_workers + 1, state["peak"]
+        assert state["peak"] < n_chunks
+
+    def test_null_typed_column_promotion(self, tmp_path):
+        """A column that is null-typed in one chunk and float64 in another unifies
+        to float64; a column null across ALL chunks promotes to large_string. The
+        streaming path reaches these via a footer-only Pass 1 that the in-memory
+        oracle test never exercises."""
+        c0 = pa.table(
+            {
+                "id": pa.array([1], type=pa.int64()),
+                "conf": pa.array([None], type=pa.null()),  # null-typed here
+                "note": pa.array([None], type=pa.null()),  # null in every chunk
+            }
+        )
+        c1 = pa.table(
+            {
+                "id": pa.array([2], type=pa.int64()),
+                "conf": pa.array([0.5], type=pa.float64()),  # real type here
+                "note": pa.array([None], type=pa.null()),
+            }
+        )
+        paths = _write_chunks(tmp_path, [c0, c1])
+        out = str(tmp_path / "merged.parquet")
+        _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        result = pq.read_table(out)
+        assert result.schema.field("conf").type == pa.float64()
+        assert result.schema.field("note").type == pa.large_string()
+        assert sorted(v for v in result.column("conf").to_pylist() if v is not None) == [0.5]
+
+    def test_writer_failure_leaves_no_output_file(self, tmp_path, monkeypatch):
+        """A write failure mid-stream must not leave a readable, truncated file at
+        output_path (the regression: the writer's close() in finally finalises a
+        valid footer over the rows written so far). The error must propagate, no
+        .tmp must leak, and the prefetch pool must be shut down."""
+        chunks = [pa.table({"id": pa.array([i, i + 100], type=pa.int64())}) for i in range(6)]
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        original_writer_cls = pq.ParquetWriter
+
+        class FailingWriter:
+            def __init__(self, *args, **kwargs):
+                self._w = original_writer_cls(*args, **kwargs)
+                self._calls = 0
+
+            def write_table(self, table, *args, **kwargs):
+                self._calls += 1
+                if self._calls == 3:
+                    raise OSError("simulated disk full")
+                return self._w.write_table(table, *args, **kwargs)
+
+            def close(self):
+                return self._w.close()
+
+        threads_before = threading.active_count()
+        monkeypatch.setattr("nmaipy.exporter.pq.ParquetWriter", FailingWriter)
+        with pytest.raises(OSError):
+            _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=2)
+
+        assert not os.path.exists(out), "truncated parquet must not be left at output_path"
+        assert not os.path.exists(out + ".tmp"), "temp file must be cleaned on failure"
+        assert threading.active_count() <= threads_before, "prefetch pool leaked threads"
+
+    def test_all_data_reads_fail_writes_no_file(self, tmp_path, monkeypatch):
+        """Footers read but every data page is unreadable: write nothing (old
+        parity) rather than a spurious counted 0-row file."""
+        chunks = [pa.table({"id": pa.array([i], type=pa.int64())}) for i in range(3)]
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        def failing_read_table(path, *args, **kwargs):
+            raise OSError("corrupt data page")
+
+        monkeypatch.setattr("nmaipy.exporter.pq.read_table", failing_read_table)
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+        assert rows == 0
+        assert not os.path.exists(out)
+
+    def test_one_corrupt_chunk_among_good_is_skipped(self, tmp_path):
+        """A single unreadable chunk (bad footer) is skipped; the others merge."""
+        good = [pa.table({"id": pa.array([1, 2], type=pa.int64())}), pa.table({"id": pa.array([3], type=pa.int64())})]
+        paths = _write_chunks(tmp_path, good)
+        bad = str(tmp_path / "roof_2.parquet")
+        Path(bad).write_text("not a parquet file")
+        out = str(tmp_path / "merged.parquet")
+
+        rows = _stream_merge_chunks_to_parquet(paths + [bad], out, scan_workers=2, prefetch_workers=2)
+        assert rows == 3
+        assert sorted(pq.read_table(out).column("id").to_pylist()) == [1, 2, 3]
+
+    def test_footer_ok_data_corrupt_chunk_skipped(self, tmp_path, monkeypatch):
+        """A chunk whose footer reads but whose data read raises is dropped; the
+        good chunks still merge, and a column unique to the dropped chunk is
+        present (from its footer) as all-null."""
+        good = pa.table({"id": pa.array([1, 2], type=pa.int64())})
+        damaged = pa.table({"id": pa.array([3], type=pa.int64()), "extra": pa.array(["x"], type=pa.string())})
+        paths = _write_chunks(tmp_path, [good, damaged])
+        out = str(tmp_path / "merged.parquet")
+
+        original_read_table = pq.read_table
+
+        def selective_read(path, *args, **kwargs):
+            if path == paths[1]:
+                raise OSError("corrupt data page")
+            return original_read_table(path, *args, **kwargs)
+
+        monkeypatch.setattr("nmaipy.exporter.pq.read_table", selective_read)
+        rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        result = pq.read_table(out)
+        assert rows == 2
+        assert sorted(result.column("id").to_pylist()) == [1, 2]
+        # 'extra' came only from the damaged chunk's footer -> column exists, all null.
+        assert "extra" in result.column_names
+        assert result.column("extra").to_pylist() == [None, None]
+
+    def test_all_unreadable_removes_stale_output(self, tmp_path):
+        """An all-footers-unreadable merge must clear a stale prior-run file so
+        the caller's existence check can't count it as this run's output."""
+        out = str(tmp_path / "merged.parquet")
+        pq.write_table(pa.table({"stale": pa.array([1], type=pa.int64())}), out)
+        bad = str(tmp_path / "roof_0.parquet")
+        Path(bad).write_text("garbage")
+
+        rows = _stream_merge_chunks_to_parquet([bad], out, scan_workers=2, prefetch_workers=1)
+        assert rows == 0
+        assert not os.path.exists(out)
+
+
+class TestParquetToCsvStreaming:
+    """The tabular->CSV conversion streams batches instead of loading the whole
+    file, but must still produce a byte-faithful CSV."""
+
+    def test_roundtrip_matches_pandas(self, tmp_path):
+        table = pa.table({"id": [1, 2, 3, 4, 5, 6], "name": ["a", "b", "c", "d", "e", "f"]})
+        parquet_path = str(tmp_path / "t.parquet")
+        # Multiple row groups to exercise the batched read path.
+        pq.write_table(table, parquet_path, row_group_size=2)
+        csv_path = str(tmp_path / "t.csv")
+
+        _parquet_to_csv_streaming(parquet_path, csv_path)
+
+        got = pd.read_csv(csv_path)
+        expected = table.to_pandas()
+        pd.testing.assert_frame_equal(got, expected)
+
+    def test_empty_parquet_produces_header_only_csv(self, tmp_path):
+        table = pa.table({"id": pa.array([], type=pa.int64()), "name": pa.array([], type=pa.string())})
+        parquet_path = str(tmp_path / "empty.parquet")
+        pq.write_table(table, parquet_path)
+        csv_path = str(tmp_path / "empty.csv")
+
+        _parquet_to_csv_streaming(parquet_path, csv_path)
+
+        got = pd.read_csv(csv_path)
+        assert list(got.columns) == ["id", "name"]
+        assert len(got) == 0
+
+    def test_multibatch_is_byte_identical_to_whole_file(self, tmp_path):
+        """Over multiple iter_batches() batches (>64Ki rows), the appended CSV
+        must be byte-for-byte identical to a single pd.read_parquet().to_csv() —
+        catching any per-batch formatting/dtype drift (nulls, floats, strings)."""
+        n = 70_000  # forces >1 batch at pyarrow's default 65536 batch size
+        table = pa.table(
+            {
+                "id": pa.array(range(n), type=pa.int64()),
+                "val": pa.array([None if i % 7 == 0 else i / 3.0 for i in range(n)], type=pa.float64()),
+                "name": pa.array([None if i % 5 == 0 else f"r{i}" for i in range(n)], type=pa.string()),
+            }
+        )
+        parquet_path = str(tmp_path / "wide.parquet")
+        pq.write_table(table, parquet_path, row_group_size=10_000)
+        # Guard the premise: the file really does yield more than one batch.
+        with pq.ParquetFile(parquet_path) as pf:
+            assert sum(1 for _ in pf.iter_batches()) > 1
+
+        csv_path = str(tmp_path / "wide.csv")
+        _parquet_to_csv_streaming(parquet_path, csv_path)
+
+        expected = pd.read_parquet(parquet_path).to_csv(index=False).encode()
+        with open(csv_path, "rb") as f:
+            assert f.read() == expected
+
+
+class TestMergePerClassChunks:
+    """Integration test for the rewired caller: real per-class chunk files on
+    local disk are merged, the tabular output is converted to CSV, the geo output
+    keeps its GeoParquet metadata, and the staging dir is cleaned up."""
+
+    def test_merges_real_chunks_to_final(self, tmp_path):
+        exporter = AOIExporter(
+            aoi_file="tests/data/test_parcels_2.csv",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            processes=2,
+        )
+        b_cname = _description_to_cname(FEATURE_CLASS_DESCRIPTIONS[BUILDING_NEW_ID])
+        r_cname = _description_to_cname(FEATURE_CLASS_DESCRIPTIONS[ROOF_ID])
+
+        # Two tabular building chunks; the second drops a column to force a union
+        # null-fill (the real-world cross-chunk schema variation this must handle).
+        b0 = pd.DataFrame({"aoi_id": ["a", "b"], "area_sqm": [101.0, 202.0], "height_m": [4.5, 6.0]})
+        b1 = pd.DataFrame({"aoi_id": ["c"], "area_sqm": [303.0]})  # no height_m
+        b0.to_parquet(os.path.join(exporter.chunk_path, f"{b_cname}_0.parquet"), index=False)
+        b1.to_parquet(os.path.join(exporter.chunk_path, f"{b_cname}_1.parquet"), index=False)
+
+        # Two geo roof chunks written as real geoparquet (WKB geometry + CRS).
+        def square(x):
+            return Polygon([(x, 0), (x + 1, 0), (x + 1, 1), (x, 1)])
+
+        r0 = gpd.GeoDataFrame({"aoi_id": ["a", "b"]}, geometry=[square(0), square(2)], crs=API_CRS)
+        r1 = gpd.GeoDataFrame({"aoi_id": ["c"]}, geometry=[square(4)], crs=API_CRS)
+        r0.to_parquet(os.path.join(exporter.chunk_path, f"{r_cname}_features_0.parquet"))
+        r1.to_parquet(os.path.join(exporter.chunk_path, f"{r_cname}_features_1.parquet"))
+
+        exporter._merge_per_class_chunks(tabular_file_format="csv")
+
+        # Tabular -> CSV: union of rows and columns, height_m null for chunk 1.
+        building_csv = os.path.join(exporter.final_path, f"{b_cname}.csv")
+        assert os.path.exists(building_csv)
+        bdf = pd.read_csv(building_csv)
+        assert len(bdf) == 3
+        assert set(bdf.columns) == {"aoi_id", "area_sqm", "height_m"}  # no unexpected columns
+        assert bdf.set_index("aoi_id").loc["c", "height_m"] != bdf.set_index("aoi_id").loc["c", "height_m"]  # NaN
+        # No stray intermediate parquet left next to the CSV.
+        assert not os.path.exists(os.path.join(exporter.final_path, f"{b_cname}.parquet"))
+
+        # Geo -> GeoParquet: opens in geopandas with CRS and the union of rows.
+        roof_parquet = os.path.join(exporter.final_path, f"{r_cname}_features.parquet")
+        assert os.path.exists(roof_parquet)
+        rgdf = gpd.read_parquet(roof_parquet)
+        assert len(rgdf) == 3
+        assert rgdf.crs is not None and rgdf.crs.to_epsg() == pyproj.CRS(API_CRS).to_epsg()
+        assert rgdf.geometry.is_valid.all()
+
+        # Staging dir removed after a clean local merge.
+        assert not os.path.exists(os.path.join(exporter.final_path, ".per_class_staging"))
 
 
 if __name__ == "__main__":

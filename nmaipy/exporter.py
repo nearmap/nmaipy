@@ -618,6 +618,12 @@ def _cast_table_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table
 def _unify_and_concat_tables(tables: list[pa.Table]) -> pa.Table:
     """Concatenate tables after unifying their schemas.
 
+    Retained as the test parity oracle: it has no production caller since the
+    per-class merge moved to the streaming _stream_merge_chunks_to_parquet (which
+    reuses _promote_schema_types and _reconcile_table_schema). The streaming path's
+    schema semantics are pinned to this function's output in the test suite, so do
+    not delete it.
+
     Uses ``pa.unify_schemas(promote_options="permissive")`` to resolve type
     mismatches across chunks (e.g. int64 vs float64 when nullable integers
     are inferred as float, int32 vs int64, timestamp unit differences, etc.),
@@ -655,6 +661,189 @@ def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
         else:
             arrays.append(pa.nulls(len(table), type=field.type))
     return pa.Table.from_arrays(arrays, schema=ref_schema)
+
+
+def _safe_unlink(path: str) -> None:
+    """Remove a file if it exists, ignoring a concurrent/absent removal."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _stream_merge_chunks_to_parquet(
+    chunk_paths: List[str],
+    output_path: str,
+    *,
+    scan_workers: int,
+    prefetch_workers: int,
+    geo_metadata: dict = None,
+    logger=None,
+) -> int:
+    """Stream-merge per-class chunk parquet files into one output file.
+
+    Memory-bounded equivalent of reading every chunk into a list and calling
+    ``_unify_and_concat_tables()``: peak resident memory is ~one chunk plus the
+    prefetch read-ahead window, regardless of the total class size. This is what
+    lets a national-scale layer (hundreds of GiB across thousands of chunks)
+    consolidate without OOM — the read-all-then-concat path peaks at
+    ``sum(all chunks) + concatenated copy`` (≈2×), which scales with total class
+    size and so no box tier can fix it.
+
+    Two passes, both preserving ``_unify_and_concat_tables()`` schema semantics:
+
+    1. Derive the unified target schema from parquet footers only — ``pq.read_schema``
+       loads no row data — via ``pa.unify_schemas(promote_options="permissive")``
+       then ``_promote_schema_types`` (string/binary→large_* overflow protection,
+       int/float promotion, null-typed columns → large_string). For geo output the
+       GeoParquet metadata is attached to the target schema up front, so it lands on
+       the writer's schema before the first row group is written.
+    2. Stream each chunk through ``_reconcile_table_schema()`` onto the fixed writer
+       schema (cast / null-fill / missing-column pad), write it, and drop it. A
+       bounded prefetch pool reads ahead so S3 read throughput is retained without
+       holding every chunk resident; the in-flight table count is capped at
+       ``prefetch_workers``.
+
+    Chunk order is non-deterministic for rows (matching the previous
+    ``as_completed`` behaviour) but the target schema's column order is derived in
+    sorted ``chunk_paths`` order so it is stable across runs.
+
+    The write is atomic: rows are streamed into ``output_path + ".tmp"`` and that
+    file is ``os.replace``-d into ``output_path`` only after the writer closes
+    cleanly. A failed/interrupted write (e.g. disk-full, OOM, KeyboardInterrupt)
+    leaves no readable file at ``output_path`` — without this, the incremental
+    writer's ``close()`` in ``finally`` would finalise a valid-but-silently-
+    truncated parquet that the staging→final sweep could promote. If every chunk's
+    *data* read fails (footers were readable, so a target schema exists), no file
+    is written at all, matching the old read-all-then-concat path.
+
+    Args:
+        chunk_paths: Per-class chunk parquet paths (local or S3 URIs).
+        output_path: Local path for the merged parquet (ParquetWriter cannot take
+            an S3 URI; the caller stages locally then uploads).
+        scan_workers: Concurrency for the cheap footer-only schema pass.
+        prefetch_workers: Max chunk tables read ahead and held resident at once.
+        geo_metadata: GeoParquet metadata dict to attach to the schema (geo files);
+            None for tabular files.
+        logger: Optional logger; falls back to the module logger.
+
+    Returns:
+        Number of rows written. 0 (and no file at ``output_path``) when there were
+        no chunks, no footer was readable, or every data read failed.
+    """
+    logger = logger or log.get_logger()
+    total = len(chunk_paths)
+    if total == 0:
+        return 0
+
+    # Pass 1 — derive the unified target schema from footers only (no row data).
+    # Positional collection preserves chunk_paths order regardless of completion
+    # order, so the resulting column order is deterministic.
+    schemas = [None] * total
+    with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
+        futures = {scan_executor.submit(pq.read_schema, chunk_paths[i]): i for i in range(total)}
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                schemas[idx] = future.result()
+            except Exception as e:
+                logger.error(f"Failed to read schema from {chunk_paths[idx]}: {e}")
+
+    valid_paths = [chunk_paths[i] for i, s in enumerate(schemas) if s is not None]
+    valid_schemas = [s for s in schemas if s is not None]
+    if not valid_schemas:
+        logger.error("All chunk schemas failed to read — cannot merge")
+        # Drop any stale file so the caller's existence check can't mistake a
+        # prior run's output for this one.
+        _safe_unlink(output_path)
+        return 0
+
+    unified = pa.unify_schemas(valid_schemas, promote_options="permissive")
+    target = _promote_schema_types(unified)
+    if geo_metadata is not None:
+        md = dict(target.metadata or {})
+        md[b"geo"] = json.dumps(geo_metadata).encode("utf-8")
+        target = target.with_metadata(md)
+
+    # Pass 2 — stream each chunk through the reconcile helper onto the fixed
+    # writer schema. A bounded prefetch pool keeps reads ahead of the writer
+    # while capping the number of resident tables at prefetch_workers. Rows are
+    # written to a temp file and atomically promoted only on clean completion.
+    n = len(valid_paths)
+    tmp_path = output_path + ".tmp"
+    rows_written = 0
+    data_reads_succeeded = 0
+    completed = False
+    writer = None
+    executor = ThreadPoolExecutor(max_workers=prefetch_workers)
+    prefetch_futures = {}
+    initial_submit = min(prefetch_workers, n)
+    for idx in range(initial_submit):
+        prefetch_futures[idx] = executor.submit(pq.read_table, valid_paths[idx])
+    next_submit_idx = initial_submit
+
+    try:
+        writer = pq.ParquetWriter(tmp_path, target)
+        for i in range(n):
+            future = prefetch_futures.pop(i)
+            # Submit the next read before processing the current chunk so a read
+            # is always in flight (read-ahead), keeping the resident count at the
+            # prefetch_workers cap.
+            if next_submit_idx < n:
+                prefetch_futures[next_submit_idx] = executor.submit(pq.read_table, valid_paths[next_submit_idx])
+                next_submit_idx += 1
+            try:
+                table = future.result()
+            except Exception as e:
+                logger.error(f"Failed reading {valid_paths[i]}: {e}")
+                continue
+            data_reads_succeeded += 1
+            table = _reconcile_table_schema(table, target)
+            writer.write_table(table)
+            rows_written += table.num_rows
+            del table
+        completed = True
+    finally:
+        # Cancel queued futures and wait for running ones so no background thread
+        # keeps a pyarrow table or S3 connection alive past this call.
+        executor.shutdown(wait=True, cancel_futures=True)
+        if writer is not None:
+            writer.close()
+        if not completed:
+            # Write failed or was interrupted: the closed writer left a valid but
+            # truncated temp file. Drop it; output_path is never touched. The
+            # exception (if any) keeps propagating after this finally.
+            _safe_unlink(tmp_path)
+
+    if data_reads_succeeded == 0:
+        # Every chunk's footer read but its data did not (e.g. corrupt pages).
+        # The old read-all-then-concat path wrote nothing here; match that and
+        # surface the total-loss-of-class rather than promoting an empty file.
+        logger.warning(f"All {n} chunk data reads failed for {output_path}; no per-class file written")
+        _safe_unlink(tmp_path)
+        _safe_unlink(output_path)
+        return 0
+
+    os.replace(tmp_path, output_path)
+    return rows_written
+
+
+def _parquet_to_csv_streaming(parquet_path: str, csv_path: str) -> None:
+    """Convert a parquet file to CSV in record batches to bound peak memory.
+
+    Replaces ``pd.read_parquet(whole_file).to_csv()``, which materialises the
+    entire file (a second unbounded load for large classes). Each batch is
+    converted and appended; only the first batch writes the header. An empty
+    parquet (no batches) still produces a header-only CSV.
+    """
+    first = True
+    with pq.ParquetFile(parquet_path) as parquet_file:
+        for batch in parquet_file.iter_batches():
+            batch.to_pandas().to_csv(csv_path, index=False, mode="w" if first else "a", header=first)
+            first = False
+    if first:
+        # Zero-batch (empty) file: emit headers with no rows.
+        pd.read_parquet(parquet_path).to_csv(csv_path, index=False)
 
 
 def _staged_file_needs_upload(local_size: int, remote_size: Optional[int]) -> bool:
@@ -2852,9 +3041,12 @@ class NearmapAIExporter(BaseExporter):
     ):
         """Merge per-class chunk files into final per-class output files.
 
-        For each whitelisted class, globs per-class chunk files from chunks/,
-        reads them as Arrow tables, concatenates via _unify_and_concat_tables(),
-        and writes the final files to final/.
+        For each whitelisted class, globs per-class chunk files from chunks/ and
+        stream-merges them to final/ via _stream_merge_chunks_to_parquet(), which
+        derives the unified schema from footers then writes each chunk through a
+        single ParquetWriter. Peak memory is bounded to ~one chunk plus the
+        prefetch window rather than the whole class, so national-scale classes
+        consolidate without OOM.
 
         Classes with no per-class chunk files (e.g. old exports, or per-class
         computation failed) are skipped with a warning; regenerating requires
@@ -2863,7 +3055,13 @@ class NearmapAIExporter(BaseExporter):
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
         if requested_class_ids is not None:
             whitelisted_classes = [cid for cid in whitelisted_classes if cid in requested_class_ids]
-        read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        # scan_workers: cheap footer-only schema reads (parallelised for S3).
+        # prefetch_workers: bounded read-ahead for the data pass — each prefetched
+        # table stays resident until the writer consumes it, so this is kept small
+        # (derived from --processes, the RAM dial) rather than reusing the high
+        # S3-read count, matching _stream_and_convert_features.
+        scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        prefetch_workers = _resolve_prefetch_workers(self.processes)
 
         # Set up staging directory for atomic writes
         if self.is_s3_output:
@@ -2911,43 +3109,36 @@ class NearmapAIExporter(BaseExporter):
                 )
                 continue
 
-            # Happy path: per-class chunk files exist — read and concat
+            # Happy path: per-class chunk files exist — stream-merge them.
+            # Streaming (not read-all-then-concat) bounds peak memory to ~one
+            # chunk plus the prefetch window, so a national-scale class merges
+            # without OOM regardless of total class size.
             if tabular_chunks:
                 self.logger.info(f"Merging {len(tabular_chunks)} tabular chunks for {desc}")
-                tabular_tables = []
-                with ThreadPoolExecutor(max_workers=read_workers) as executor:
-                    futures = {executor.submit(pq.read_table, p): p for p in tabular_chunks}
-                    for future in as_completed(futures):
-                        try:
-                            tabular_tables.append(future.result())
-                        except Exception as e:
-                            self.logger.error(f"Failed reading {futures[future]}: {e}")
-                if tabular_tables:
-                    combined = _unify_and_concat_tables(tabular_tables)
-                    staging_path = os.path.join(staging_dir, f"{cname}.parquet")
-                    pq.write_table(combined, staging_path)
+                staging_path = os.path.join(staging_dir, f"{cname}.parquet")
+                rows = _stream_merge_chunks_to_parquet(
+                    tabular_chunks,
+                    staging_path,
+                    scan_workers=scan_workers,
+                    prefetch_workers=prefetch_workers,
+                    logger=self.logger,
+                )
+                if rows or os.path.exists(staging_path):
                     tabular_count += 1
-                    del combined, tabular_tables
 
             if geo_chunks:
                 self.logger.info(f"Merging {len(geo_chunks)} geo chunks for {desc}")
-                geo_tables = []
-                with ThreadPoolExecutor(max_workers=read_workers) as executor:
-                    futures = {executor.submit(pq.read_table, p): p for p in geo_chunks}
-                    for future in as_completed(futures):
-                        try:
-                            geo_tables.append(future.result())
-                        except Exception as e:
-                            self.logger.error(f"Failed reading {futures[future]}: {e}")
-                if geo_tables:
-                    combined = _unify_and_concat_tables(geo_tables)
-                    existing_meta = combined.schema.metadata or {}
-                    existing_meta[b"geo"] = json.dumps(geo_metadata).encode("utf-8")
-                    combined = combined.replace_schema_metadata(existing_meta)
-                    staging_path = os.path.join(staging_dir, f"{cname}_features.parquet")
-                    pq.write_table(combined, staging_path)
+                staging_path = os.path.join(staging_dir, f"{cname}_features.parquet")
+                rows = _stream_merge_chunks_to_parquet(
+                    geo_chunks,
+                    staging_path,
+                    scan_workers=scan_workers,
+                    prefetch_workers=prefetch_workers,
+                    geo_metadata=geo_metadata,
+                    logger=self.logger,
+                )
+                if rows or os.path.exists(staging_path):
                     geo_count += 1
-                    del combined, geo_tables
 
         # Convert tabular parquet to CSV if requested
         if tabular_file_format == "csv":
@@ -2957,8 +3148,7 @@ class NearmapAIExporter(BaseExporter):
                 parquet_path = os.path.join(staging_dir, f"{cname}.parquet")
                 if os.path.exists(parquet_path):
                     csv_path = os.path.join(staging_dir, f"{cname}.csv")
-                    df = pd.read_parquet(parquet_path)
-                    df.to_csv(csv_path, index=False)
+                    _parquet_to_csv_streaming(parquet_path, csv_path)
                     os.remove(parquet_path)
 
         # Move files from staging to final destination (or upload to S3)

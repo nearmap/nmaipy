@@ -54,7 +54,7 @@ jobs:
         echo "Checking for nmaipy $VERSION on PyPI..."
         for i in 1 2 3; do
           echo "Attempt $i/3..."
-          if pip index versions nmaipy 2>/dev/null | grep -q "$VERSION"; then
+          if pip index versions nmaipy --pre 2>/dev/null | grep -q "$VERSION"; then
             echo "Found nmaipy $VERSION on PyPI"
             exit 0
           fi
