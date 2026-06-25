@@ -679,6 +679,7 @@ def _stream_merge_chunks_to_parquet(
     prefetch_workers: int,
     geo_metadata: dict = None,
     logger=None,
+    progress_desc: str = None,
 ) -> int:
     """Stream-merge per-class chunk parquet files into one output file.
 
@@ -726,6 +727,9 @@ def _stream_merge_chunks_to_parquet(
         geo_metadata: GeoParquet metadata dict to attach to the schema (geo files);
             None for tabular files.
         logger: Optional logger; falls back to the module logger.
+        progress_desc: If set, render a tqdm progress bar over the data pass with
+            this label (e.g. "Building geo"). None (the default) renders no bar —
+            keeps the helper quiet when called from tests.
 
     Returns:
         Number of rows written. 0 (and no file at ``output_path``) when there were
@@ -775,6 +779,10 @@ def _stream_merge_chunks_to_parquet(
     data_reads_succeeded = 0
     completed = False
     writer = None
+    pbar = None
+    last_resource_update = 0.0
+    if progress_desc is not None:
+        pbar = tqdm(total=n, desc=progress_desc, file=sys.stdout, position=0, leave=True)
     executor = ThreadPoolExecutor(max_workers=prefetch_workers)
     prefetch_futures = {}
     initial_submit = min(prefetch_workers, n)
@@ -792,6 +800,12 @@ def _stream_merge_chunks_to_parquet(
             if next_submit_idx < n:
                 prefetch_futures[next_submit_idx] = executor.submit(pq.read_table, valid_paths[next_submit_idx])
                 next_submit_idx += 1
+            if pbar is not None:
+                pbar.update(1)
+                now = time.time()
+                if now - last_resource_update >= 5.0:
+                    pbar.set_postfix_str(resource_postfix())
+                    last_resource_update = now
             try:
                 table = future.result()
             except Exception as e:
@@ -809,6 +823,8 @@ def _stream_merge_chunks_to_parquet(
         executor.shutdown(wait=True, cancel_futures=True)
         if writer is not None:
             writer.close()
+        if pbar is not None:
+            pbar.close()
         if not completed:
             # Write failed or was interrupted: the closed writer left a valid but
             # truncated temp file. Drop it; output_path is never touched. The
@@ -897,6 +913,21 @@ def _resolve_prefetch_workers(processes: int) -> int:
     Precondition: ``processes >= 1`` (enforced by BaseExporter.__init__).
     """
     return max(FEATURE_PREFETCH_FLOOR, round(FEATURE_PREFETCH_MULTIPLIER * processes))
+
+
+def _resolve_merge_prefetch_workers(merge_read_workers: int, processes: int, scan_workers: int) -> int:
+    """Resolve the read-ahead concurrency for the per-class output merge.
+
+    A positive ``merge_read_workers`` is an explicit operator override (``--merge-read-workers``).
+    Otherwise auto-size to ``max(_resolve_prefetch_workers(processes), scan_workers)``: unlike the
+    combined ``features.parquet`` stream — whose per-chunk tables hold every class and so stay tied
+    to ``--processes`` for RAM safety — per-class chunks contain a single class and are small, so the
+    merge can read at the full scan concurrency (24 on S3) without the lone writer starving on I/O.
+    Memory stays bounded at ~this many chunks resident, far below the old read-all peak.
+    """
+    if merge_read_workers and merge_read_workers > 0:
+        return merge_read_workers
+    return max(_resolve_prefetch_workers(processes), scan_workers)
 
 
 def _resolve_rsi_batch(n_rows, resolve_fn):
@@ -2292,6 +2323,18 @@ def parse_arguments():
         default=CHUNK_SIZE,
     )
     parser.add_argument(
+        "--merge-read-workers",
+        help=(
+            "Read-ahead concurrency for the per-class output merge (consolidation phase). "
+            "0 (default) auto-sizes to the S3/local read-worker count so merge reads do not "
+            "bottleneck the writer. Raise on a large-RAM box to read more chunks ahead; lower "
+            "if per-class chunks are unusually large (memory ~= this many chunks resident)."
+        ),
+        type=int,
+        required=False,
+        default=0,
+    )
+    parser.add_argument(
         "--include-parcel-geometry",
         help="If set, parcel geometries will be in the output",
         action="store_true",
@@ -2505,6 +2548,7 @@ _CONFIG_KEYS_NOT_AFFECTING_OUTPUT = frozenset(
         "processes",
         "threads",
         "chunk_size",
+        "merge_read_workers",
         "log_level",
         "cache_dir",
         "compress_cache",
@@ -2539,6 +2583,7 @@ class NearmapAIExporter(BaseExporter):
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
+        merge_read_workers=0,  # 0 = auto-size the per-class merge read-ahead
         include_parcel_geometry=False,
         save_features=False,
         tabular_file_format="csv",
@@ -2589,6 +2634,7 @@ class NearmapAIExporter(BaseExporter):
         self.aoi_grid_cell_size = aoi_grid_cell_size
         self.regrid_on_skip = regrid_on_skip
         # Note: processes, chunk_size, log_level handled by BaseExporter
+        self.merge_read_workers = merge_read_workers
         self.threads = threads
         self.include_parcel_geometry = include_parcel_geometry
         self.save_features = save_features
@@ -2662,6 +2708,7 @@ class NearmapAIExporter(BaseExporter):
             "processes": processes,
             "threads": threads,
             "chunk_size": chunk_size,
+            "merge_read_workers": merge_read_workers,
             "include_parcel_geometry": include_parcel_geometry,
             "save_features": save_features,
             "tabular_file_format": tabular_file_format,
@@ -3056,12 +3103,17 @@ class NearmapAIExporter(BaseExporter):
         if requested_class_ids is not None:
             whitelisted_classes = [cid for cid in whitelisted_classes if cid in requested_class_ids]
         # scan_workers: cheap footer-only schema reads (parallelised for S3).
-        # prefetch_workers: bounded read-ahead for the data pass — each prefetched
-        # table stays resident until the writer consumes it, so this is kept small
-        # (derived from --processes, the RAM dial) rather than reusing the high
-        # S3-read count, matching _stream_and_convert_features.
         scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
-        prefetch_workers = _resolve_prefetch_workers(self.processes)
+        # prefetch_workers: bounded read-ahead for the data pass — each prefetched
+        # table stays resident until the writer consumes it. Unlike the combined
+        # features.parquet stream (whose per-chunk tables hold ALL classes, so it
+        # stays tied to --processes), per-class chunks are a single class and thus
+        # small, so the merge defaults to the full read concurrency (scan_workers,
+        # i.e. 24 on S3) to keep reads from bottlenecking the single writer.
+        # Still bounded (~scan_workers chunks resident, far below the old read-all
+        # peak); --merge-read-workers overrides for unusually large per-class chunks.
+        prefetch_workers = _resolve_merge_prefetch_workers(self.merge_read_workers, self.processes, scan_workers)
+        self.logger.info(f"Per-class merge read-ahead: {prefetch_workers} (scan workers: {scan_workers})")
 
         # Set up staging directory for atomic writes
         if self.is_s3_output:
@@ -3122,6 +3174,7 @@ class NearmapAIExporter(BaseExporter):
                     scan_workers=scan_workers,
                     prefetch_workers=prefetch_workers,
                     logger=self.logger,
+                    progress_desc=f"{desc} tabular",
                 )
                 if rows or os.path.exists(staging_path):
                     tabular_count += 1
@@ -3136,6 +3189,7 @@ class NearmapAIExporter(BaseExporter):
                     prefetch_workers=prefetch_workers,
                     geo_metadata=geo_metadata,
                     logger=self.logger,
+                    progress_desc=f"{desc} geo",
                 )
                 if rows or os.path.exists(staging_path):
                     geo_count += 1
@@ -4602,6 +4656,7 @@ def main():
         processes=args.processes,
         threads=args.threads,
         chunk_size=args.chunk_size,
+        merge_read_workers=args.merge_read_workers,
         include_parcel_geometry=args.include_parcel_geometry,
         save_features=args.save_features,
         tabular_file_format=args.tabular_file_format,

@@ -307,19 +307,20 @@ When adding new columns derived from API descriptions, always use the programmat
 9. For S3 output, per-process local staging is used for formats requiring local I/O before uploading
 10. A customer-readable `README.md` is auto-generated in `final/` by `ReadmeGenerator`, plus a `<filename>_data_dictionary.csv` next to each tabular AI-data output by `data_dictionary_generator`
 
-### Resource tuning (`--processes` and `--chunk-size`)
+### Resource tuning (`--processes`, `--chunk-size`, `--merge-read-workers`)
 
-These are the two operator-facing dials for RAM. Both stages of the export scale with them:
+These are the operator-facing dials for RAM and consolidation speed. The export has two stages — parallel chunk processing (API fetch) and the single-process closeout (combined `features.parquet` stream + per-class merge):
 
-- **`--processes`** (default `4`; must be `>= 1`) sets the parallel worker count for chunk processing AND derives the closeout streaming prefetch buffer:
+- **`--processes`** (default `4`; must be `>= 1`) sets the parallel worker count for chunk processing AND derives the `features.parquet` streaming prefetch buffer:
   - Chunk-processing peak ≈ `processes × per-chunk feature tables` resident at once (one per worker).
-  - Closeout-streaming peak ≈ `(round(1.5 × processes) + 1) × dense-chunk-size` resident at once — the prefetch read-ahead window plus the one chunk currently being reconciled/written (see `_resolve_prefetch_workers` in `exporter.py`). This applies to both the combined `features.parquet` stream and the per-class chunk merge.
-  - Both stages scale linearly with this dial. If memory pressure shows in either phase, drop `--processes`.
-- **`--chunk-size`** (default `500`) sets how many AOIs each worker processes per chunk. Larger chunks → larger per-chunk feature tables → bigger per-process working set AND bigger per-table footprint at the streaming stage. Smaller chunks shrink both at the cost of more chunk-boundary overhead and more files to combine at the end.
+  - `features.parquet`-streaming peak ≈ `(round(1.5 × processes) + 1) × dense-chunk-size` resident at once — the prefetch read-ahead window plus the one chunk currently being reconciled/written (see `_resolve_prefetch_workers` in `exporter.py`). Those per-chunk tables hold **all** classes, so this stays tied to `--processes` for RAM safety.
+  - Both stages scale linearly with this dial. If memory pressure shows in either, drop `--processes`.
+- **`--chunk-size`** (default `500`) sets how many AOIs each worker processes per chunk. Larger chunks → larger per-chunk feature tables → bigger per-process working set AND bigger per-table footprint at the streaming/merge stages, but **fewer** chunk files (fewer footer reads, fewer output row groups, less per-file overhead in the merge). Smaller chunks shrink memory at the cost of more chunk-boundary overhead and more files to combine. For very large national exports, a bigger `--chunk-size` can noticeably cut merge overhead if RAM allows.
+- **`--merge-read-workers`** (default `0` = auto) sets the read-ahead concurrency for the **per-class merge** only (consolidation phase, `_resolve_merge_prefetch_workers`). Auto-sizes to `max(round(1.5 × processes), read-workers)` — i.e. the full S3/local read concurrency (24 on S3, 8 local) — because per-class chunks are a single class and small, so the merge can read at full concurrency without the lone parquet writer starving on I/O. Memory here ≈ `merge-read-workers × per-class-chunk-size` resident, far below the old read-all-then-concat peak. Raise it on a large-RAM box to read further ahead; lower it only if per-class chunks are unusually large (e.g. a big `--chunk-size` on the building layer).
 
-Memory monitoring reports the working set (`memory.current − inactive_file`), matching kubelet / OOM-killer semantics. The displayed figure ignores reclaimable page cache. See `nmaipy/cgroup_memory.py` and the "Container memory display" notes in the v5.0.16 release.
+Memory monitoring reports the working set (`memory.current − inactive_file`), matching kubelet / OOM-killer semantics. The displayed figure ignores reclaimable page cache. See `nmaipy/cgroup_memory.py` and the "Container memory display" notes in the v5.0.16 release. Each consolidation stage now shows a tqdm progress bar (`Streaming chunks` for `features.parquet`; `<Class> tabular`/`<Class> geo` for the per-class merge), so a long closeout no longer looks hung.
 
-Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`.
+Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`. If the per-class merge is the bottleneck on a roomy box, raise `--merge-read-workers`.
 
 For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` and `GriddedApiClient` in `nmaipy/api_common.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
 
