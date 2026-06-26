@@ -131,6 +131,31 @@ python -m nmaipy.roof_age_exporter \
     --output-format both
 ```
 
+#### Damage Conflation API Export
+```bash
+# Set up API key
+export API_KEY=your_api_key_here
+
+# Run the damage conflation exporter for a catastrophe event.
+# Always emits per-building damage polygons; add --rollup for a per-AOI summary
+# (one row per AOI: rating counts + the primary building's attributes — most
+# useful when AOIs are property-sized). Large AOIs are handled by pagination,
+# not gridding, so an AOI up to a full event boundary works in one go.
+python -m nmaipy.damage_conflation_exporter \
+    --aoi-file "path/to/aoi.geojson" \
+    --output-dir "data/damage_outputs" \
+    --event-id "2f510853-5d55-50f4-9102-2c02de08190e" \
+    --country us \
+    --processes 4 \
+    --output-format both \
+    --rollup
+```
+
+The `--event-id` is the catastrophe event's UUID (obtained from the Coverage API
+`eventId` survey tag; auto-discovery is not yet built into nmaipy). Output:
+`final/damage_buildings.{parquet,csv}` (per-building) and, with `--rollup`,
+`final/damage_rollup.{parquet,csv}` (per-AOI).
+
 #### S3 Output (v4.2+)
 ```bash
 python nmaipy/exporter.py \
@@ -210,6 +235,7 @@ When adding new columns derived from API descriptions, always use the programmat
    - `link_roofs_to_buildings()`: Spatial association of roofs to parent buildings
    - `link_roof_instances_to_roofs()`: Links Roof Age API results to Feature API roof geometries by IoU
    - `calculate_child_feature_attributes()`: Computes attributes for child features (e.g. roof characteristics on a roof)
+   - `conflation_rollup()`: Per-AOI rollup of Damage Conflation features (same primary-selection/`primary_*`/null-out conventions as `parcel_rollup`, single-class)
    - Re-exports `read_from_file` from `aoi_io` for backward compatibility
 
 8. **primary_feature_selection.py**: Primary feature selection algorithms
@@ -221,7 +247,8 @@ When adding new columns derived from API descriptions, always use the programmat
 9. **feature_attributes.py**: Attribute flattening utilities
    - `flatten_building_attributes()`: Flattens nested building API attributes to flat dict
    - `flatten_roof_attributes()`: Flattens roof attributes including materials, spotlight index
-   - `flatten_building_lifecycle_damage_attributes()`: Flattens damage classification scores
+   - `flatten_building_lifecycle_damage_attributes()`: Flattens Feature API per-survey damage classification scores
+   - `flatten_conflated_damage_attributes()`: Flattens Damage Conflation API (ai/damage/v2) per-building `damage.event`/`damage.preEvent` ratings into a fixed `damage_event_*`/`damage_pre_event_*` column set
    - `flatten_roof_instance_attributes()`: Flattens Roof Age API result attributes
    - `calculate_roof_age_years()`: Computes roof age in years from installation/as-of dates
 
@@ -230,6 +257,15 @@ When adding new columns derived from API descriptions, always use the programmat
     - `clip_features_to_polygon()`: Clips features to AOI boundary, recalculates areas
     - `combine_features_from_grid()`: Deduplicates and merges features from gridded queries
     - `polygon_to_coordstring()`: Converts Shapely polygon to API coordinate string
+
+### Damage Conflation Layer (ai/damage/v2)
+
+- **damage_conflation_api.py**: `DamageConflationApi(BaseApiClient)` — client for the Damage Conflation API
+  - Event-scoped (`event_id`); POST `/events/{event_id}/latest.geojson` per AOI or address
+  - `get_damage_by_aoi()` / `get_damage_by_address()` with `nextCursor` pagination (no gridding — pagination scales to a full event boundary)
+  - `get_damage_bulk()` thread-pool fan-out; event-scoped cache layout `damageconflation/<event_id>/`
+- **damage_conflation_exporter.py**: `DamageConflationExporter(BaseExporter)` and standalone CLI (`python -m nmaipy.damage_conflation_exporter`)
+  - Requires `--event-id`; always emits per-building `damage_buildings.*`, opt-in `--rollup` emits per-AOI `damage_rollup.*` (with `--primary-decision largest|optimal`)
 
 ### Infrastructure Layer
 

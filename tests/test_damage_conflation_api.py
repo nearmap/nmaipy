@@ -8,6 +8,7 @@ mock data — for parsing assertions.
 
 import copy
 import json
+import os
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -227,3 +228,23 @@ def test_get_damage_bulk_requires_aoi_id_index(damage_api, test_aoi):
     bad = gpd.GeoDataFrame(geometry=[test_aoi], crs=API_CRS)  # default RangeIndex
     with pytest.raises(ValueError, match=AOI_ID_COLUMN_NAME):
         damage_api.get_damage_bulk(bad)
+
+
+# -------------------------------------------------------------------- live API
+@pytest.mark.live_api
+def test_get_damage_by_aoi_real_api(test_aoi):
+    """
+    Live integration test against the real Damage Conflation API.
+
+    Requires a valid API_KEY env var and access to the Hurricane Milton event.
+    """
+    if not os.environ.get("API_KEY"):
+        pytest.skip("API_KEY not set")
+
+    api = DamageConflationApi(event_id=EVENT_ID)  # api key from environment
+    gdf = api.get_damage_by_aoi(test_aoi, aoi_id="milton_live_test")
+
+    assert len(gdf) >= 1  # the AOI sits inside the event footprint
+    assert "damage_event_rating" in gdf.columns
+    assert "feature_id" in gdf.columns
+    assert gdf["event_uuid"].notna().all()
