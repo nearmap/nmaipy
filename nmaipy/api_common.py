@@ -301,6 +301,12 @@ class RoofAgeAPIError(APIError):
     pass
 
 
+class DamageConflationAPIError(APIError):
+    """Error responses specific to the Damage Conflation API."""
+
+    pass
+
+
 class APIRequestSizeError(APIError):
     """
     Generic error indicating a request is too large for the API to handle.
