@@ -125,6 +125,26 @@ Each roof carries:
 
 Useful for insurance underwriting, property valuation, maintenance planning, and real-estate due diligence.
 
+### Damage Conflation (Event-Scoped Damage)
+
+For a catastrophe event (hurricane, wildfire), the Damage Conflation API returns a single *conflated* damage rating per building — the highest-confidence assessment fused across every capture in the event lifecycle, rather than one survey's classification. Query it standalone with an event id:
+
+```python
+from nmaipy.damage_conflation_exporter import DamageConflationExporter
+
+exporter = DamageConflationExporter(
+    aoi_file='properties.geojson',
+    output_dir='damage_results',
+    event_id='2f510853-5d55-50f4-9102-2c02de08190e',  # e.g. Hurricane Milton
+    country='us',
+    output_format='both',         # GeoParquet and CSV
+    rollup=True,                  # also emit a per-AOI summary
+)
+exporter.run()
+```
+
+Always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building). Large AOIs — up to a full event boundary — are paged, not gridded. The `event_id` comes from the Coverage API's `eventId` survey tag.
+
 ### Wildfire Risk & Defensible Space
 
 Assess wildfire vulnerability with defensible space analysis around structures — per-zone metrics and per-class risk object breakdowns (vegetation, neighbouring roofs, yard debris) across three concentric zones (0-indexed, matching the CalFire convention):
@@ -339,6 +359,23 @@ python -m nmaipy.roof_age_exporter \
 ```
 
 Accepts the same `--roof-age-dataset`, `--until`, `--since` flags as the unified exporter (with the same A.0-dataset rejection rule). See `python -m nmaipy.roof_age_exporter --help` for all options.
+
+### Standalone Damage Conflation Export
+
+Event-scoped, building-level conflated damage for a catastrophe event (requires `--event-id`):
+
+```bash
+python -m nmaipy.damage_conflation_exporter \
+    --aoi-file "us_properties.geojson" \
+    --output-dir "damage_results" \
+    --event-id "2f510853-5d55-50f4-9102-2c02de08190e" \
+    --country us \
+    --processes 4 \
+    --output-format both \
+    --rollup
+```
+
+Always writes `damage_buildings.{parquet,csv}`; `--rollup` adds the per-AOI `damage_rollup.{parquet,csv}` (primary building chosen by `--primary-decision largest|optimal`). See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 
 ## Examples
 
