@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -33,9 +34,11 @@ from nmaipy.exporter import (
     _add_missing_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
+    _nonnegative_int,
     _parquet_to_csv_streaming,
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
+    _resolve_merge_prefetch_workers,
     _resolve_prefetch_workers,
     _staged_file_needs_upload,
     _stream_merge_chunks_to_parquet,
@@ -74,6 +77,47 @@ class TestResolvePrefetchWorkers:
     def test_scales_with_processes(self):
         # Dropping --processes shrinks the buffer; raising it reads further ahead.
         assert _resolve_prefetch_workers(4) < _resolve_prefetch_workers(8) < _resolve_prefetch_workers(16)
+
+
+class TestResolveMergePrefetchWorkers:
+    """``_resolve_merge_prefetch_workers`` sizes the per-class merge read-ahead.
+
+    Auto (merge_read_workers<=0) = max(features-stream prefetch, scan_workers), since per-class
+    chunks are small enough to read at full scan concurrency; a positive value is an operator
+    override. Pure function, no live API."""
+
+    def test_explicit_override_is_honored(self):
+        # A positive override wins regardless of processes/scan_workers.
+        assert _resolve_merge_prefetch_workers(3, processes=16, scan_workers=24) == 3
+        assert _resolve_merge_prefetch_workers(64, processes=4, scan_workers=8) == 64
+
+    def test_auto_uses_scan_workers_when_higher(self):
+        # Default processes=4 -> prefetch 6; S3 scan_workers=24 dominates, so the
+        # merge reads at 24-way (the regression this restores vs the old 24-way read-all).
+        assert _resolve_merge_prefetch_workers(0, processes=4, scan_workers=24) == 24
+        # Local: scan_workers=8 dominates the prefetch of 6.
+        assert _resolve_merge_prefetch_workers(0, processes=4, scan_workers=8) == 8
+
+    def test_auto_uses_processes_prefetch_when_higher(self):
+        # Many processes -> processes-derived prefetch can exceed scan_workers.
+        assert _resolve_merge_prefetch_workers(0, processes=32, scan_workers=24) == _resolve_prefetch_workers(32)
+
+    def test_zero_and_negative_are_treated_as_auto(self):
+        assert _resolve_merge_prefetch_workers(0, processes=4, scan_workers=8) == 8
+        assert _resolve_merge_prefetch_workers(-1, processes=4, scan_workers=8) == 8
+
+
+class TestNonnegativeInt:
+    """``_nonnegative_int`` is the argparse type for --merge-read-workers: 0 = auto,
+    positives allowed, negatives rejected with a clear error."""
+
+    def test_zero_and_positive_pass(self):
+        assert _nonnegative_int("0") == 0
+        assert _nonnegative_int("24") == 24
+
+    def test_negative_rejected(self):
+        with pytest.raises(argparse.ArgumentTypeError):
+            _nonnegative_int("-1")
 
 
 class TestStagedFileNeedsUpload:
@@ -1262,6 +1306,17 @@ class TestStreamMergeChunksToParquet:
         assert result.schema.field("val").type == pa.float64()
         assert result.schema.field("name").type == pa.large_string()
 
+    def test_progress_desc_renders_without_breaking_output(self, tmp_path):
+        """With progress_desc set, a tqdm bar is drawn but output is unchanged."""
+        chunks = self._mismatched_chunks()
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+        rows = _stream_merge_chunks_to_parquet(
+            paths, out, scan_workers=2, prefetch_workers=2, progress_desc="Building geo"
+        )
+        assert rows == sum(len(c) for c in chunks)
+        assert pq.read_table(out).num_rows == rows
+
     def test_missing_column_null_filled(self, tmp_path):
         chunks = self._mismatched_chunks()
         paths = _write_chunks(tmp_path, chunks)
@@ -1584,6 +1639,16 @@ class TestMergePerClassChunks:
     """Integration test for the rewired caller: real per-class chunk files on
     local disk are merged, the tabular output is converted to CSV, the geo output
     keeps its GeoParquet metadata, and the staging dir is cleaned up."""
+
+    def test_merge_read_workers_plumbed_to_instance(self, tmp_path):
+        exporter = AOIExporter(
+            aoi_file="tests/data/test_parcels_2.csv",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            merge_read_workers=7,
+        )
+        assert exporter.merge_read_workers == 7
 
     def test_merges_real_chunks_to_final(self, tmp_path):
         exporter = AOIExporter(
