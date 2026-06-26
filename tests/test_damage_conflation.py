@@ -206,7 +206,9 @@ def test_conflation_rollup_primary_is_largest(rollup_inputs):
     # default "largest" -> primary is the largest-area_sqm building in the AOI
     expected = f_p1.loc[f_p1["area_sqm"].idxmax()]
     assert rollup.loc["p1", "primary_feature_id"] == expected["feature_id"]
-    assert rollup.loc["p1", "primary_area_sqm"] == expected["area_sqm"]
+    # country=us -> only the country-correct area unit is carried (sqft), sqm is dropped
+    assert rollup.loc["p1", "primary_area_sqft"] == expected["area_sqft"]
+    assert "primary_area_sqm" not in rollup.columns
     assert rollup.loc["p1", "primary_damage_event_rating"] == expected["damage_event_rating"]
     # the preEvent block is carried onto the primary too
     assert "primary_damage_pre_event_rating" in rollup.columns

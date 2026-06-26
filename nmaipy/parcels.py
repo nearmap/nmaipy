@@ -1765,6 +1765,10 @@ def conflation_rollup(
                 global_meta[col] = non_null.iloc[0] if len(non_null) else None
 
     attr_cols = _conflation_primary_attr_cols(features_gdf.columns) if has_features else []
+    # Carry only the country-correct primary area (drop the wrong-unit one), matching
+    # the per-country area handling everywhere else in nmaipy.
+    wrong_area_col = "area_sqm" if country_area_suffix(country) == "sqft" else "area_sqft"
+    attr_cols = [c for c in attr_cols if c != wrong_area_col]
     use_latlon = (
         primary_decision in ("optimal", "nearest")
         and LAT_PRIMARY_COL_NAME in aoi_gdf.columns

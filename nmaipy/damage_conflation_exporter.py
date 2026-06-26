@@ -256,7 +256,6 @@ class DamageConflationExporter(BaseExporter):
             outfile_features = storage.join_path(self.chunk_path, f"damage_features_{chunk_id}.parquet")
             outfile_metadata = storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
             outfile_errors = storage.join_path(self.chunk_path, f"damage_errors_{chunk_id}.parquet")
-            outfile_rollup = storage.join_path(self.chunk_path, f"damage_rollup_{chunk_id}.parquet")
 
             if storage.file_exists(outfile_metadata) and storage.validate_parquet(outfile_metadata):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
@@ -291,16 +290,10 @@ class DamageConflationExporter(BaseExporter):
             if len(errors_df) > 0:
                 storage.write_parquet(errors_df, outfile_errors)
 
-            if self.rollup:
-                rollup_df = parcels.conflation_rollup(
-                    aoi_gdf,
-                    features_gdf,
-                    country=self.country,
-                    successful_aoi_ids=set(metadata_df.index),
-                    primary_decision=self.primary_decision,
-                )
-                if len(rollup_df) > 0:
-                    storage.write_parquet(rollup_df, outfile_rollup)
+            # The rollup is intentionally NOT computed here. It is derived in the combine
+            # step (_run_inner) from the fully-combined features, so it stays correct even
+            # when --rollup is enabled on a resumed run whose chunks are already cached
+            # (a per-chunk rollup would be skipped along with the cached chunk).
 
             latency_stats = api.get_latency_stats()
             if latency_stats is not None:
@@ -360,7 +353,6 @@ class DamageConflationExporter(BaseExporter):
         features_gdf = self._combine_chunk_geoparquet("damage_features", num_chunks)
         metadata_df = self._combine_chunk_parquet("metadata", num_chunks)
         errors_df = self._combine_chunk_parquet("damage_errors", num_chunks)
-        rollup_df = self._combine_chunk_parquet("damage_rollup", num_chunks) if self.rollup else pd.DataFrame()
 
         success_count = len(metadata_df)
         error_count = len(errors_df)
@@ -376,6 +368,19 @@ class DamageConflationExporter(BaseExporter):
                 message_counts = errors_df["message"].apply(sanitize_error_message).value_counts()
             error_table = format_error_summary_table(status_counts, message_counts)
             self.logger.info(f"Damage Conflation API: {error_count} failures{error_table}")
+
+        # Derive the rollup from the fully-combined features (not per-chunk) so it is
+        # always correct, including on a resumed run with cached chunks. Compute before
+        # the include_aoi_geometry merge so AOI passthrough columns don't leak into it.
+        rollup_df = pd.DataFrame()
+        if self.rollup:
+            rollup_df = parcels.conflation_rollup(
+                aoi_gdf,
+                features_gdf,
+                country=self.country,
+                successful_aoi_ids=set(metadata_df.index),
+                primary_decision=self.primary_decision,
+            )
 
         if self.include_aoi_geometry and len(features_gdf) > 0:
             self.logger.info("Merging building data with AOI attributes...")

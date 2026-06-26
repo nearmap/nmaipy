@@ -96,7 +96,10 @@ def test_process_chunk_writes_features_and_metadata(tmp_path, chunk_inputs):
     assert not (Path(exporter.chunk_path) / "damage_rollup_0000.parquet").exists()
 
 
-def test_process_chunk_writes_rollup_when_enabled(tmp_path, chunk_inputs):
+def test_process_chunk_does_not_write_rollup(tmp_path, chunk_inputs):
+    """Rollup is derived at combine time (_run_inner), not per chunk — so even with
+    rollup=True, process_chunk writes no per-chunk rollup file. This is what keeps the
+    rollup correct when --rollup is enabled on a resumed run with cached chunks."""
     aoi_gdf, features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path, output_format="both", rollup=True)
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
@@ -109,12 +112,10 @@ def test_process_chunk_writes_rollup_when_enabled(tmp_path, chunk_inputs):
 
         exporter.process_chunk("0000", aoi_gdf)
 
-    rollup_path = Path(exporter.chunk_path) / "damage_rollup_0000.parquet"
-    assert rollup_path.exists()
-    rollup = pd.read_parquet(rollup_path)
-    assert set(rollup.index) == {"p1", "p2"}
-    assert "n_destroyed" in rollup.columns
-    assert "primary_damage_event_rating" in rollup.columns
+    assert not (Path(exporter.chunk_path) / "damage_rollup_0000.parquet").exists()
+    # features + metadata still written
+    assert (Path(exporter.chunk_path) / "damage_features_0000.parquet").exists()
+    assert (Path(exporter.chunk_path) / "metadata_0000.parquet").exists()
 
 
 def test_process_chunk_writes_errors(tmp_path):
