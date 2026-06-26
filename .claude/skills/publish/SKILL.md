@@ -47,8 +47,9 @@ Execute these steps in order, stopping if any step fails:
    - This catches issues that may have bypassed proper PR review
 
 6. **Determine release path**
-   - If on a feature branch (not main/master): Create a PR to main
-   - If on main/master or PR already merged: Proceed to release
+   - If on a feature branch (not main/master): create the PR to main and wait for it to merge.
+   - Once the PR is merged (or if it already was): **`git checkout main && git pull`** so the tag in step 9 lands on the merge commit, not the branch tip.
+   - Always build, tag, and release from an up-to-date `main` — never from the feature branch.
 
 7. **Build and publish to PyPI**
    - Clean old builds: `rm -rf dist/ build/ *.egg-info`
@@ -56,11 +57,7 @@ Execute these steps in order, stopping if any step fails:
    - Verify: `twine check dist/*`
    - Upload: `twine upload dist/*`
 
-8. **Tag and push**
-   - Create annotated tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
-   - Push tag: `git push origin vX.Y.Z`
-
-9. **Write release notes**
+8. **Write release notes** (do this *before* pushing the tag, so they're ready to apply in step 10)
    - Review all changes since last release: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
    - Write comprehensive release notes covering:
      - **What's New**: One sentence summary of the release
@@ -71,12 +68,18 @@ Execute these steps in order, stopping if any step fails:
    - Present draft release notes to user for review before creating the release
    - Do NOT just use `--generate-notes` alone - that only shows commit titles
 
-10. **Create GitHub release**
-   - Use `gh release create` with:
-     - Tag name (vX.Y.Z)
-     - Title (vX.Y.Z)
-     - The release notes written in step 9 (use `--notes` with a heredoc)
-     - Mark as pre-release if version contains 'a', 'b', or 'rc' (`--prerelease` flag)
+9. **Tag and push**
+   - Create annotated tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
+   - Push tag: `git push origin vX.Y.Z`
+   - **Important:** pushing the tag triggers the Release Validation workflow (`.github/workflows/release.yml`), which **creates the GitHub release itself** (via `softprops/action-gh-release`) with **empty notes and `prerelease: false`**, then attaches the build artifacts. So by step 10 the release usually already exists — you finalize it, you don't create it fresh.
+
+10. **Finalize the GitHub release**
+   - The tag-triggered workflow has (or shortly will have) created the release. Set the notes and pre-release flag on it rather than assuming you're creating it:
+     - `gh release edit vX.Y.Z --notes-file <notes-file>` to apply the step-8 notes.
+     - **Pre-releases** (version contains 'a', 'b', or 'rc'): you MUST also pass `--prerelease` here — the workflow defaults the release to `prerelease: false`, so the flag has to be (re)applied via `edit`. Plain `gh release create --prerelease` fails once the workflow has run (`HTTP 422: Release.tag_name already exists`).
+     - If the release does not exist yet (workflow slow or failed), create it instead: `gh release create vX.Y.Z --title vX.Y.Z --notes-file <notes-file> [--prerelease]`.
+     - Robust either-way one-liner: `gh release edit vX.Y.Z --notes-file <f> [--prerelease] || gh release create vX.Y.Z --title vX.Y.Z --notes-file <f> [--prerelease]`.
+   - Verify the result: `gh release view vX.Y.Z --json isPrerelease,body --jq '{prerelease:.isPrerelease, body_len:(.body|length)}'` (body_len > 0; prerelease matches the version).
 
 11. **Update the conda-forge feedstock** (downstream of PyPI — asynchronous)
 
@@ -129,4 +132,4 @@ Report the final status with links to:
 - conda-forge feedstock PR (note whether dependency edits were needed). This is
   asynchronous and may still be open/pending when the rest of the release is done.
 
-**Note:** After the tag is pushed, a GitHub Actions workflow automatically runs to validate the release (runs tests, verifies version, attaches build artifacts to the release).
+**Note:** After the tag is pushed, the Release Validation workflow runs automatically: it runs tests, verifies the tag matches the version, **creates the GitHub release** (empty notes, `prerelease: false`) and attaches the build artifacts, then verifies the version is live on PyPI (with `--pre`, so pre-releases are found). Step 10 finalizes the notes and pre-release flag on the release this workflow creates.
