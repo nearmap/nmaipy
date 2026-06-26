@@ -1,0 +1,1700 @@
+{
+  "resourceId": "15a0b9fc-d32e-5eb7-ad16-627a51771a40",
+  "eventUuid": "2f510853-5d55-50f4-9102-2c02de08190e",
+  "eventName": "Hurricane Milton",
+  "modelVersion": "A.0",
+  "presentationVersion": "1",
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75518782436848,
+              27.74339560854188
+            ],
+            [
+              -82.75528103113174,
+              27.74334694428295
+            ],
+            [
+              -82.7552542090416,
+              27.743301247337087
+            ],
+            [
+              -82.75527097284794,
+              27.743292938799406
+            ],
+            [
+              -82.75521397590637,
+              27.743206886050537
+            ],
+            [
+              -82.75519385933876,
+              27.743217568464434
+            ],
+            [
+              -82.75516368448734,
+              27.743173651867256
+            ],
+            [
+              -82.75507383048534,
+              27.743221722736237
+            ],
+            [
+              -82.75518782436848,
+              27.74339560854188
+            ]
+          ]
+        ]
+      },
+      "id": "4cea55a9-a735-555f-b58d-54dbb7e19dcf",
+      "properties": {
+        "areaSqft": 2811,
+        "areaSqm": 261.10803,
+        "confidence": 0.9863281,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.88106626,
+            "rawRatings": {
+              "Affected": 0.10839421,
+              "Destroyed": 0.00020318289,
+              "Major": 0.0013293601,
+              "Minor": 0.009007052,
+              "NoDamage": 0.88106626
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.02918845,
+                "confidence": 0.7441406
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9706284,
+                "confidence": 0.9863281
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.9726952,
+            "rawRatings": {
+              "Affected": 0.02158369,
+              "Destroyed": 0.00021080373,
+              "Major": 0.00130295,
+              "Minor": 0.004207475,
+              "NoDamage": 0.9726952
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.0037297278,
+                "confidence": 0.5175781
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.009374271,
+                "confidence": 0.8027344
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9701955,
+                "confidence": 0.9863281
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670486465091"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75449447333813,
+              27.74284249641573
+            ],
+            [
+              -82.75449849665165,
+              27.742840122537903
+            ],
+            [
+              -82.75451324880123,
+              27.74286208090593
+            ],
+            [
+              -82.7545166015625,
+              27.742860300497853
+            ],
+            [
+              -82.75455884635448,
+              27.742837748660005
+            ],
+            [
+              -82.7545615285635,
+              27.742840716007372
+            ],
+            [
+              -82.75456622242928,
+              27.7428383421295
+            ],
+            [
+              -82.75456823408604,
+              27.742840716007372
+            ],
+            [
+              -82.75461047887802,
+              27.742817570695856
+            ],
+            [
+              -82.75459237396717,
+              27.74278967762159
+            ],
+            [
+              -82.75461986660957,
+              27.742776027816713
+            ],
+            [
+              -82.75457628071308,
+              27.74271133958763
+            ],
+            [
+              -82.7545166015625,
+              27.74274279350199
+            ],
+            [
+              -82.75448307394981,
+              27.742760004130503
+            ],
+            [
+              -82.75446496903896,
+              27.74273626533183
+            ],
+            [
+              -82.7544005960226,
+              27.742770093118388
+            ],
+            [
+              -82.75445625185966,
+              27.74285436580416
+            ],
+            [
+              -82.7544904500246,
+              27.74283656172104
+            ],
+            [
+              -82.75449447333813,
+              27.74284249641573
+            ]
+          ]
+        ]
+      },
+      "id": "31d34e1b-36a4-50b5-aa83-ea77d945a010",
+      "properties": {
+        "areaSqft": 2240,
+        "areaSqm": 208.06645,
+        "confidence": 0.98072696,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.86198014,
+            "rawRatings": {
+              "Affected": 0.10802781,
+              "Destroyed": 0.00010071707,
+              "Major": 0.0028604511,
+              "Minor": 0.02703089,
+              "NoDamage": 0.86198014
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.39864174,
+                "confidence": 0.5535655
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0035315014,
+                "confidence": 0.6269531
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9563682,
+                "confidence": 0.9863282
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.945297,
+            "rawRatings": {
+              "Affected": 0.03847413,
+              "Destroyed": 9.051913e-05,
+              "Major": 0.0008895086,
+              "Minor": 0.015248831,
+              "NoDamage": 0.945297
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.66085047,
+                "confidence": 0.5714988
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0129767,
+                "confidence": 0.74948734
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9937311,
+                "confidence": 0.9807522
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735656493087199"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75524280965328,
+              27.743171277996638
+            ],
+            [
+              -82.75525689125061,
+              27.743155254368588
+            ],
+            [
+              -82.75525487959385,
+              27.743141011141695
+            ],
+            [
+              -82.75523945689201,
+              27.743129141784483
+            ],
+            [
+              -82.75521263480186,
+              27.74313745033465
+            ],
+            [
+              -82.75520727038383,
+              27.7431505066265
+            ],
+            [
+              -82.7552179992199,
+              27.743168904125962
+            ],
+            [
+              -82.75523342192173,
+              27.743173058399623
+            ],
+            [
+              -82.75524280965328,
+              27.743171277996638
+            ]
+          ]
+        ]
+      },
+      "id": "7d8f3e2e-fabd-574c-9102-09ef05fe9ee2",
+      "properties": {
+        "areaSqft": 181,
+        "areaSqm": 16.790602,
+        "confidence": 0.119140625,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.9727825,
+            "rawRatings": {
+              "Affected": 0.021584777,
+              "Destroyed": 0.00021040371,
+              "Major": 0.0013029923,
+              "Minor": 0.004119446,
+              "NoDamage": 0.9727825
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.19735819,
+                "confidence": 0.5488281
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.9727824,
+            "rawRatings": {
+              "Affected": 0.021584773,
+              "Destroyed": 0.00021040371,
+              "Major": 0.0013029923,
+              "Minor": 0.0041194456,
+              "NoDamage": 0.9727824
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0036260036,
+                "confidence": 0.5292969
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.69127166,
+                "confidence": 0.5761719
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670491800553"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.7550208568573,
+              27.742797392727965
+            ],
+            [
+              -82.7549933642149,
+              27.74275466290126
+            ],
+            [
+              -82.75495648384094,
+              27.742770093118388
+            ],
+            [
+              -82.75486126542091,
+              27.742819944574165
+            ],
+            [
+              -82.75490283966064,
+              27.742881071923357
+            ],
+            [
+              -82.75483310222626,
+              27.742916680072142
+            ],
+            [
+              -82.75488138198853,
+              27.74299383102116
+            ],
+            [
+              -82.75492429733276,
+              27.742971872679725
+            ],
+            [
+              -82.7549397200346,
+              27.742994424489815
+            ],
+            [
+              -82.75495648384094,
+              27.742985522460074
+            ],
+            [
+              -82.75502555072308,
+              27.742949320864927
+            ],
+            [
+              -82.75501146912575,
+              27.742925582107503
+            ],
+            [
+              -82.75504902005196,
+              27.742905997628725
+            ],
+            [
+              -82.7550382912159,
+              27.742889973961645
+            ],
+            [
+              -82.7550483494997,
+              27.74288403926953
+            ],
+            [
+              -82.75502018630505,
+              27.74284130947684
+            ],
+            [
+              -82.75502219796181,
+              27.742840122537903
+            ],
+            [
+              -82.75501348078251,
+              27.74283122049552
+            ],
+            [
+              -82.75500275194645,
+              27.742837155190507
+            ],
+            [
+              -82.75498732924461,
+              27.742814603347878
+            ],
+            [
+              -82.7550208568573,
+              27.742797392727965
+            ]
+          ]
+        ]
+      },
+      "id": "5d95607e-bd0b-52dd-8c09-8945b75f5d14",
+      "properties": {
+        "areaSqft": 3565,
+        "areaSqm": 331.22897,
+        "confidence": 0.9980468,
+        "damage": {
+          "event": {
+            "rating": "Minor",
+            "confidence": 0.47026142,
+            "rawRatings": {
+              "Affected": 0.23520671,
+              "Destroyed": 0.0002571912,
+              "Major": 0.2606638,
+              "Minor": 0.47026142,
+              "NoDamage": 0.033610873
+            },
+            "classRatios": [
+              {
+                "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+                "description": "Structural Damage",
+                "ratio": 0.15776692,
+                "confidence": 0.5644531
+              },
+              {
+                "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                "description": "Missing Roof Tile or Shingle",
+                "ratio": 0.21372503,
+                "confidence": 0.6699219
+              },
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.6072432,
+                "confidence": 0.6464844
+              },
+              {
+                "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                "description": "Exposed Underlayment",
+                "ratio": 0.04943425,
+                "confidence": 0.6230469
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0073901974,
+                "confidence": 0.8027344
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9625108,
+                "confidence": 0.9980468
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.50031304,
+            "rawRatings": {
+              "Affected": 0.17594163,
+              "Destroyed": 0.00014758734,
+              "Major": 0.0026708187,
+              "Minor": 0.32092693,
+              "NoDamage": 0.50031304
+            },
+            "classRatios": [
+              {
+                "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                "description": "Missing Roof Tile or Shingle",
+                "ratio": 0.014215956,
+                "confidence": 0.5644531
+              },
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.0016933134,
+                "confidence": 0.5175781
+              },
+              {
+                "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                "description": "Exposed Underlayment",
+                "ratio": 0.016106166,
+                "confidence": 0.5878906
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.010435536,
+                "confidence": 0.8027344
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.995537,
+                "confidence": 0.98632807
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670635559302"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75465875864029,
+              27.742806888242722
+            ],
+            [
+              -82.75463998317719,
+              27.74281638375666
+            ],
+            [
+              -82.75465942919254,
+              27.742844276824083
+            ],
+            [
+              -82.75467686355114,
+              27.742835374782054
+            ],
+            [
+              -82.75465875864029,
+              27.742806888242722
+            ]
+          ]
+        ]
+      },
+      "id": "34bdb05a-c975-5443-93bd-38982b64f0a2",
+      "properties": {
+        "areaSqft": 80,
+        "areaSqm": 7.462772,
+        "confidence": 0.7871094,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.93975466,
+            "rawRatings": {
+              "Affected": 0.03202761,
+              "Destroyed": 0.004335089,
+              "Major": 0.0036919257,
+              "Minor": 0.02019061,
+              "NoDamage": 0.93975466
+            },
+            "classRatios": [
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.8177053,
+                "confidence": 0.79296875
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.9391658,
+            "rawRatings": {
+              "Affected": 0.040889077,
+              "Destroyed": 0.0027298152,
+              "Major": 0.0040967036,
+              "Minor": 0.013118797,
+              "NoDamage": 0.9391658
+            },
+            "classRatios": [
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.81421083,
+                "confidence": 0.7285156
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670654281984"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75472983717918,
+              27.742877511107842
+            ],
+            [
+              -82.75472782552242,
+              27.742869796007167
+            ],
+            [
+              -82.75472849607468,
+              27.742857926620413
+            ],
+            [
+              -82.75472447276115,
+              27.742851991926567
+            ],
+            [
+              -82.7547150850296,
+              27.742850804987757
+            ],
+            [
+              -82.75471039116383,
+              27.74285555274292
+            ],
+            [
+              -82.75470435619354,
+              27.742854959273526
+            ],
+            [
+              -82.75469899177551,
+              27.74286089396722
+            ],
+            [
+              -82.75469429790974,
+              27.7428626743753
+            ],
+            [
+              -82.75469899177551,
+              27.742871576415062
+            ],
+            [
+              -82.75470301508904,
+              27.742873356822912
+            ],
+            [
+              -82.75470435619354,
+              27.742877511107842
+            ],
+            [
+              -82.75470905005932,
+              27.74287869804637
+            ],
+            [
+              -82.7547150850296,
+              27.74288700661563
+            ],
+            [
+              -82.75472313165665,
+              27.742879884984852
+            ],
+            [
+              -82.75472983717918,
+              27.742877511107842
+            ]
+          ]
+        ]
+      },
+      "id": "6023405d-e154-58a8-aa7e-6d776c46adc5",
+      "properties": {
+        "areaSqft": 92,
+        "areaSqm": 8.530118,
+        "confidence": 0.5410156,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.7660644,
+            "rawRatings": {
+              "Affected": 0.112148106,
+              "Destroyed": 0.029461868,
+              "Major": 0.02853176,
+              "Minor": 0.063793845,
+              "NoDamage": 0.7660644
+            },
+            "classRatios": [
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9928352,
+                "confidence": 0.5410156
+              }
+            ]
+          }
+        },
+        "hilbertId": "3376735670655281061"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75464601814747,
+              27.74273448492172
+            ],
+            [
+              -82.75462187826633,
+              27.74274754126184
+            ],
+            [
+              -82.75464333593845,
+              27.742778995165736
+            ],
+            [
+              -82.75466814637184,
+              27.742765345359512
+            ],
+            [
+              -82.75464601814747,
+              27.74273448492172
+            ]
+          ]
+        ]
+      },
+      "id": "5e44d5d3-c364-507e-9ad2-ed7d982b0b98",
+      "properties": {
+        "areaSqft": 124,
+        "areaSqm": 11.510465,
+        "confidence": 0.048828125,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.82259023,
+            "rawRatings": {
+              "Affected": 0.061750874,
+              "Destroyed": 0.037887245,
+              "Major": 0.045316834,
+              "Minor": 0.032454863,
+              "NoDamage": 0.82259023
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.035134114,
+                "confidence": 0.6074219
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.006800151,
+                "confidence": 0.55859375
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.9226405,
+            "rawRatings": {
+              "Affected": 0.033360552,
+              "Destroyed": 0.018372092,
+              "Major": 0.010715292,
+              "Minor": 0.014911659,
+              "NoDamage": 0.9226405
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.26369476,
+                "confidence": 0.8417969
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.830374,
+                "confidence": 0.7050781
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670663381371"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75468088686466,
+              27.74268522689712
+            ],
+            [
+              -82.75472111999989,
+              27.74274101309198
+            ],
+            [
+              -82.75481298565865,
+              27.742692942010873
+            ],
+            [
+              -82.75480560958385,
+              27.74268107260486
+            ],
+            [
+              -82.7549209445715,
+              27.742621132084786
+            ],
+            [
+              -82.75484785437584,
+              27.742514307313765
+            ],
+            [
+              -82.75472111999989,
+              27.742578995659837
+            ],
+            [
+              -82.75472983717918,
+              27.742593832431034
+            ],
+            [
+              -82.75464937090874,
+              27.742635968850255
+            ],
+            [
+              -82.7546426653862,
+              27.742626473320563
+            ],
+            [
+              -82.75458097457886,
+              27.74265733378896
+            ],
+            [
+              -82.75462053716183,
+              27.742716087348878
+            ],
+            [
+              -82.75468088686466,
+              27.74268522689712
+            ]
+          ]
+        ]
+      },
+      "id": "1d75e45f-5651-5287-9c5d-d5118e6e6e38",
+      "properties": {
+        "areaSqft": 4123,
+        "areaSqm": 383.07004,
+        "confidence": 0.9746094,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.8395655,
+            "rawRatings": {
+              "Affected": 0.058701992,
+              "Destroyed": 0.0001425819,
+              "Major": 0.0053212345,
+              "Minor": 0.09626864,
+              "NoDamage": 0.8395655
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.1467791,
+                "confidence": 0.5761719
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.039778918,
+                "confidence": 0.8222656
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.97617805,
+                "confidence": 0.9746094
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.9234822,
+            "rawRatings": {
+              "Affected": 0.05174489,
+              "Destroyed": 9.017004e-05,
+              "Major": 0.0011641843,
+              "Minor": 0.023518603,
+              "NoDamage": 0.9234822
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.27000862,
+                "confidence": 0.5761719
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.028486472,
+                "confidence": 0.8027344
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9963115,
+                "confidence": 0.9628906
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670673678531"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75504566729069,
+              27.74251252690002
+            ],
+            [
+              -82.75502219796181,
+              27.742475731676244
+            ],
+            [
+              -82.75491826236248,
+              27.742524989795573
+            ],
+            [
+              -82.75494240224361,
+              27.74256356541564
+            ],
+            [
+              -82.75504566729069,
+              27.74251252690002
+            ]
+          ]
+        ]
+      },
+      "id": "97b90dc1-9be3-5117-875b-da98216f403e",
+      "properties": {
+        "areaSqft": 600,
+        "areaSqm": 55.696125,
+        "confidence": 0.7050781,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.96938974,
+            "rawRatings": {
+              "Affected": 0.013116078,
+              "Destroyed": 0.001090591,
+              "Major": 0.0043847887,
+              "Minor": 0.012018854,
+              "NoDamage": 0.96938974
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0015612802,
+                "confidence": 0.5878906
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.831694,
+                "confidence": 0.7167969
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.92499924,
+            "rawRatings": {
+              "Affected": 0.025868863,
+              "Destroyed": 0.0015950305,
+              "Major": 0.0045573097,
+              "Minor": 0.042979557,
+              "NoDamage": 0.92499924
+            },
+            "classRatios": [
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.11772053,
+                "confidence": 0.5292969
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670676672928"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75449313223362,
+              27.742914899664953
+            ],
+            [
+              -82.75451391935349,
+              27.742918460479274
+            ],
+            [
+              -82.75453135371208,
+              27.742922021293438
+            ],
+            [
+              -82.75454007089138,
+              27.742892941307588
+            ],
+            [
+              -82.75451391935349,
+              27.74288700661563
+            ],
+            [
+              -82.75451391935349,
+              27.74288641314641
+            ],
+            [
+              -82.75450184941292,
+              27.742883445800313
+            ],
+            [
+              -82.75449313223362,
+              27.742914899664953
+            ]
+          ]
+        ]
+      },
+      "id": "2822c57c-9e28-5ec4-8dee-72ab2057bcf8",
+      "properties": {
+        "areaSqft": 143,
+        "areaSqm": 13.286452,
+        "confidence": 0.7808992,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.9387331,
+            "rawRatings": {
+              "Affected": 0.043164466,
+              "Destroyed": 0.0020534869,
+              "Major": 0.0020733085,
+              "Minor": 0.013975661,
+              "NoDamage": 0.9387331
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.01897285,
+                "confidence": 0.5683594
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.8099444,
+                "confidence": 0.8091459
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.9655632,
+            "rawRatings": {
+              "Affected": 0.026106916,
+              "Destroyed": 0.000596255,
+              "Major": 0.0014643718,
+              "Minor": 0.006269375,
+              "NoDamage": 0.9655632
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0058881254,
+                "confidence": 0.5206163
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.87078834,
+                "confidence": 0.6816406
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735656505416091"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.7545528113842,
+              27.743100061853923
+            ],
+            [
+              -82.75455214083195,
+              27.743100061853923
+            ],
+            [
+              -82.7545166015625,
+              27.743044869311298
+            ],
+            [
+              -82.75449983775616,
+              27.743018756700756
+            ],
+            [
+              -82.75450520217419,
+              27.74301638282675
+            ],
+            [
+              -82.7544803917408,
+              27.74297840083574
+            ],
+            [
+              -82.75441400706768,
+              27.743014008952663
+            ],
+            [
+              -82.7544354647398,
+              27.743047243184666
+            ],
+            [
+              -82.75439992547035,
+              27.74306623416983
+            ],
+            [
+              -82.75441199541092,
+              27.74308522515166
+            ],
+            [
+              -82.75441400706768,
+              27.743096501045585
+            ],
+            [
+              -82.7544166892767,
+              27.743100061853923
+            ],
+            [
+              -82.7544180303812,
+              27.743100061853923
+            ],
+            [
+              -82.75449179112911,
+              27.74321104032275
+            ],
+            [
+              -82.7545166015625,
+              27.743199170973195
+            ],
+            [
+              -82.7545166015625,
+              27.743198577505655
+            ],
+            [
+              -82.7545427531004,
+              27.743186114687198
+            ],
+            [
+              -82.75455683469772,
+              27.743176619205496
+            ],
+            [
+              -82.75455012917519,
+              27.743167717190637
+            ],
+            [
+              -82.75458499789238,
+              27.743148726223158
+            ],
+            [
+              -82.7545528113842,
+              27.743100061853923
+            ]
+          ]
+        ]
+      },
+      "id": "bbb5dbf8-841d-5d11-8e99-56671e5a5761",
+      "properties": {
+        "areaSqft": 2572,
+        "areaSqm": 238.99226,
+        "confidence": 0.9838762,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.94084936,
+            "rawRatings": {
+              "Affected": 0.027487036,
+              "Destroyed": 0.00010488798,
+              "Major": 0.0038293654,
+              "Minor": 0.02772927,
+              "NoDamage": 0.94084936
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.37643036,
+                "confidence": 0.590523
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.95928615,
+                "confidence": 0.9838591
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.8634941,
+            "rawRatings": {
+              "Affected": 0.033957064,
+              "Destroyed": 0.0002575859,
+              "Major": 0.006712567,
+              "Minor": 0.09557862,
+              "NoDamage": 0.8634941
+            },
+            "classRatios": [
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.22225255,
+                "confidence": 0.5466414
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.99708927,
+                "confidence": 0.97573256
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735656509952051"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75471843779087,
+              27.743036560754078
+            ],
+            [
+              -82.75474861264229,
+              27.743021130574686
+            ],
+            [
+              -82.75472111999989,
+              27.742981368179265
+            ],
+            [
+              -82.75476805865765,
+              27.742957629428815
+            ],
+            [
+              -82.75472782552242,
+              27.742890567430837
+            ],
+            [
+              -82.75469966232777,
+              27.742904810690497
+            ],
+            [
+              -82.75469094514847,
+              27.742889973961645
+            ],
+            [
+              -82.75462858378887,
+              27.742922614762453
+            ],
+            [
+              -82.75463730096817,
+              27.742936264548984
+            ],
+            [
+              -82.75463595986366,
+              27.742939231893654
+            ],
+            [
+              -82.75459237396717,
+              27.742962970648126
+            ],
+            [
+              -82.75468356907368,
+              27.743098874917838
+            ],
+            [
+              -82.75469027459621,
+              27.743108370406308
+            ],
+            [
+              -82.75470905005932,
+              27.743098874917838
+            ],
+            [
+              -82.75473520159721,
+              27.743085818619804
+            ],
+            [
+              -82.75471039116383,
+              27.74304843012134
+            ],
+            [
+              -82.75472111999989,
+              27.743043682374573
+            ],
+            [
+              -82.75471843779087,
+              27.743036560754078
+            ]
+          ]
+        ]
+      },
+      "id": "1febc0a4-440e-5ed4-95d3-2bfd8a35a85f",
+      "properties": {
+        "areaSqft": 2384,
+        "areaSqm": 221.49348,
+        "confidence": 0.9723582,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.74068975,
+            "rawRatings": {
+              "Affected": 0.23569591,
+              "Destroyed": 0.00014751841,
+              "Major": 0.0019427394,
+              "Minor": 0.021524092,
+              "NoDamage": 0.74068975
+            },
+            "classRatios": [
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.003690399,
+                "confidence": 0.6464844
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.95192665,
+                "confidence": 0.9742237
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "NoDamage",
+            "confidence": 0.93119055,
+            "rawRatings": {
+              "Affected": 0.05882441,
+              "Destroyed": 0.00015026364,
+              "Major": 0.0018450645,
+              "Minor": 0.007989757,
+              "NoDamage": 0.93119055
+            },
+            "classRatios": [
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9957011,
+                "confidence": 0.98574364
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735670649963978"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75499403476715,
+              27.742653772966143
+            ],
+            [
+              -82.75498867034912,
+              27.742643683967493
+            ],
+            [
+              -82.75497391819954,
+              27.742629440673706
+            ],
+            [
+              -82.75497190654278,
+              27.74262469290867
+            ],
+            [
+              -82.75496251881123,
+              27.742625879849946
+            ],
+            [
+              -82.75495581328869,
+              27.742633594967927
+            ],
+            [
+              -82.75495581328869,
+              27.742639529673653
+            ],
+            [
+              -82.75495983660221,
+              27.742641903555857
+            ],
+            [
+              -82.75496184825897,
+              27.7426490252022
+            ],
+            [
+              -82.75497324764729,
+              27.742664455434262
+            ],
+            [
+              -82.75498263537884,
+              27.742664455434262
+            ],
+            [
+              -82.75499269366264,
+              27.742658520729886
+            ],
+            [
+              -82.75499403476715,
+              27.742653772966143
+            ]
+          ]
+        ]
+      },
+      "id": "d9062751-125c-50cd-a250-be3e56c134c8",
+      "properties": {
+        "areaSqft": 107,
+        "areaSqm": 9.930108,
+        "confidence": 0.5996094,
+        "damage": {
+          "event": {
+            "rating": "NoDamage",
+            "confidence": 0.9628061,
+            "rawRatings": {
+              "Affected": 0.02120531,
+              "Destroyed": 0.00056211767,
+              "Major": 0.0032793272,
+              "Minor": 0.012147081,
+              "NoDamage": 0.9628061
+            },
+            "classRatios": [
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.97680527,
+                "confidence": 0.5996094
+              }
+            ]
+          }
+        },
+        "hilbertId": "3376735670683506634"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -82.75441065430641,
+              27.743284630261122
+            ],
+            [
+              -82.7544629573822,
+              27.74325733077365
+            ],
+            [
+              -82.75438986718655,
+              27.7431505066265
+            ],
+            [
+              -82.75435030460358,
+              27.743171277996638
+            ],
+            [
+              -82.75435835123062,
+              27.743182553881628
+            ],
+            [
+              -82.75430135428905,
+              27.743212820725073
+            ],
+            [
+              -82.75435164570808,
+              27.74328700412925
+            ],
+            [
+              -82.75439657270908,
+              27.743263858912563
+            ],
+            [
+              -82.75441065430641,
+              27.743284630261122
+            ]
+          ]
+        ]
+      },
+      "id": "460200db-cb84-5650-ae15-f26b2c8641d7",
+      "properties": {
+        "areaSqft": 1395,
+        "areaSqm": 129.61386,
+        "confidence": 0.9980469,
+        "damage": {
+          "event": {
+            "rating": "Affected",
+            "confidence": 0.63773686,
+            "rawRatings": {
+              "Affected": 0.63773686,
+              "Destroyed": 0.00018440488,
+              "Major": 0.0017535621,
+              "Minor": 0.3467212,
+              "NoDamage": 0.013603906
+            },
+            "classRatios": [
+              {
+                "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+                "description": "Structural Damage",
+                "ratio": 0.013138491,
+                "confidence": 0.6347656
+              },
+              {
+                "classId": "f8abc8e3-6af3-5a1d-9a8e-1793419455bb",
+                "description": "Junk and Wreckage",
+                "ratio": 0.00050274836,
+                "confidence": 0.5292969
+              },
+              {
+                "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                "description": "Missing Roof Tile or Shingle",
+                "ratio": 0.015752781,
+                "confidence": 0.6816406
+              },
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.46608123,
+                "confidence": 0.5410156
+              },
+              {
+                "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                "description": "Exposed Underlayment",
+                "ratio": 0.011127497,
+                "confidence": 0.6464844
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.025372034,
+                "confidence": 0.7050781
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.9518032,
+                "confidence": 0.9980469
+              }
+            ]
+          },
+          "preEvent": {
+            "rating": "Affected",
+            "confidence": 0.53786963,
+            "rawRatings": {
+              "Affected": 0.53786963,
+              "Destroyed": 0.00014429374,
+              "Major": 0.0008023137,
+              "Minor": 0.045050796,
+              "NoDamage": 0.41613296
+            },
+            "classRatios": [
+              {
+                "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+                "description": "Missing Roof Tile or Shingle",
+                "ratio": 0.00026813245,
+                "confidence": 0.5175781
+              },
+              {
+                "classId": "4bcc6f3f-b901-51b4-a018-c377f18af6dc",
+                "description": "Buildup",
+                "ratio": 0.7512066,
+                "confidence": 0.5644531
+              },
+              {
+                "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+                "description": "Exposed Underlayment",
+                "ratio": 0.0016423113,
+                "confidence": 0.5410156
+              },
+              {
+                "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+                "description": "Medium and High Vegetation with Woody Vegetation",
+                "ratio": 0.0041225366,
+                "confidence": 0.6464844
+              },
+              {
+                "classId": "91987430-6739-5e16-b92f-b830dd7d52a6",
+                "description": "Building lifecycle",
+                "ratio": 0.991889,
+                "confidence": 0.9746094
+              }
+            ],
+            "latestCaptureDate": "2024-09-29"
+          }
+        },
+        "hilbertId": "3376735656691518496"
+      }
+    }
+  ]
+}
