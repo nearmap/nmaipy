@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -33,6 +34,7 @@ from nmaipy.exporter import (
     _add_missing_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
+    _nonnegative_int,
     _parquet_to_csv_streaming,
     _per_class_chunk_regexes,
     _read_parquet_chunks_parallel,
@@ -103,6 +105,19 @@ class TestResolveMergePrefetchWorkers:
     def test_zero_and_negative_are_treated_as_auto(self):
         assert _resolve_merge_prefetch_workers(0, processes=4, scan_workers=8) == 8
         assert _resolve_merge_prefetch_workers(-1, processes=4, scan_workers=8) == 8
+
+
+class TestNonnegativeInt:
+    """``_nonnegative_int`` is the argparse type for --merge-read-workers: 0 = auto,
+    positives allowed, negatives rejected with a clear error."""
+
+    def test_zero_and_positive_pass(self):
+        assert _nonnegative_int("0") == 0
+        assert _nonnegative_int("24") == 24
+
+    def test_negative_rejected(self):
+        with pytest.raises(argparse.ArgumentTypeError):
+            _nonnegative_int("-1")
 
 
 class TestStagedFileNeedsUpload:

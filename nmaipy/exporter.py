@@ -2221,6 +2221,14 @@ THREADS = 10  # Reduced from 20 to prevent resource exhaustion
 logger = log.get_logger()
 
 
+def _nonnegative_int(value):
+    """argparse type for counts where 0 means 'auto' and negatives are invalid."""
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0 (0 = auto), got {value}")
+    return ivalue
+
+
 def parse_arguments():
     """
     Get command line arguments
@@ -2330,7 +2338,7 @@ def parse_arguments():
             "bottleneck the writer. Raise on a large-RAM box to read more chunks ahead; lower "
             "if per-class chunks are unusually large (memory ~= this many chunks resident)."
         ),
-        type=int,
+        type=_nonnegative_int,
         required=False,
         default=0,
     )
