@@ -123,12 +123,14 @@ class DamageConflationApi(BaseApiClient):
         if url_root is None:
             url_root = DAMAGE_CONFLATION_URL_ROOT
         # POST {base_url}.geojson -> /ai/damage/v2/events/{event_id}/latest.geojson
+        # base_url contains no secret: the API key is only ever sent as a `?apikey=`
+        # query param at request time, never embedded here. So it is logged directly
+        # rather than routed through _clean_api_key — doing so would feed an api-key
+        # named sanitizer into the log, which CodeQL flags as clear-text logging of a
+        # secret (a false positive, since there is no secret to clean).
         self.base_url = f"https://{url_root}/{DAMAGE_CONFLATION_EVENTS_PATH}/{event_id}/latest"
 
-        logger.debug(
-            f"Initialized DamageConflationApi with base_url: {self._clean_api_key(self.base_url)}, "
-            f"event_id: {event_id}"
-        )
+        logger.debug(f"Initialized DamageConflationApi with base_url: {self.base_url}, event_id: {event_id}")
 
     # ------------------------------------------------------------------ caching
     def _qualifier_subdir(self) -> str:
