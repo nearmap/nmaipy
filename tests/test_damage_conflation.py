@@ -9,8 +9,14 @@ per the project testing rule.
 import json
 from pathlib import Path
 
+import geopandas as gpd
+import pandas as pd
 import pytest
+from shapely.geometry import box
 
+from nmaipy import parcels
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.damage_conflation_api import DamageConflationApi
 from nmaipy.feature_attributes import flatten_conflated_damage_attributes
 
 # The exact, fixed column set produced by flatten_conflated_damage_attributes.
@@ -130,3 +136,90 @@ def test_fixture_exercises_both_pre_event_cases(milton_features):
         "fixture should have a mix of preEvent-present and preEvent-absent features; "
         f"got {with_pre}/{len(milton_features)}"
     )
+
+
+# ----------------------------------------------------------------- rollup tests
+def _parse_slice(milton_response, aoi_id, sl):
+    """Parse a slice of the fixture as if returned for a single AOI (keeps top-level metadata)."""
+    api = DamageConflationApi(event_id="e", api_key="t")
+    resp = {**milton_response, "features": milton_response["features"][sl]}
+    return api._parse_response(resp, aoi_id)
+
+
+@pytest.fixture
+def rollup_inputs(milton_response):
+    """Two AOIs with features, one empty (queried, no buildings), one errored."""
+    f_p1 = _parse_slice(milton_response, "p1", slice(0, 5))
+    f_p2 = _parse_slice(milton_response, "p2", slice(5, 14))
+    features_gdf = gpd.GeoDataFrame(pd.concat([f_p1, f_p2], ignore_index=True), crs=API_CRS)
+
+    aoi_gdf = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 1, 1)] * 4,
+        crs=API_CRS,
+        index=pd.Index(["p1", "p2", "p_empty", "p_error"], name=AOI_ID_COLUMN_NAME),
+    )
+    successful = {"p1", "p2", "p_empty"}  # p_error not in set
+    return aoi_gdf, features_gdf, successful, f_p1, f_p2
+
+
+def test_conflation_rollup_one_row_per_aoi(rollup_inputs):
+    aoi_gdf, features_gdf, successful, _, _ = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+    assert set(rollup.index) == {"p1", "p2", "p_empty", "p_error"}
+    assert len(rollup) == 4
+
+
+def test_conflation_rollup_counts(rollup_inputs):
+    aoi_gdf, features_gdf, successful, f_p1, f_p2 = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+
+    assert rollup.loc["p1", "n_buildings"] == len(f_p1)
+    assert rollup.loc["p2", "n_buildings"] == len(f_p2)
+    # The five per-rating counts partition the buildings exactly.
+    rating_count_cols = ["n_no_damage", "n_affected", "n_minor", "n_major", "n_destroyed"]
+    assert rollup.loc["p1", rating_count_cols].sum() == len(f_p1)
+
+
+def test_conflation_rollup_empty_aoi_is_zero_not_null(rollup_inputs):
+    aoi_gdf, features_gdf, successful, _, _ = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+
+    assert rollup.loc["p_empty", "query_succeeded"]
+    assert rollup.loc["p_empty", "n_buildings"] == 0
+    assert pd.isna(rollup.loc["p_empty", "primary_feature_id"])
+
+
+def test_conflation_rollup_errored_aoi_is_nulled(rollup_inputs):
+    aoi_gdf, features_gdf, successful, _, _ = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+
+    assert not rollup.loc["p_error", "query_succeeded"]
+    # Errored AOI nulls out counts (distinguishes "no data" from "zero damaged").
+    assert pd.isna(rollup.loc["p_error", "n_buildings"])
+    assert pd.isna(rollup.loc["p_error", "primary_feature_id"])
+
+
+def test_conflation_rollup_primary_is_largest(rollup_inputs):
+    aoi_gdf, features_gdf, successful, f_p1, _ = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+
+    # default "largest" -> primary is the largest-area_sqm building in the AOI
+    expected = f_p1.loc[f_p1["area_sqm"].idxmax()]
+    assert rollup.loc["p1", "primary_feature_id"] == expected["feature_id"]
+    assert rollup.loc["p1", "primary_area_sqm"] == expected["area_sqm"]
+    assert rollup.loc["p1", "primary_damage_event_rating"] == expected["damage_event_rating"]
+    # the preEvent block is carried onto the primary too
+    assert "primary_damage_pre_event_rating" in rollup.columns
+
+
+def test_conflation_rollup_carries_event_metadata(rollup_inputs, milton_response):
+    aoi_gdf, features_gdf, successful, _, _ = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+    assert (rollup["event_uuid"] == milton_response["eventUuid"]).all()
+
+
+@pytest.fixture
+def milton_response(data_directory: Path):
+    fixture_path = data_directory / "test_damage_conflation_milton_response.json"
+    with open(fixture_path, "r") as f:
+        return json.load(f)

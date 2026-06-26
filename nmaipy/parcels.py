@@ -17,6 +17,7 @@ from typing import Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import stringcase
 from shapely import make_valid
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
@@ -32,6 +33,7 @@ from nmaipy.constants import (
     BUILDING_NEW_ID,
     BUILDING_STYLE_CLASS_IDS,
     CLASSES_WITH_PRIMARY_FEATURE,
+    DAMAGE_CONFLATION_RAW_RATING_KEYS,
     DEPRECATED_CLASS_IDS,
     IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
@@ -1681,3 +1683,149 @@ def parcel_rollup(
 
     # Defragment DataFrame to avoid PerformanceWarning when callers add columns
     return rollup_df.copy()
+
+
+# Feature-attribute columns carried onto the rollup's primary feature with a
+# ``primary_`` prefix. Identified structurally so the set tracks the flattener.
+_CONFLATION_PRIMARY_BASE_COLS = ("feature_id", "area_sqm", "area_sqft", "confidence", "hilbert_id")
+
+
+def _conflation_primary_attr_cols(columns) -> list:
+    """Feature columns to carry to ``primary_*`` in the rollup (damage_* + core attrs)."""
+    return [c for c in columns if c.startswith("damage_") or c in _CONFLATION_PRIMARY_BASE_COLS]
+
+
+def conflation_rollup(
+    aoi_gdf: gpd.GeoDataFrame,
+    features_gdf: gpd.GeoDataFrame,
+    country: str,
+    successful_aoi_ids=None,
+    primary_decision: str = "largest",
+) -> pd.DataFrame:
+    """
+    Per-AOI rollup of Damage Conflation features — one row per input AOI.
+
+    Works the same way as :func:`parcel_rollup`: per-AOI primary selection via the
+    shared :func:`primary_feature_selection.select_primary`, ``primary_*`` column
+    naming, and failed-AOI null-out. It is a focused single-class function (the
+    conflation feed has one feature type) rather than the multi-class, Feature-API
+    machinery of ``parcel_rollup``.
+
+    The Damage Conflation API is map-style (every building intersecting the AOI is
+    returned), so this rollup is only meaningful when AOIs are property-sized; the
+    per-AOI counts stay meaningful at any size but the "primary building" carries the
+    property-sized caveat. ``largest`` selects the largest-area building intersecting
+    the AOI (which may be a neighbour for a small AOI); ``optimal`` (when the AOI file
+    carries lat/lon) prefers the building containing the target point.
+
+    Args:
+        aoi_gdf: Input AOIs, indexed by ``aoi_id`` (optionally with lat/lon columns).
+        features_gdf: Flattened conflation features (from ``get_damage_bulk``), tagged
+            with an ``aoi_id`` column.
+        country: Country code (drives the projected CRS for ``optimal``).
+        successful_aoi_ids: AOIs whose query succeeded (even if zero buildings). AOIs
+            absent from this set are treated as errored and their counts/primary are
+            nulled out (distinguishing "no data" from "zero damaged buildings"). When
+            None, every AOI is assumed successful.
+        primary_decision: ``"largest"`` (default) or ``"optimal"``.
+
+    Returns:
+        DataFrame indexed by ``aoi_id`` with: ``query_succeeded``, event metadata,
+        per-rating counts (``n_buildings``, ``n_no_damage``, ``n_affected``,
+        ``n_minor``, ``n_major``, ``n_destroyed``), and the primary building's
+        ``primary_*`` attributes.
+    """
+    rating_to_count = {k: f"n_{stringcase.snakecase(k)}" for k in DAMAGE_CONFLATION_RAW_RATING_KEYS}
+    count_cols = ["n_buildings"] + list(rating_to_count.values())
+    event_meta_cols = [
+        "event_uuid",
+        "event_name",
+        "model_version",
+        "presentation_version",
+        "resource_id",
+        "geomatched_address",
+    ]
+    # Selection always uses area_sqm: ordering is identical to area_sqft (monotonic),
+    # and select_primary's small-building threshold is defined in sqm — so this avoids
+    # the wrong-unit mis-threshold a country-specific area_col would introduce.
+    selection_area_col = "area_sqm"
+    projected_crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+
+    successful = set(aoi_gdf.index) if successful_aoi_ids is None else set(successful_aoi_ids)
+
+    has_features = len(features_gdf) > 0 and AOI_ID_COLUMN_NAME in features_gdf.columns
+    grouped = features_gdf.groupby(AOI_ID_COLUMN_NAME) if has_features else None
+
+    # Event metadata is constant across an event export; take it from any feature row.
+    global_meta = {}
+    if has_features:
+        for col in event_meta_cols:
+            if col in features_gdf.columns:
+                non_null = features_gdf[col].dropna()
+                global_meta[col] = non_null.iloc[0] if len(non_null) else None
+
+    attr_cols = _conflation_primary_attr_cols(features_gdf.columns) if has_features else []
+    use_latlon = (
+        primary_decision in ("optimal", "nearest")
+        and LAT_PRIMARY_COL_NAME in aoi_gdf.columns
+        and LON_PRIMARY_COL_NAME in aoi_gdf.columns
+    )
+
+    rows = []
+    for aoi_id in aoi_gdf.index:
+        row = {AOI_ID_COLUMN_NAME: aoi_id, "query_succeeded": aoi_id in successful}
+        row.update(global_meta)
+
+        group = grouped.get_group(aoi_id) if (has_features and aoi_id in grouped.groups) else None
+
+        if aoi_id not in successful:
+            # Errored / not queried — null out counts and primary so consumers can tell
+            # "no data" from "zero damaged buildings".
+            for c in count_cols:
+                row[c] = None
+            rows.append(row)
+            continue
+
+        n = 0 if group is None else len(group)
+        row["n_buildings"] = n
+        ratings = group["damage_event_rating"].value_counts() if n > 0 else None
+        for rating_key, col in rating_to_count.items():
+            row[col] = int(ratings.get(rating_key, 0)) if ratings is not None else 0
+
+        if n > 0:
+            primary = _select_conflation_primary(
+                group, aoi_gdf.loc[aoi_id], selection_area_col, projected_crs, primary_decision, use_latlon
+            )
+            for c in attr_cols:
+                row[f"primary_{c}"] = primary.get(c)
+
+        rows.append(row)
+
+    rollup_df = pd.DataFrame(rows).set_index(AOI_ID_COLUMN_NAME)
+
+    # Stable column order: status, event metadata, counts, primary_* attrs.
+    ordered = (
+        ["query_succeeded"]
+        + [c for c in event_meta_cols if c in global_meta]
+        + count_cols
+        + [f"primary_{c}" for c in attr_cols]
+    )
+    return rollup_df.reindex(columns=ordered)
+
+
+def _select_conflation_primary(group, aoi_row, area_col, projected_crs, primary_decision, use_latlon) -> pd.Series:
+    """Select the primary building for one AOI's conflation features."""
+    if use_latlon:
+        g = group.copy()
+        g["geometry_projected"] = g.geometry.to_crs(projected_crs)
+        return select_primary(
+            g,
+            method="optimal",
+            area_col=area_col,
+            target_lat=aoi_row[LAT_PRIMARY_COL_NAME],
+            target_lon=aoi_row[LON_PRIMARY_COL_NAME],
+            confidence_col="confidence",
+            geometry_projected_col="geometry_projected",
+            projected_crs=projected_crs,
+        )
+    return select_primary(group, method="largest", area_col=area_col)
