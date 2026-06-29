@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
-from nmaipy import parcels
+from nmaipy import parcels, storage
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.damage_conflation_api import DamageConflationApi
 from nmaipy.damage_conflation_exporter import DamageConflationExporter
@@ -160,6 +160,68 @@ def test_save_outputs_drops_wrong_unit_area_and_writes_files(tmp_path, chunk_inp
     csv = pd.read_csv(final / "damage_buildings.csv")
     assert "damage_event_rating" in csv.columns
     assert "geometry" in csv.columns
+
+
+def test_combine_reads_present_chunks_and_preserves_index(tmp_path, chunk_inputs):
+    """Combine concatenates the per-chunk files that are present and round-trips the aoi_id index."""
+    aoi_gdf, features_gdf, metadata_df = chunk_inputs
+    exporter = _make_exporter(tmp_path, output_format="both")
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+    storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
+    storage.write_parquet(features_gdf, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
+
+    md = exporter._combine_chunk_parquet("metadata", num_chunks=1)
+    feats = exporter._combine_chunk_geoparquet("damage_features", num_chunks=1)
+
+    # aoi_id index must survive the round-trip — successful_aoi_ids = set(metadata_df.index)
+    # depends on it, and a lost index would null out the whole rollup.
+    assert set(md.index) == set(metadata_df.index)
+    assert len(feats) == len(features_gdf)
+
+
+def test_combine_recovers_from_stale_listing(tmp_path, chunk_inputs):
+    """Deterministically reproduce the reported S3 bug: a stale listing makes file_exists
+    return False for present chunks until the cache is invalidated. The combine must
+    invalidate BEFORE its existence sweep, so it still reads the chunks. Without the fix
+    (no invalidate), file_exists stays False and the combine reads 0 records — this test fails."""
+    _, features_gdf, metadata_df = chunk_inputs
+    exporter = _make_exporter(tmp_path)
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+    storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
+
+    real_exists = storage.file_exists
+    state = {"fresh": False}  # listing starts stale (mirrors s3fs after an earlier empty ls)
+
+    def fake_exists(path):
+        return real_exists(path) if state["fresh"] else False
+
+    def fake_invalidate(path):
+        state["fresh"] = True
+
+    with (
+        patch("nmaipy.storage.file_exists", side_effect=fake_exists),
+        patch("nmaipy.storage.invalidate_cache", side_effect=fake_invalidate),
+    ):
+        md = exporter._combine_chunk_parquet("metadata", num_chunks=1)
+
+    assert set(md.index) == set(metadata_df.index)  # recovered only because invalidate ran first
+
+
+def test_save_outputs_writes_consolidated_errors(tmp_path, chunk_inputs):
+    """Per-chunk errors are consolidated into final/damage_errors.csv (status_code + message)."""
+    _, features_gdf, metadata_df = chunk_inputs
+    exporter = _make_exporter(tmp_path, output_format="both")
+    errors_df = pd.DataFrame(
+        [{"status_code": 429, "message": "rate limited"}],
+        index=pd.Index(["bad"], name=AOI_ID_COLUMN_NAME),
+    )
+    exporter._save_outputs(features_gdf.copy(), pd.DataFrame(), metadata_df, errors_df, exporter.final_path)
+
+    errs = Path(exporter.final_path) / "damage_errors.csv"
+    assert errs.exists()
+    out = pd.read_csv(errs)
+    assert "status_code" in out.columns and "message" in out.columns
+    assert (out["status_code"] == 429).any()
 
 
 def test_save_outputs_skips_rollup_when_disabled(tmp_path, chunk_inputs):

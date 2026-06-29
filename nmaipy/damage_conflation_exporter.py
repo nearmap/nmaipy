@@ -361,6 +361,17 @@ class DamageConflationExporter(BaseExporter):
             f"{len(features_gdf)} total buildings found"
         )
 
+        # Guard against silent empty consolidation: with chunks to read, all three combined
+        # frames being empty means the sweep found nothing (e.g. a stale listing or a path
+        # mismatch) rather than a genuinely empty export. Surface it loudly instead of
+        # writing an all-empty rollup that looks like "no damage anywhere".
+        if num_chunks > 0 and success_count == 0 and error_count == 0 and len(features_gdf) == 0:
+            self.logger.warning(
+                f"Consolidation read 0 records from {num_chunks} chunk(s) under {self.chunk_path}. "
+                "Per-chunk files may be present but unreadable at combine time (stale listing / "
+                "path mismatch). The rollup will be empty — investigate before trusting this output."
+            )
+
         if error_count > 0:
             status_counts = errors_df["status_code"].value_counts() if "status_code" in errors_df.columns else None
             message_counts = None
@@ -396,6 +407,11 @@ class DamageConflationExporter(BaseExporter):
 
     def _combine_chunk_geoparquet(self, prefix: str, num_chunks: int) -> gpd.GeoDataFrame:
         """Concat per-chunk geoparquet files (one per chunk index)."""
+        # Drop any cached s3fs directory listing for the chunk dir before the existence
+        # sweep. Earlier phases (split_into_chunks' cache check, the latency combine) may
+        # have cached a listing that predates the worker writes; a stale listing makes a
+        # present chunk look absent and silently yields 0 records (no-op for local paths).
+        storage.invalidate_cache(self.chunk_path)
         parts = []
         for i in range(num_chunks):
             chunk_id = str(i).zfill(4)
@@ -411,6 +427,8 @@ class DamageConflationExporter(BaseExporter):
 
     def _combine_chunk_parquet(self, prefix: str, num_chunks: int) -> pd.DataFrame:
         """Concat per-chunk (non-geo) parquet files, preserving the index."""
+        # See _combine_chunk_geoparquet: invalidate the s3fs listing so the sweep reads fresh.
+        storage.invalidate_cache(self.chunk_path)
         parts = []
         for i in range(num_chunks):
             chunk_id = str(i).zfill(4)
@@ -461,9 +479,13 @@ class DamageConflationExporter(BaseExporter):
                 rollup_df.to_csv(path, index=True)
 
         if len(metadata_df) > 0:
-            metadata_df.to_csv(storage.join_path(output_path, "metadata.csv"), index=True)
+            metadata_df.to_csv(storage.join_path(output_path, "damage_metadata.csv"), index=True)
+        # Consolidate per-chunk errors into final/ (status_code + message) so downstream
+        # validation and customers can see failures — not just the log-only summary above.
         if len(errors_df) > 0:
-            errors_df.to_csv(storage.join_path(output_path, "errors.csv"), index=True)
+            errors_path = storage.join_path(output_path, "damage_errors.csv")
+            self.logger.info(f"Saving {len(errors_df)} errors to {errors_path}")
+            errors_df.to_csv(errors_path, index=True)
 
 
 def main():
