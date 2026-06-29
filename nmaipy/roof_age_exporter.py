@@ -489,6 +489,10 @@ class RoofAgeExporter(BaseExporter):
             use_progress_tracking=True,
         )
 
+        # The spawned workers wrote chunk files to chunk_path; drop any cached s3fs listing
+        # so the latency combine (and the chunk consolidation below) read S3 fresh.
+        storage.invalidate_cache(self.chunk_path)
+
         all_latency_stats = combine_chunk_latency_stats(self.chunk_path, latency_csv_path)
         if all_latency_stats:
             global_stats = compute_global_latency_stats(all_latency_stats)
@@ -503,66 +507,12 @@ class RoofAgeExporter(BaseExporter):
                     f"n={global_stats['count']}"
                 )
 
-        # Combine chunk results
+        # Combine chunk results (BaseExporter.combine_chunk_files invalidates the s3fs
+        # listing first, so present chunks aren't missed on S3 output).
         self.logger.info("Combining chunk results...")
-
-        # Drop any cached s3fs directory listing for the chunk dir before the existence
-        # sweep below. split_into_chunks' cache check (and the latency combine) may have
-        # cached an empty/stale listing that predates the worker writes; a stale listing
-        # makes present chunks look absent and silently yields 0 records on S3 output
-        # (no-op for local paths). Mirrors exporter.py's pre-merge invalidate.
-        storage.invalidate_cache(self.chunk_path)
-
-        roofs_list = []
-        metadata_list = []
-        errors_list = []
-
-        # num_chunks (including cached chunks) comes from split_into_chunks so the
-        # combine loop iterates exactly the chunk count the files were written with.
-        for i in range(num_chunks):
-            chunk_id = str(i).zfill(4)
-
-            # Load roofs
-            roofs_file = storage.join_path(self.chunk_path, f"roofs_{chunk_id}.parquet")
-            if storage.file_exists(roofs_file):
-                try:
-                    roofs_list.append(gpd.read_parquet(roofs_file))
-                except Exception as e:
-                    self.logger.warning(f"Chunk {chunk_id}: failed to read roofs file {roofs_file}: {e}. Skipping.")
-
-            # Load metadata
-            metadata_file = storage.join_path(self.chunk_path, f"metadata_{chunk_id}.parquet")
-            if storage.file_exists(metadata_file):
-                try:
-                    metadata_list.append(pd.read_parquet(metadata_file))
-                except Exception as e:
-                    self.logger.warning(
-                        f"Chunk {chunk_id}: failed to read metadata file {metadata_file}: {e}. Skipping."
-                    )
-
-            # Load errors
-            errors_file = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
-            if storage.file_exists(errors_file):
-                try:
-                    errors_list.append(pd.read_parquet(errors_file))
-                except Exception as e:
-                    self.logger.warning(f"Chunk {chunk_id}: failed to read errors file {errors_file}: {e}. Skipping.")
-
-        # Combine results
-        if roofs_list:
-            roofs_gdf = gpd.GeoDataFrame(pd.concat(roofs_list, ignore_index=False), crs=API_CRS)
-        else:
-            roofs_gdf = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
-
-        if metadata_list:
-            metadata_df = pd.concat(metadata_list, ignore_index=False)
-        else:
-            metadata_df = pd.DataFrame()
-
-        if errors_list:
-            errors_df = pd.concat(errors_list, ignore_index=False)
-        else:
-            errors_df = pd.DataFrame()
+        roofs_gdf = self.combine_chunk_files("roofs", num_chunks, geo=True)
+        metadata_df = self.combine_chunk_files("metadata", num_chunks)
+        errors_df = self.combine_chunk_files("roof_age_errors", num_chunks)
 
         # Report results
         success_count = len(metadata_df)

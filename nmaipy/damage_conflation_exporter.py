@@ -339,6 +339,10 @@ class DamageConflationExporter(BaseExporter):
 
         self.run_parallel(chunks_to_process, initial_aoi_count=initial_aoi_count, use_progress_tracking=True)
 
+        # The spawned workers wrote chunk files to chunk_path; drop any cached s3fs listing
+        # so the latency combine (and the chunk consolidation below) read S3 fresh.
+        storage.invalidate_cache(self.chunk_path)
+
         all_latency_stats = combine_chunk_latency_stats(self.chunk_path, latency_csv_path)
         if all_latency_stats:
             global_stats = compute_global_latency_stats(all_latency_stats)
@@ -350,9 +354,9 @@ class DamageConflationExporter(BaseExporter):
                 )
 
         self.logger.info("Combining chunk results...")
-        features_gdf = self._combine_chunk_geoparquet("damage_features", num_chunks)
-        metadata_df = self._combine_chunk_parquet("metadata", num_chunks)
-        errors_df = self._combine_chunk_parquet("damage_errors", num_chunks)
+        features_gdf = self.combine_chunk_files("damage_features", num_chunks, geo=True)
+        metadata_df = self.combine_chunk_files("metadata", num_chunks)
+        errors_df = self.combine_chunk_files("damage_errors", num_chunks)
 
         success_count = len(metadata_df)
         error_count = len(errors_df)
@@ -404,41 +408,6 @@ class DamageConflationExporter(BaseExporter):
 
         self._save_outputs(features_gdf, rollup_df, metadata_df, errors_df, self.final_path)
         self.logger.info("Export complete!")
-
-    def _combine_chunk_geoparquet(self, prefix: str, num_chunks: int) -> gpd.GeoDataFrame:
-        """Concat per-chunk geoparquet files (one per chunk index)."""
-        # Drop any cached s3fs directory listing for the chunk dir before the existence
-        # sweep. Earlier phases (split_into_chunks' cache check, the latency combine) may
-        # have cached a listing that predates the worker writes; a stale listing makes a
-        # present chunk look absent and silently yields 0 records (no-op for local paths).
-        storage.invalidate_cache(self.chunk_path)
-        parts = []
-        for i in range(num_chunks):
-            chunk_id = str(i).zfill(4)
-            f = storage.join_path(self.chunk_path, f"{prefix}_{chunk_id}.parquet")
-            if storage.file_exists(f):
-                try:
-                    parts.append(gpd.read_parquet(f))
-                except Exception as e:
-                    self.logger.warning(f"Chunk {chunk_id}: failed to read {f}: {e}. Skipping.")
-        if parts:
-            return gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=API_CRS)
-        return gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
-
-    def _combine_chunk_parquet(self, prefix: str, num_chunks: int) -> pd.DataFrame:
-        """Concat per-chunk (non-geo) parquet files, preserving the index."""
-        # See _combine_chunk_geoparquet: invalidate the s3fs listing so the sweep reads fresh.
-        storage.invalidate_cache(self.chunk_path)
-        parts = []
-        for i in range(num_chunks):
-            chunk_id = str(i).zfill(4)
-            f = storage.join_path(self.chunk_path, f"{prefix}_{chunk_id}.parquet")
-            if storage.file_exists(f):
-                try:
-                    parts.append(pd.read_parquet(f))
-                except Exception as e:
-                    self.logger.warning(f"Chunk {chunk_id}: failed to read {f}: {e}. Skipping.")
-        return pd.concat(parts) if parts else pd.DataFrame()
 
     def _save_outputs(self, features_gdf, rollup_df, metadata_df, errors_df, output_path):
         """Write the per-building output (always) and the per-AOI rollup (when enabled)."""

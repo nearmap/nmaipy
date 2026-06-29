@@ -170,8 +170,8 @@ def test_combine_reads_present_chunks_and_preserves_index(tmp_path, chunk_inputs
     storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
     storage.write_parquet(features_gdf, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
 
-    md = exporter._combine_chunk_parquet("metadata", num_chunks=1)
-    feats = exporter._combine_chunk_geoparquet("damage_features", num_chunks=1)
+    md = exporter.combine_chunk_files("metadata", num_chunks=1)
+    feats = exporter.combine_chunk_files("damage_features", num_chunks=1, geo=True)
 
     # aoi_id index must survive the round-trip — successful_aoi_ids = set(metadata_df.index)
     # depends on it, and a lost index would null out the whole rollup.
@@ -202,7 +202,7 @@ def test_combine_recovers_from_stale_listing(tmp_path, chunk_inputs):
         patch("nmaipy.storage.file_exists", side_effect=fake_exists),
         patch("nmaipy.storage.invalidate_cache", side_effect=fake_invalidate),
     ):
-        md = exporter._combine_chunk_parquet("metadata", num_chunks=1)
+        md = exporter.combine_chunk_files("metadata", num_chunks=1)
 
     assert set(md.index) == set(metadata_df.index)  # recovered only because invalidate ran first
 

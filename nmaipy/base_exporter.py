@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import psutil
 from tqdm import tqdm
 
@@ -52,6 +53,8 @@ from nmaipy.cgroup_memory import (
     is_running_in_container,
 )
 from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
+    API_CRS,
     API_WARMUP_INTERVAL_SECONDS,
     PARALLEL_READ_WORKERS,
     S3_PARALLEL_READ_WORKERS,
@@ -346,6 +349,50 @@ class BaseExporter(ABC):
             )
 
         return chunks_to_process, skipped_chunks, skipped_aois, num_chunks
+
+    def combine_chunk_files(self, prefix: str, num_chunks: int, geo: bool = False):
+        """Concatenate per-chunk parquet files (``{prefix}_{0000..}.parquet``) under ``chunk_path``.
+
+        Shared chunk-consolidation for ``BaseExporter`` subclasses with a simple
+        one-file-per-chunk layout (e.g. RoofAgeExporter, DamageConflationExporter).
+
+        **Invalidates the s3fs directory listing for ``chunk_path`` before the existence
+        sweep.** ``split_into_chunks``' cache check (and the latency combine) may have cached
+        an empty listing *before* the spawned workers wrote their chunks; on S3 a stale
+        listing makes present chunks look absent, so the sweep silently reads 0 records.
+        This is the exact failure that produced an all-empty rollup; do not remove the
+        invalidate. (No-op for local paths.)
+
+        Args:
+            prefix: chunk filename stem (e.g. ``"metadata"``, ``"damage_features"``, ``"roofs"``).
+            num_chunks: total chunk count from ``split_into_chunks`` (includes cached chunks),
+                so the sweep iterates exactly the indices the files were written with.
+            geo: read with geopandas and return a ``GeoDataFrame`` (in ``API_CRS``); otherwise
+                read with pandas and return a ``DataFrame``.
+
+        Returns:
+            Concatenated frame, or an empty one if no chunk files are present. Non-geo frames
+            preserve the per-chunk index (e.g. ``aoi_id``); geo frames get a fresh RangeIndex
+            (callers key off the ``aoi_id`` column, not the index).
+        """
+        storage.invalidate_cache(self.chunk_path)
+        reader = gpd.read_parquet if geo else pd.read_parquet
+        parts = []
+        for i in range(num_chunks):
+            chunk_id = str(i).zfill(4)
+            f = storage.join_path(self.chunk_path, f"{prefix}_{chunk_id}.parquet")
+            if storage.file_exists(f):
+                try:
+                    parts.append(reader(f))
+                except Exception as e:
+                    self.logger.warning(f"Chunk {chunk_id}: failed to read {prefix} file {f}: {e}. Skipping.")
+        if not parts:
+            if geo:
+                return gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+            return pd.DataFrame()
+        if geo:
+            return gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=API_CRS)
+        return pd.concat(parts)
 
     def run_parallel(
         self,
