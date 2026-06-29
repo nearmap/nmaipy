@@ -505,6 +505,14 @@ class RoofAgeExporter(BaseExporter):
 
         # Combine chunk results
         self.logger.info("Combining chunk results...")
+
+        # Drop any cached s3fs directory listing for the chunk dir before the existence
+        # sweep below. split_into_chunks' cache check (and the latency combine) may have
+        # cached an empty/stale listing that predates the worker writes; a stale listing
+        # makes present chunks look absent and silently yields 0 records on S3 output
+        # (no-op for local paths). Mirrors exporter.py's pre-merge invalidate.
+        storage.invalidate_cache(self.chunk_path)
+
         roofs_list = []
         metadata_list = []
         errors_list = []
@@ -564,6 +572,16 @@ class RoofAgeExporter(BaseExporter):
             f"API queries complete: {success_count} successful, {error_count} errors, "
             f"{roof_count} total roofs found"
         )
+
+        # Guard against silent empty consolidation: with chunks to read, all three combined
+        # frames being empty means the sweep found nothing (e.g. a stale listing or a path
+        # mismatch) rather than a genuinely empty export — surface it loudly.
+        if num_chunks > 0 and success_count == 0 and error_count == 0 and roof_count == 0:
+            self.logger.warning(
+                f"Consolidation read 0 records from {num_chunks} chunk(s) under {self.chunk_path}. "
+                "Per-chunk files may be present but unreadable at combine time (stale listing / "
+                "path mismatch) — investigate before trusting this output."
+            )
 
         if error_count > 0:
             # Log error summary as ASCII table (same format as Feature API)
