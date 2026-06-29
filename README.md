@@ -375,7 +375,16 @@ python -m nmaipy.damage_conflation_exporter \
     --rollup
 ```
 
-Always writes `damage_buildings.{parquet,csv}`; `--rollup` adds the per-AOI `damage_rollup.{parquet,csv}` (primary building chosen by `--primary-decision largest|optimal`). See `python -m nmaipy.damage_conflation_exporter --help` for all options.
+Outputs in `final/`:
+
+| File | When | Contents |
+|------|------|----------|
+| `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry |
+| `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
+| `damage_metadata.csv` | always | Per-AOI query metadata (event id/name, model version) for AOIs that returned a response |
+| `damage_errors.csv` | on failures | Per-AOI failures (`status_code` + `message`) — e.g. a `403` for an AOI outside the event footprint |
+
+See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 
 ## Examples
 

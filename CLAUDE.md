@@ -152,9 +152,11 @@ python -m nmaipy.damage_conflation_exporter \
 ```
 
 The `--event-id` is the catastrophe event's UUID (obtained from the Coverage API
-`eventId` survey tag; auto-discovery is not yet built into nmaipy). Output:
-`final/damage_buildings.{parquet,csv}` (per-building) and, with `--rollup`,
-`final/damage_rollup.{parquet,csv}` (per-AOI).
+`eventId` survey tag; auto-discovery is not yet built into nmaipy). Output in `final/`:
+`damage_buildings.{parquet,csv}` (per-building, always) and, with `--rollup`,
+`damage_rollup.{parquet,csv}` (per-AOI); plus operational files `damage_metadata.csv`
+(per-AOI query metadata) and `damage_errors.csv` (per-AOI failures: status_code + message,
+written only when there are errors).
 
 #### S3 Output (v4.2+)
 ```bash
@@ -194,6 +196,7 @@ When adding new columns derived from API descriptions, always use the programmat
 2. **base_exporter.py**: `BaseExporter` abstract base class for all exporters
    - Defines common interface: `process_chunk()` and `get_chunk_output_file()` abstract methods
    - Chunk splitting with `split_into_chunks()` and cache-aware resume
+   - `combine_chunk_files(prefix, num_chunks, geo=)`: shared chunk consolidation for simple one-file-per-chunk exporters (RoofAge, DamageConflation) — **invalidates the s3fs listing before the existence sweep** so present chunks aren't missed on S3 output (the main `exporter.py` keeps its own streaming/parallel merge)
    - `ProcessPoolExecutor` parallel processing with API warmup ramp-up
    - `BrokenProcessPool` retry (up to 3 attempts) with diagnostic logging (memory/CPU/FDs)
    - Shared progress counters via `multiprocessing.Manager` with dynamic tqdm display
@@ -265,7 +268,8 @@ When adding new columns derived from API descriptions, always use the programmat
   - `get_damage_by_aoi()` / `get_damage_by_address()` with `nextCursor` pagination (no gridding — pagination scales to a full event boundary)
   - `get_damage_bulk()` thread-pool fan-out; event-scoped cache layout `damageconflation/<event_id>/`
 - **damage_conflation_exporter.py**: `DamageConflationExporter(BaseExporter)` and standalone CLI (`python -m nmaipy.damage_conflation_exporter`)
-  - Requires `--event-id`; always emits per-building `damage_buildings.*`, opt-in `--rollup` emits per-AOI `damage_rollup.*` (with `--primary-decision largest|optimal`)
+  - Requires `--event-id`; always emits per-building `damage_buildings.*`, opt-in `--rollup` emits per-AOI `damage_rollup.*` (with `--primary-decision largest|optimal`); also writes operational `damage_metadata.csv` and `damage_errors.csv`
+  - Chunk consolidation uses the shared `BaseExporter.combine_chunk_files()` (invalidates the s3fs listing before the sweep, so present chunks aren't missed on S3 output)
 
 ### Infrastructure Layer
 
