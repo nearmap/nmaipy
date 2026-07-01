@@ -1807,6 +1807,17 @@ def conflation_rollup(
 
     rollup_df = pd.DataFrame(rows).set_index(AOI_ID_COLUMN_NAME)
 
+    # These primary_* columns are string/date-valued but the dict key is only set when
+    # n>0 (see the `if n > 0:` block above) and the underlying attribute can itself be
+    # always-null (damage_event_latest_capture_date). A column that ends up either
+    # entirely missing-key or entirely None infers as float64 in pandas, drifting from
+    # the string dtype it gets when at least one AOI has a real value. Cast explicitly
+    # so the dtype doesn't depend on which AOIs happened to have buildings.
+    for c in ("damage_event_latest_capture_date", "damage_pre_event_latest_capture_date"):
+        col = f"primary_{c}"
+        if col in rollup_df.columns:
+            rollup_df[col] = rollup_df[col].astype("string")
+
     # Stable column order: status, event metadata, counts, primary_* attrs.
     ordered = (
         ["query_succeeded"]

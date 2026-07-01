@@ -214,6 +214,20 @@ def test_conflation_rollup_primary_is_largest(rollup_inputs):
     assert "primary_damage_pre_event_rating" in rollup.columns
 
 
+def test_conflation_rollup_primary_capture_date_is_string_dtype(rollup_inputs):
+    """primary_damage_event_latest_capture_date is always-null (event side never carries
+    a date) and primary_damage_pre_event_latest_capture_date is only set for AOIs with
+    buildings — both must stay nullable-string typed rather than drifting to float64
+    when every value in the column happens to be missing."""
+    aoi_gdf, features_gdf, successful, _, _ = rollup_inputs
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
+
+    assert rollup["primary_damage_event_latest_capture_date"].isna().all()
+    assert rollup["primary_damage_event_latest_capture_date"].dtype == pd.StringDtype()
+    assert rollup["primary_damage_pre_event_latest_capture_date"].notna().any()
+    assert rollup["primary_damage_pre_event_latest_capture_date"].dtype == pd.StringDtype()
+
+
 def test_conflation_rollup_carries_event_metadata(rollup_inputs, milton_response):
     aoi_gdf, features_gdf, successful, _, _ = rollup_inputs
     rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids=successful)
