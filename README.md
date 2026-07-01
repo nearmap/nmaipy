@@ -84,6 +84,19 @@ exporter.run()
 
 `rapid=True` enables consideration of post-catastrophe rapid-response surveys (when available). The damage pack has variants (`damage_postcat`, `damage_non_postcat`) for damage-related feature classes; `damage_classifications` is the richer pack used here, exposing ten damage feature classes (Roof, Missing Roof Tile or Shingle, Vegetation Debris, Junk and Wreckage, Building Structural Loss, Roof with Temporary Repair, Structural Damage, Building Damage by Tree, Building with Structural Damage, Building lifecycle). The damage classification *score* is a separate quantity, retrieved by passing `include=['damage']` — see the auto-generated README in your export's `final/` directory for what each emitted column contains.
 
+#### Finding a catastrophe event from a point
+
+For ImpactResponse workflows you often know roughly *where* an event hit but not its event id. Given a lat/lon, `nmaipy.coverage_utils.discover_event` resolves the **latest** post-catastrophe event covering that point and assembles its footprint — in memory, no files:
+
+```python
+from nmaipy.coverage_utils import discover_event
+
+event_id, boundary = discover_event(lat=27.742889, lon=-82.754961)
+# event_id: str UUID (e.g. Hurricane Milton); boundary: shapely (Multi)Polygon in EPSG:4326
+```
+
+You then subdivide `boundary` into your own AOIs (e.g. census/mesh blocks) and run the exporters over them with the discovered `event_id`. Pass `since`/`until` to disambiguate a location hit by more than one event (e.g. St Pete Beach sits under both Hurricanes Milton and Helene — the latest wins, and the others are logged). The pieces are also available separately: `latest_event_id_at_point(lat, lon)` and `event_boundary(event_id)` (the boundary is one tag-filtered Coverage query — `include=postCatEventId:<id>` — unioned, no spatial search).
+
 ### Roof Age Analysis (US Only)
 
 Predict roof installation dates using AI analysis of historical imagery, combined with building permits and climate data. Recommended approach — unified with the Feature API in one export:
@@ -124,6 +137,26 @@ Each roof carries:
 - Timeline of all imagery used
 
 Useful for insurance underwriting, property valuation, maintenance planning, and real-estate due diligence.
+
+### Damage Conflation (Event-Scoped Damage)
+
+For a catastrophe event (hurricane, wildfire), the Damage Conflation API returns a single *conflated* damage rating per building — the highest-confidence assessment fused across every capture in the event lifecycle, rather than one survey's classification. Query it standalone with an event id:
+
+```python
+from nmaipy.damage_conflation_exporter import DamageConflationExporter
+
+exporter = DamageConflationExporter(
+    aoi_file='properties.geojson',
+    output_dir='damage_results',
+    event_id='2f510853-5d55-50f4-9102-2c02de08190e',  # e.g. Hurricane Milton
+    country='us',
+    output_format='both',         # GeoParquet and CSV
+    rollup=True,                  # also emit a per-AOI summary
+)
+exporter.run()
+```
+
+Always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building). Large AOIs — up to a full event boundary — are paged, not gridded. The `event_id` comes from the Coverage API's `eventId` survey tag.
 
 ### Wildfire Risk & Defensible Space
 
@@ -339,6 +372,32 @@ python -m nmaipy.roof_age_exporter \
 ```
 
 Accepts the same `--roof-age-dataset`, `--until`, `--since` flags as the unified exporter (with the same A.0-dataset rejection rule). See `python -m nmaipy.roof_age_exporter --help` for all options.
+
+### Standalone Damage Conflation Export
+
+Event-scoped, building-level conflated damage for a catastrophe event (requires `--event-id`):
+
+```bash
+python -m nmaipy.damage_conflation_exporter \
+    --aoi-file "us_properties.geojson" \
+    --output-dir "damage_results" \
+    --event-id "2f510853-5d55-50f4-9102-2c02de08190e" \
+    --country us \
+    --processes 4 \
+    --output-format both \
+    --rollup
+```
+
+Outputs in `final/`:
+
+| File | When | Contents |
+|------|------|----------|
+| `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry |
+| `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
+| `damage_metadata.csv` | always | Per-AOI query metadata (event id/name, model version) for AOIs that returned a response |
+| `damage_errors.csv` | on failures | Per-AOI failures (`status_code` + `message`) — e.g. a `403` for an AOI outside the event footprint |
+
+See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 
 ## Examples
 

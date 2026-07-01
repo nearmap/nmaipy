@@ -119,6 +119,33 @@ ROOF_AGE_PREFIX_COLUMNS = (
 
 
 # ============================================================================
+# Damage Conflation API Configuration
+# ============================================================================
+# The Damage Conflation API (ai/damage/v2) returns event-scoped, building-level
+# conflated damage ratings for a catastrophe event. Unlike the per-survey Feature
+# API damage, it fuses every capture across an event into a single authoritative
+# rating per building. Contract confirmed against SwaggerHub
+# `nearmap/ai-conflation-damage/2.0.0` and the internal pyaiutils wrapper.
+DAMAGE_CONFLATION_URL_ROOT = "api.nearmap.com/ai/damage/v2"
+DAMAGE_CONFLATION_EVENTS_PATH = "events"  # POST /events/{event_id}/latest.geojson
+DAMAGE_CONFLATION_RESOURCES_PATH = "resources"  # /resources/{resource_id}.geojson (pinned snapshot, future)
+
+# Pagination: the API returns a `nextCursor` when more results exist; loop until
+# absent. `limit` defaults to 1000 (min 1). Pagination — not gridding — is how a
+# large AOI (mesh block, full event boundary) is retrieved in one logical query.
+DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT = 1000
+DAMAGE_CONFLATION_NEXT_CURSOR_FIELD = "nextCursor"
+# Safety cap on pagination: bounds an unbounded `while True` loop if the API ever
+# returns a non-terminating (e.g. repeating) nextCursor. Well above any realistic
+# single-query result set at the default page limit.
+DAMAGE_CONFLATION_MAX_PAGES = 2000
+
+# rawRatings keys returned for each damage block (also the DamageClass enum values).
+# Order is the canonical column order for the flattened raw-rating columns.
+DAMAGE_CONFLATION_RAW_RATING_KEYS = ("Affected", "Destroyed", "Major", "Minor", "NoDamage")
+
+
+# ============================================================================
 # HTTP Request Configuration
 # ============================================================================
 # These constants control retry behavior and timeouts for API requests.

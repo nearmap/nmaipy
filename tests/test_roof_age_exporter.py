@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
+from nmaipy import storage
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.roof_age_exporter import RoofAgeExporter
 
@@ -352,6 +353,45 @@ def test_exporter_process_chunk_with_cached_data(test_aoi_file, test_output_dir,
 
         for col in ["installation_date", "trust_score", "kind", "map_browser_url"]:
             assert col in result_gdf.columns, f"Missing expected column: {col}"
+
+
+def test_combine_recovers_from_stale_listing(test_aoi_file, test_output_dir, roof_age_gdf, roof_age_metadata_df):
+    """Regression for the S3 stale-listing bug (shared with DamageConflationExporter): a stale
+    s3fs listing makes file_exists return False for present chunks until invalidate_cache runs.
+    The combine must invalidate BEFORE its existence sweep so it still reads the chunks. Without
+    the fix, file_exists stays False, the combine reads 0 roofs, and no roofs output is written."""
+    exporter = RoofAgeExporter(
+        aoi_file=str(test_aoi_file),
+        output_dir=str(test_output_dir),
+        output_format="both",
+        country="us",
+        api_key="test_key",
+        processes=1,
+    )
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+    storage.write_parquet(roof_age_gdf, str(Path(exporter.chunk_path) / "roofs_0000.parquet"))
+    storage.write_parquet(roof_age_metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
+
+    real_exists = storage.file_exists
+    state = {"fresh": False}  # listing starts stale (mirrors s3fs after an earlier empty ls)
+
+    def fake_exists(path):
+        return real_exists(path) if state["fresh"] else False
+
+    def fake_invalidate(path):
+        state["fresh"] = True
+
+    with (
+        patch("nmaipy.storage.file_exists", side_effect=fake_exists),
+        patch("nmaipy.storage.invalidate_cache", side_effect=fake_invalidate),
+        patch("nmaipy.roof_age_exporter.combine_chunk_latency_stats", return_value=[]),
+        patch.object(exporter, "run_parallel", return_value=[]),
+    ):
+        exporter.run()
+
+    roofs_out = Path(exporter.final_path) / "roofs.parquet"
+    assert roofs_out.exists(), "combine should recover and write roofs after invalidating the stale listing"
+    assert len(gpd.read_parquet(roofs_out)) == len(roof_age_gdf)
 
 
 def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):

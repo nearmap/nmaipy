@@ -27,6 +27,7 @@ from shapely import wkb
 
 from nmaipy import log
 from nmaipy.constants import (
+    DAMAGE_CONFLATION_RAW_RATING_KEYS,
     FLAT_DEPRECATED_ROOF_ID,
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
@@ -909,6 +910,79 @@ def flatten_building_lifecycle_damage_attributes(
                         # Normalize description to valid column name
                         normalized_desc = description.lower().replace(" ", "_")
                         flattened[f"damage_ratio_{normalized_desc}"] = ratio_value
+
+    return flattened
+
+
+def flatten_conflated_damage_attributes(properties: dict) -> dict:
+    """
+    Flatten Damage Conflation API (ai/damage/v2) feature properties into a flat,
+    fixed column set suitable for tabular storage.
+
+    Unlike the Feature API's per-survey damage (``confidences.raw/2tier/3tier`` +
+    ``ratios`` — see :func:`flatten_building_lifecycle_damage_attributes`), the
+    conflation API attaches an event-scoped, building-level rating under
+    ``properties.damage`` with two blocks: ``event`` (post-event assessment) and
+    ``preEvent`` (pre-event baseline). Each block carries ``rating``, ``confidence``,
+    ``rawRatings`` (the 5 DamageClass scores) and ``classRatios`` (variable-length
+    contributing AI classes); ``preEvent`` additionally carries ``latestCaptureDate``.
+
+    The output column set is FIXED so DataFrame assembly preserves column ordering
+    across rows (pandas builds columns from first-seen-key order). ``rawRatings`` are
+    flattened to scalar columns; the variable-length ``classRatios`` list is serialised
+    to a JSON string (mirroring the nested→JSON pattern used for Roof Age
+    timeline/permits) to avoid a sparse per-class column explosion. When a block is
+    absent — ``preEvent`` can be missing for new construction with no baseline — its
+    columns are emitted as ``None`` so column ordering stays stable across rows.
+
+    camelCase keys are converted with ``stringcase.snakecase`` (``preEvent`` →
+    ``pre_event``, ``NoDamage`` → ``no_damage``), matching the snake_case conversion
+    used elsewhere in this module rather than the naive ``.lower().replace(" ","_")``
+    that only suits space-separated ``description`` strings.
+
+    Args:
+        properties: A conflation feature's ``properties`` dict (areaSqm, areaSqft,
+            confidence, hilbertId, damage).
+
+    Returns:
+        Flattened dict: ``area_sqm``, ``area_sqft``, ``confidence``, ``hilbert_id``,
+        and the ``damage_event_*`` / ``damage_pre_event_*`` column families.
+    """
+    flattened: Dict[str, Any] = {}
+
+    flattened["area_sqm"] = properties.get("areaSqm")
+    flattened["area_sqft"] = properties.get("areaSqft")
+    flattened["confidence"] = properties.get("confidence")
+    flattened["hilbert_id"] = properties.get("hilbertId")
+
+    damage = properties.get("damage")
+    if not isinstance(damage, dict):
+        damage = {}
+
+    # Two damage blocks: (API key, snake_case column prefix).
+    for api_block, prefix in (("event", "event"), ("preEvent", "pre_event")):
+        block = damage.get(api_block)
+        if not isinstance(block, dict):
+            block = {}
+
+        flattened[f"damage_{prefix}_rating"] = block.get("rating")
+        flattened[f"damage_{prefix}_confidence"] = block.get("confidence")
+
+        raw = block.get("rawRatings")
+        if not isinstance(raw, dict):
+            raw = {}
+        for rating_key in DAMAGE_CONFLATION_RAW_RATING_KEYS:
+            flattened[f"damage_{prefix}_raw_{stringcase.snakecase(rating_key)}"] = raw.get(rating_key)
+
+        # classRatios is variable-length / variable-class; serialise to JSON rather
+        # than exploding into sparse per-class columns.
+        class_ratios = block.get("classRatios")
+        flattened[f"damage_{prefix}_class_ratios"] = (
+            json.dumps(class_ratios) if isinstance(class_ratios, list) else None
+        )
+
+        # latestCaptureDate is present on preEvent only; extract defensively per-block.
+        flattened[f"damage_{prefix}_latest_capture_date"] = block.get("latestCaptureDate")
 
     return flattened
 

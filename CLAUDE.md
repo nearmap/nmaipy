@@ -131,6 +131,33 @@ python -m nmaipy.roof_age_exporter \
     --output-format both
 ```
 
+#### Damage Conflation API Export
+```bash
+# Set up API key
+export API_KEY=your_api_key_here
+
+# Run the damage conflation exporter for a catastrophe event.
+# Always emits per-building damage polygons; add --rollup for a per-AOI summary
+# (one row per AOI: rating counts + the primary building's attributes — most
+# useful when AOIs are property-sized). Large AOIs are handled by pagination,
+# not gridding, so an AOI up to a full event boundary works in one go.
+python -m nmaipy.damage_conflation_exporter \
+    --aoi-file "path/to/aoi.geojson" \
+    --output-dir "data/damage_outputs" \
+    --event-id "2f510853-5d55-50f4-9102-2c02de08190e" \
+    --country us \
+    --processes 4 \
+    --output-format both \
+    --rollup
+```
+
+The `--event-id` is the catastrophe event's UUID (obtained from the Coverage API
+`eventId` survey tag; auto-discovery is not yet built into nmaipy). Output in `final/`:
+`damage_buildings.{parquet,csv}` (per-building, always) and, with `--rollup`,
+`damage_rollup.{parquet,csv}` (per-AOI); plus operational files `damage_metadata.csv`
+(per-AOI query metadata) and `damage_errors.csv` (per-AOI failures: status_code + message,
+written only when there are errors).
+
 #### S3 Output (v4.2+)
 ```bash
 python nmaipy/exporter.py \
@@ -169,6 +196,7 @@ When adding new columns derived from API descriptions, always use the programmat
 2. **base_exporter.py**: `BaseExporter` abstract base class for all exporters
    - Defines common interface: `process_chunk()` and `get_chunk_output_file()` abstract methods
    - Chunk splitting with `split_into_chunks()` and cache-aware resume
+   - `combine_chunk_files(prefix, num_chunks, geo=)`: shared chunk consolidation for simple one-file-per-chunk exporters (RoofAge, DamageConflation) — **invalidates the s3fs listing before the existence sweep** so present chunks aren't missed on S3 output (the main `exporter.py` keeps its own streaming/parallel merge)
    - `ProcessPoolExecutor` parallel processing with API warmup ramp-up
    - `BrokenProcessPool` retry (up to 3 attempts) with diagnostic logging (memory/CPU/FDs)
    - Shared progress counters via `multiprocessing.Manager` with dynamic tqdm display
@@ -210,6 +238,7 @@ When adding new columns derived from API descriptions, always use the programmat
    - `link_roofs_to_buildings()`: Spatial association of roofs to parent buildings
    - `link_roof_instances_to_roofs()`: Links Roof Age API results to Feature API roof geometries by IoU
    - `calculate_child_feature_attributes()`: Computes attributes for child features (e.g. roof characteristics on a roof)
+   - `conflation_rollup()`: Per-AOI rollup of Damage Conflation features (same primary-selection/`primary_*`/null-out conventions as `parcel_rollup`, single-class)
    - Re-exports `read_from_file` from `aoi_io` for backward compatibility
 
 8. **primary_feature_selection.py**: Primary feature selection algorithms
@@ -221,7 +250,8 @@ When adding new columns derived from API descriptions, always use the programmat
 9. **feature_attributes.py**: Attribute flattening utilities
    - `flatten_building_attributes()`: Flattens nested building API attributes to flat dict
    - `flatten_roof_attributes()`: Flattens roof attributes including materials, spotlight index
-   - `flatten_building_lifecycle_damage_attributes()`: Flattens damage classification scores
+   - `flatten_building_lifecycle_damage_attributes()`: Flattens Feature API per-survey damage classification scores
+   - `flatten_conflated_damage_attributes()`: Flattens Damage Conflation API (ai/damage/v2) per-building `damage.event`/`damage.preEvent` ratings into a fixed `damage_event_*`/`damage_pre_event_*` column set
    - `flatten_roof_instance_attributes()`: Flattens Roof Age API result attributes
    - `calculate_roof_age_years()`: Computes roof age in years from installation/as-of dates
 
@@ -230,6 +260,16 @@ When adding new columns derived from API descriptions, always use the programmat
     - `clip_features_to_polygon()`: Clips features to AOI boundary, recalculates areas
     - `combine_features_from_grid()`: Deduplicates and merges features from gridded queries
     - `polygon_to_coordstring()`: Converts Shapely polygon to API coordinate string
+
+### Damage Conflation Layer (ai/damage/v2)
+
+- **damage_conflation_api.py**: `DamageConflationApi(BaseApiClient)` — client for the Damage Conflation API
+  - Event-scoped (`event_id`); POST `/events/{event_id}/latest.geojson` per AOI or address
+  - `get_damage_by_aoi()` / `get_damage_by_address()` with `nextCursor` pagination (no gridding — pagination scales to a full event boundary)
+  - `get_damage_bulk()` thread-pool fan-out; event-scoped cache layout `damageconflation/<event_id>/`
+- **damage_conflation_exporter.py**: `DamageConflationExporter(BaseExporter)` and standalone CLI (`python -m nmaipy.damage_conflation_exporter`)
+  - Requires `--event-id`; always emits per-building `damage_buildings.*`, opt-in `--rollup` emits per-AOI `damage_rollup.*` (with `--primary-decision largest|optimal`); also writes operational `damage_metadata.csv` and `damage_errors.csv`
+  - Chunk consolidation uses the shared `BaseExporter.combine_chunk_files()` (invalidates the s3fs listing before the sweep, so present chunks aren't missed on S3 output)
 
 ### Infrastructure Layer
 
@@ -282,9 +322,10 @@ When adding new columns derived from API descriptions, always use the programmat
 
 ### Legacy/Internal
 
-20. **coverage_utils.py**: Legacy coverage API utilities
+20. **coverage_utils.py**: Legacy coverage API utilities + event discovery
     - Survey coverage point queries and threading
     - Not integrated with current `BaseApiClient` architecture (uses its own `requests.Session`)
+    - **Post-cat event discovery** (`discover_event(lat, lon) -> (event_id, boundary)`, plus `latest_event_id_at_point` / `event_boundary`): given a point, resolves the latest ImpactResponse `postCatEventId` (newest `postCatEventDate` wins; others logged) and unions the event's survey footprints into a shapely (Multi)Polygon — the operator then subdivides that boundary into AOIs and runs the Damage Conflation exporter with the discovered event id. Deployed-API notes (differ from the public doc): the id is on the `postCatEventId` tag (not `eventId`); the point query takes `{lon},{lat}` in the URL path; and the whole-event footprint comes from one tag-filtered query `/coverage/v2/surveys?include=postCatEventId:<id>` (the "Filter Surveys" `include=<type>:<name>` grammar — `filter=`/`tags=` are rejected), no spatial search.
 
 21. **reference_code.py**: Minimal utility
     - `is_building_small()`: Checks building area < 30 sqm
