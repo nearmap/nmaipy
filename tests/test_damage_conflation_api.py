@@ -120,6 +120,25 @@ def test_parse_empty_response(damage_api):
     assert "geometry" in gdf.columns
 
 
+def test_parse_response_types_always_null_column_as_string(damage_api, milton_response):
+    """damage_event_latest_capture_date is only ever populated on preEvent (real fixture
+    has no event-side value), so it must be typed as nullable string, not pyarrow's
+    untyped null — otherwise schema-strict parquet readers reject it downstream."""
+    gdf = damage_api._parse_response(milton_response, aoi_id="aoi_1")
+    assert gdf["damage_event_latest_capture_date"].isna().all()
+    assert gdf["damage_event_latest_capture_date"].dtype == pd.StringDtype()
+    # pre-event side has real values in the fixture and must stay the same dtype
+    assert gdf["damage_pre_event_latest_capture_date"].notna().any()
+    assert gdf["damage_pre_event_latest_capture_date"].dtype == pd.StringDtype()
+
+
+def test_parse_response_missing_geometry_raises(damage_api, milton_response):
+    broken = copy.deepcopy(milton_response)
+    del broken["features"][0]["geometry"]
+    with pytest.raises(DamageConflationAPIError, match="geometry"):
+        damage_api._parse_response(broken, aoi_id="aoi_1")
+
+
 # -------------------------------------------------------------------- pagination
 def test_pagination_merges_pages(damage_api, test_aoi, milton_response):
     """Two pages (page1 carries nextCursor) merge into one parsed result."""
@@ -150,6 +169,30 @@ def test_pagination_merges_pages(damage_api, test_aoi, milton_response):
     assert len(gdf) == len(milton_response["features"])  # all features merged
     # the cursor from page1 is forwarded in page2's request body
     assert mock_session.post.call_args_list[1].kwargs["json"]["cursor"] == "cursor-abc"
+
+
+def test_fetch_all_pages_caps_runaway_pagination(damage_api, test_aoi, milton_response, monkeypatch):
+    """A server bug that never clears nextCursor must not loop forever."""
+    monkeypatch.setattr("nmaipy.damage_conflation_api.DAMAGE_CONFLATION_MAX_PAGES", 3)
+    never_ending = copy.deepcopy(milton_response)
+    never_ending["nextCursor"] = "same-cursor-every-time"
+
+    with (
+        patch.object(damage_api, "_session_scope") as scope,
+        patch.object(damage_api, "_load_from_cache", return_value=None),
+        patch.object(damage_api, "_save_to_cache"),
+    ):
+        mock_session = Mock()
+        mock_response = Mock(ok=True)
+        mock_response.json.return_value = never_ending
+        mock_session.post.return_value = mock_response
+        mock_session._timeout = (120, 90)
+        scope.return_value.__enter__.return_value = mock_session
+
+        with pytest.raises(DamageConflationAPIError, match="Pagination exceeded"):
+            damage_api.get_damage_by_aoi(test_aoi, aoi_id="runaway")
+
+    assert mock_session.post.call_count == 3  # aborted at the capped page, not looping forever
 
 
 # ----------------------------------------------------------------------- caching

@@ -135,6 +135,10 @@ DAMAGE_CONFLATION_RESOURCES_PATH = "resources"  # /resources/{resource_id}.geojs
 # large AOI (mesh block, full event boundary) is retrieved in one logical query.
 DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT = 1000
 DAMAGE_CONFLATION_NEXT_CURSOR_FIELD = "nextCursor"
+# Safety cap on pagination: bounds an unbounded `while True` loop if the API ever
+# returns a non-terminating (e.g. repeating) nextCursor. Well above any realistic
+# single-query result set at the default page limit.
+DAMAGE_CONFLATION_MAX_PAGES = 2000
 
 # rawRatings keys returned for each damage block (also the DamageClass enum values).
 # Order is the canonical column order for the flattened raw-rating columns.

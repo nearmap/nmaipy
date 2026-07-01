@@ -45,6 +45,7 @@ from nmaipy.constants import (
     API_CRS,
     DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
     DAMAGE_CONFLATION_EVENTS_PATH,
+    DAMAGE_CONFLATION_MAX_PAGES,
     DAMAGE_CONFLATION_NEXT_CURSOR_FIELD,
     DAMAGE_CONFLATION_URL_ROOT,
 )
@@ -64,6 +65,17 @@ _RESPONSE_METADATA_FIELDS = (
 
 # Columns of an empty (no-feature) parse result, so concat/rollup stay well-formed.
 _EMPTY_COLUMNS = [AOI_ID_COLUMN_NAME, "feature_id", "geometry", "damage_event_rating", "area_sqm"]
+
+# Columns that are string/date-valued but can be entirely absent from a given response
+# (e.g. damage_event_latest_capture_date is only ever populated on the preEvent block;
+# geomatched_address is address-mode only) — cast explicitly to a nullable string dtype
+# so an all-None column doesn't get inferred as pyarrow's untyped `null`, which some
+# schema-strict parquet readers (Athena, older Spark/DuckDB) reject when unifying chunks.
+_NULLABLE_STRING_COLUMNS = (
+    "damage_event_latest_capture_date",
+    "damage_pre_event_latest_capture_date",
+    "geomatched_address",
+)
 
 
 class DamageConflationApi(BaseApiClient):
@@ -304,6 +316,16 @@ class DamageConflationApi(BaseApiClient):
 
             cursor = response_data.get(DAMAGE_CONFLATION_NEXT_CURSOR_FIELD)
             if cursor:
+                if page_count >= DAMAGE_CONFLATION_MAX_PAGES:
+                    raise DamageConflationAPIError(
+                        None,
+                        self._clean_api_key(url),
+                        message=(
+                            f"Pagination exceeded {DAMAGE_CONFLATION_MAX_PAGES} pages "
+                            f"({len(all_features)} features so far) without exhausting nextCursor "
+                            "— aborting rather than looping indefinitely"
+                        ),
+                    )
                 logger.debug(f"Fetching page {page_count + 1} (total features so far: {len(all_features)})")
             else:
                 if page_count > 1:
@@ -335,7 +357,14 @@ class DamageConflationApi(BaseApiClient):
         records = []
         geometries = []
         for feature in features:
-            geometries.append(shape(feature["geometry"]))
+            geometry = feature.get("geometry")
+            if geometry is None:
+                raise DamageConflationAPIError(
+                    None,
+                    self._clean_api_key(self.base_url),
+                    message=f"Feature missing 'geometry' for {aoi_id} (feature id: {feature.get('id')})",
+                )
+            geometries.append(shape(geometry))
             record = flatten_conflated_damage_attributes(feature.get("properties", {}))
             record[AOI_ID_COLUMN_NAME] = aoi_id
             # The top-level GeoJSON id is the stable, globally-unique building id
@@ -344,7 +373,11 @@ class DamageConflationApi(BaseApiClient):
             record.update(metadata)
             records.append(record)
 
-        return gpd.GeoDataFrame(records, geometry=geometries, crs=API_CRS)
+        gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=API_CRS)
+        for col in _NULLABLE_STRING_COLUMNS:
+            if col in gdf.columns:
+                gdf[col] = gdf[col].astype("string")
+        return gdf
 
     # ------------------------------------------------------------------ queries
     def get_damage_by_aoi(
