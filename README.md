@@ -84,6 +84,19 @@ exporter.run()
 
 `rapid=True` enables consideration of post-catastrophe rapid-response surveys (when available). The damage pack has variants (`damage_postcat`, `damage_non_postcat`) for damage-related feature classes; `damage_classifications` is the richer pack used here, exposing ten damage feature classes (Roof, Missing Roof Tile or Shingle, Vegetation Debris, Junk and Wreckage, Building Structural Loss, Roof with Temporary Repair, Structural Damage, Building Damage by Tree, Building with Structural Damage, Building lifecycle). The damage classification *score* is a separate quantity, retrieved by passing `include=['damage']` — see the auto-generated README in your export's `final/` directory for what each emitted column contains.
 
+#### Finding a catastrophe event from a point
+
+For ImpactResponse workflows you often know roughly *where* an event hit but not its event id. Given a lat/lon, `nmaipy.coverage_utils.discover_event` resolves the **latest** post-catastrophe event covering that point and assembles its footprint — in memory, no files:
+
+```python
+from nmaipy.coverage_utils import discover_event
+
+event_id, boundary = discover_event(lat=27.742889, lon=-82.754961)
+# event_id: str UUID (e.g. Hurricane Milton); boundary: shapely (Multi)Polygon in EPSG:4326
+```
+
+You then subdivide `boundary` into your own AOIs (e.g. census/mesh blocks) and run the exporters over them with the discovered `event_id`. Pass `since`/`until` to disambiguate a location hit by more than one event (e.g. St Pete Beach sits under both Hurricanes Milton and Helene — the latest wins, and the others are logged). The pieces are also available separately: `latest_event_id_at_point(lat, lon)` and `event_boundary(event_id)` (the boundary is one tag-filtered Coverage query — `include=postCatEventId:<id>` — unioned, no spatial search).
+
 ### Roof Age Analysis (US Only)
 
 Predict roof installation dates using AI analysis of historical imagery, combined with building permits and climate data. Recommended approach — unified with the Feature API in one export:

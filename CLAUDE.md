@@ -322,9 +322,10 @@ When adding new columns derived from API descriptions, always use the programmat
 
 ### Legacy/Internal
 
-20. **coverage_utils.py**: Legacy coverage API utilities
+20. **coverage_utils.py**: Legacy coverage API utilities + event discovery
     - Survey coverage point queries and threading
     - Not integrated with current `BaseApiClient` architecture (uses its own `requests.Session`)
+    - **Post-cat event discovery** (`discover_event(lat, lon) -> (event_id, boundary)`, plus `latest_event_id_at_point` / `event_boundary`): given a point, resolves the latest ImpactResponse `postCatEventId` (newest `postCatEventDate` wins; others logged) and unions the event's survey footprints into a shapely (Multi)Polygon — the operator then subdivides that boundary into AOIs and runs the Damage Conflation exporter with the discovered event id. Deployed-API notes (differ from the public doc): the id is on the `postCatEventId` tag (not `eventId`); the point query takes `{lon},{lat}` in the URL path; and the whole-event footprint comes from one tag-filtered query `/coverage/v2/surveys?include=postCatEventId:<id>` (the "Filter Surveys" `include=<type>:<name>` grammar — `filter=`/`tags=` are rejected), no spatial search.
 
 21. **reference_code.py**: Minimal utility
     - `is_building_small()`: Checks building area < 30 sqm
