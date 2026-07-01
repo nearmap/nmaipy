@@ -61,15 +61,20 @@ _COVERAGE_PAGE_SIZE = 1000
 _MAX_COVERAGE_PAGES = 100  # safety bound (~100k surveys) against a missing/inconsistent `total`
 
 
-def get_payload(request_string, timeout=DEFAULT_TIMEOUT):
+def get_payload(request_string, apikey=None, timeout=DEFAULT_TIMEOUT):
     """
     Basic wrapper code to retrieve the JSON payload from the API, and raise an error if no response is given.
     Using urllib3, this also implements exponential backoff and retries for robustness.
 
+    The apikey is sent via requests' ``params`` (merged into the query string by requests) rather
+    than baked into ``request_string``, so the key never appears in the URL variable that flows
+    through this module or into any log line here.
+
     Per-request logging is at debug level: at 10k+ points an info line per call
     floods the logs. Failures are logged at warning/error.
     """
-    response = s.get(request_string, timeout=timeout)
+    params = {"apikey": apikey} if apikey else None
+    response = s.get(request_string, params=params, timeout=timeout)
 
     # response.content is server-controlled. The Nearmap coverage API doesn't
     # echo apikeys in response bodies, and the nmaipy-logger APIKeyFilter would
@@ -114,8 +119,7 @@ def _post_cat_events_at_point(lat, lon, since=None, until=None, apikey=None):
         url += f"&since={since}"
     if until is not None:
         url += f"&until={until}"
-    url += f"&apikey={apikey}"
-    response = get_payload(url)
+    response = get_payload(url, apikey=apikey)
     if isinstance(response, int):
         raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")
 
@@ -211,9 +215,9 @@ def event_boundary(event_id, since=None, until=None, apikey=None):
             f"{COVERAGE_V2_URL}/surveys"
             f"?include={POST_CAT_EVENT_ID_TAG}:{event_id}"
             "&resources=tiles:Vert&fields=id,captureDate,resources,resources:boundary,tags"
-            f"&limit={_COVERAGE_PAGE_SIZE}&offset={offset}{window}&apikey={apikey}"
+            f"&limit={_COVERAGE_PAGE_SIZE}&offset={offset}{window}"
         )
-        response = get_payload(url)
+        response = get_payload(url, apikey=apikey)
         if isinstance(response, int):
             raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")
 
@@ -307,8 +311,7 @@ def get_surveys_from_point(
         url += f"&until={until}"
     if prerelease:
         url += "&prerelease=true"
-    url += f"&apikey={apikey}"
-    response = get_payload(url, timeout=timeout)
+    response = get_payload(url, apikey=apikey, timeout=timeout)
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
@@ -622,8 +625,7 @@ def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT):
     # future reviver knows the response parser still needs implementing.
     fields = "id,captureDate,resources"
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
-    url += f"&apikey={apikey}"
-    response = get_payload(url, timeout=timeout)
+    response = get_payload(url, apikey=apikey, timeout=timeout)
     if not isinstance(response, int):
         return id_check_response_to_dataframe(response), response  # noqa: F821 (see NOTE above)
     elif response == FORBIDDEN_403:

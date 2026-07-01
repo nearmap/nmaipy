@@ -64,6 +64,18 @@ def test_get_payload_passes_timeout():
     assert mock_get.call_args.kwargs["timeout"] == (3, 7)
 
 
+def test_get_payload_sends_apikey_via_params_not_url():
+    """The apikey must go through requests' params (kept out of the request URL string),
+    so it never lands in the URL variable that flows through the module or its logs."""
+    with patch.object(cu.s, "get") as mock_get:
+        mock_get.return_value.ok = True
+        mock_get.return_value.json.return_value = {"surveys": []}
+        cu.get_payload("https://example/coverage/v2/surveys?fields=id", apikey="SECRET-KEY")
+    called_url = mock_get.call_args.args[0]
+    assert "SECRET-KEY" not in called_url
+    assert mock_get.call_args.kwargs["params"] == {"apikey": "SECRET-KEY"}
+
+
 def test_get_surveys_from_point_standard():
     with patch.object(cu, "get_payload", return_value=_STD_RESPONSE):
         df, resp = cu.get_surveys_from_point(151.0, -33.0, "2019-01-01", "2021-01-01", "KEY", cu.STANDARD_COVERAGE)
@@ -227,7 +239,7 @@ def test_event_boundary_unknown_event_raises(coverage_boundary_response):
 
 
 def test_discover_event_returns_id_and_boundary(coverage_point_response, coverage_boundary_response):
-    def fake_get_payload(url, timeout=cu.DEFAULT_TIMEOUT):
+    def fake_get_payload(url, apikey=None, timeout=cu.DEFAULT_TIMEOUT):
         if "/point/" in url:
             return coverage_point_response
         if "/surveys" in url:  # event_boundary uses the /surveys?include= tag filter
@@ -267,7 +279,7 @@ def test_event_boundary_paginates_offset(coverage_boundary_response):
     ]
     calls = {"n": 0}
 
-    def fake(url, timeout=cu.DEFAULT_TIMEOUT):
+    def fake(url, apikey=None, timeout=cu.DEFAULT_TIMEOUT):
         i = calls["n"]
         calls["n"] += 1
         return pages[i] if i < len(pages) else {"surveys": [], "total": total}
