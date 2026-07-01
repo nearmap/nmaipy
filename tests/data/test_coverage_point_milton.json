@@ -1,0 +1,18 @@
+{
+  "surveys": [
+    {
+      "captureDate": "2024-10-10",
+      "id": "14dba160-87ae-11ef-b3b9-9fe1ff823cf5",
+      "tags": {
+        "disaster": "hurricane",
+        "postCatEventDate": "2024-10-09",
+        "postCatEventId": "2f510853-5d55-50f4-9102-2c02de08190e",
+        "postCatEventName": "Hurricane Milton",
+        "postCatEventType": "hurricane"
+      }
+    }
+  ],
+  "limit": 10,
+  "offset": 0,
+  "total": 1
+}
