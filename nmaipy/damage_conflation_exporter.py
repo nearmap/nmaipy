@@ -56,6 +56,7 @@ logger = log.get_logger()
 _BUILDINGS_CSV_BASE_FIELDS = (
     AOI_ID_COLUMN_NAME,
     "feature_id",
+    "hilbert_id",
     "damage_event_rating",
     "damage_event_confidence",
     "damage_event_raw_affected",
@@ -63,6 +64,7 @@ _BUILDINGS_CSV_BASE_FIELDS = (
     "damage_event_raw_major",
     "damage_event_raw_minor",
     "damage_event_raw_no_damage",
+    "damage_event_latest_capture_date",
     "damage_pre_event_rating",
     "damage_pre_event_confidence",
     "damage_pre_event_raw_affected",
@@ -77,6 +79,7 @@ _BUILDINGS_CSV_BASE_FIELDS = (
     "model_version",
     "presentation_version",
     "resource_id",
+    "geomatched_address",
 )
 
 

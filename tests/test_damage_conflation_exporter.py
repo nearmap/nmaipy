@@ -160,6 +160,11 @@ def test_save_outputs_drops_wrong_unit_area_and_writes_files(tmp_path, chunk_inp
     csv = pd.read_csv(final / "damage_buildings.csv")
     assert "damage_event_rating" in csv.columns
     assert "geometry" in csv.columns
+    # Previously silently dropped vs. the parquet — now carried through to the CSV too.
+    for col in ("hilbert_id", "damage_event_latest_capture_date", "geomatched_address"):
+        assert col in csv.columns
+    # The verbose JSON classRatios columns stay parquet-only by design.
+    assert "damage_event_class_ratios" not in csv.columns
 
 
 def test_combine_reads_present_chunks_and_preserves_index(tmp_path, chunk_inputs):
