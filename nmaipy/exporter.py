@@ -1015,6 +1015,22 @@ def _dataframe_to_records_with_index(df):
     return records
 
 
+def _aoi_id_values(df):
+    """Return the per-row aoi_id values whether aoi_id is a column or the index.
+
+    The chunk frame is indexed by aoi_id in the standalone export path but carries
+    aoi_id as a column with a RangeIndex in the streaming path (the on=aoi_id merges
+    in process_chunk reset the index). Roof attribute lookups key on (aoi_id,
+    feature_id), so both layouts must resolve to the same aoi_id series that the
+    cache producer (via _dataframe_to_records_with_index) sees.
+    """
+    if AOI_ID_COLUMN_NAME in df.columns:
+        return df[AOI_ID_COLUMN_NAME].values
+    if df.index.name == AOI_ID_COLUMN_NAME:
+        return df.index.values
+    return [None] * len(df)
+
+
 def _description_to_cname(description: str) -> str:
     """Convert a class description like 'Roof Instance' to a filename-safe slug like 'roof_instance'."""
     return re.sub(r"[^a-z0-9]+", "_", description.lower()).strip("_")
@@ -1151,7 +1167,14 @@ def _compute_all_per_class_data(
                         parent_projected=roof_geoms_proj.iloc[ridx],
                         children_projected=child_proj_by_aoi.get(roof_aoi),
                     )
-                    roof_attrs_cache_chunk[row["feature_id"]] = attrs
+                    # Key by (aoi_id, feature_id): in parcelMode a multiparcel
+                    # roof appears once per parcel it overlaps, each row carrying
+                    # attributes recomputed on that parcel's clipped geometry
+                    # (RSI, materials, defensible space, ...). Keying by feature_id
+                    # alone lets one parcel's clip overwrite another's, so every
+                    # duplicate row would inherit whichever parcel was flattened
+                    # last. See consumers in _compute_feature_class_data.
+                    roof_attrs_cache_chunk[(roof_aoi, row["feature_id"])] = attrs
                 except Exception as e:
                     _log.debug(f"Could not flatten roof attrs: {e}")
             del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
@@ -1499,8 +1522,13 @@ def _compute_feature_class_data(
         # These are from include parameters and the roof's own attributes array
         try:
             if roof_attrs_cache is not None:
-                # Use pre-computed cache (avoids duplicate flatten loop)
-                attr_records = [roof_attrs_cache.get(fid, {}) for fid in class_features["feature_id"].values]
+                # Use pre-computed cache (avoids duplicate flatten loop).
+                # Cache is keyed by (aoi_id, feature_id) so multiparcel roofs
+                # resolve to this parcel's clipped attributes, not another's.
+                attr_records = [
+                    roof_attrs_cache.get((aoi, fid), {})
+                    for aoi, fid in zip(_aoi_id_values(class_features), class_features["feature_id"].values)
+                ]
                 logger.debug(f"Roof attribute flattening: used cache for {len(class_features)} roofs")
             else:
                 # Fallback: compute per-row (for standalone calls without cache)
@@ -1687,8 +1715,14 @@ def _compute_feature_class_data(
 
                 # Build a mapping from roof feature_id to flattened attributes.
                 if roof_attrs_cache is not None:
-                    # Use pre-computed cache (avoids duplicate flatten loop)
-                    roof_attrs = {fid: roof_attrs_cache.get(fid, {}) for fid in roofs_linked["feature_id"].values}
+                    # Use pre-computed cache (avoids duplicate flatten loop).
+                    # Keyed by (aoi_id, feature_id) so a multiparcel roof keeps a
+                    # distinct entry per parcel; the reindex below looks each
+                    # building up by its own (aoi_id, primary_child_roof_id).
+                    roof_attrs = {
+                        (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
+                        for aoi, fid in zip(_aoi_id_values(roofs_linked), roofs_linked["feature_id"].values)
+                    }
                     logger.debug(f"Building roof attribute flattening: used cache for {len(roofs_linked)} roofs")
                 else:
                     # Fallback: compute per-row (for standalone calls without cache)
@@ -1712,7 +1746,7 @@ def _compute_feature_class_data(
                                 parent_projected=bldg_roof_geoms_projected.iloc[idx],
                                 children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
                             )
-                            roof_attrs[row["feature_id"]] = attrs
+                            roof_attrs[(roof_aoi, row["feature_id"])] = attrs
                         except Exception as e:
                             logger.debug(f"Could not flatten building-linked roof attributes: {e}")
                     logger.debug(
@@ -1722,10 +1756,20 @@ def _compute_feature_class_data(
                 if roof_attrs:
                     # Map primary child roof attributes to buildings via DataFrame reindex
                     # (replaces per-attribute .apply(lambda) with a single vectorized lookup)
-                    roof_attrs_df = pd.DataFrame.from_dict(roof_attrs, orient="index")
+                    # roof_attrs is keyed by (aoi_id, feature_id); build the frame
+                    # with a matching MultiIndex and look each building up by its
+                    # own (aoi_id, primary_child_roof_id) so a multiparcel roof
+                    # resolves to this building's parcel clip.
+                    attr_keys = list(roof_attrs.keys())
+                    roof_attrs_df = pd.DataFrame([roof_attrs[k] for k in attr_keys])
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
-                    primary_ids = buildings_linked["primary_child_roof_id"].values
-                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
+                    roof_attrs_df.index = pd.MultiIndex.from_tuples(
+                        attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"]
+                    )
+                    lookup_keys = list(
+                        zip(_aoi_id_values(buildings_linked), buildings_linked["primary_child_roof_id"].values)
+                    )
+                    mapped = roof_attrs_df.reindex(lookup_keys).reset_index(drop=True)
 
                     roof_attr_batch = {}
                     _DOM = (
@@ -1747,31 +1791,39 @@ def _compute_feature_class_data(
                     # For each child roof, resolve best RSI (roof's own first,
                     # then BL fallback) so min/max reflect the same logic as
                     # the per-row roof_spotlight_index column.
+                    # Keyed by (aoi_id, feature_id): child_roofs are matched within
+                    # the building's own parcel, so min/max must look up the roof's
+                    # clip for that parcel, not another's.
                     rsi_lookup = {}
-                    for fid, attrs in roof_attrs.items():
+                    for (r_aoi, fid), attrs in roof_attrs.items():
                         if "roof_spotlight_index" in attrs:
-                            rsi_lookup[fid] = attrs["roof_spotlight_index"]
+                            rsi_lookup[(r_aoi, fid)] = attrs["roof_spotlight_index"]
                         else:
-                            # Try BL fallback via IoU-linked Building(New) → BL
+                            # BL fallback goes through the feature_id-keyed parent
+                            # lookup (see layer-2 note in the PR); best-effort here.
                             bn_id = _roof_to_building.get(fid)
                             if bn_id:
                                 bn_row = p_lookup.get(bn_id)
                                 if bn_row is not None:
                                     resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
                                     if resolved_rsi and "roof_spotlight_index" in resolved_rsi:
-                                        rsi_lookup[fid] = resolved_rsi["roof_spotlight_index"]
+                                        rsi_lookup[(r_aoi, fid)] = resolved_rsi["roof_spotlight_index"]
 
                     if rsi_lookup:
                         n_buildings = len(buildings_linked)
                         min_vals = np.full(n_buildings, np.nan)
                         max_vals = np.full(n_buildings, np.nan)
+                        building_aois = _aoi_id_values(buildings_linked)
                         for i, child_json in enumerate(buildings_linked["child_roofs"].values):
                             if not child_json or child_json == "[]":
                                 continue
+                            b_aoi = building_aois[i]
                             try:
                                 child_list = json.loads(child_json) if isinstance(child_json, str) else child_json
                                 rsi_vals = [
-                                    rsi_lookup[c["feature_id"]] for c in child_list if c.get("feature_id") in rsi_lookup
+                                    rsi_lookup[(b_aoi, c["feature_id"])]
+                                    for c in child_list
+                                    if (b_aoi, c.get("feature_id")) in rsi_lookup
                                 ]
                                 if rsi_vals:
                                     min_vals[i] = min(rsi_vals)
@@ -1977,9 +2029,15 @@ def _compute_feature_class_data(
                 if bl_linkage_batch:
                     df_parts.append(pd.DataFrame(bl_linkage_batch, index=range(n_rows)))
 
-                # Map primary child roof attributes to BL features
+                # Map primary child roof attributes to BL features.
+                # Cache is keyed by (aoi_id, feature_id); pull each roof's own
+                # parcel while keeping this dict keyed by feature_id for the
+                # primary_child_roof reindex below.
                 roof_attrs = (
-                    {fid: roof_attrs_cache.get(fid, {}) for fid in roofs["feature_id"].values}
+                    {
+                        fid: roof_attrs_cache.get((aoi, fid), {})
+                        for aoi, fid in zip(_aoi_id_values(roofs), roofs["feature_id"].values)
+                    }
                     if roof_attrs_cache is not None
                     else {}
                 )
