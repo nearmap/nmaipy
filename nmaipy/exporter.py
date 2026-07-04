@@ -1020,15 +1020,17 @@ def _aoi_id_values(df):
 
     The chunk frame is indexed by aoi_id in the standalone export path but carries
     aoi_id as a column with a RangeIndex in the streaming path (the on=aoi_id merges
-    in process_chunk reset the index). Roof attribute lookups key on (aoi_id,
-    feature_id), so both layouts must resolve to the same aoi_id series that the
-    cache producer (via _dataframe_to_records_with_index) sees.
+    in process_chunk reset the index). Roof attribute cache keys are (aoi_id,
+    feature_id); the cache producer and all consumers resolve aoi_id through this
+    helper so their keys always agree. Raises rather than degrading: a frame with
+    no aoi_id would collapse the cache back to feature_id-only keys — the exact
+    multiparcel collision this keying exists to prevent.
     """
     if AOI_ID_COLUMN_NAME in df.columns:
         return df[AOI_ID_COLUMN_NAME].values
     if df.index.name == AOI_ID_COLUMN_NAME:
         return df.index.values
-    return [None] * len(df)
+    raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot key roof attributes per parcel")
 
 
 def _description_to_cname(description: str) -> str:
@@ -1156,9 +1158,10 @@ def _compute_all_per_class_data(
             )
             roof_attrs_cache_chunk = {}
             roof_records = _dataframe_to_records_with_index(roof_features_chunk)
+            roof_aoi_vals = _aoi_id_values(roof_features_chunk)
             for ridx, row in enumerate(roof_records):
                 try:
-                    roof_aoi = row.get(AOI_ID_COLUMN_NAME)
+                    roof_aoi = roof_aoi_vals[ridx]
                     aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     attrs = flatten_roof_attributes(
                         [row],
@@ -1277,7 +1280,9 @@ def _compute_feature_class_data(
         roof_features: Pre-filtered roof features
         non_roof_features: Pre-filtered non-roof features
         roof_instance_features: Pre-filtered roof instance features
-        roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts
+        roof_attrs_cache: Pre-computed dict mapping (aoi_id, feature_id) to flattened attribute
+            dicts. Keyed per parcel because in parcelMode a multiparcel roof appears once per
+            parcel with attributes recomputed on that parcel's clipped geometry.
         parent_lookup: Pre-built dict mapping feature_id to feature record, for parent-chain
             traversal (rebuilt from features_gdf if not provided)
         roof_to_building_lookup: Pre-built dict mapping roof feature_id to parent building
@@ -1734,10 +1739,11 @@ def _compute_feature_class_data(
                     t_bldg_roof_flatten = time.monotonic()
                     roof_attrs = {}
                     roof_records = _dataframe_to_records_with_index(roofs_linked)
+                    roof_aoi_vals = _aoi_id_values(roofs_linked)
 
                     for idx, row in enumerate(roof_records):
                         try:
-                            roof_aoi = row.get(AOI_ID_COLUMN_NAME)
+                            roof_aoi = roof_aoi_vals[idx]
                             aoi_children = child_by_aoi_bldg.get(roof_aoi) if roof_aoi is not None else None
                             attrs = flatten_roof_attributes(
                                 [row],
@@ -1763,9 +1769,7 @@ def _compute_feature_class_data(
                     attr_keys = list(roof_attrs.keys())
                     roof_attrs_df = pd.DataFrame([roof_attrs[k] for k in attr_keys])
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
-                    roof_attrs_df.index = pd.MultiIndex.from_tuples(
-                        attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"]
-                    )
+                    roof_attrs_df.index = pd.MultiIndex.from_tuples(attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"])
                     lookup_keys = list(
                         zip(_aoi_id_values(buildings_linked), buildings_linked["primary_child_roof_id"].values)
                     )
@@ -2030,9 +2034,13 @@ def _compute_feature_class_data(
                     df_parts.append(pd.DataFrame(bl_linkage_batch, index=range(n_rows)))
 
                 # Map primary child roof attributes to BL features.
-                # Cache is keyed by (aoi_id, feature_id); pull each roof's own
-                # parcel while keeping this dict keyed by feature_id for the
-                # primary_child_roof reindex below.
+                # Cache is keyed by (aoi_id, feature_id); each roof row pulls its
+                # own parcel's clip, but this dict is keyed by feature_id because
+                # the whole BL linkage chain (roof_to_bl, bl_primary_roof,
+                # primary_ids) is fid-keyed — for a multiparcel roof the last row
+                # wins, so BL primary_child_roof_* attrs can still carry another
+                # parcel's clip. Pre-existing behaviour, part of the fid-keyed
+                # parent-chain limitation (see PR #210 follow-up note).
                 roof_attrs = (
                     {
                         fid: roof_attrs_cache.get((aoi, fid), {})
@@ -2212,9 +2220,10 @@ def export_feature_class(
         roof_features: Pre-filtered roof features (avoids repeated features_gdf scans)
         non_roof_features: Pre-filtered non-roof features (avoids repeated features_gdf scans)
         roof_instance_features: Pre-filtered roof instance features (avoids repeated features_gdf scans)
-        roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts.
-                         When provided, skips the per-row flatten_roof_attributes loop for both
-                         ROOF_ID and BUILDING_NEW_ID paths (avoids duplicate flattening).
+        roof_attrs_cache: Pre-computed dict mapping (aoi_id, feature_id) to flattened attribute
+                         dicts (keyed per parcel — see _compute_feature_class_data). When provided,
+                         skips the per-row flatten_roof_attributes loop for both ROOF_ID and
+                         BUILDING_NEW_ID paths (avoids duplicate flattening).
 
     Returns:
         Tuple of (tabular_path, geo_parquet_path) or (None, None) if no features
