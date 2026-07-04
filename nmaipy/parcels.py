@@ -81,6 +81,7 @@ __all__ = [
     "link_roof_instances_to_roofs",
     "link_roofs_to_buildings",
     "build_parent_lookup",
+    "build_parent_lookup_by_aoi",
     "extract_rsi_from_feature",
     "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
@@ -771,6 +772,12 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     Returns plain dicts (not pd.Series views) so the lookup is lightweight
     and decoupled from the source DataFrame.  Resets a named index (e.g.
     aoi_id) into the dict so it is not silently dropped.
+
+    Only valid for a single AOI's features: in parcelMode a feature that
+    overlaps multiple parcels appears once per parcel (same feature_id) with
+    attributes computed on that parcel's clipped geometry, so on a multi-AOI
+    frame this dict would collapse those rows to whichever parcel came last.
+    For chunk-level (multi-AOI) frames use build_parent_lookup_by_aoi().
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
@@ -781,6 +788,32 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     if filtered.index.name is not None:
         filtered = filtered.reset_index()
     return dict(zip(filtered["feature_id"].values, filtered.to_dict("records")))
+
+
+def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
+    """Build {aoi_id: {feature_id: row dict}} for parent_id chain traversal.
+
+    Parent chains never cross parcels — a feature's parent is returned in the
+    same parcel's response — so scoping the lookup per AOI keeps every
+    traversal inside the parcel whose clip produced the row, and feature_id is
+    unique within each sub-dict. Consumers take their parcel's sub-dict
+    (`lookup.get(aoi_id, {})`) and use it exactly like build_parent_lookup()
+    output; resolve_footprint_rsi() / _traverse_to_bl() work unchanged on it.
+    """
+    if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
+        return {}
+    mask = features_gdf["feature_id"].notna()
+    filtered = features_gdf[mask]
+    if filtered.index.name is not None:
+        filtered = filtered.reset_index()
+    if AOI_ID_COLUMN_NAME not in filtered.columns:
+        raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot scope parent lookup per parcel")
+    lookup: dict = {}
+    for aoi, fid, rec in zip(
+        filtered[AOI_ID_COLUMN_NAME].values, filtered["feature_id"].values, filtered.to_dict("records")
+    ):
+        lookup.setdefault(aoi, {})[fid] = rec
+    return lookup
 
 
 def resolve_footprint_rsi(
@@ -803,9 +836,12 @@ def resolve_footprint_rsi(
     Args:
         feature: A feature row (pd.Series or dict) with parent_id and roof_spotlight_index.
             For BL fallback, pass the IoU-linked Building(New) row, not the Roof row.
-        features_gdf: The full features GeoDataFrame for parent_id lookups.
-            Used to build parent_lookup if not provided.
-        parent_lookup: Pre-built feature_id → row dict for fast traversal.
+        features_gdf: Features GeoDataFrame for parent_id lookups, used to build
+            parent_lookup if not provided. Must be scoped to the feature's own
+            AOI (see build_parent_lookup); pass a per-AOI sub-dict of
+            build_parent_lookup_by_aoi() output for chunk-level frames.
+        parent_lookup: Pre-built feature_id → row dict for fast traversal,
+            scoped to the feature's own AOI.
             Pass this when calling in a loop to avoid rebuilding per call.
 
     Returns:
@@ -1509,8 +1545,10 @@ def parcel_rollup(
             df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.values
             geometry_projected_col = "_geometry_projected"
 
-    # Build parent lookup once for the whole chunk; feature_ids are globally unique across AOIs
-    chunk_parent_lookup = build_parent_lookup(features_gdf)
+    # Build parent lookup once for the whole chunk, scoped per AOI: in parcelMode
+    # a multiparcel feature appears once per parcel (same feature_id, per-clip
+    # attributes), so each parcel must traverse only its own rows.
+    chunk_parent_lookup = build_parent_lookup_by_aoi(features_gdf)
 
     rollups = []
     # Loop over parcels with features in them
@@ -1547,7 +1585,7 @@ def parcel_rollup(
             primary_lon=primary_lon,
             geometry_projected_col=geometry_projected_col,
             projected_crs=projected_crs,
-            parent_lookup=chunk_parent_lookup,
+            parent_lookup=chunk_parent_lookup.get(aoi_id) or {},
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         if "mesh_date" in group.columns:
@@ -1577,7 +1615,7 @@ def parcel_rollup(
             country=country,
             parcel_geom=row.geometry if hasgeom else None,
             primary_decision=primary_decision,
-            parent_lookup=chunk_parent_lookup,
+            parent_lookup={},
         )
         aoi_id = row._asdict()["Index"]
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
