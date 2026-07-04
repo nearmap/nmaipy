@@ -182,6 +182,20 @@ This consistency matters because:
 
 When adding new columns derived from API descriptions, always use the programmatic pattern rather than inventing abbreviated or "cleaned" names.
 
+## Feature ID Semantics (multiparcel row identity)
+
+`feature_id` values originate in the raw vector tiles, and features can be large — a single roof, building, or building lifecycle polygon can span parcel boundaries or grid cells. Their stability rules:
+
+- **Stable within a survey**: the same physical feature from the same survey ID has the same `feature_id` no matter which AOI or query returned it. This is what makes gridding deduplication (`combine_features_from_grid`) and cross-AOI matching work.
+- **Not stable across surveys/dates**: the same physical feature captured on different survey dates gets different IDs. Never match or deduplicate by `feature_id` across dates.
+- **Multiparcel consequence (parcelMode)**: two AOIs that intersect the same feature from the same survey each get a row with the *same* `feature_id`, but attributes (RSI, component areas, defensible space, …) are computed by the API on **that parcel's clipped geometry**, and nmaipy's flattening recomputes child-intersection attributes per clip as well. The row identity in any multi-AOI frame is therefore `(aoi_id, feature_id)`, never `feature_id` alone.
+
+Code implications (see PR #210 for the bug class this prevents):
+- Any chunk-level (multi-AOI) cross-row structure must be keyed by `(aoi_id, feature_id)` (e.g. `roof_attrs_cache`) or scoped per AOI as `{aoi_id: {feature_id: …}}` (`build_parent_lookup_by_aoi`, `roof_to_building_lookup`), with each consumer taking its row's own parcel sub-dict.
+- `build_parent_lookup` (flat, fid-keyed) is only valid for a single AOI's features.
+- Parent-chain traversal and IoU linkage never cross parcels — per-AOI scoping preserves that invariant by construction, and a chain that is broken within a parcel must yield null rather than borrow another parcel's clip value.
+- Deduplication by bare `feature_id` is only correct within one AOI and one survey (the gridded-query merge case).
+
 ## Code Architecture
 
 ### Exporter Layer (user-facing entry points)
