@@ -211,6 +211,54 @@ class TestGenericPatterns:
         assert expected_class_phrase in meta.description
 
 
+class TestRetiredRoofShapeClasses:
+    """Retired shape classes (shed, flat_(deprecated)) get clarified descriptions.
+
+    "shed" is the single-slope roof shape, not a garden shed — the bare class
+    name has confused customers. Both classes are retired from the Feature API
+    and only appear in historical/precomputed data, which the description
+    must state.
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "shed_present",
+            "shed_ratio",
+            "shed_area_sqm",
+            "shed_confidence",
+            "primary_roof_shed_present",
+        ],
+    )
+    def test_shed_clarified_as_roof_shape(self, name):
+        meta = lookup_column(name, area_unit="sqm", class_label="roof")
+        assert "single-slope roof shape" in meta.description
+        assert "not a freestanding garden shed" in meta.description
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "shed_present",
+            "primary_roof_shed_area_sqm",
+            "flat_(deprecated)_present",
+            "primary_roof_flat_(deprecated)_ratio",
+            # Suffixed area variant: pins that the note check keys off the same
+            # suffix-stripped base as the {class} phrase clarification.
+            "shed_total_clipped_area_sqm",
+        ],
+    )
+    def test_retired_note_appended_exactly_once(self, name):
+        meta = lookup_column(name, area_unit="sqm", class_label="roof")
+        assert meta.description.count("retired from the Feature API") == 1
+        assert meta.description.endswith("historical/precomputed data.")
+
+    @pytest.mark.parametrize("name", ["gable_present", "hip_ratio", "tile_area_sqm"])
+    def test_live_classes_unaffected(self, name):
+        meta = lookup_column(name, area_unit="sqm", class_label="roof")
+        assert "retired" not in meta.description
+        assert "garden shed" not in meta.description
+
+
 # ---------------------------------------------------------------------------
 # 4. Unknown columns
 # ---------------------------------------------------------------------------

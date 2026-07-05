@@ -22,9 +22,23 @@ from functools import lru_cache
 from importlib import resources
 from typing import Optional
 
+from nmaipy.constants import RETIRED_ROOF_SHAPE_DESCRIPTIONS
+
 # Sentinel string for fields that the PM must fill in. Surfaces visibly in
 # generated dictionaries so missing descriptions are easy to spot.
 UNKNOWN_SENTINEL = "?"
+
+# Appended to pattern-matched descriptions whose {class} capture is in
+# RETIRED_ROOF_SHAPE_DESCRIPTIONS, so data dictionaries flag columns that only
+# carry data for historical/precomputed responses.
+_RETIRED_CLASS_NOTE = "This class was retired from the Feature API and only appears in historical/precomputed data."
+
+# Snake_cased {class} captures whose bare name is ambiguous to customers.
+# Rendered in place of the default humanised phrase wherever {class} appears
+# (e.g. "shed" alone reads as a garden shed rather than the roof shape).
+_CLASS_PHRASE_CLARIFICATIONS: dict[str, str] = {
+    "shed": "shed roof (a single-slope roof shape, not a freestanding garden shed)",
+}
 
 # Long-form unit names paired with their short column-suffix form.
 _AREA_UNIT_LONG_NAMES = {"sqft": "square feet", "sqm": "square metres"}
@@ -66,6 +80,21 @@ _SUFFIX_STRIP_RULES: tuple[tuple[str, str], ...] = (
     ("_unclipped", " (before parcel clipping)"),
     ("_total", ""),
 )
+
+
+def _split_class_suffix(cls: str) -> tuple[str, str]:
+    """Split a pattern-captured ``{class}`` value into (base, parenthetical).
+
+    Applies ``_SUFFIX_STRIP_RULES``; the first matching suffix wins — order in
+    the constant is load-bearing. Single normalisation path for both the
+    ``{class}`` phrase rendering in ``_substitute`` and the retired-class
+    membership check in ``lookup_column``, so the two can't drift.
+    """
+    for suffix, parenthetical in _SUFFIX_STRIP_RULES:
+        if cls.endswith(suffix):
+            return cls[: -len(suffix)], parenthetical
+    return cls, ""
+
 
 # Terse labels for scope-stripped lookup, appended in parens to the resolved
 # description (e.g. "Estimated roof installation date (primary roof's roof
@@ -200,18 +229,10 @@ def _substitute(
         return value
     unit_long = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
     scope_phrase = scope_phrase_override or _format_scope_phrase(scope)
-    # Render {class} as a human-readable phrase by applying the
-    # suffix-stripping rules (see ``_SUFFIX_STRIP_RULES`` above), then
-    # replacing remaining underscores with spaces. The first matching
-    # suffix wins — order in the constant is load-bearing.
-    cls_phrase = cls
-    suffix_phrase = ""
-    for suffix, parenthetical in _SUFFIX_STRIP_RULES:
-        if cls_phrase.endswith(suffix):
-            cls_phrase = cls_phrase[: -len(suffix)]
-            suffix_phrase = parenthetical
-            break
-    cls_phrase = cls_phrase.replace("_", " ") + suffix_phrase
+    # Render {class} as a human-readable phrase: strip any area-variant suffix,
+    # apply customer-facing clarifications, and replace underscores with spaces.
+    cls_base, suffix_phrase = _split_class_suffix(cls)
+    cls_phrase = _CLASS_PHRASE_CLARIFICATIONS.get(cls_base, cls_base.replace("_", " ")) + suffix_phrase
     # {class_label_primary} falls back to plain {class_label} when no scope-aware
     # primary phrase is supplied.
     primary_label = class_label_primary or class_label
@@ -544,7 +565,7 @@ def lookup_column(
                 scope_phrase_override = f"on this {class_label}"
             if extras:
                 extra_groups.update(extras)
-            return _instantiate(
+            rendered = _instantiate(
                 pattern.template,
                 area_unit=area_unit,
                 scope=scope,
@@ -553,6 +574,9 @@ def lookup_column(
                 scope_phrase_override=scope_phrase_override,
                 extra_groups=extra_groups,
             )
+            if _split_class_suffix(cls)[0] in RETIRED_ROOF_SHAPE_DESCRIPTIONS and rendered.description:
+                rendered = replace(rendered, description=f"{rendered.description.rstrip('.')}. {_RETIRED_CLASS_NOTE}")
+            return rendered
 
     # 4. Sentinel.
     return ColumnMeta(description=UNKNOWN_SENTINEL, source=UNKNOWN_SENTINEL)
