@@ -28,9 +28,10 @@ from shapely import wkb
 from nmaipy import log
 from nmaipy.constants import (
     DAMAGE_CONFLATION_RAW_RATING_KEYS,
-    FLAT_DEPRECATED_ROOF_ID,
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
+    RETIRED_ROOF_SHAPE_CLASS_IDS,
+    RETIRED_ROOF_SHAPE_DESCRIPTIONS,
     ROOF_AGE_PREFIX_COLUMNS,
     country_area_suffix,
 )
@@ -603,14 +604,6 @@ _DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
 # Minimum ratio for a material to be considered dominant (below this → UNKNOWN).
 DOMINANT_MATERIAL_MIN_RATIO = 0.5
 
-# Class IDs to exclude from dominant shape selection.
-_IGNORED_DOMINANT_SHAPE_CLASS_IDS = {FLAT_DEPRECATED_ROOF_ID}
-
-# Description strings (snake_cased) to exclude from dominant shape selection.
-# Used for components that may appear in pre-computed API data but no longer
-# have a registered class ID (e.g. "Shed" was removed from the Feature API).
-_IGNORED_DOMINANT_SHAPE_DESCRIPTIONS = {"shed"}
-
 
 def _get_component_stats(component: dict, recalc_attrs: Optional[dict], country: str) -> dict:
     """Get ratio, area, confidence, class_id for a component from the best available source.
@@ -649,11 +642,12 @@ def _build_dominant_columns(components: list, recalc_attrs: Optional[dict], coun
 
     stats = [_get_component_stats(c, recalc_attrs, country) for c in components]
     if attr_key == "roof_types":
+        # Retired shape classes still appear as components in historical /
+        # precomputed data; they never win dominant selection.
         stats = [
             s
             for s in stats
-            if s["class_id"] not in _IGNORED_DOMINANT_SHAPE_CLASS_IDS
-            and s["name"] not in _IGNORED_DOMINANT_SHAPE_DESCRIPTIONS
+            if s["class_id"] not in RETIRED_ROOF_SHAPE_CLASS_IDS and s["name"] not in RETIRED_ROOF_SHAPE_DESCRIPTIONS
         ]
     prefix = f"dominant_{attr_key}"
     area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"

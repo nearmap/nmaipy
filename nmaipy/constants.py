@@ -317,6 +317,16 @@ DEPRECATED_CLASS_IDS = [
     FLAT_DEPRECATED_ROOF_ID,  # Replaced by CLASS_1191_FLAT
 ]
 
+# Roof shape classes retired from the Feature API but still present as roof-type
+# components in historical/precomputed attribute data. Keyed two ways because
+# "Shed" was removed outright and no longer has a registered class ID (matched
+# by snake_cased description only), while "Flat (deprecated)" retains one.
+# Consumers: dominant_roof_types_* selection excludes them
+# (feature_attributes.py), and generated data dictionaries flag them as retired
+# (column_metadata.py).
+RETIRED_ROOF_SHAPE_CLASS_IDS = frozenset({FLAT_DEPRECATED_ROOF_ID})
+RETIRED_ROOF_SHAPE_DESCRIPTIONS = frozenset({"shed", "flat_(deprecated)"})
+
 # Roof Instance - a temporal slice of a roof from the Roof Age API
 # This is a "virtual" feature class that represents roof installation date information
 # Roof instances may spatially correspond to roof objects from the Feature API, but are
