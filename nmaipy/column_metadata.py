@@ -81,6 +81,21 @@ _SUFFIX_STRIP_RULES: tuple[tuple[str, str], ...] = (
     ("_total", ""),
 )
 
+
+def _split_class_suffix(cls: str) -> tuple[str, str]:
+    """Split a pattern-captured ``{class}`` value into (base, parenthetical).
+
+    Applies ``_SUFFIX_STRIP_RULES``; the first matching suffix wins — order in
+    the constant is load-bearing. Single normalisation path for both the
+    ``{class}`` phrase rendering in ``_substitute`` and the retired-class
+    membership check in ``lookup_column``, so the two can't drift.
+    """
+    for suffix, parenthetical in _SUFFIX_STRIP_RULES:
+        if cls.endswith(suffix):
+            return cls[: -len(suffix)], parenthetical
+    return cls, ""
+
+
 # Terse labels for scope-stripped lookup, appended in parens to the resolved
 # description (e.g. "Estimated roof installation date (primary roof's roof
 # age)."). Used only when the underlying template doesn't already carry scope
@@ -214,18 +229,10 @@ def _substitute(
         return value
     unit_long = _AREA_UNIT_LONG_NAMES.get(area_unit, area_unit)
     scope_phrase = scope_phrase_override or _format_scope_phrase(scope)
-    # Render {class} as a human-readable phrase by applying the
-    # suffix-stripping rules (see ``_SUFFIX_STRIP_RULES`` above), then
-    # replacing remaining underscores with spaces. The first matching
-    # suffix wins — order in the constant is load-bearing.
-    cls_phrase = cls
-    suffix_phrase = ""
-    for suffix, parenthetical in _SUFFIX_STRIP_RULES:
-        if cls_phrase.endswith(suffix):
-            cls_phrase = cls_phrase[: -len(suffix)]
-            suffix_phrase = parenthetical
-            break
-    cls_phrase = _CLASS_PHRASE_CLARIFICATIONS.get(cls_phrase, cls_phrase.replace("_", " ")) + suffix_phrase
+    # Render {class} as a human-readable phrase: strip any area-variant suffix,
+    # apply customer-facing clarifications, and replace underscores with spaces.
+    cls_base, suffix_phrase = _split_class_suffix(cls)
+    cls_phrase = _CLASS_PHRASE_CLARIFICATIONS.get(cls_base, cls_base.replace("_", " ")) + suffix_phrase
     # {class_label_primary} falls back to plain {class_label} when no scope-aware
     # primary phrase is supplied.
     primary_label = class_label_primary or class_label
@@ -567,7 +574,7 @@ def lookup_column(
                 scope_phrase_override=scope_phrase_override,
                 extra_groups=extra_groups,
             )
-            if cls in RETIRED_ROOF_SHAPE_DESCRIPTIONS and rendered.description:
+            if _split_class_suffix(cls)[0] in RETIRED_ROOF_SHAPE_DESCRIPTIONS and rendered.description:
                 rendered = replace(rendered, description=f"{rendered.description.rstrip('.')}. {_RETIRED_CLASS_NOTE}")
             return rendered
 

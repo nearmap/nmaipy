@@ -242,6 +242,9 @@ class TestRetiredRoofShapeClasses:
             "primary_roof_shed_area_sqm",
             "flat_(deprecated)_present",
             "primary_roof_flat_(deprecated)_ratio",
+            # Suffixed area variant: pins that the note check keys off the same
+            # suffix-stripped base as the {class} phrase clarification.
+            "shed_total_clipped_area_sqm",
         ],
     )
     def test_retired_note_appended_exactly_once(self, name):
