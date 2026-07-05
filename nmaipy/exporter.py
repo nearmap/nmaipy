@@ -126,7 +126,7 @@ from nmaipy.feature_attributes import (
 )
 from nmaipy.parcels import (
     _traverse_to_bl,
-    build_parent_lookup,
+    build_parent_lookup_by_aoi,
     class_column_names,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
@@ -1015,6 +1015,24 @@ def _dataframe_to_records_with_index(df):
     return records
 
 
+def _aoi_id_values(df):
+    """Return the per-row aoi_id values whether aoi_id is a column or the index.
+
+    The chunk frame is indexed by aoi_id in the standalone export path but carries
+    aoi_id as a column with a RangeIndex in the streaming path (the on=aoi_id merges
+    in process_chunk reset the index). Roof attribute cache keys are (aoi_id,
+    feature_id); the cache producer and all consumers resolve aoi_id through this
+    helper so their keys always agree. Raises rather than degrading: a frame with
+    no aoi_id would collapse the cache back to feature_id-only keys — the exact
+    multiparcel collision this keying exists to prevent.
+    """
+    if AOI_ID_COLUMN_NAME in df.columns:
+        return df[AOI_ID_COLUMN_NAME].values
+    if df.index.name == AOI_ID_COLUMN_NAME:
+        return df.index.values
+    raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot key roof attributes per parcel")
+
+
 def _description_to_cname(description: str) -> str:
     """Convert a class description like 'Roof Instance' to a filename-safe slug like 'roof_instance'."""
     return re.sub(r"[^a-z0-9]+", "_", description.lower()).strip("_")
@@ -1078,9 +1096,12 @@ def _compute_all_per_class_data(
     if "class_id" in chunk_gdf.columns and len(chunk_gdf) > 0:
         class_groups = dict(iter(chunk_gdf.groupby("class_id", sort=False)))
 
-    # Build parent lookup once for all classes in this chunk
+    # Build parent lookup once for all classes in this chunk, scoped per AOI:
+    # in parcelMode a multiparcel feature appears once per parcel (same
+    # feature_id, per-clip attributes), so parent-chain traversal must stay
+    # inside each row's own parcel.
     shared_parent_lookup = (
-        build_parent_lookup(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
+        build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
     )
 
     # Build class_descriptions from chunk data
@@ -1121,14 +1142,18 @@ def _compute_all_per_class_data(
                 roofs_linked_chunk, buildings_linked_chunk = link_roofs_to_buildings(
                     roof_features_chunk, building_new_chunk
                 )
-                roof_to_building_lookup = {
-                    fid: bid
-                    for fid, bid in zip(
-                        roofs_linked_chunk["feature_id"].values,
-                        roofs_linked_chunk["parent_building_id"].values,
-                    )
-                    if pd.notna(bid)
-                }
+                # Scoped per AOI like the parent lookup: a multiparcel roof links
+                # within each parcel independently (the building may be absent
+                # from one parcel's rows), so roof→building resolution must not
+                # leak across parcels.
+                roof_to_building_lookup = {}
+                for aoi, fid, bid in zip(
+                    _aoi_id_values(roofs_linked_chunk),
+                    roofs_linked_chunk["feature_id"].values,
+                    roofs_linked_chunk["parent_building_id"].values,
+                ):
+                    if pd.notna(bid):
+                        roof_to_building_lookup.setdefault(aoi, {})[fid] = bid
 
         # Compute roof attrs cache
         if ROOF_ID in whitelisted_classes and roof_features_chunk is not None and len(roof_features_chunk) > 0:
@@ -1140,9 +1165,10 @@ def _compute_all_per_class_data(
             )
             roof_attrs_cache_chunk = {}
             roof_records = _dataframe_to_records_with_index(roof_features_chunk)
+            roof_aoi_vals = _aoi_id_values(roof_features_chunk)
             for ridx, row in enumerate(roof_records):
                 try:
-                    roof_aoi = row.get(AOI_ID_COLUMN_NAME)
+                    roof_aoi = roof_aoi_vals[ridx]
                     aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
                     attrs = flatten_roof_attributes(
                         [row],
@@ -1151,7 +1177,14 @@ def _compute_all_per_class_data(
                         parent_projected=roof_geoms_proj.iloc[ridx],
                         children_projected=child_proj_by_aoi.get(roof_aoi),
                     )
-                    roof_attrs_cache_chunk[row["feature_id"]] = attrs
+                    # Key by (aoi_id, feature_id): in parcelMode a multiparcel
+                    # roof appears once per parcel it overlaps, each row carrying
+                    # attributes recomputed on that parcel's clipped geometry
+                    # (RSI, materials, defensible space, ...). Keying by feature_id
+                    # alone lets one parcel's clip overwrite another's, so every
+                    # duplicate row would inherit whichever parcel was flattened
+                    # last. See consumers in _compute_feature_class_data.
+                    roof_attrs_cache_chunk[(roof_aoi, row["feature_id"])] = attrs
                 except Exception as e:
                     _log.debug(f"Could not flatten roof attrs: {e}")
             del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
@@ -1254,11 +1287,15 @@ def _compute_feature_class_data(
         roof_features: Pre-filtered roof features
         non_roof_features: Pre-filtered non-roof features
         roof_instance_features: Pre-filtered roof instance features
-        roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts
-        parent_lookup: Pre-built dict mapping feature_id to feature record, for parent-chain
-            traversal (rebuilt from features_gdf if not provided)
-        roof_to_building_lookup: Pre-built dict mapping roof feature_id to parent building
-            feature_id (rebuilt via link_roofs_to_buildings if not provided)
+        roof_attrs_cache: Pre-computed dict mapping (aoi_id, feature_id) to flattened attribute
+            dicts. Keyed per parcel because in parcelMode a multiparcel roof appears once per
+            parcel with attributes recomputed on that parcel's clipped geometry.
+        parent_lookup: Pre-built nested dict {aoi_id: {feature_id: record}} for parent-chain
+            traversal (rebuilt from features_gdf if not provided). Scoped per AOI because in
+            parcelMode a multiparcel feature appears once per parcel with per-clip attributes;
+            every consumer takes its row's own parcel sub-dict.
+        roof_to_building_lookup: Pre-built nested dict {aoi_id: {roof feature_id: parent
+            building feature_id}} (empty if not provided). Scoped per AOI for the same reason.
         roofs_linked: Pre-linked roof features (output of link_roofs_to_buildings)
         buildings_linked: Pre-linked building features (output of link_roofs_to_buildings)
 
@@ -1274,13 +1311,14 @@ def _compute_feature_class_data(
     if len(class_features) == 0:
         return (None, None)
 
-    # Use pre-built parent lookup if provided (avoids rebuilding per class)
-    p_lookup = (
+    # Use pre-built parent lookup if provided (avoids rebuilding per class).
+    # Nested {aoi_id: {feature_id: record}}; consumers scope to their row's parcel.
+    p_lookup_by_aoi = (
         parent_lookup
         if parent_lookup is not None
-        else (build_parent_lookup(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
+        else (build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
     )
-    _roof_to_building = roof_to_building_lookup or {}
+    _roof_to_bn_by_aoi = roof_to_building_lookup or {}
 
     # Build output DataFrame using vectorized operations (much faster than iterrows)
     # Accumulate DataFrames in a list and concat once at the end to avoid fragmentation
@@ -1482,14 +1520,23 @@ def _compute_feature_class_data(
                         col_rename[col] = prefixed_dst
 
                 if len(ri_cols) > 1:  # More than just feature_id
-                    ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
-                    ri_lookup = ri_lookup.rename(columns=col_rename).set_index("feature_id")
+                    # Keyed by (aoi_id, feature_id): roof instances are linked
+                    # per parcel, so a multiparcel instance resolves to its own
+                    # parcel's row (universal row identity in parcelMode, even
+                    # though the whitelisted columns are clip-independent today).
+                    ri_lookup = roof_instances[ri_cols].copy()
+                    ri_lookup[AOI_ID_COLUMN_NAME] = _aoi_id_values(roof_instances)
+                    ri_lookup = ri_lookup.drop_duplicates(subset=[AOI_ID_COLUMN_NAME, "feature_id"])
+                    ri_lookup = ri_lookup.rename(columns=col_rename).set_index([AOI_ID_COLUMN_NAME, "feature_id"])
 
-                    # Map attributes using vectorized lookup
-                    primary_child_ids = class_features["primary_child_roof_age_feature_id"]
+                    # Map attributes using vectorized lookup by (aoi_id, instance id)
+                    ri_keys = list(
+                        zip(_aoi_id_values(class_features), class_features["primary_child_roof_age_feature_id"].values)
+                    )
+                    ri_mapped = ri_lookup.reindex(ri_keys).reset_index(drop=True)
                     ri_mapped_batch = {}
-                    for col in ri_lookup.columns:
-                        ri_mapped_batch[col] = primary_child_ids.map(ri_lookup[col]).values
+                    for col in ri_mapped.columns:
+                        ri_mapped_batch[col] = ri_mapped[col].values
                         added_cols.add(col)
                     convert_bool_columns_to_yn(ri_mapped_batch)
                     if ri_mapped_batch:
@@ -1499,8 +1546,13 @@ def _compute_feature_class_data(
         # These are from include parameters and the roof's own attributes array
         try:
             if roof_attrs_cache is not None:
-                # Use pre-computed cache (avoids duplicate flatten loop)
-                attr_records = [roof_attrs_cache.get(fid, {}) for fid in class_features["feature_id"].values]
+                # Use pre-computed cache (avoids duplicate flatten loop).
+                # Cache is keyed by (aoi_id, feature_id) so multiparcel roofs
+                # resolve to this parcel's clipped attributes, not another's.
+                attr_records = [
+                    roof_attrs_cache.get((aoi, fid), {})
+                    for aoi, fid in zip(_aoi_id_values(class_features), class_features["feature_id"].values)
+                ]
                 logger.debug(f"Roof attribute flattening: used cache for {len(class_features)} roofs")
             else:
                 # Fallback: compute per-row (for standalone calls without cache)
@@ -1554,16 +1606,22 @@ def _compute_feature_class_data(
             )
             if bl_in_features and "roof_spotlight_index" in class_features.columns:
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
+                roof_aois_for_fp = _aoi_id_values(class_features)
 
                 def _resolve_roof_rsi(i):
                     row = roof_records_for_fp[i]
                     rsi = extract_rsi_from_feature(row)
                     if not rsi:
-                        bn_id = _roof_to_building.get(row.get("feature_id"))
+                        # BL fallback stays inside this roof row's own parcel:
+                        # both lookups are scoped by aoi_id so a multiparcel
+                        # roof/building resolves its own clip, not another's.
+                        row_aoi = roof_aois_for_fp[i]
+                        aoi_lookup = p_lookup_by_aoi.get(row_aoi, {})
+                        bn_id = _roof_to_bn_by_aoi.get(row_aoi, {}).get(row.get("feature_id"))
                         if bn_id:
-                            bn_row = p_lookup.get(bn_id)
+                            bn_row = aoi_lookup.get(bn_id)
                             if bn_row is not None:
-                                rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                                rsi = resolve_footprint_rsi(bn_row, parent_lookup=aoi_lookup)
                     return rsi
 
                 rsi_result = _resolve_rsi_batch(n_rows, _resolve_roof_rsi)
@@ -1581,12 +1639,15 @@ def _compute_feature_class_data(
         try:
             if bl_in_features:
                 roof_records_for_scores = _dataframe_to_records_with_index(class_features)
+                roof_aois_for_scores = _aoi_id_values(class_features)
 
                 def _resolve_roof_scores(i):
                     row = roof_records_for_scores[i]
-                    bn_id = _roof_to_building.get(row.get("feature_id"))
-                    bn_row = p_lookup.get(bn_id) if bn_id else None
-                    bl_row = _traverse_to_bl(bn_row, p_lookup) if bn_row is not None else None
+                    row_aoi = roof_aois_for_scores[i]
+                    aoi_lookup = p_lookup_by_aoi.get(row_aoi, {})
+                    bn_id = _roof_to_bn_by_aoi.get(row_aoi, {}).get(row.get("feature_id"))
+                    bn_row = aoi_lookup.get(bn_id) if bn_id else None
+                    bl_row = _traverse_to_bl(bn_row, aoi_lookup) if bn_row is not None else None
                     return resolve_scores_with_bl_fallback(row, bl_row, country=country)
 
                 score_batch = _resolve_scores_batch(n_rows, _resolve_roof_scores, added_cols)
@@ -1687,8 +1748,14 @@ def _compute_feature_class_data(
 
                 # Build a mapping from roof feature_id to flattened attributes.
                 if roof_attrs_cache is not None:
-                    # Use pre-computed cache (avoids duplicate flatten loop)
-                    roof_attrs = {fid: roof_attrs_cache.get(fid, {}) for fid in roofs_linked["feature_id"].values}
+                    # Use pre-computed cache (avoids duplicate flatten loop).
+                    # Keyed by (aoi_id, feature_id) so a multiparcel roof keeps a
+                    # distinct entry per parcel; the reindex below looks each
+                    # building up by its own (aoi_id, primary_child_roof_id).
+                    roof_attrs = {
+                        (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
+                        for aoi, fid in zip(_aoi_id_values(roofs_linked), roofs_linked["feature_id"].values)
+                    }
                     logger.debug(f"Building roof attribute flattening: used cache for {len(roofs_linked)} roofs")
                 else:
                     # Fallback: compute per-row (for standalone calls without cache)
@@ -1700,10 +1767,11 @@ def _compute_feature_class_data(
                     t_bldg_roof_flatten = time.monotonic()
                     roof_attrs = {}
                     roof_records = _dataframe_to_records_with_index(roofs_linked)
+                    roof_aoi_vals = _aoi_id_values(roofs_linked)
 
                     for idx, row in enumerate(roof_records):
                         try:
-                            roof_aoi = row.get(AOI_ID_COLUMN_NAME)
+                            roof_aoi = roof_aoi_vals[idx]
                             aoi_children = child_by_aoi_bldg.get(roof_aoi) if roof_aoi is not None else None
                             attrs = flatten_roof_attributes(
                                 [row],
@@ -1712,7 +1780,7 @@ def _compute_feature_class_data(
                                 parent_projected=bldg_roof_geoms_projected.iloc[idx],
                                 children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
                             )
-                            roof_attrs[row["feature_id"]] = attrs
+                            roof_attrs[(roof_aoi, row["feature_id"])] = attrs
                         except Exception as e:
                             logger.debug(f"Could not flatten building-linked roof attributes: {e}")
                     logger.debug(
@@ -1722,10 +1790,18 @@ def _compute_feature_class_data(
                 if roof_attrs:
                     # Map primary child roof attributes to buildings via DataFrame reindex
                     # (replaces per-attribute .apply(lambda) with a single vectorized lookup)
-                    roof_attrs_df = pd.DataFrame.from_dict(roof_attrs, orient="index")
+                    # roof_attrs is keyed by (aoi_id, feature_id); build the frame
+                    # with a matching MultiIndex and look each building up by its
+                    # own (aoi_id, primary_child_roof_id) so a multiparcel roof
+                    # resolves to this building's parcel clip.
+                    attr_keys = list(roof_attrs.keys())
+                    roof_attrs_df = pd.DataFrame([roof_attrs[k] for k in attr_keys])
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
-                    primary_ids = buildings_linked["primary_child_roof_id"].values
-                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
+                    roof_attrs_df.index = pd.MultiIndex.from_tuples(attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"])
+                    lookup_keys = list(
+                        zip(_aoi_id_values(buildings_linked), buildings_linked["primary_child_roof_id"].values)
+                    )
+                    mapped = roof_attrs_df.reindex(lookup_keys).reset_index(drop=True)
 
                     roof_attr_batch = {}
                     _DOM = (
@@ -1747,31 +1823,39 @@ def _compute_feature_class_data(
                     # For each child roof, resolve best RSI (roof's own first,
                     # then BL fallback) so min/max reflect the same logic as
                     # the per-row roof_spotlight_index column.
+                    # Keyed by (aoi_id, feature_id): child_roofs are matched within
+                    # the building's own parcel, so min/max must look up the roof's
+                    # clip for that parcel, not another's.
                     rsi_lookup = {}
-                    for fid, attrs in roof_attrs.items():
+                    for (r_aoi, fid), attrs in roof_attrs.items():
                         if "roof_spotlight_index" in attrs:
-                            rsi_lookup[fid] = attrs["roof_spotlight_index"]
+                            rsi_lookup[(r_aoi, fid)] = attrs["roof_spotlight_index"]
                         else:
-                            # Try BL fallback via IoU-linked Building(New) → BL
-                            bn_id = _roof_to_building.get(fid)
+                            # BL fallback scoped to the roof row's own parcel.
+                            aoi_lookup = p_lookup_by_aoi.get(r_aoi, {})
+                            bn_id = _roof_to_bn_by_aoi.get(r_aoi, {}).get(fid)
                             if bn_id:
-                                bn_row = p_lookup.get(bn_id)
+                                bn_row = aoi_lookup.get(bn_id)
                                 if bn_row is not None:
-                                    resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                                    resolved_rsi = resolve_footprint_rsi(bn_row, parent_lookup=aoi_lookup)
                                     if resolved_rsi and "roof_spotlight_index" in resolved_rsi:
-                                        rsi_lookup[fid] = resolved_rsi["roof_spotlight_index"]
+                                        rsi_lookup[(r_aoi, fid)] = resolved_rsi["roof_spotlight_index"]
 
                     if rsi_lookup:
                         n_buildings = len(buildings_linked)
                         min_vals = np.full(n_buildings, np.nan)
                         max_vals = np.full(n_buildings, np.nan)
+                        building_aois = _aoi_id_values(buildings_linked)
                         for i, child_json in enumerate(buildings_linked["child_roofs"].values):
                             if not child_json or child_json == "[]":
                                 continue
+                            b_aoi = building_aois[i]
                             try:
                                 child_list = json.loads(child_json) if isinstance(child_json, str) else child_json
                                 rsi_vals = [
-                                    rsi_lookup[c["feature_id"]] for c in child_list if c.get("feature_id") in rsi_lookup
+                                    rsi_lookup[(b_aoi, c["feature_id"])]
+                                    for c in child_list
+                                    if (b_aoi, c.get("feature_id")) in rsi_lookup
                                 ]
                                 if rsi_vals:
                                     min_vals[i] = min(rsi_vals)
@@ -1795,17 +1879,21 @@ def _compute_feature_class_data(
                 # then BL fallback via Building(New) → BL parent_id), same logic as per-roof.
                 if roof_attrs:
                     pcr_ids = buildings_linked["primary_child_roof_id"].values
+                    bn_aois = _aoi_id_values(buildings_linked)
                     bl_records = _dataframe_to_records_with_index(buildings_linked)
 
                     def _resolve_bn_rsi(i):
+                        # All lookups scoped to this building row's own parcel so a
+                        # multiparcel primary roof resolves its own clip's RSI.
+                        aoi_lookup = p_lookup_by_aoi.get(bn_aois[i], {})
                         pcr_id = pcr_ids[i]
-                        roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
+                        roof_row = aoi_lookup.get(pcr_id) if pd.notna(pcr_id) else None
                         if roof_row is not None:
                             rsi = extract_rsi_from_feature(roof_row)
                             if rsi:
                                 return rsi
                         # Roof lacks RSI or no child roof — traverse BN → BL
-                        return resolve_footprint_rsi(bl_records[i], parent_lookup=p_lookup)
+                        return resolve_footprint_rsi(bl_records[i], parent_lookup=aoi_lookup)
 
                     rsi_result = _resolve_rsi_batch(n_rows, _resolve_bn_rsi)
                     if rsi_result is not None:
@@ -1821,12 +1909,14 @@ def _compute_feature_class_data(
                 # Resolve best scores per building (same pattern as RSI).
                 if roof_attrs:
                     pcr_ids_for_scores = buildings_linked["primary_child_roof_id"].values
+                    bn_aois_for_scores = _aoi_id_values(buildings_linked)
                     bn_records_for_scores = _dataframe_to_records_with_index(buildings_linked)
 
                     def _resolve_bn_scores(i):
+                        aoi_lookup = p_lookup_by_aoi.get(bn_aois_for_scores[i], {})
                         pcr_id = pcr_ids_for_scores[i]
-                        roof_row = p_lookup.get(pcr_id) if pd.notna(pcr_id) else None
-                        bl_row = _traverse_to_bl(bn_records_for_scores[i], p_lookup)
+                        roof_row = aoi_lookup.get(pcr_id) if pd.notna(pcr_id) else None
+                        bl_row = _traverse_to_bl(bn_records_for_scores[i], aoi_lookup)
                         return resolve_scores_with_bl_fallback(roof_row, bl_row, country=country)
 
                     score_batch = _resolve_scores_batch(n_rows, _resolve_bn_scores, added_cols)
@@ -1842,8 +1932,18 @@ def _compute_feature_class_data(
                         else features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID].copy()
                     )
                     if len(roof_instances) > 0:
-                        # Create lookup from roof feature_id → roof's primary_child_roof_age_feature_id
-                        roof_to_ri = roofs_linked.set_index("feature_id")["primary_child_roof_age_feature_id"].to_dict()
+                        # Lookup from (aoi_id, roof feature_id) → roof's
+                        # primary_child_roof_age_feature_id. Scoped per parcel: a
+                        # multiparcel roof is IoU-linked to instances within each
+                        # parcel independently.
+                        roof_to_ri = {
+                            (aoi, fid): ri
+                            for aoi, fid, ri in zip(
+                                _aoi_id_values(roofs_linked),
+                                roofs_linked["feature_id"].values,
+                                roofs_linked["primary_child_roof_age_feature_id"].values,
+                            )
+                        }
 
                         # Roof age columns to link through (same as what roofs
                         # get). Iterate canonical order so building.csv lands
@@ -1876,17 +1976,30 @@ def _compute_feature_class_data(
                             col_rename[col] = prefixed_dst
 
                         if len(ri_cols) > 1:  # More than just feature_id
-                            ri_lookup = roof_instances[ri_cols].drop_duplicates(subset=["feature_id"])
-                            ri_lookup = ri_lookup.rename(columns=col_rename).set_index("feature_id")
+                            # Keyed by (aoi_id, feature_id) — same per-parcel row
+                            # identity as the roof-class mapping above.
+                            ri_lookup = roof_instances[ri_cols].copy()
+                            ri_lookup[AOI_ID_COLUMN_NAME] = _aoi_id_values(roof_instances)
+                            ri_lookup = ri_lookup.drop_duplicates(subset=[AOI_ID_COLUMN_NAME, "feature_id"])
+                            ri_lookup = ri_lookup.rename(columns=col_rename).set_index(
+                                [AOI_ID_COLUMN_NAME, "feature_id"]
+                            )
 
-                            # Map: building.primary_child_roof_id → roof.primary_child_roof_age_feature_id → ri attributes
-                            primary_roof_ids = buildings_linked["primary_child_roof_id"]
-                            primary_ri_ids = primary_roof_ids.map(roof_to_ri)
+                            # Map: building.(aoi, primary_child_roof_id) → roof's
+                            # primary_child_roof_age_feature_id → ri attributes
+                            bldg_aois_for_ri = _aoi_id_values(buildings_linked)
+                            ri_keys = [
+                                (aoi, roof_to_ri.get((aoi, pcr_id)))
+                                for aoi, pcr_id in zip(
+                                    bldg_aois_for_ri, buildings_linked["primary_child_roof_id"].values
+                                )
+                            ]
+                            ri_mapped = ri_lookup.reindex(ri_keys).reset_index(drop=True)
 
                             bldg_ri_batch = {}
-                            for col in ri_lookup.columns:
+                            for col in ri_mapped.columns:
                                 if col not in added_cols:
-                                    bldg_ri_batch[col] = primary_ri_ids.map(ri_lookup[col]).values
+                                    bldg_ri_batch[col] = ri_mapped[col].values
                                     added_cols.add(col)
                             convert_bool_columns_to_yn(bldg_ri_batch)
                             if bldg_ri_batch:
@@ -1921,24 +2034,29 @@ def _compute_feature_class_data(
                 else features_gdf[features_gdf["class_id"] == ROOF_ID].copy()
             )
             if len(roofs) > 0:
-                # Map each roof to its ancestor BL via IoU-linked Building(New)
+                # Map each roof to its ancestor BL via IoU-linked Building(New).
+                # The whole chain is keyed by (aoi_id, feature_id): in parcelMode
+                # a multiparcel roof/building/BL appears once per parcel with
+                # per-clip attributes, so linkage must stay within each parcel.
                 roof_to_bl = {}
-                for roof_fid, bn_id in _roof_to_building.items():
-                    if bn_id:
-                        bn_row = p_lookup.get(bn_id)
-                        if bn_row is not None:
-                            bl_fid = (
-                                bn_row.get("parent_id")
-                                if hasattr(bn_row, "get")
-                                else getattr(bn_row, "parent_id", None)
-                            )
-                            if bl_fid:
-                                roof_to_bl[roof_fid] = bl_fid
+                for r_aoi, aoi_roof_to_bn in _roof_to_bn_by_aoi.items():
+                    aoi_lookup = p_lookup_by_aoi.get(r_aoi, {})
+                    for roof_fid, bn_id in aoi_roof_to_bn.items():
+                        if bn_id:
+                            bn_row = aoi_lookup.get(bn_id)
+                            if bn_row is not None:
+                                bl_fid = (
+                                    bn_row.get("parent_id")
+                                    if hasattr(bn_row, "get")
+                                    else getattr(bn_row, "parent_id", None)
+                                )
+                                if bl_fid:
+                                    roof_to_bl[(r_aoi, roof_fid)] = bl_fid
 
-                # Group roofs by their BL and pick the largest as primary
+                # Group roofs by their (aoi, BL) and pick the largest as primary
                 bl_to_roofs = {}
-                for roof_fid, bl_fid in roof_to_bl.items():
-                    bl_to_roofs.setdefault(bl_fid, []).append(roof_fid)
+                for (r_aoi, roof_fid), bl_fid in roof_to_bl.items():
+                    bl_to_roofs.setdefault((r_aoi, bl_fid), []).append(roof_fid)
 
                 bl_primary_roof = {}
                 # Use the country-correct unit suffix (rather than always-metric) so this works
@@ -1949,25 +2067,32 @@ def _compute_feature_class_data(
                     if f"clipped_area_{roof_suffix}" in roofs.columns
                     else f"unclipped_area_{roof_suffix}" if f"unclipped_area_{roof_suffix}" in roofs.columns else None
                 )
-                roof_fid_to_idx = {fid: idx for idx, fid in enumerate(roofs["feature_id"].values)}
-                for bl_fid, roof_fids in bl_to_roofs.items():
+                # Row identity is (aoi_id, feature_id); largest-roof selection
+                # uses that parcel's own clipped area.
+                roof_key_to_idx = {
+                    (aoi, fid): idx
+                    for idx, (aoi, fid) in enumerate(zip(_aoi_id_values(roofs), roofs["feature_id"].values))
+                }
+                for (r_aoi, bl_fid), roof_fids in bl_to_roofs.items():
                     if roof_area_col and len(roof_fids) > 1:
                         best = max(
                             roof_fids,
-                            key=lambda f: (
-                                roofs.iloc[roof_fid_to_idx[f]][roof_area_col]
-                                if pd.notna(roofs.iloc[roof_fid_to_idx[f]][roof_area_col])
+                            key=lambda f, _a=r_aoi: (
+                                roofs.iloc[roof_key_to_idx[(_a, f)]][roof_area_col]
+                                if pd.notna(roofs.iloc[roof_key_to_idx[(_a, f)]][roof_area_col])
                                 else 0
                             ),
                         )
                     else:
                         best = roof_fids[0]
-                    bl_primary_roof[bl_fid] = best
+                    bl_primary_roof[(r_aoi, bl_fid)] = best
 
-                # Build linkage columns
+                # Build linkage columns; each BL row looks up its own parcel's chain
+                bl_aois = _aoi_id_values(class_features)
+                bl_fids = class_features["feature_id"].values
                 bl_linkage_batch = {}
-                primary_ids = [bl_primary_roof.get(fid) for fid in class_features["feature_id"].values]
-                child_counts = [len(bl_to_roofs.get(fid, [])) for fid in class_features["feature_id"].values]
+                primary_ids = [bl_primary_roof.get((aoi, fid)) for aoi, fid in zip(bl_aois, bl_fids)]
+                child_counts = [len(bl_to_roofs.get((aoi, fid), [])) for aoi, fid in zip(bl_aois, bl_fids)]
                 if "primary_child_roof_id" not in added_cols:
                     bl_linkage_batch["primary_child_roof_id"] = primary_ids
                     added_cols.add("primary_child_roof_id")
@@ -1977,17 +2102,24 @@ def _compute_feature_class_data(
                 if bl_linkage_batch:
                     df_parts.append(pd.DataFrame(bl_linkage_batch, index=range(n_rows)))
 
-                # Map primary child roof attributes to BL features
+                # Map primary child roof attributes to BL features.
+                # Keyed by (aoi_id, feature_id) end-to-end so a multiparcel roof
+                # resolves to this BL row's own parcel clip, not another's.
                 roof_attrs = (
-                    {fid: roof_attrs_cache.get(fid, {}) for fid in roofs["feature_id"].values}
+                    {
+                        (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
+                        for aoi, fid in zip(_aoi_id_values(roofs), roofs["feature_id"].values)
+                    }
                     if roof_attrs_cache is not None
                     else {}
                 )
 
                 if roof_attrs:
-                    roof_attrs_df = pd.DataFrame.from_dict(roof_attrs, orient="index")
+                    attr_keys = list(roof_attrs.keys())
+                    roof_attrs_df = pd.DataFrame([roof_attrs[k] for k in attr_keys])
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
-                    mapped = roof_attrs_df.reindex(primary_ids).reset_index(drop=True)
+                    roof_attrs_df.index = pd.MultiIndex.from_tuples(attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"])
+                    mapped = roof_attrs_df.reindex(list(zip(bl_aois, primary_ids))).reset_index(drop=True)
 
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
@@ -2002,16 +2134,19 @@ def _compute_feature_class_data(
                     bl_records = _dataframe_to_records_with_index(class_features)
 
                     def _resolve_bl_rsi(i):
+                        # All lookups scoped to this BL row's own parcel.
+                        row_aoi = bl_aois[i]
+                        aoi_lookup = p_lookup_by_aoi.get(row_aoi, {})
                         pcr_id = primary_ids[i]
-                        roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
+                        roof_row = aoi_lookup.get(pcr_id) if pcr_id is not None else None
                         if roof_row is not None:
                             rsi = extract_rsi_from_feature(roof_row)
                             if not rsi:
-                                bn_id = _roof_to_building.get(pcr_id)
+                                bn_id = _roof_to_bn_by_aoi.get(row_aoi, {}).get(pcr_id)
                                 if bn_id:
-                                    bn_row = p_lookup.get(bn_id)
+                                    bn_row = aoi_lookup.get(bn_id)
                                     if bn_row is not None:
-                                        rsi = resolve_footprint_rsi(bn_row, parent_lookup=p_lookup)
+                                        rsi = resolve_footprint_rsi(bn_row, parent_lookup=aoi_lookup)
                             return rsi
                         # No child roof — use BL's own RSI
                         return extract_rsi_from_feature(bl_records[i])
@@ -2031,8 +2166,9 @@ def _compute_feature_class_data(
                     bl_records_for_scores = _dataframe_to_records_with_index(class_features)
 
                     def _resolve_bl_scores(i):
+                        aoi_lookup = p_lookup_by_aoi.get(bl_aois[i], {})
                         pcr_id = primary_ids[i]
-                        roof_row = p_lookup.get(pcr_id) if pcr_id is not None else None
+                        roof_row = aoi_lookup.get(pcr_id) if pcr_id is not None else None
                         return resolve_scores_with_bl_fallback(roof_row, bl_records_for_scores[i], country=country)
 
                     score_batch = _resolve_scores_batch(n_rows, _resolve_bl_scores, added_cols)
@@ -2154,9 +2290,10 @@ def export_feature_class(
         roof_features: Pre-filtered roof features (avoids repeated features_gdf scans)
         non_roof_features: Pre-filtered non-roof features (avoids repeated features_gdf scans)
         roof_instance_features: Pre-filtered roof instance features (avoids repeated features_gdf scans)
-        roof_attrs_cache: Pre-computed dict mapping roof feature_id to flattened attribute dicts.
-                         When provided, skips the per-row flatten_roof_attributes loop for both
-                         ROOF_ID and BUILDING_NEW_ID paths (avoids duplicate flattening).
+        roof_attrs_cache: Pre-computed dict mapping (aoi_id, feature_id) to flattened attribute
+                         dicts (keyed per parcel — see _compute_feature_class_data). When provided,
+                         skips the per-row flatten_roof_attributes loop for both ROOF_ID and
+                         BUILDING_NEW_ID paths (avoids duplicate flattening).
 
     Returns:
         Tuple of (tabular_path, geo_parquet_path) or (None, None) if no features
