@@ -520,10 +520,65 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
+def _clip_roof_geoms_to_aoi(
+    parent_gdf: gpd.GeoDataFrame,
+    aoi_geometries: dict,
+) -> "gpd.GeoSeries":
+    """Clip each roof (parent) geometry to its own AOI/parcel polygon.
+
+    Clipped-roof component recalculation intersects child features against the
+    parent roof outline. For gridded AOIs, gridding disables parcelMode so the
+    API returns whole (unclipped) feature outlines while the clipped area is
+    summed per grid cell in ``combine_features_from_grid`` — the stored roof
+    geometry is the *whole* roof but ``clipped_area`` is the parcel-clipped area.
+    Passing that whole outline as the parent inflates every recomputed component
+    area to whole-roof magnitude (a single component can exceed the clipped roof
+    area). Clipping the parent to the parcel here reconciles the two.
+
+    Returns a GeoSeries aligned (by position and index) with ``parent_gdf``. The
+    clip is a no-op for roofs that already lie within the parcel (non-gridded
+    exports, and the ``clippedGeometry`` returned by non-gridded parcelMode).
+    """
+    aoi_vals = _aoi_id_values(parent_gdf)
+    geoms = list(parent_gdf.geometry.values)
+    crs = parent_gdf.crs
+    # Group row positions by AOI so each parcel's roofs are clipped in one
+    # vectorized GeoSeries.intersection call.
+    pos_by_aoi: dict = {}
+    for i, aoi_id in enumerate(aoi_vals):
+        pos_by_aoi.setdefault(aoi_id, []).append(i)
+    for aoi_id, positions in pos_by_aoi.items():
+        clip_geom = aoi_geometries.get(aoi_id)
+        if clip_geom is None or clip_geom.is_empty:
+            continue
+        sub = gpd.GeoSeries([geoms[p] for p in positions], crs=crs)
+        try:
+            clipped = sub.intersection(clip_geom)
+        except Exception as e:
+            # Defensive: a topology error on one AOI must not abort the whole
+            # chunk. Keep the unclipped outline(s) for this AOI, but log so an
+            # unexpected failure isn't silently swallowed.
+            logger.debug(
+                "Roof→parcel clip failed for AOI %s (%d roof(s)): %s; keeping unclipped outline(s).",
+                aoi_id,
+                len(positions),
+                e,
+            )
+            continue
+        for k, p in enumerate(positions):
+            c = clipped.iloc[k]
+            # Keep the original outline if the intersection is empty/invalid
+            # rather than blanking the parent (an empty parent disables recalc).
+            if c is not None and not c.is_empty:
+                geoms[p] = c
+    return gpd.GeoSeries(geoms, index=parent_gdf.index, crs=crs)
+
+
 def _batch_project_geometries(
     parent_gdf: gpd.GeoDataFrame,
     child_by_aoi: dict,
     country: str,
+    aoi_geometries: dict = None,
 ) -> tuple:
     """Batch-project parent and child geometries to the local area CRS.
 
@@ -534,6 +589,11 @@ def _batch_project_geometries(
         parent_gdf: GeoDataFrame whose geometry column will be projected.
         child_by_aoi: Dict mapping aoi_id -> GeoDataFrame of child features.
         country: Country code used to select the projected CRS.
+        aoi_geometries: Optional dict mapping aoi_id -> parcel/AOI shapely
+            geometry (in API_CRS). When provided, each parent (roof) geometry is
+            clipped to its AOI before projection so clipped-roof component
+            recalculation uses the parcel-clipped parent, not the whole
+            (gridded/multiparcel) outline. See ``_clip_roof_geoms_to_aoi``.
 
     Returns:
         (parent_projected, child_proj_by_aoi) where parent_projected is a
@@ -541,7 +601,10 @@ def _batch_project_geometries(
         GeoSeries.
     """
     projected_crs = AREA_CRS[country.lower()]
-    parent_projected = parent_gdf.geometry.to_crs(projected_crs)
+    parent_geom = parent_gdf.geometry
+    if aoi_geometries:
+        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries)
+    parent_projected = parent_geom.to_crs(projected_crs)
     child_proj_by_aoi = {}
     for aoi_id, children in child_by_aoi.items():
         if len(children) > 0:
@@ -1057,6 +1120,7 @@ def _compute_all_per_class_data(
     whitelisted_classes: list = None,
     logger_instance=None,
     threads: int = 1,
+    aoi_geometries: dict = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -1162,6 +1226,7 @@ def _compute_all_per_class_data(
                 roof_features_chunk,
                 child_by_aoi,
                 country,
+                aoi_geometries=aoi_geometries,
             )
             roof_attrs_cache_chunk = {}
             roof_records = _dataframe_to_records_with_index(roof_features_chunk)
@@ -1220,6 +1285,7 @@ def _compute_all_per_class_data(
                 roof_to_building_lookup=roof_to_building_lookup,
                 roofs_linked=roofs_linked_chunk,
                 buildings_linked=buildings_linked_chunk,
+                aoi_geometries=aoi_geometries,
             )
         except Exception as e:
             _log.error(f"Per-class export failed for {desc}: {e}")
@@ -1270,6 +1336,7 @@ def _compute_feature_class_data(
     roof_to_building_lookup: dict = None,
     roofs_linked: gpd.GeoDataFrame = None,
     buildings_linked: gpd.GeoDataFrame = None,
+    aoi_geometries: dict = None,
 ) -> tuple:
     """
     Compute the flat attribute DataFrame and GeoDataFrame for a single feature class.
@@ -1558,7 +1625,7 @@ def _compute_feature_class_data(
                 # Fallback: compute per-row (for standalone calls without cache)
                 child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
                 roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
-                    class_features, child_by_aoi, country
+                    class_features, child_by_aoi, country, aoi_geometries=aoi_geometries
                 )
 
                 t_roof_flatten = time.monotonic()
@@ -1761,7 +1828,7 @@ def _compute_feature_class_data(
                     # Fallback: compute per-row (for standalone calls without cache)
                     child_by_aoi_bldg = _group_children_by_aoi(non_roof_features, features_gdf)
                     bldg_roof_geoms_projected, bldg_child_proj_by_aoi = _batch_project_geometries(
-                        roofs_linked, child_by_aoi_bldg, country
+                        roofs_linked, child_by_aoi_bldg, country, aoi_geometries=aoi_geometries
                     )
 
                     t_bldg_roof_flatten = time.monotonic()
@@ -4048,6 +4115,29 @@ class NearmapAIExporter(BaseExporter):
                         c for c in aoi_gdf.columns if c not in system_columns and c not in ADDRESS_FIELDS
                     ]
 
+                    # Map aoi_id -> parcel geometry (API_CRS) so clipped-roof
+                    # component recalculation can clip the roof parent to its
+                    # parcel. Gridded AOIs store the whole (unclipped) roof
+                    # outline but a parcel-clipped area; without this the
+                    # recomputed component areas come out at whole-roof
+                    # magnitude. Cheap map build (one dict entry per AOI).
+                    aoi_geometries = None
+                    if isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
+                        # Key by _aoi_id_values (the same derivation the consumer
+                        # _clip_roof_geoms_to_aoi uses on the roof rows) so the map
+                        # keys match regardless of whether aoi_id is the index or a
+                        # column. If aoi_id can't be resolved, leave the map None so
+                        # the clip degrades to a no-op rather than silently
+                        # mis-keying every AOI.
+                        try:
+                            aoi_ids = _aoi_id_values(aoi_gdf)
+                        except ValueError:
+                            aoi_ids = None
+                        if aoi_ids is not None:
+                            aoi_geometries = {
+                                aid: geom for aid, geom in zip(aoi_ids, aoi_gdf.geometry) if geom is not None
+                            }
+
                     _t_per_class_start = time.monotonic()
                     per_class_results = _compute_all_per_class_data(
                         chunk_gdf=chunk_gdf,
@@ -4055,6 +4145,7 @@ class NearmapAIExporter(BaseExporter):
                         aoi_input_columns=aoi_input_columns,
                         logger_instance=self.logger,
                         threads=self.threads,
+                        aoi_geometries=aoi_geometries,
                     )
                     _t_per_class_compute = time.monotonic()
 

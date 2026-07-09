@@ -1238,10 +1238,35 @@ def feature_attributes(
                             },
                             geometry="geometry",
                         )
+                    # Clip the primary roof to its parcel before recomputing
+                    # clipped-roof component areas. Gridded AOIs disable
+                    # parcelMode, so the stored roof outline is the whole roof
+                    # while clipped_area is the parcel-clipped area; passing the
+                    # whole outline as the parent inflates every component to
+                    # whole-roof magnitude. Clipping is a no-op when the roof
+                    # already lies within the parcel.
+                    parent_projected = None
+                    roof_geom = (
+                        primary_feature[geom_col]
+                        if geom_col in primary_feature.index
+                        else primary_feature.get("geometry")
+                    )
+                    if roof_geom is not None:
+                        if parcel_geom is not None and not parcel_geom.is_empty:
+                            try:
+                                clipped_roof = roof_geom.intersection(parcel_geom)
+                                if not clipped_roof.is_empty:
+                                    roof_geom = clipped_roof
+                            except GEOSException:
+                                pass
+                        parent_projected = (
+                            gpd.GeoSeries([roof_geom], crs=API_CRS).to_crs(AREA_CRS[country.lower()]).iloc[0]
+                        )
                     primary_attributes = flatten_roof_attributes(
                         [primary_feature],
                         country=country,
                         child_features=child_feats,
+                        parent_projected=parent_projected,
                     )
                 elif class_id == BUILDING_NEW_ID:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
