@@ -6,9 +6,12 @@ Nearmap Damage Conflation API (ai/damage/v2) for multiple areas of interest (AOI
 
 Given an ``--event-id`` and an AOI file, this exporter:
 - Queries the conflation API per-AOI in parallel (pagination handles large AOIs)
-- Always emits per-building damage polygons with flattened attributes
+- Always emits per-building damage polygons with flattened attributes, deduplicated
+  on ``feature_id`` (the API returns whole, unclipped buildings, so a building
+  straddling adjacent AOIs would otherwise appear once per AOI)
 - Optionally (``--rollup``) emits a per-AOI rollup (one row per AOI: rating counts +
-  the primary building's attributes)
+  the primary building's attributes; a straddling building counts in each AOI it
+  intersects)
 - Caches API responses, tracks progress, and reports errors
 
 Example usage:
@@ -80,6 +83,7 @@ _BUILDINGS_CSV_BASE_FIELDS = (
     "presentation_version",
     "resource_id",
     "geomatched_address",
+    "n_aois",
 )
 
 
@@ -399,6 +403,28 @@ class DamageConflationExporter(BaseExporter):
                 successful_aoi_ids=set(metadata_df.index),
                 primary_decision=self.primary_decision,
             )
+
+        # The API returns whole (unclipped) buildings per queried AOI, so a building
+        # straddling two adjacent AOIs comes back once per AOI with identical
+        # attributes and geometry — only aoi_id differs. Dedupe the delivered
+        # per-building file on feature_id (matching the discrete-class behaviour of
+        # the feature export), keeping the lowest aoi_id for determinism. n_aois
+        # records how many AOI units each building intersected, so per-AOI
+        # memberships stay reconcilable against the rollup (sum(rollup.n_buildings)
+        # == sum(buildings.n_aois)). This runs AFTER the rollup, which deliberately
+        # keeps per-(building × AOI) semantics: a straddler belongs in both AOIs'
+        # counts.
+        if len(features_gdf) > 0:
+            features_gdf["n_aois"] = features_gdf.groupby("feature_id")["feature_id"].transform("size")
+            if features_gdf["feature_id"].duplicated().any():
+                n_rows_before = len(features_gdf)
+                features_gdf = features_gdf.sort_values(AOI_ID_COLUMN_NAME, kind="stable").drop_duplicates(
+                    subset="feature_id", keep="first"
+                )
+                self.logger.info(
+                    f"Deduplicated {n_rows_before - len(features_gdf)} building rows that straddle "
+                    f"more than one AOI ({n_rows_before} rows -> {len(features_gdf)} unique buildings)"
+                )
 
         if self.include_aoi_geometry and len(features_gdf) > 0:
             self.logger.info("Merging building data with AOI attributes...")

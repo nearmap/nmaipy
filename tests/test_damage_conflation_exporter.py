@@ -295,3 +295,69 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     assert rollup["query_succeeded"].all()
     assert rollup["n_buildings"].sum() == len(features)
     assert rollup["primary_damage_event_rating"].notna().all()
+
+
+def test_run_dedupes_buildings_straddling_aois_but_rollup_counts_both(tmp_path, milton_response):
+    """The API returns whole (unclipped) buildings per queried AOI, so a building
+    straddling two adjacent AOIs comes back once per AOI. The delivered
+    damage_buildings file must carry it once (deduped on feature_id, lowest aoi_id
+    kept), while the per-AOI rollup still counts it in each AOI it intersects."""
+    aoi_csv = tmp_path / "aois.csv"
+    pd.DataFrame(
+        {"aoi_id": ["p1", "p2"], "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt]}
+    ).to_csv(aoi_csv, index=False)
+
+    exporter = DamageConflationExporter(
+        aoi_file=str(aoi_csv),
+        output_dir=str(tmp_path / "out"),
+        event_id=EVENT_ID,
+        api_key="test_key",
+        output_format="both",
+        rollup=True,
+        processes=1,
+    )
+
+    # Overlapping slices: features 4-5 intersect both AOIs (the straddlers).
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
+    f1 = api._parse_response({**milton_response, "features": milton_response["features"][:6]}, "p1")
+    f2 = api._parse_response({**milton_response, "features": milton_response["features"][4:]}, "p2")
+    features = gpd.GeoDataFrame(pd.concat([f1, f2], ignore_index=True), crs=API_CRS)
+    n_unique = features["feature_id"].nunique()
+    assert len(features) == n_unique + 2  # sanity: exactly the two straddlers duplicate
+
+    metadata = pd.DataFrame(
+        {"event_uuid": [milton_response["eventUuid"]] * 2},
+        index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+    )
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+    storage.write_parquet(features, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
+    storage.write_parquet(metadata, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
+
+    with (
+        patch.object(exporter, "run_parallel", return_value=[]),
+        patch("nmaipy.damage_conflation_exporter.combine_chunk_latency_stats", return_value=[]),
+    ):
+        exporter.run()
+
+    final = Path(exporter.final_path)
+
+    # Delivered buildings: one row per unique building, straddlers kept under the
+    # lowest aoi_id, with n_aois recording their AOI memberships; CSV and parquet agree.
+    buildings = gpd.read_parquet(final / "damage_buildings.parquet")
+    assert len(buildings) == n_unique
+    assert not buildings["feature_id"].duplicated().any()
+    straddler_ids = f1["feature_id"].iloc[4:6]
+    by_id = buildings.set_index("feature_id")
+    assert (by_id.loc[straddler_ids, "aoi_id"] == "p1").all()
+    assert (by_id.loc[straddler_ids, "n_aois"] == 2).all()
+    assert by_id["n_aois"].sum() == len(features)  # memberships reconcile with the rollup
+    csv = pd.read_csv(final / "damage_buildings.csv")
+    assert len(csv) == n_unique
+    assert "n_aois" in csv.columns
+
+    # Rollup keeps per-(building × AOI) semantics: each AOI counts every building
+    # it intersects, so the straddlers are counted twice across the two AOIs.
+    rollup = pd.read_csv(final / "damage_rollup.csv").set_index("aoi_id")
+    assert rollup.loc["p1", "n_buildings"] == 6
+    assert rollup.loc["p2", "n_buildings"] == len(milton_response["features"]) - 4
+    assert rollup["n_buildings"].sum() == n_unique + 2
