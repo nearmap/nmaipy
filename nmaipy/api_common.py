@@ -269,8 +269,11 @@ class APIError(Exception):
                 self.status_code = response["status_code"]
                 self.text = response["text"]
             try:
-                err_body = response.json()
-                self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
+                if not self.text:
+                    self.message = f"Empty response body (HTTP {self.status_code})"
+                else:
+                    err_body = response.json()
+                    self.message = err_body["message"] if "message" in err_body else err_body.get("error", "")
             except json.JSONDecodeError:
                 self.message = "JSONDecodeError"
             except ValueError:

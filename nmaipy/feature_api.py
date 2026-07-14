@@ -830,7 +830,13 @@ class FeatureApi(GriddedApiClient):
                 if self.overwrite_cache and cache_path:
                     storage.remove_file(cache_path)
 
-                if status_code in AIFeatureAPIRequestSizeError.status_codes:
+                # An empty-body 502 is the API gateway timing out the backend (it answers at its
+                # 60s limit with no payload), which the client read timeout can never catch.
+                # urllib3 has already exhausted its transient retries by this point, so escalate
+                # to gridding like a 504. A 502 with an error payload keeps standard handling.
+                if status_code in AIFeatureAPIRequestSizeError.status_codes or (
+                    status_code == HTTPStatus.BAD_GATEWAY and not text
+                ):
                     logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
                     raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
                 elif status_code == HTTPStatus.BAD_REQUEST:
