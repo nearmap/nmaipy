@@ -1,9 +1,11 @@
+import json
 import math
 import os
 import sys
 import tempfile
 import threading
 import time
+from http import HTTPStatus
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1201,6 +1203,75 @@ class TestFeatureAPI:
         assert error is not None, "Expected error dict when all grid cells fail"
         assert "message" in error, "Error should contain a message"
         assert error["failure_type"] == "grid", "Error should be marked as grid failure"
+
+
+class TestEmptyBody502Handling:
+    """An empty-body 502 (gateway timeout) must escalate to gridding like a 504.
+
+    Mocking Session.post to return the final response simulates the state after
+    urllib3 has exhausted its transient retries, since those live inside the adapter.
+    """
+
+    @staticmethod
+    def _mock_502_response(text=""):
+        class Mock502Response:
+            ok = False
+            status_code = HTTPStatus.BAD_GATEWAY
+
+            def json(self):
+                return json.loads(self.text)
+
+        response = Mock502Response()
+        response.text = text
+        return response
+
+    @staticmethod
+    def _test_polygon():
+        return Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+    def test_empty_body_502_treated_as_size_error(self):
+        """A 502 with an empty body is escalated to a size error"""
+        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
+
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+
+        with patch("requests.Session.post", return_value=self._mock_502_response()):
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
+                api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
+
+        assert exc_info.value.status_code == HTTPStatus.BAD_GATEWAY
+        assert exc_info.value.message == "Empty response body (HTTP 502)"
+
+    def test_empty_body_502_triggers_gridding(self):
+        """At the get_features_gdf level, an empty-body 502 attempts gridding"""
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+
+        with patch("requests.Session.post", return_value=self._mock_502_response()):
+            with patch("time.sleep"):
+                with patch.object(api, "_attempt_gridding", return_value=(None, None, None, None)) as mock_grid:
+                    api.get_features_gdf(
+                        geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
+                    )
+
+        mock_grid.assert_called_once()
+
+    def test_502_with_error_body_stays_standard_error(self):
+        """A 502 carrying an error payload keeps standard error handling, no gridding"""
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+        response = self._mock_502_response(text='{"message": "upstream application error"}')
+
+        with patch("requests.Session.post", return_value=response):
+            with patch("time.sleep"):
+                with patch.object(api, "_attempt_gridding") as mock_grid:
+                    _, _, error, _ = api.get_features_gdf(
+                        geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
+                    )
+
+        mock_grid.assert_not_called()
+        assert error is not None
+        assert error["status_code"] == HTTPStatus.BAD_GATEWAY
+        assert error["message"] == "upstream application error"
+        assert error["failure_type"] == "standard"
 
 
 class TestBulkUnexpectedErrorHandling:
