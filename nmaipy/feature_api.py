@@ -1121,6 +1121,12 @@ class FeatureApi(GriddedApiClient):
                 "perspective": metadata_df["perspective"],
                 "postcat": metadata_df["postcat"],
                 "mesh_date": metadata_df.get("mesh_date", ""),
+                # Gridded queries run with parcelMode disabled, so stored feature
+                # outlines are whole (no clippedGeometry / belongsToParcel
+                # judgment) while clipped_area is parcel-clipped. Consumers use
+                # this flag to decide whether roof parents must be clipped to the
+                # AOI before component recalculation (see exporter.process_chunk).
+                "gridded": True,
             }
 
             # Return grid cell errors as 4th element (may include geometry for failed grid squares)
