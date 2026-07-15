@@ -3588,7 +3588,10 @@ class NearmapAIExporter(BaseExporter):
             # set now, before metadata_df's columns are filtered for the rollup merge.
             gridded_aoi_ids = set()
             if "gridded" in metadata_df.columns:
-                gridded_mask = metadata_df["gridded"].fillna(False).astype(bool)
+                # .eq(True) rather than .fillna(False).astype(bool): the column is
+                # object-dtype (True for gridded AOIs, NaN otherwise) and fillna
+                # downcasting raises a pandas FutureWarning.
+                gridded_mask = metadata_df["gridded"].eq(True)
                 gridded_aoi_ids = set(metadata_df.index[gridded_mask])
 
             # Filter out deprecated feature classes. RSI resolution now uses IoU-based
