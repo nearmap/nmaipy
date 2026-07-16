@@ -91,6 +91,7 @@ class APIKeyFilter(logging.Filter):
                 msg,
                 flags=re.IGNORECASE,
             )
+            msg = re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", msg, flags=re.IGNORECASE)
             record.msg = msg
             record.args = ()  # Clear args to prevent formatting issues
         return True
@@ -373,6 +374,7 @@ def clean_api_key_from_string(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+    text = re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", text, flags=re.IGNORECASE)
     return text
 
 
@@ -407,6 +409,7 @@ class BaseApiClient:
         compress_cache: Optional[bool] = False,
         threads: Optional[int] = 10,
         maxretry: int = MAX_RETRIES,
+        bearer_token: Optional[str] = None,
     ):
         """
         Initialize base API client.
@@ -418,6 +421,9 @@ class BaseApiClient:
             compress_cache: Whether to use gzip compression (.json.gz) or raw json (.json)
             threads: Number of threads for concurrent execution
             maxretry: Number of retries for failed requests
+            bearer_token: Short-lived Nearmap identity JWT. When provided, requests
+                authenticate via an ``Authorization: Bearer`` header instead of the
+                ``?apikey=`` query parameter, and no API key is required.
         """
         # Initialize thread-safety attributes. _adapters tracks every pooled
         # HTTPAdapter handed out by _session_scope (sessions themselves are
@@ -434,12 +440,19 @@ class BaseApiClient:
         self._progress_buffers: List = []
         self._progress_buffers_registry_lock = threading.Lock()
 
-        # API key handling
+        # A bearer token authenticates via an Authorization header and takes precedence
+        # over any api key; otherwise fall back to the api key (arg or env).
+        self.bearer_token = bearer_token
         if api_key:
             self.api_key = api_key
         else:
             self.api_key = os.environ.get("API_KEY", None)
-        if self.api_key is None:
+        if self.bearer_token:
+            # Never fall back to a key in bearer mode: a code path that misses the
+            # bearer check must fail loudly (empty apikey) rather than silently
+            # authenticate with a long-lived key from the environment.
+            self.api_key = ""
+        elif self.api_key is None:
             if cache_dir is not None:
                 logger.warning(
                     "No API KEY provided — operating in cache-only mode. "
@@ -448,8 +461,8 @@ class BaseApiClient:
                 self.api_key = ""
             else:
                 raise ValueError(
-                    "No API KEY provided. Provide a key when initializing the client or set an API_KEY "
-                    "environment variable"
+                    "No API KEY or bearer token provided. Provide a key or bearer_token when "
+                    "initializing the client, or set an API_KEY environment variable"
                 )
 
         # Cache configuration
@@ -638,6 +651,8 @@ class BaseApiClient:
         session = requests.Session()
         session.mount("https://", adapter)
         session._timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
+        if self.bearer_token:
+            session.headers["Authorization"] = f"Bearer {self.bearer_token}"
 
         try:
             yield session
@@ -915,6 +930,7 @@ class GriddedApiClient(BaseApiClient):
         grid_cell_size: float = 0.002,
         max_aoi_area_sqm: float = 1_000_000,
         max_concurrent_gridding: Optional[int] = None,
+        bearer_token: Optional[str] = None,
     ):
         """
         Initialize GriddedApiClient.
@@ -937,6 +953,7 @@ class GriddedApiClient(BaseApiClient):
             compress_cache=compress_cache,
             threads=threads,
             maxretry=maxretry,
+            bearer_token=bearer_token,
         )
 
         self.grid_cell_size = grid_cell_size

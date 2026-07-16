@@ -171,6 +171,7 @@ class FeatureApi(GriddedApiClient):
         progress_counters: Optional[dict] = None,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
         regrid_on_skip: Optional[bool] = True,
+        bearer_token: Optional[str] = None,
     ):
         """
         Initialize FeatureApi class
@@ -217,6 +218,7 @@ class FeatureApi(GriddedApiClient):
             threads=threads,
             maxretry=maxretry,
             grid_cell_size=grid_size,
+            bearer_token=bearer_token,
         )
 
         # Store progress counters for cross-process progress tracking
@@ -276,11 +278,13 @@ class FeatureApi(GriddedApiClient):
         Return a result from one of the base URLS (such as packs or classes)
         """
         with self._session_scope() as session:
-            request_string = f"{base_url}?apikey={self.api_key}"
+            # In bearer mode the apikey param is omitted (auth is the session header).
+            query_params = [] if self.bearer_token else [f"apikey={self.api_key}"]
             if self.alpha:
-                request_string += "&alpha=true"
+                query_params.append("alpha=true")
             if self.beta:
-                request_string += "&beta=true"
+                query_params.append("beta=true")
+            request_string = f"{base_url}?{'&'.join(query_params)}" if query_params else base_url
             response = session.get(request_string, timeout=session._timeout)
             if not response.ok:
                 raise RuntimeError(
@@ -509,8 +513,9 @@ class FeatureApi(GriddedApiClient):
         if survey_resource_id is not None:
             url = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
 
-        # Add apikey as query parameter
-        url = f"{url}?apikey={self.api_key}"
+        # Bearer mode omits the apikey but still opens the query with "?" so the
+        # "&param" appends below stay well-formed (the "?&" is collapsed at the end).
+        url = f"{url}?" if self.bearer_token else f"{url}?apikey={self.api_key}"
 
         # Create request body - only include 'aoi' in the body
         body = {}
@@ -597,6 +602,12 @@ class FeatureApi(GriddedApiClient):
 
         # With POST requests, we always get the exact geometry processed
         exact = True
+
+        # Collapse the "?&" (or trailing lone "?") left by bearer mode's empty apikey.
+        if self.bearer_token:
+            url = url.replace("?&", "?", 1)
+            if url.endswith("?"):
+                url = url[:-1]
 
         return url, body, exact
 

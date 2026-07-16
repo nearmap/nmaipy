@@ -310,7 +310,7 @@ def test_roof_age_api_missing_key():
         del os.environ["API_KEY"]
 
     try:
-        with pytest.raises(ValueError, match="No API KEY provided"):
+        with pytest.raises(ValueError, match="No API KEY or bearer token provided"):
             RoofAgeApi()
     finally:
         # Restore environment variable

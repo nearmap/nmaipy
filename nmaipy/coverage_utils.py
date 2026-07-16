@@ -61,20 +61,26 @@ _COVERAGE_PAGE_SIZE = 1000
 _MAX_COVERAGE_PAGES = 100  # safety bound (~100k surveys) against a missing/inconsistent `total`
 
 
-def get_payload(request_string, apikey=None, timeout=DEFAULT_TIMEOUT):
+def get_payload(request_string, apikey=None, timeout=DEFAULT_TIMEOUT, bearer_token=None):
     """
     Basic wrapper code to retrieve the JSON payload from the API, and raise an error if no response is given.
     Using urllib3, this also implements exponential backoff and retries for robustness.
 
     The apikey is sent via requests' ``params`` (merged into the query string by requests) rather
     than baked into ``request_string``, so the key never appears in the URL variable that flows
-    through this module or into any log line here.
+    through this module or into any log line here. When ``bearer_token`` is given it authenticates
+    via an ``Authorization: Bearer`` header instead, and the apikey param is omitted.
 
     Per-request logging is at debug level: at 10k+ points an info line per call
     floods the logs. Failures are logged at warning/error.
     """
-    params = {"apikey": apikey} if apikey else None
-    response = s.get(request_string, params=params, timeout=timeout)
+    if bearer_token:
+        params = None
+        headers = {"Authorization": f"Bearer {bearer_token}"}
+    else:
+        params = {"apikey": apikey} if apikey else None
+        headers = None
+    response = s.get(request_string, params=params, headers=headers, timeout=timeout)
 
     # response.content is server-controlled. The Nearmap coverage API doesn't
     # echo apikeys in response bodies, and the nmaipy-logger APIKeyFilter would
@@ -101,25 +107,31 @@ def poly2coordstring(poly):
     return coordstring
 
 
-def _resolve_apikey(apikey):
-    """Return the given apikey, or fall back to the API_KEY env var; raise if neither is set."""
+def _resolve_apikey(apikey, bearer_token=None):
+    """Return the given apikey, or fall back to the API_KEY env var.
+
+    In bearer mode no apikey is needed, so return None. Raise only when neither an apikey
+    (arg or env) nor a bearer token is available.
+    """
+    if bearer_token:
+        return None
     key = apikey or os.environ.get("API_KEY")
     if not key:
-        raise ValueError("No API key provided and the API_KEY environment variable is not set")
+        raise ValueError("No API key or bearer token provided and the API_KEY environment variable is not set")
     return key
 
 
-def _post_cat_events_at_point(lat, lon, since=None, until=None, apikey=None):
+def _post_cat_events_at_point(lat, lon, since=None, until=None, apikey=None, bearer_token=None):
     """Return ``{event_id: {event_name, event_date, event_type}}`` for post-cat events whose
     surveys cover ``(lat, lon)``. Empty dict if none. Raises ValueError on a failed request."""
-    apikey = _resolve_apikey(apikey)
+    apikey = _resolve_apikey(apikey, bearer_token)
     # Endpoint takes the point as `{lon},{lat}` in the path (see get_surveys_from_point).
     url = f"{COVERAGE_V2_URL}/point/{lon},{lat}?fields=id,captureDate,tags&limit=100"
     if since is not None:
         url += f"&since={since}"
     if until is not None:
         url += f"&until={until}"
-    response = get_payload(url, apikey=apikey)
+    response = get_payload(url, apikey=apikey, bearer_token=bearer_token)
     if isinstance(response, int):
         raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")
 
@@ -153,7 +165,7 @@ def _select_latest_event(events):
     return ordered[0]
 
 
-def latest_event_id_at_point(lat, lon, since=None, until=None, apikey=None):
+def latest_event_id_at_point(lat, lon, since=None, until=None, apikey=None, bearer_token=None):
     """Discover the latest ImpactResponse catastrophe event id covering ``(lat, lon)``.
 
     Queries the Coverage API point endpoint and returns the ``postCatEventId`` of the event
@@ -164,6 +176,7 @@ def latest_event_id_at_point(lat, lon, since=None, until=None, apikey=None):
         lat, lon: query point in WGS84 degrees.
         since, until: optional ``YYYY-MM-DD`` window to narrow the search.
         apikey: Nearmap API key; defaults to the ``API_KEY`` environment variable.
+        bearer_token: short-lived identity JWT; when set, auth uses a Bearer header and no apikey.
 
     Returns:
         The event id (string UUID).
@@ -171,14 +184,14 @@ def latest_event_id_at_point(lat, lon, since=None, until=None, apikey=None):
     Raises:
         ValueError: if no post-cat event is found at the point (in the window).
     """
-    events = _post_cat_events_at_point(lat, lon, since, until, apikey)
+    events = _post_cat_events_at_point(lat, lon, since, until, apikey, bearer_token)
     if not events:
         window = f" in {since}..{until}" if (since or until) else ""
         raise ValueError(f"No post-catastrophe event found at lat={lat}, lon={lon}{window}")
     return _select_latest_event(events)[0]
 
 
-def event_boundary(event_id, since=None, until=None, apikey=None):
+def event_boundary(event_id, since=None, until=None, apikey=None, bearer_token=None):
     """Assemble the footprint polygon for ``event_id`` as a shapely (Multi)Polygon (EPSG:4326).
 
     Uses the Coverage API's documented tag filter to fetch **every** survey tagged with this
@@ -198,7 +211,7 @@ def event_boundary(event_id, since=None, until=None, apikey=None):
     Raises:
         ValueError: on a failed request, or if no surveys for ``event_id`` are found.
     """
-    apikey = _resolve_apikey(apikey)
+    apikey = _resolve_apikey(apikey, bearer_token)
     window = ""
     if since is not None:
         window += f"&since={since}"
@@ -217,7 +230,7 @@ def event_boundary(event_id, since=None, until=None, apikey=None):
             "&resources=tiles:Vert&fields=id,captureDate,resources,resources:boundary,tags"
             f"&limit={_COVERAGE_PAGE_SIZE}&offset={offset}{window}"
         )
-        response = get_payload(url, apikey=apikey)
+        response = get_payload(url, apikey=apikey, bearer_token=bearer_token)
         if isinstance(response, int):
             raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")
 
@@ -253,7 +266,7 @@ def event_boundary(event_id, since=None, until=None, apikey=None):
     return unary_union(boundaries)
 
 
-def discover_event(lat, lon, since=None, until=None, apikey=None):
+def discover_event(lat, lon, since=None, until=None, apikey=None, bearer_token=None):
     """Discover the latest event id AND its boundary at a point, in one pair of queries.
 
     The entry point for the "hit a point, get the event id + footprint" workflow: resolves the
@@ -272,12 +285,12 @@ def discover_event(lat, lon, since=None, until=None, apikey=None):
     Raises:
         ValueError: if no post-cat event is found at the point.
     """
-    events = _post_cat_events_at_point(lat, lon, since, until, apikey)
+    events = _post_cat_events_at_point(lat, lon, since, until, apikey, bearer_token)
     if not events:
         window = f" in {since}..{until}" if (since or until) else ""
         raise ValueError(f"No post-catastrophe event found at lat={lat}, lon={lon}{window}")
     event_id, _info = _select_latest_event(events)
-    boundary = event_boundary(event_id, since=since, until=until, apikey=apikey)
+    boundary = event_boundary(event_id, since=since, until=until, apikey=apikey, bearer_token=bearer_token)
     return event_id, boundary
 
 
@@ -293,6 +306,7 @@ def get_surveys_from_point(
     prerelease=False,
     limit=100,
     timeout=DEFAULT_TIMEOUT,
+    bearer_token=None,
 ):
     fields = "id,captureDate,resources,tags"
     if coverage_type == STANDARD_COVERAGE:
@@ -311,7 +325,7 @@ def get_surveys_from_point(
         url += f"&until={until}"
     if prerelease:
         url += "&prerelease=true"
-    response = get_payload(url, apikey=apikey, timeout=timeout)
+    response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
@@ -388,6 +402,7 @@ def threaded_get_coverage_from_point_results(
     prerelease=False,
     limit=100,
     timeout=DEFAULT_TIMEOUT,
+    bearer_token=None,
 ):
     """
     Get coverage for a dataframe of points using a thread pool.
@@ -427,6 +442,7 @@ def threaded_get_coverage_from_point_results(
                     prerelease,
                     limit,
                     timeout,
+                    bearer_token,
                 )
             )
 
@@ -448,6 +464,7 @@ def get_coverage_from_points(
     prerelease=False,
     limit=100,
     timeout=DEFAULT_TIMEOUT,
+    bearer_token=None,
 ):
     """
     Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
@@ -518,6 +535,7 @@ def get_coverage_from_points(
                 prerelease=prerelease,
                 limit=limit,
                 timeout=timeout,
+                bearer_token=bearer_token,
             )
             c_with_idx = []
             for j in range(len(c)):
@@ -589,6 +607,7 @@ def threaded_get_coverage_from_survey_ids(
     threads=20,
     prerelease=False,
     limit=100,
+    bearer_token=None,
 ):
     """
     Wrapper function to get coverage from a dataframe with survey_id's in it, using a thread pool.
@@ -608,6 +627,7 @@ def threaded_get_coverage_from_survey_ids(
                     row[survey_id_col],
                     apikey,
                     limit,
+                    bearer_token=bearer_token,
                 )
             )
 
@@ -618,14 +638,14 @@ def threaded_get_coverage_from_survey_ids(
     return results
 
 
-def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT):
+def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT, bearer_token=None):
     # NOTE: this references `id_check_response_to_dataframe`, which is not defined
     # anywhere in the package — the survey-ids path is pre-existing dead code with
     # no callers. Left in place (out of scope for this cleanup); flagged so a
     # future reviver knows the response parser still needs implementing.
     fields = "id,captureDate,resources"
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
-    response = get_payload(url, apikey=apikey, timeout=timeout)
+    response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
         return id_check_response_to_dataframe(response), response  # noqa: F821 (see NOTE above)
     elif response == FORBIDDEN_403:
@@ -644,6 +664,7 @@ def get_coverage_from_survey_ids(
     coverage_chunk_cache_dir="coverage_chunks",
     id_col="id",
     limit=100,
+    bearer_token=None,
 ):
     """
     Given a GeoDataFrame with survey_ids as a column, get a set of all survey resource IDs that are attached to those survey_ids (such as aifeatures, tiles)
@@ -685,6 +706,7 @@ def get_coverage_from_survey_ids(
                 apikey=api_key,
                 threads=threads,
                 limit=limit,
+                bearer_token=bearer_token,
             )
             c_with_idx = []
             for j in range(len(c)):
