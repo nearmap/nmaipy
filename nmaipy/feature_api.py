@@ -171,6 +171,7 @@ class FeatureApi(GriddedApiClient):
         progress_counters: Optional[dict] = None,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
         regrid_on_skip: Optional[bool] = True,
+        bearer_token: Optional[str] = None,
     ):
         """
         Initialize FeatureApi class
@@ -201,6 +202,8 @@ class FeatureApi(GriddedApiClient):
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
+            bearer_token: Short-lived Nearmap identity JWT used instead of an API key
+                (see BaseApiClient for lifetime caveats)
             regrid_on_skip: When True (default), reactively grid the AOI if any include
                 comes back ``{"skipped": true}`` from the API's per-parcel CPU cutoff.
                 Gridded sub-queries disable parcel mode, so the API sees mini-parcels and
@@ -217,6 +220,7 @@ class FeatureApi(GriddedApiClient):
             threads=threads,
             maxretry=maxretry,
             grid_cell_size=grid_size,
+            bearer_token=bearer_token,
         )
 
         # Store progress counters for cross-process progress tracking
@@ -276,11 +280,13 @@ class FeatureApi(GriddedApiClient):
         Return a result from one of the base URLS (such as packs or classes)
         """
         with self._session_scope() as session:
-            request_string = f"{base_url}?apikey={self.api_key}"
+            # In bearer mode the apikey param is omitted (auth is the session header).
+            query_params = [] if self.bearer_token else [f"apikey={self.api_key}"]
             if self.alpha:
-                request_string += "&alpha=true"
+                query_params.append("alpha=true")
             if self.beta:
-                request_string += "&beta=true"
+                query_params.append("beta=true")
+            request_string = f"{base_url}?{'&'.join(query_params)}" if query_params else base_url
             response = session.get(request_string, timeout=session._timeout)
             if not response.ok:
                 raise RuntimeError(
@@ -369,6 +375,9 @@ class FeatureApi(GriddedApiClient):
         # This handles API keys in non-URL contexts or different formats
         if hasattr(self, "api_key") and self.api_key:
             result = result.replace(self.api_key, "APIKEYREMOVED")
+        # Catch a raw bearer token that lacks the "Bearer " prefix the log filters key on.
+        if getattr(self, "bearer_token", None):
+            result = result.replace(self.bearer_token, "REMOVED")
 
         return result
 
@@ -509,8 +518,9 @@ class FeatureApi(GriddedApiClient):
         if survey_resource_id is not None:
             url = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
 
-        # Add apikey as query parameter
-        url = f"{url}?apikey={self.api_key}"
+        # Bearer mode omits the apikey but still opens the query with "?" so the
+        # "&param" appends below stay well-formed (the "?&" is collapsed at the end).
+        url = f"{url}?" if self.bearer_token else f"{url}?apikey={self.api_key}"
 
         # Create request body - only include 'aoi' in the body
         body = {}
@@ -598,7 +608,16 @@ class FeatureApi(GriddedApiClient):
         # With POST requests, we always get the exact geometry processed
         exact = True
 
+        if self.bearer_token:
+            url = self._strip_empty_query(url)
+
         return url, body, exact
+
+    @staticmethod
+    def _strip_empty_query(url: str) -> str:
+        """Collapse the "?&" (or trailing lone "?") left by bearer mode's empty apikey."""
+        url = url.replace("?&", "?", 1)
+        return url[:-1] if url.endswith("?") else url
 
     def get_features(
         self,
@@ -1798,6 +1817,7 @@ class FeatureApi(GriddedApiClient):
         """
         return FeatureApi(
             api_key=self.api_key,
+            bearer_token=self.bearer_token,
             bulk_mode=self.bulk_mode,
             cache_dir=self.cache_dir,
             overwrite_cache=self.overwrite_cache,

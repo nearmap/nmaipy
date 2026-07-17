@@ -392,6 +392,8 @@ python nmaipy/exporter.py --api-key your_api_key_here [other arguments]
 python -m nmaipy.roof_age_exporter --api-key your_api_key_here [other arguments]
 ```
 
+All API clients also accept `bearer_token=` — a short-lived Nearmap identity JWT sent as an `Authorization: Bearer` header instead of the `?apikey=` query parameter (e.g. for running nmaipy in a sandboxed environment). In bearer mode the api key is deliberately zeroed so a missed code path fails loudly rather than falling back to a long-lived env key; when both credentials are supplied the bearer token wins (shorter-lived credential preferred) with a warning. The token is captured at construction and never refreshed, so it suits short jobs only — the exporter CLIs intentionally have no `--bearer-token` option because exports can outlive a short-lived token.
+
 For S3 output, AWS credentials are resolved from environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) or `~/.aws/credentials`.
 
 ## Version Management & Deployment

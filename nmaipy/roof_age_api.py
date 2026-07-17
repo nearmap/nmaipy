@@ -92,6 +92,7 @@ class RoofAgeApi(BaseApiClient):
         resource_id: str = ROOF_AGE_DEFAULT_RESOURCE_ID,
         until_as_of_date: Optional[str] = None,
         since_as_of_date: Optional[str] = None,
+        bearer_token: Optional[str] = None,
     ):
         """
         Initialize Roof Age API client.
@@ -114,6 +115,8 @@ class RoofAgeApi(BaseApiClient):
                 as of that date.
             since_as_of_date: Optional ``YYYY-MM-DD`` lower-bound cutoff. When set, the API restricts the
                 response to roof state from that date onwards.
+            bearer_token: Short-lived Nearmap identity JWT used instead of an API key
+                (see BaseApiClient for lifetime caveats)
 
             Note: cutoff parameters are not supported on the A.0 dataset. Callers are expected to validate
             the combination upstream — sending a cutoff against A.0 returns HTTP 500.
@@ -124,6 +127,7 @@ class RoofAgeApi(BaseApiClient):
             overwrite_cache=overwrite_cache,
             compress_cache=compress_cache,
             threads=threads,
+            bearer_token=bearer_token,
         )
 
         # Store progress counters for cross-process progress tracking
@@ -585,7 +589,8 @@ class RoofAgeApi(BaseApiClient):
         # Fetch all pages (this is a cache miss)
         self._cache_misses += 1
         url = f"{self.base_url}.{file_format}"
-        params = {"apikey": self.api_key}
+        # In bearer mode the apikey param is omitted (auth is the session header).
+        params = {} if self.bearer_token else {"apikey": self.api_key}
         if self.bulk_mode:
             params["bulk"] = "true"
 
@@ -654,7 +659,8 @@ class RoofAgeApi(BaseApiClient):
         # Fetch all pages (this is a cache miss)
         self._cache_misses += 1
         url = f"{self.base_url}.{file_format}"
-        params = {"apikey": self.api_key}
+        # In bearer mode the apikey param is omitted (auth is the session header).
+        params = {} if self.bearer_token else {"apikey": self.api_key}
         if self.bulk_mode:
             params["bulk"] = "true"
 
