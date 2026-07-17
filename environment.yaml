@@ -26,6 +26,7 @@ dependencies:
   # Development tools
   - ruff >=0.11.13
   - pytest >=9.0.2
+  - responses >=0.25.0
   - ipykernel >=7.1.0
   - matplotlib >=3.10.8
 
