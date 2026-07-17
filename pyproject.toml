@@ -50,6 +50,7 @@ dev = [
     "black",
     "isort",
     "pytest",
+    "responses",
     "build",
     "twine",
 ]
