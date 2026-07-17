@@ -98,6 +98,7 @@ class DamageConflationApi(BaseApiClient):
         url_root: Optional[str] = None,
         country: str = "us",
         progress_counters: Optional[dict] = None,
+        bearer_token: Optional[str] = None,
     ):
         """
         Initialize Damage Conflation API client.
@@ -116,6 +117,9 @@ class DamageConflationApi(BaseApiClient):
                 area units downstream.
             progress_counters: Optional dict with 'total', 'completed', 'lock' for
                 cross-process progress tracking.
+            bearer_token: Short-lived Nearmap identity JWT. When provided, requests
+                authenticate via an ``Authorization: Bearer`` header instead of the
+                ``?apikey=`` query parameter, and no API key is required.
         """
         super().__init__(
             api_key=api_key,
@@ -123,6 +127,7 @@ class DamageConflationApi(BaseApiClient):
             overwrite_cache=overwrite_cache,
             compress_cache=compress_cache,
             threads=threads,
+            bearer_token=bearer_token,
         )
 
         if not event_id:
@@ -411,7 +416,8 @@ class DamageConflationApi(BaseApiClient):
 
         self._cache_misses += 1
         url = f"{self.base_url}.{file_format}"
-        params = {"apikey": self.api_key}
+        # In bearer mode the apikey param is omitted (auth is the session header).
+        params = {} if self.bearer_token else {"apikey": self.api_key}
         response_data = self._fetch_all_pages(url=url, params=params, aoi=aoi, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)
@@ -444,7 +450,8 @@ class DamageConflationApi(BaseApiClient):
 
         self._cache_misses += 1
         url = f"{self.base_url}.{file_format}"
-        params = {"apikey": self.api_key}
+        # In bearer mode the apikey param is omitted (auth is the session header).
+        params = {} if self.bearer_token else {"apikey": self.api_key}
         response_data = self._fetch_all_pages(url=url, params=params, address=address, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)

@@ -1809,6 +1809,7 @@ class FeatureApi(GriddedApiClient):
         """
         return FeatureApi(
             api_key=self.api_key,
+            bearer_token=self.bearer_token,
             bulk_mode=self.bulk_mode,
             cache_dir=self.cache_dir,
             overwrite_cache=self.overwrite_cache,
