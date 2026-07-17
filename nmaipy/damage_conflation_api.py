@@ -117,9 +117,8 @@ class DamageConflationApi(BaseApiClient):
                 area units downstream.
             progress_counters: Optional dict with 'total', 'completed', 'lock' for
                 cross-process progress tracking.
-            bearer_token: Short-lived Nearmap identity JWT. When provided, requests
-                authenticate via an ``Authorization: Bearer`` header instead of the
-                ``?apikey=`` query parameter, and no API key is required.
+            bearer_token: Short-lived Nearmap identity JWT used instead of an API key
+                (see BaseApiClient for lifetime caveats)
         """
         super().__init__(
             api_key=api_key,

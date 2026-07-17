@@ -22,6 +22,8 @@ export API_KEY=your_api_key_here
 
 Contact your account administrator if you don't have one.
 
+Short-lived bearer tokens are also supported at the library level: pass `bearer_token=` to any API client (`FeatureApi`, `RoofAgeApi`, `DamageConflationApi`, or the `coverage_utils` functions) to authenticate with an `Authorization: Bearer` header instead of an API key — useful when running nmaipy in a sandboxed environment where a long-lived key can't be exposed. The token is captured at construction and never refreshed, so keep jobs shorter than its lifetime. For that reason the exporter CLIs deliberately have no `--bearer-token` option: exports can run for hours, longer than a short-lived token lasts.
+
 ### 3. Run your first extraction
 
 The repository ships with a 10-property smoke-test script (`run_10_test.py`) that extracts building features and roof age predictions for 10 US properties. It's the fastest way to verify your setup end-to-end:

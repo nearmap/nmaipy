@@ -66,6 +66,36 @@ def test_post_url_includes_apikey_in_key_mode():
     assert "apikey=dummy" in url
 
 
+def test_strip_empty_query():
+    """Both collapse branches: "?&" with params, and the lone trailing "?" with none."""
+    assert FeatureApi._strip_empty_query("https://x/f.json?&a=1&b=2") == "https://x/f.json?a=1&b=2"
+    assert FeatureApi._strip_empty_query("https://x/f.json?") == "https://x/f.json"
+    assert FeatureApi._strip_empty_query("https://x/f.json?a=1") == "https://x/f.json?a=1"
+
+
+def test_both_credentials_warns_and_uses_bearer(caplog):
+    """An explicit api_key alongside a bearer token warns and is discarded."""
+    # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+    nmaipy_logger = logging.getLogger("nmaipy")
+    nmaipy_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING, logger="nmaipy"):
+            api = FeatureApi(api_key="dummy", bearer_token=_JWT)
+    finally:
+        nmaipy_logger.removeHandler(caplog.handler)
+    assert api.bearer_token == _JWT
+    assert api.api_key == ""
+    assert any("api_key is ignored" in r.getMessage() for r in caplog.records)
+
+
+def test_clean_api_key_scrubs_raw_bearer_token():
+    """A raw token without the "Bearer " prefix is still scrubbed by _clean_api_key."""
+    feature_api = FeatureApi(bearer_token=_JWT)
+    assert _JWT not in feature_api._clean_api_key(f"request with {_JWT} leaked")
+    roof_age_api = RoofAgeApi(bearer_token=_JWT)  # exercises the BaseApiClient implementation
+    assert _JWT not in roof_age_api._clean_api_key(f"request with {_JWT} leaked")
+
+
 @responses.activate
 def test_packs_bearer_sends_header_and_no_apikey():
     """get_packs in bearer mode: Authorization header present, no apikey query param."""
@@ -215,6 +245,32 @@ def test_damage_conflation_key_mode_no_auth_header():
     responses.add(responses.POST, _DAMAGE_URL, json=_EMPTY_FC, status=200)
     api = DamageConflationApi(event_id=_EVENT_ID, api_key="dummy")
     api.get_damage_by_aoi(box(0, 0, 1, 1), aoi_id="a")
+    req = responses.calls[0].request
+    assert "apikey=dummy" in req.url
+    assert "Authorization" not in req.headers
+
+
+_ADDRESS = {"streetAddress": "1 Main St", "city": "Springfield", "state": "IL", "zip": "62701"}
+
+
+@responses.activate
+def test_damage_conflation_address_bearer_sends_header_and_no_apikey(monkeypatch):
+    """get_damage_by_address in bearer mode: Authorization header present, no apikey param."""
+    monkeypatch.delenv("API_KEY", raising=False)
+    responses.add(responses.POST, _DAMAGE_URL, json=_EMPTY_FC, status=200)
+    api = DamageConflationApi(event_id=_EVENT_ID, bearer_token=_JWT)
+    api.get_damage_by_address(_ADDRESS, aoi_id="a")
+    req = responses.calls[0].request
+    assert req.headers["Authorization"] == f"Bearer {_JWT}"
+    assert "apikey=" not in req.url
+
+
+@responses.activate
+def test_damage_conflation_address_key_mode_sends_apikey():
+    """Control: key mode sends apikey as a query param and no Authorization header."""
+    responses.add(responses.POST, _DAMAGE_URL, json=_EMPTY_FC, status=200)
+    api = DamageConflationApi(event_id=_EVENT_ID, api_key="dummy")
+    api.get_damage_by_address(_ADDRESS, aoi_id="a")
     req = responses.calls[0].request
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers

@@ -202,6 +202,8 @@ class FeatureApi(GriddedApiClient):
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
+            bearer_token: Short-lived Nearmap identity JWT used instead of an API key
+                (see BaseApiClient for lifetime caveats)
             regrid_on_skip: When True (default), reactively grid the AOI if any include
                 comes back ``{"skipped": true}`` from the API's per-parcel CPU cutoff.
                 Gridded sub-queries disable parcel mode, so the API sees mini-parcels and
@@ -373,6 +375,9 @@ class FeatureApi(GriddedApiClient):
         # This handles API keys in non-URL contexts or different formats
         if hasattr(self, "api_key") and self.api_key:
             result = result.replace(self.api_key, "APIKEYREMOVED")
+        # Catch a raw bearer token that lacks the "Bearer " prefix the log filters key on.
+        if getattr(self, "bearer_token", None):
+            result = result.replace(self.bearer_token, "REMOVED")
 
         return result
 
@@ -603,13 +608,16 @@ class FeatureApi(GriddedApiClient):
         # With POST requests, we always get the exact geometry processed
         exact = True
 
-        # Collapse the "?&" (or trailing lone "?") left by bearer mode's empty apikey.
         if self.bearer_token:
-            url = url.replace("?&", "?", 1)
-            if url.endswith("?"):
-                url = url[:-1]
+            url = self._strip_empty_query(url)
 
         return url, body, exact
+
+    @staticmethod
+    def _strip_empty_query(url: str) -> str:
+        """Collapse the "?&" (or trailing lone "?") left by bearer mode's empty apikey."""
+        url = url.replace("?&", "?", 1)
+        return url[:-1] if url.endswith("?") else url
 
     def get_features(
         self,

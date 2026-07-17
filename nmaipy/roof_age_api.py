@@ -115,6 +115,8 @@ class RoofAgeApi(BaseApiClient):
                 as of that date.
             since_as_of_date: Optional ``YYYY-MM-DD`` lower-bound cutoff. When set, the API restricts the
                 response to roof state from that date onwards.
+            bearer_token: Short-lived Nearmap identity JWT used instead of an API key
+                (see BaseApiClient for lifetime caveats)
 
             Note: cutoff parameters are not supported on the A.0 dataset. Callers are expected to validate
             the combination upstream — sending a cutoff against A.0 returns HTTP 500.

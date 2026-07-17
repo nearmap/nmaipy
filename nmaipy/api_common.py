@@ -423,7 +423,10 @@ class BaseApiClient:
             maxretry: Number of retries for failed requests
             bearer_token: Short-lived Nearmap identity JWT. When provided, requests
                 authenticate via an ``Authorization: Bearer`` header instead of the
-                ``?apikey=`` query parameter, and no API key is required.
+                ``?apikey=`` query parameter, and no API key is required. The token is
+                captured at construction and never refreshed, so a run that outlives it
+                starts failing with 401s — suit it to short jobs (e.g. running nmaipy in
+                a sandboxed environment).
         """
         # Initialize thread-safety attributes. _adapters tracks every pooled
         # HTTPAdapter handed out by _session_scope (sessions themselves are
@@ -448,6 +451,12 @@ class BaseApiClient:
         else:
             self.api_key = os.environ.get("API_KEY", None)
         if self.bearer_token:
+            if api_key:
+                # Phrased to dodge the APIKeyFilter's "Bearer <x>" redaction regex.
+                logger.warning(
+                    "Both api_key and bearer_token provided — the api_key is ignored; "
+                    "the shorter-lived credential is preferred."
+                )
             # Never fall back to a key in bearer mode: a code path that misses the
             # bearer check must fail loudly (empty apikey) rather than silently
             # authenticate with a long-lived key from the environment.
@@ -781,15 +790,19 @@ class BaseApiClient:
 
     def _clean_api_key(self, text: str) -> str:
         """
-        Remove API keys from text for safe logging.
+        Remove API keys and bearer tokens from text for safe logging.
 
         Args:
-            text: String that may contain API keys
+            text: String that may contain credentials
 
         Returns:
-            String with API keys replaced with 'REMOVED'
+            String with credentials replaced with 'REMOVED'
         """
-        return clean_api_key_from_string(text)
+        text = clean_api_key_from_string(text)
+        # Catch a raw token that lacks the "Bearer " prefix the regex keys on.
+        if self.bearer_token:
+            text = text.replace(self.bearer_token, "REMOVED")
+        return text
 
     def get_latency_stats(self) -> Optional[Dict[str, Any]]:
         """
