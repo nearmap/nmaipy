@@ -99,8 +99,12 @@ def test_clean_api_key_scrubs_raw_bearer_token():
 @responses.activate
 def test_packs_bearer_sends_header_and_no_apikey():
     """get_packs in bearer mode: Authorization header present, no apikey query param."""
-    responses.add(responses.GET, api_url := "https://api.nearmap.com/ai/features/v4/bulk/packs.json",
-                  json={"packs": []}, status=200)
+    responses.add(
+        responses.GET,
+        api_url := "https://api.nearmap.com/ai/features/v4/bulk/packs.json",
+        json={"packs": []},
+        status=200,
+    )
     api = FeatureApi(api_key=None, bearer_token=_JWT)
     api.get_packs()
     req = responses.calls[0].request
@@ -112,8 +116,9 @@ def test_packs_bearer_sends_header_and_no_apikey():
 @responses.activate
 def test_packs_key_mode_no_auth_header():
     """Control: key mode sends apikey in the URL and no Authorization header."""
-    responses.add(responses.GET, "https://api.nearmap.com/ai/features/v4/bulk/packs.json",
-                  json={"packs": []}, status=200)
+    responses.add(
+        responses.GET, "https://api.nearmap.com/ai/features/v4/bulk/packs.json", json={"packs": []}, status=200
+    )
     api = FeatureApi(api_key="dummy")
     api.get_packs()
     req = responses.calls[0].request
@@ -138,6 +143,7 @@ def test_bearer_token_scrubbed_by_log_filter():
 
 
 # --- RoofAgeApi ---
+
 
 def test_roof_age_bearer_needs_no_api_key(monkeypatch):
     """RoofAgeApi accepts a bearer token with no API_KEY, and threads it to the base client."""
@@ -164,11 +170,11 @@ def test_roof_age_session_no_header_in_key_mode():
 
 # --- coverage_utils ---
 
+
 @responses.activate
 def test_coverage_get_payload_bearer_header():
     """get_payload sends Authorization: Bearer and no apikey param in bearer mode."""
-    responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0",
-                  json={"surveys": []}, status=200)
+    responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0", json={"surveys": []}, status=200)
     coverage_utils.get_payload("https://api.nearmap.com/coverage/v2/point/0,0", bearer_token=_JWT)
     req = responses.calls[0].request
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
@@ -178,8 +184,7 @@ def test_coverage_get_payload_bearer_header():
 @responses.activate
 def test_coverage_get_payload_apikey_mode():
     """Control: key mode sends apikey as a query param, no Authorization header."""
-    responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0",
-                  json={"surveys": []}, status=200)
+    responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0", json={"surveys": []}, status=200)
     coverage_utils.get_payload("https://api.nearmap.com/coverage/v2/point/0,0", apikey="dummy")
     req = responses.calls[0].request
     assert "apikey=dummy" in req.url
@@ -200,6 +205,7 @@ def test_coverage_resolve_apikey_no_credential_raises(monkeypatch):
 
 
 # --- prefer3d 2D-fallback clone ---
+
 
 def test_clone_for_2d_fallback_propagates_bearer(monkeypatch):
     """The prefer3d 2D-fallback clone must carry the bearer token, and must not
