@@ -128,14 +128,18 @@ def test_resolve_roof_age_dataset():
     from nmaipy.constants import (
         ROOF_AGE_A0_RESOURCE_ID,
         ROOF_AGE_A1_RESOURCE_ID,
+        ROOF_AGE_A1Q2_RESOURCE_ID,
         resolve_roof_age_dataset,
     )
 
     # `latest` is a pointer maintained by the API team; it stays a string alias.
     assert resolve_roof_age_dataset("latest") == "latest"
-    # A.0 / A.1 resolve to their real resource UUIDs.
+    # A.0 / A.1 / A.1Q2 resolve to their real resource UUIDs.
     assert resolve_roof_age_dataset("A.0") == ROOF_AGE_A0_RESOURCE_ID
     assert resolve_roof_age_dataset("A.1") == ROOF_AGE_A1_RESOURCE_ID
+    assert resolve_roof_age_dataset("A.1Q2") == ROOF_AGE_A1Q2_RESOURCE_ID
+    # A.1Q2 is a sibling of A.1, not a repoint of it.
+    assert ROOF_AGE_A1Q2_RESOURCE_ID != ROOF_AGE_A1_RESOURCE_ID
     # Unknown UUID is passed through verbatim — escape hatch for new datasets.
     raw = "12345678-1234-5678-1234-567812345678"
     assert resolve_roof_age_dataset(raw) == raw

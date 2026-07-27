@@ -29,6 +29,9 @@ ROOF_AGE_DEFAULT_RESOURCE_ID = "latest"
 # bumped to A.1 (and beyond) as new datasets are released.
 ROOF_AGE_A0_RESOURCE_ID = "81b605d0-d70d-592d-a1f0-a14c7d020912"
 ROOF_AGE_A1_RESOURCE_ID = "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
+# Same A.1 model as above, re-run over refreshed imagery. A sibling of A.1, not a
+# replacement — both stay reachable so configs saved against "A.1" keep their dataset.
+ROOF_AGE_A1Q2_RESOURCE_ID = "6fac55e6-5e19-5ad1-9fed-9d389442d1f8"
 
 # Friendly aliases for known datasets. Unknown values pass through and are
 # treated as raw resource UUIDs.
@@ -36,6 +39,7 @@ ROOF_AGE_DATASET_ALIASES: dict[str, str] = {
     "latest": "latest",
     "A.0": ROOF_AGE_A0_RESOURCE_ID,
     "A.1": ROOF_AGE_A1_RESOURCE_ID,
+    "A.1Q2": ROOF_AGE_A1Q2_RESOURCE_ID,
 }
 
 # Datasets that do not support the `untilAsOfDate` / `sinceAsOfDate` body parameters.

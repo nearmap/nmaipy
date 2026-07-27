@@ -172,8 +172,8 @@ def parse_arguments():
         "--roof-age-dataset",
         help=(
             "Roof Age dataset to query. Known aliases: 'latest' (default, currently a pointer to A.0), "
-            "'A.0', 'A.1'. Any other value is sent to the API as a literal resource UUID, which lets "
-            "you target newly published datasets without a code change."
+            "'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal resource UUID, "
+            "which lets you target newly published datasets without a code change."
         ),
         type=str,
         default="latest",
