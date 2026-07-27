@@ -130,7 +130,7 @@ exporter = RoofAgeExporter(
 exporter.run()
 ```
 
-**Dataset selection:** pass `roof_age_dataset='latest'` (default — pointer maintained by the Nearmap team), `'A.0'`, `'A.1'`, or any raw resource UUID. **Historical "as-of" queries:** combine with `since` / `until` to ask "what was this roof like in the past?" — these drive the API's `sinceAsOfDate` / `untilAsOfDate` body parameters. Note: `--until` / `--since` are not supported on the `A.0` dataset and are rejected client-side with a clear error.
+**Dataset selection:** pass `roof_age_dataset='latest'` (default — pointer maintained by the Nearmap team), `'A.0'`, `'A.1'`, `'A.1Q2'`, or any raw resource UUID. **Historical "as-of" queries:** combine with `since` / `until` to ask "what was this roof like in the past?" — these drive the API's `sinceAsOfDate` / `untilAsOfDate` body parameters. Note: `--until` / `--since` are not supported on the `A.0` dataset and are rejected client-side with a clear error.
 
 Each roof carries:
 - Predicted installation date
@@ -346,7 +346,7 @@ Key options:
 | `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pools`, `solar`, `damage`, etc.) |
 | `--include` | Additional calculated includes (`roofSpotlightIndex`, `defensibleSpace`, `hurricaneScore`, `windScore`, `hailScore`, `wildfireScore`, `windHailRisk`) |
 | `--roof-age` | Include Roof Age API data (US only) |
-| `--roof-age-dataset` | `latest` (default), `A.0`, `A.1`, or any raw resource UUID |
+| `--roof-age-dataset` | `latest` (default), `A.0`, `A.1`, `A.1Q2`, or any raw resource UUID |
 | `--prefer3d` | Prefer 3D surveys, fall back to 2D per AOI when no 3D coverage exists in the window. Mutually exclusive with `--only3d` |
 | `--only3d` | Restrict every query to 3D surveys (no fallback) |
 | `--system-version-prefix` | Restrict to a specific AI generation (e.g. `gen6-`) |
