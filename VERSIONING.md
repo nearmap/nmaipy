@@ -43,8 +43,13 @@ __version__ = "4.0.1"  # Increment following semver
 
 **Semantic Versioning:**
 - MAJOR: Breaking API changes
-- MINOR: New features, backwards compatible
-- PATCH: Bug fixes, backwards compatible
+- MINOR: New capability, backwards compatible — something users could not do before
+- PATCH: Bug fixes, plus small additive changes that add no new capability
+
+Judge MINOR vs PATCH on *capability*, not on diff shape or commit type. A change is a
+PATCH if users could already achieve the same result before it landed and the change only
+makes it easier. Registering a friendly alias for a dataset that was already reachable by
+raw resource UUID is a PATCH, not a MINOR — a new constant is not a new feature.
 
 **Pre-release Versions (PEP 440):**
 - Alpha: `4.0.0a1` - early testing, API may change
