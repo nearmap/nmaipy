@@ -25,11 +25,16 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
+    ROOF_AGE_A0_RESOURCE_ID,
+    ROOF_AGE_A1_RESOURCE_ID,
+    ROOF_AGE_A1Q2_RESOURCE_ID,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_NEXT_CURSOR_FIELD,
+    ROOF_AGE_NO_CUTOFF_RESOURCE_IDS,
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    resolve_roof_age_dataset,
 )
 from nmaipy.exporter import export_feature_class
 from nmaipy.roof_age_api import RoofAgeApi, RoofAgeAPIError
@@ -115,8 +120,6 @@ def test_a0_resource_id_matches_cached_latest_response():
     A.0; its top-level resourceId is therefore A.0's UUID. If the API team bumps `latest` to a
     new dataset, this test will fail and the constant needs updating in lockstep.
     """
-    from nmaipy.constants import ROOF_AGE_A0_RESOURCE_ID
-
     fixture_path = Path(__file__).parent / "data" / "test_roof_age_nj_response.json"
     with open(fixture_path) as f:
         payload = json.load(f)
@@ -125,13 +128,6 @@ def test_a0_resource_id_matches_cached_latest_response():
 
 def test_resolve_roof_age_dataset():
     """Aliases resolve, unknown values pass through unchanged."""
-    from nmaipy.constants import (
-        ROOF_AGE_A0_RESOURCE_ID,
-        ROOF_AGE_A1_RESOURCE_ID,
-        ROOF_AGE_A1Q2_RESOURCE_ID,
-        resolve_roof_age_dataset,
-    )
-
     # `latest` is a pointer maintained by the API team; it stays a string alias.
     assert resolve_roof_age_dataset("latest") == "latest"
     # A.0 / A.1 / A.1Q2 resolve to their real resource UUIDs.
@@ -140,6 +136,9 @@ def test_resolve_roof_age_dataset():
     assert resolve_roof_age_dataset("A.1Q2") == ROOF_AGE_A1Q2_RESOURCE_ID
     # A.1Q2 is a sibling of A.1, not a repoint of it.
     assert ROOF_AGE_A1Q2_RESOURCE_ID != ROOF_AGE_A1_RESOURCE_ID
+    # A.1Q2 accepts untilAsOfDate/sinceAsOfDate (verified against the live API), so it must
+    # stay out of the reject-list — adding it there would silently break cutoff queries.
+    assert ROOF_AGE_A1Q2_RESOURCE_ID not in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS
     # Unknown UUID is passed through verbatim — escape hatch for new datasets.
     raw = "12345678-1234-5678-1234-567812345678"
     assert resolve_roof_age_dataset(raw) == raw
