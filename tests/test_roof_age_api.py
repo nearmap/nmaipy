@@ -461,6 +461,7 @@ def test_parse_empty_response(roof_age_api):
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 def test_get_roof_age_by_aoi_real_api(test_aoi_nj):
     """
     Integration test with real API.
@@ -834,6 +835,7 @@ def test_build_request_payload_with_pagination(roof_age_api, test_aoi_nj):
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 def test_pagination_real_api():
     """
     Integration test for pagination with real API.
@@ -912,6 +914,7 @@ def test_bulk_mode_parameter_not_included_when_disabled(cache_directory, test_ao
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 def test_bulk_export_with_parcels_2(parcels_2_gdf):
     """
     Integration test for bulk roof age query and export with 100 NJ parcels.
