@@ -963,8 +963,10 @@ class TestFeatureAPI:
         """Test that timeout values are correctly set"""
         from nmaipy.feature_api import READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
 
-        # Check the expected timeout values
-        assert READ_TIMEOUT_SECONDS == 90, f"Expected read timeout 90s, got {READ_TIMEOUT_SECONDS}s"
+        # Read timeout must clear the longest legitimate response-generation time
+        # observed for feature-dense AOIs (~250s) while staying below intermediate
+        # NAT idle-drop limits (~350s) — see constants.py for the full rationale.
+        assert READ_TIMEOUT_SECONDS == 300, f"Expected read timeout 300s, got {READ_TIMEOUT_SECONDS}s"
         assert TIMEOUT_SECONDS == 120, f"Expected connect timeout 120s, got {TIMEOUT_SECONDS}s"
 
     def test_session_timeout_application(self):
@@ -977,7 +979,7 @@ class TestFeatureAPI:
                 assert hasattr(session, "_timeout"), "Session missing _timeout attribute"
                 assert session._timeout == (
                     120,
-                    90,
+                    300,
                 ), f"Wrong timeout values: {session._timeout}"
 
     def test_read_timeout_treated_as_504(self):

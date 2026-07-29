@@ -35,6 +35,7 @@ from nmaipy.api_common import (
     clean_api_key_from_string,
     format_error_message,
     generate_curl_command,
+    is_read_timeout_error,
 )
 from nmaipy.constants import (
     ADDRESS_FIELDS,
@@ -753,23 +754,27 @@ class FeatureApi(GriddedApiClient):
                     self._latencies.append(response_time_ms)
 
                     request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
-
-                    # Log geometry if urllib3 performed any retries (check response history)
-                    if hasattr(response, "history") and len(response.history) > 0:
-                        aoi_geom = body.get("aoi", {}) if body else {}
-                        num_retries = len(response.history)
-                        self._retry_count += num_retries  # Track urllib3 retries
-                        status = response.status_code if hasattr(response, "status_code") else "unknown"
-                        logger.info(
-                            f"Request required {num_retries} urllib3 retry(ies), final status {status}, AOI geometry: {json.dumps(aoi_geom)}"
-                        )
+                    # (urllib3 in-transport retries are counted via RetryRequest.on_retry —
+                    # requests' response.history only records redirects, never retries.)
 
                     break  # Success, exit retry loop
-                except requests.exceptions.ReadTimeout as e:
-                    # Treat read timeout exactly like a 504 Gateway Timeout from the server
-                    # This will trigger gridding for large requests that timeout
+                except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
+                    # Read timeouts surface down two paths, and neither is plain ReadTimeout
+                    # in practice (see is_read_timeout_error): waiting-for-headers timeouts
+                    # exhaust urllib3's read budget and arrive as ConnectionError wrapping
+                    # MaxRetryError(ReadTimeoutError); mid-body timeouts arrive as
+                    # ConnectionError wrapping a bare ReadTimeoutError. Other ConnectionError
+                    # causes (DNS, refused, reset) are infrastructure faults — re-raise.
+                    if isinstance(e, requests.exceptions.ConnectionError) and not is_read_timeout_error(e):
+                        raise
+
+                    # Treat the read timeout exactly like a 504 Gateway Timeout from the
+                    # server: the API could not produce the response within
+                    # READ_TIMEOUT_SECONDS, so grid the AOI into smaller requests rather
+                    # than re-sending the same oversized one (each resend closes the
+                    # connection server-side and re-runs the full computation).
                     self._timeout_count += 1
-                    logger.debug(
+                    logger.info(
                         f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504"
                     )
 
