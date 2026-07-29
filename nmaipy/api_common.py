@@ -30,6 +30,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
+from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 from urllib3.util.retry import Retry
 
 from nmaipy import log, storage
@@ -172,7 +173,7 @@ def format_error_summary_table(status_counts, message_counts, max_message_len=16
 
 class RetryRequest(Retry):
     """
-    Extended retry strategy with full-jitter backoff and first-retry logging.
+    Extended retry strategy with full-jitter backoff, retry logging, and retry counting.
 
     Implements full jitter: sleep = uniform(0, min(backoff_max, backoff_factor * 2^n)).
     Jitter scales with retry count — fast recovery on early retries, strong desynchronisation
@@ -181,10 +182,19 @@ class RetryRequest(Retry):
     Which statuses/exceptions are retried is controlled by the ``status_forcelist``
     passed at construction (see ``BaseApiClient._session_scope``) plus urllib3's
     built-in handling of connection/read errors.
+
+    ``on_retry``, if given, is called once per retry urllib3 performs, with the retry
+    cause (an exception instance or an HTTP status int). urllib3's retry state objects
+    are immutable — every ``increment()`` returns a fresh instance via ``new()`` — so
+    the callback is re-attached in ``new()`` to survive that copying. This exists
+    because retries happen entirely inside urllib3: without the hook, the client above
+    (``session.post``) sees only the final outcome and has no idea how many attempts
+    (each a full request the server pays for) were burned along the way.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, on_retry=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.on_retry = on_retry
         # Statuses whose Retry-After header is honoured (urllib3 consults this in
         # is_retry/sleep). Deliberately excludes 413 (urllib3's default includes it):
         # 413 means the AOI is too large and triggers gridding, not a retry.
@@ -196,6 +206,16 @@ class RetryRequest(Retry):
                 HTTPStatus.SERVICE_UNAVAILABLE,  # 503
             }
         )
+
+    def new(self, **kw):
+        """Propagate the on_retry callback through urllib3's immutable-copy pattern.
+
+        ``Retry.new()`` reconstructs the instance from its known constructor params
+        only, so custom state is dropped unless re-attached here.
+        """
+        instance = super().new(**kw)
+        instance.on_retry = self.on_retry
+        return instance
 
     def get_backoff_time(self) -> float:
         """Full jitter backoff: sleep = uniform(0, min(backoff_max, backoff_factor * 2^n)).
@@ -219,12 +239,22 @@ class RetryRequest(Retry):
         _pool=None,
         _stacktrace=None,
     ):
-        """Override to log on first retry attempt"""
+        """Override to count every retry and log the interesting ones."""
         result = super().increment(method, url, response, error, _pool, _stacktrace)
 
-        # Log on first retry only (history is a tuple, check length)
-        # Skip logging for 429s — these are expected under high concurrency
-        if result and len(result.history) == 1:
+        # Report every retry urllib3 performs to the owning client (see class docstring).
+        if result and self.on_retry is not None:
+            self.on_retry(error if error is not None else (response.status if response is not None else None))
+
+        is_read_timeout = error is not None and isinstance(error, ReadTimeoutError)
+
+        # Read-timeout retries are logged EVERY time: each one means the server got no
+        # byte out for READ_TIMEOUT_SECONDS, the connection was closed mid-flight
+        # (surfacing as a client-closed-request in server-side logs), and the same
+        # expensive request is being re-sent from scratch. They are rare and each one
+        # is significant. Status-code retries log on the first retry only, and 429s
+        # not at all — those are expected under high concurrency.
+        if result and (is_read_timeout or len(result.history) == 1):
             if response is not None and response.status == HTTPStatus.TOO_MANY_REQUESTS:
                 pass
             else:
@@ -240,9 +270,43 @@ class RetryRequest(Retry):
                 if url and "apikey=" in url:
                     clean_url = url.split("apikey=")[0] + "apikey=***"
 
-                logger.info(f"{reason} causing retry of request {clean_url}")
+                logger.info(f"{reason} causing retry {len(result.history)} of request {clean_url}")
 
         return result
+
+
+def is_read_timeout_error(exc: Exception) -> bool:
+    """True if this exception is rooted in a read timeout (no bytes for READ_TIMEOUT_SECONDS).
+
+    Read timeouts reach the caller down two distinct paths, neither of which is
+    ``requests.exceptions.ReadTimeout``:
+
+    - Waiting for response headers (server still computing): urllib3 retries these
+      internally up to the ``read`` budget, then raises ``MaxRetryError`` whose
+      ``reason`` is a ``ReadTimeoutError``; requests wraps that in ``ConnectionError``.
+    - Mid-body (headers received, body stalled): raised while requests consumes the
+      content, surfacing as ``ConnectionError`` wrapping a bare ``ReadTimeoutError``.
+
+    Both mean the same thing for this client — the server could not finish producing
+    the response in time — and must be distinguished from other ``ConnectionError``
+    causes (DNS failure, connection refused, reset), which are infrastructure faults
+    and must NOT be treated as an oversized/slow AOI.
+    """
+    seen = set()
+    stack = [exc]
+    while stack:
+        e = stack.pop()
+        if id(e) in seen or e is None:
+            continue
+        seen.add(id(e))
+        if isinstance(e, ReadTimeoutError):
+            return True
+        if isinstance(e, MaxRetryError):
+            stack.append(e.reason)
+        stack.extend(arg for arg in getattr(e, "args", ()) if isinstance(arg, BaseException))
+        stack.append(e.__cause__)
+        stack.append(e.__context__)
+    return False
 
 
 class APIError(Exception):
@@ -495,6 +559,23 @@ class BaseApiClient:
         self._cache_hits = 0
         self._cache_misses = 0
 
+    def _count_urllib3_retry(self, cause):
+        """RetryRequest.on_retry hook: count retries urllib3 performs inside the transport.
+
+        Without this, in-transport retries are invisible — ``session.post`` returns the
+        final outcome only, so ``_retry_count`` reported 0 even while urllib3 was
+        re-sending requests. (The previous counting attempt keyed off
+        ``response.history``, which is requests' REDIRECT history, never retries.)
+
+        ``cause`` is the exception instance or HTTP status int that triggered the retry.
+        Read-timeout retries also bump ``_timeout_count``: each one is a connection the
+        client closed mid-request (one client-closed-request entry in server-side logs).
+        """
+        with self._lock:
+            self._retry_count += 1
+            if isinstance(cause, ReadTimeoutError):
+                self._timeout_count += 1
+
     def __del__(self):
         """Cleanup when instance is destroyed"""
         self.cleanup()
@@ -642,8 +723,20 @@ class BaseApiClient:
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
                 connect=self.maxretry,
-                read=self.maxretry,
+                # Read timeouts get ONE silent in-transport retry (covers a transient
+                # dead connection, e.g. a NAT-dropped socket), then surface to the
+                # caller. They must NOT share the big status-retry budget: each read
+                # retry silently closes the connection (a client-closed-request in
+                # server logs) and re-sends the same request, so the server pays for
+                # every attempt while the client sees one long successful call —
+                # no exception, nothing in the retry/timeout counters. With the old
+                # read=maxretry(20) budget, one response that legitimately needs
+                # longer than READ_TIMEOUT_SECONDS to generate became a ~half-hour
+                # silent resend storm. Callers handle the surfaced timeout instead
+                # (FeatureApi treats it as a 504 and grids the AOI).
+                read=1,
                 redirect=self.maxretry,
+                on_retry=self._count_urllib3_retry,
             )
             pool_size = min(max(self.threads, 10), 50)
             adapter = HTTPAdapter(
@@ -814,8 +907,11 @@ class BaseApiClient:
         - min, max: Extremes
         - count: Number of successful requests (latency samples)
         - histogram: Bucket counts for aggregation across chunks
-        - retry_count: Number of retries that occurred
-        - timeout_count: Number of requests that timed out
+        - retry_count: Every retry performed, including urllib3 in-transport retries
+          (counted via RetryRequest.on_retry) and manual loop retries
+        - timeout_count: Read-timeout events — each one is a connection the client
+          closed after READ_TIMEOUT_SECONDS without a byte (in-transport retry or
+          surfaced), i.e. one client-closed-request entry in server-side logs
         - cache_hits: Number of cache hits
         - cache_misses: Number of cache misses (API calls made)
 

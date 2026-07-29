@@ -174,12 +174,22 @@ BACKOFF_MAX = 60
 # With 50 threads: requests spread over 5s = ~10 req/s at startup instead of an instant spike.
 THREAD_STARTUP_JITTER_SECONDS = 5.0
 
-# Maximum time to wait for initial server response (connection + waiting for first byte)
+# Connect timeout: maximum time to establish the TCP/TLS connection. This is the FIRST
+# element of the requests timeout tuple — it does NOT cover waiting for the response.
 TIMEOUT_SECONDS = 120
 
-# Maximum time to wait for reading complete response body after initial response
-# Set lower than TIMEOUT_SECONDS to detect stalled connections faster
-READ_TIMEOUT_SECONDS = 90
+# Read timeout: maximum time between bytes received — this is what governs waiting for
+# the first byte of the response (i.e. server-side compute time) and any gap mid-body.
+# Sizing rationale (measured 2026-07):
+#   - Feature-dense parcels (hundreds of buildings on one AOI, e.g. caravan parks or
+#     estates) legitimately take the API 60-250s to generate a multi-MB response, with
+#     the entire delay before the first byte. A timeout below that ceiling aborts real
+#     work and re-requests it, multiplying backend load and stretching a single AOI
+#     into many timeout cycles.
+#   - Upper bound: intermediate NAT gateways (e.g. AWS NAT, 350s idle limit) silently
+#     drop connections with no traffic. A read timeout above ~350s can never fire —
+#     the client would instead hang on a dead socket. Keep this comfortably below 350.
+READ_TIMEOUT_SECONDS = 300
 
 # Delay between retries for ChunkedEncodingError (network-level errors)
 CHUNKED_ENCODING_RETRY_DELAY = 1.0
