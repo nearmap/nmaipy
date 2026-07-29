@@ -191,6 +191,14 @@ TIMEOUT_SECONDS = 120
 #     the client would instead hang on a dead socket. Keep this comfortably below 350.
 READ_TIMEOUT_SECONDS = 300
 
+# Retries allowed for read timeouts specifically, separate from MAX_RETRIES. A read
+# timeout means the server is still computing, so every retry re-sends work it must redo
+# from scratch — one covers a transient stall, more just multiplies backend load. Other
+# read-phase errors (connection aborted before any response byte) keep MAX_RETRIES: the
+# server produced nothing, so retrying those is cheap. Once this is exhausted the timeout
+# surfaces to the caller, which grids the AOI instead of resending it whole.
+READ_TIMEOUT_MAX_RETRIES = 1
+
 # Delay between retries for ChunkedEncodingError (network-level errors)
 CHUNKED_ENCODING_RETRY_DELAY = 1.0
 

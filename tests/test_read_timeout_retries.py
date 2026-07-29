@@ -1,25 +1,28 @@
 """Tests for read-timeout retry semantics and visibility.
 
 Read timeouts while waiting for response headers are retried INSIDE urllib3: each retry
-closes the connection (a client-closed-request entry in server-side logs) and re-sends
-the same request, which the server pays for in full. Those retries used to be entirely
-invisible — the old counting keyed off ``response.history``, which is requests' REDIRECT
-history and never records retries, so ``_retry_count``/``_timeout_count`` read 0 while
-urllib3 re-sent freely. READ_TIMEOUT_SECONDS is now sized above the longest legitimate
-response-generation time so the retries are rare; ``RetryRequest.on_retry`` makes them
-visible when they do happen.
+closes the connection (a client-closed-request entry in server-side logs) and re-sends a
+request the server is still computing, which it must then redo from scratch. urllib3
+budgets those together with connection-aborted errors under one ``read`` counter, so
+``RetryRequest`` enforces READ_TIMEOUT_MAX_RETRIES separately — aborts stay cheap to
+retry and keep the full MAX_RETRIES.
+
+Those retries also used to be invisible: the old counting keyed off ``response.history``,
+which is requests' REDIRECT history and never records retries, so ``_retry_count`` and
+``_timeout_count`` read 0 while urllib3 re-sent freely.
 
 These tests pin:
+  - read timeouts get READ_TIMEOUT_MAX_RETRIES, then surface as
+    ``requests.exceptions.ReadTimeout``; a transient stall recovers on retry
+  - connection aborts (ProtocolError) keep the full budget despite sharing urllib3's
+    ``read`` counter with read timeouts
   - every in-transport retry (read timeout and status-code alike) is reported to the
     owning client, and the callback survives urllib3's immutable ``Retry.new()`` copies
-  - a transient stall recovers silently on retry
-  - once the read budget is exhausted the timeout surfaces as
-    ``requests.exceptions.ConnectionError`` (NOT ``ReadTimeout``), and
-    ``is_read_timeout_error`` recognises it down both surfacing paths
-  - non-timeout ConnectionErrors (DNS, refused) are NOT classified as read timeouts
+  - ``is_read_timeout_error`` recognises both surfacing paths — the mid-body one arrives
+    as ``ConnectionError``, not ``ReadTimeout`` — and rejects DNS/refused
   - FeatureApi converts surfaced read timeouts into AIFeatureAPIRequestSizeError
     so the AOI grids instead of erroring
-  - the production session wires the retry budgets and the counting callback, and the
+  - the production session wires both budgets and the counting callback, and the
     callback does not keep the client alive
 """
 
@@ -40,11 +43,11 @@ from requests.adapters import HTTPAdapter
 from shapely.geometry import Polygon
 
 from nmaipy.api_common import RetryRequest, is_read_timeout_error
-from nmaipy.constants import READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
+from nmaipy.constants import READ_TIMEOUT_MAX_RETRIES, READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
 from nmaipy.feature_api import AIFeatureAPIRequestSizeError, FeatureApi
 
 TEST_READ_TIMEOUT = 0.5  # seconds — fast stand-in for READ_TIMEOUT_SECONDS
-TEST_MAXRETRY = 3  # fast stand-in for MAX_RETRIES (production sets every budget to it)
+TEST_MAXRETRY = 3  # fast stand-in for MAX_RETRIES; must exceed READ_TIMEOUT_MAX_RETRIES
 SLOW = 2.0  # server-side delay that exceeds the read timeout
 
 
@@ -88,6 +91,44 @@ def slow_server():
     server.server_close()
 
 
+@pytest.fixture
+def aborting_server():
+    """Server that closes the connection before any response byte, for the first N attempts.
+
+    urllib3 sees that as ProtocolError ("Connection aborted."), which shares its ``read``
+    budget with read timeouts but is cheap to retry — the server produced nothing.
+    """
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(50)
+    state = {"attempts": 0, "abort_first": 0, "port": sock.getsockname()[1], "lock": threading.Lock()}
+
+    def handle(conn):
+        with state["lock"]:
+            state["attempts"] += 1
+            abort = state["attempts"] <= state["abort_first"]
+        try:
+            conn.recv(65536)
+            if not abort:
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    def accept_loop():
+        while True:
+            try:
+                conn, _ = sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=handle, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=accept_loop, daemon=True).start()
+    yield state
+    sock.close()
+
+
 def _make_session(retry_counts, status_forcelist=(429, 500, 502, 503), maxretry=TEST_MAXRETRY):
     """Build a session with the same retry shape as BaseApiClient._session_scope."""
 
@@ -104,6 +145,7 @@ def _make_session(retry_counts, status_forcelist=(429, 500, 502, 503), maxretry=
         connect=maxretry,
         read=maxretry,
         redirect=maxretry,
+        read_timeout_retries=READ_TIMEOUT_MAX_RETRIES,
         on_retry=on_retry,
     )
     session = requests.Session()
@@ -111,21 +153,37 @@ def _make_session(retry_counts, status_forcelist=(429, 500, 502, 503), maxretry=
     return session
 
 
-def test_read_timeout_surfaces_once_budget_exhausted(slow_server):
-    """A persistently slow response must burn the read budget (one full request per
-    attempt, each reported), then surface as ConnectionError rather than a ReadTimeout."""
+def test_read_timeout_surfaces_once_its_own_budget_is_spent(slow_server):
+    """Read timeouts get READ_TIMEOUT_MAX_RETRIES, not the full budget — every retry
+    re-sends work the server is still computing — then surface as ReadTimeout."""
     slow_server.sleep_plan = [SLOW]  # always slower than the read timeout
     retry_causes = []
     session = _make_session(retry_causes)
     url = f"http://127.0.0.1:{slow_server.server_address[1]}/features.json"
 
-    with pytest.raises(requests.exceptions.ConnectionError) as exc_info:
+    with pytest.raises(requests.exceptions.ReadTimeout) as exc_info:
         session.post(url, json={"aoi": "x"}, timeout=(5, TEST_READ_TIMEOUT))
 
-    assert slow_server.request_count == TEST_MAXRETRY + 1, "every retry re-sends the request in full"
+    assert slow_server.request_count == READ_TIMEOUT_MAX_RETRIES + 1, "every retry re-sends the request in full"
     assert is_read_timeout_error(exc_info.value), "surfaced exception must be recognised as a read timeout"
-    assert len(retry_causes) == TEST_MAXRETRY, "each in-transport retry must be reported exactly once"
+    assert len(retry_causes) == READ_TIMEOUT_MAX_RETRIES, "each in-transport retry must be reported exactly once"
     assert all(isinstance(cause, urllib3.exceptions.ReadTimeoutError) for cause in retry_causes)
+
+
+def test_connection_aborts_keep_the_full_retry_budget(aborting_server):
+    """Aborts share urllib3's `read` counter with read timeouts but must NOT share their
+    budget: the server produced nothing, so resending is cheap and must stay resilient."""
+    aborting_server["abort_first"] = TEST_MAXRETRY - 1
+    retry_causes = []
+    session = _make_session(retry_causes)
+    url = f"http://127.0.0.1:{aborting_server['port']}/features.json"
+
+    response = session.post(url, json={"aoi": "x"}, timeout=(5, TEST_READ_TIMEOUT))
+
+    assert response.status_code == 200, "aborts must be retried past the read-timeout budget"
+    assert aborting_server["attempts"] == TEST_MAXRETRY
+    assert len(retry_causes) == TEST_MAXRETRY - 1 > READ_TIMEOUT_MAX_RETRIES
+    assert all(isinstance(cause, urllib3.exceptions.ProtocolError) for cause in retry_causes)
 
 
 def test_transient_read_timeout_recovers_silently(slow_server):
@@ -252,15 +310,17 @@ def test_non_timeout_connection_error_propagates():
 
 
 def test_production_session_wires_budgets_and_counting():
-    """Pin the real _session_scope config: every budget is maxretry, and retries are counted.
+    """Pin the real _session_scope config: general budgets are maxretry, read timeouts get
+    their own smaller one, and retries are counted.
 
     The tests above build their own session, so without this a revert of _session_scope
-    to uncounted retries would pass the whole suite.
+    to a shared or uncounted budget would pass the whole suite.
     """
     api = FeatureApi(api_key="TEST_KEY", cache_dir=None, maxretry=7)
     with api._session_scope() as session:
         retries = session.adapters["https://"].max_retries
         assert (retries.total, retries.connect, retries.read, retries.redirect) == (7, 7, 7, 7)
+        assert retries.read_timeout_retries == READ_TIMEOUT_MAX_RETRIES < 7
         assert retries.on_retry is not None, "in-transport retries must be reported to the client"
         assert session._timeout == (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
 

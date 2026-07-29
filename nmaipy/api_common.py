@@ -41,6 +41,7 @@ from nmaipy.constants import (
     BACKOFF_MAX,
     DUMMY_STATUS_CODE,
     MAX_RETRIES,
+    READ_TIMEOUT_MAX_RETRIES,
     READ_TIMEOUT_SECONDS,
     S3_PARALLEL_READ_WORKERS,
     TIMEOUT_SECONDS,
@@ -184,6 +185,13 @@ class RetryRequest(Retry):
     passed at construction (see ``BaseApiClient._session_scope``) plus urllib3's
     built-in handling of connection/read errors.
 
+    ``read_timeout_retries`` caps read timeouts specifically. urllib3's ``read`` budget
+    covers read timeouts and connection-aborted errors together (``_is_read_error``), but
+    they deserve very different budgets: an aborted connection means the server produced
+    nothing and retrying is cheap, whereas a read timeout means the server is still
+    computing and every retry re-sends work it must redo from scratch. So ``read`` keeps
+    the full budget and read timeouts get their own, enforced in ``increment()``.
+
     ``on_retry``, if given, is called once per retry urllib3 performs, with the retry
     cause (an exception instance or an HTTP status int). urllib3's retry state objects
     are immutable — every ``increment()`` returns a fresh instance via ``new()`` — so
@@ -193,9 +201,11 @@ class RetryRequest(Retry):
     (each a full request the server pays for) were burned along the way.
     """
 
-    def __init__(self, *args, on_retry=None, **kwargs):
+    def __init__(self, *args, on_retry=None, read_timeout_retries=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.on_retry = on_retry
+        self.read_timeout_retries = read_timeout_retries
+        self.read_timeout_count = 0
         # Statuses whose Retry-After header is honoured (urllib3 consults this in
         # is_retry/sleep). Deliberately excludes 413 (urllib3's default includes it):
         # 413 means the AOI is too large and triggers gridding, not a retry.
@@ -209,13 +219,15 @@ class RetryRequest(Retry):
         )
 
     def new(self, **kw):
-        """Propagate the on_retry callback through urllib3's immutable-copy pattern.
+        """Carry custom state through urllib3's immutable-copy pattern.
 
         ``Retry.new()`` reconstructs the instance from its known constructor params
         only, so custom state is dropped unless re-attached here.
         """
         instance = super().new(**kw)
         instance.on_retry = self.on_retry
+        instance.read_timeout_retries = self.read_timeout_retries
+        instance.read_timeout_count = self.read_timeout_count
         return instance
 
     def get_backoff_time(self) -> float:
@@ -240,14 +252,23 @@ class RetryRequest(Retry):
         _pool=None,
         _stacktrace=None,
     ):
-        """Override to count every retry and log the interesting ones."""
+        """Override to enforce the read-timeout budget, count every retry, and log the interesting ones."""
+        is_read_timeout = error is not None and isinstance(error, ReadTimeoutError)
+
+        # Read timeouts have their own budget, tracked here because urllib3's `read`
+        # counter is shared with connection-aborted errors (see class docstring).
+        # Surfacing the bare ReadTimeoutError makes requests raise ReadTimeout.
+        if is_read_timeout and self.read_timeout_retries is not None:
+            if self.read_timeout_count >= self.read_timeout_retries:
+                raise error.with_traceback(_stacktrace)
+
         result = super().increment(method, url, response, error, _pool, _stacktrace)
+        if is_read_timeout:
+            result.read_timeout_count = self.read_timeout_count + 1
 
         # Report every retry urllib3 performs to the owning client (see class docstring).
         if result and self.on_retry is not None:
             self.on_retry(error if error is not None else (response.status if response is not None else None))
-
-        is_read_timeout = error is not None and isinstance(error, ReadTimeoutError)
 
         # Read-timeout retries are logged EVERY time: each one means the server got no
         # byte out for READ_TIMEOUT_SECONDS, the connection was closed mid-flight
@@ -279,18 +300,19 @@ class RetryRequest(Retry):
 def is_read_timeout_error(exc: Exception) -> bool:
     """True if this exception is rooted in a read timeout (no bytes for READ_TIMEOUT_SECONDS).
 
-    Read timeouts reach the caller down two distinct paths, neither of which is
-    ``requests.exceptions.ReadTimeout``:
+    Read timeouts reach the caller down more than one path:
 
-    - Waiting for response headers (server still computing): urllib3 retries these
-      internally up to the ``read`` budget, then raises ``MaxRetryError`` whose
-      ``reason`` is a ``ReadTimeoutError``; requests wraps that in ``ConnectionError``.
+    - Waiting for response headers (server still computing): ``RetryRequest`` surfaces the
+      bare ``ReadTimeoutError`` once READ_TIMEOUT_MAX_RETRIES is spent, which requests
+      raises as ``ReadTimeout``. Should urllib3's shared ``read``/``total`` budget run out
+      first, it instead arrives as ``ConnectionError`` wrapping
+      ``MaxRetryError(ReadTimeoutError)``.
     - Mid-body (headers received, body stalled): raised while requests consumes the
       content, surfacing as ``ConnectionError`` wrapping a bare ``ReadTimeoutError``.
 
-    Both mean the same thing for this client — the server could not finish producing
+    All mean the same thing for this client — the server could not finish producing
     the response in time — and must be distinguished from other ``ConnectionError``
-    causes (DNS failure, connection refused, reset), which are infrastructure faults
+    causes (DNS failure, connection refused, aborted), which are infrastructure faults
     and must NOT be treated as an oversized/slow AOI.
     """
     seen = set()
@@ -743,6 +765,7 @@ class BaseApiClient:
                 connect=self.maxretry,
                 read=self.maxretry,
                 redirect=self.maxretry,
+                read_timeout_retries=READ_TIMEOUT_MAX_RETRIES,
                 on_retry=self._weak_retry_counter(),
             )
             pool_size = min(max(self.threads, 10), 50)

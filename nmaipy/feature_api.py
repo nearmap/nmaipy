@@ -759,12 +759,11 @@ class FeatureApi(GriddedApiClient):
 
                     break  # Success, exit retry loop
                 except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
-                    # Read timeouts surface down two paths, and neither is plain ReadTimeout
-                    # in practice (see is_read_timeout_error): waiting-for-headers timeouts
-                    # exhaust urllib3's read budget and arrive as ConnectionError wrapping
-                    # MaxRetryError(ReadTimeoutError); mid-body timeouts arrive as
-                    # ConnectionError wrapping a bare ReadTimeoutError. Other ConnectionError
-                    # causes (DNS, refused, reset) are infrastructure faults — re-raise.
+                    # Waiting-for-headers timeouts arrive as ReadTimeout once
+                    # READ_TIMEOUT_MAX_RETRIES is spent; mid-body timeouts arrive as
+                    # ConnectionError wrapping a bare ReadTimeoutError (see
+                    # is_read_timeout_error). Other ConnectionError causes (DNS, refused,
+                    # aborted connection) are infrastructure faults — re-raise.
                     if isinstance(e, requests.exceptions.ConnectionError) and not is_read_timeout_error(e):
                         raise
 
