@@ -18,6 +18,7 @@ import os
 import random
 import re
 import threading
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from itertools import takewhile
@@ -576,6 +577,23 @@ class BaseApiClient:
             if isinstance(cause, ReadTimeoutError):
                 self._timeout_count += 1
 
+    def _weak_retry_counter(self):
+        """Build the ``RetryRequest.on_retry`` callback without keeping this client alive.
+
+        A bound method would close a reference cycle (client → ``_adapters`` → adapter →
+        ``max_retries`` → callback → client), pushing ``cleanup()`` off deterministic
+        refcount teardown onto a cyclic gc pass and holding connection pools (and their
+        file descriptors) open past the client's last use.
+        """
+        counter = weakref.WeakMethod(self._count_urllib3_retry)
+
+        def on_retry(cause):
+            method = counter()
+            if method is not None:
+                method(cause)
+
+        return on_retry
+
     def __del__(self):
         """Cleanup when instance is destroyed"""
         self.cleanup()
@@ -723,20 +741,9 @@ class BaseApiClient:
                 allowed_methods=["GET", "POST"],
                 raise_on_status=False,
                 connect=self.maxretry,
-                # Read timeouts get ONE silent in-transport retry (covers a transient
-                # dead connection, e.g. a NAT-dropped socket), then surface to the
-                # caller. They must NOT share the big status-retry budget: each read
-                # retry silently closes the connection (a client-closed-request in
-                # server logs) and re-sends the same request, so the server pays for
-                # every attempt while the client sees one long successful call —
-                # no exception, nothing in the retry/timeout counters. With the old
-                # read=maxretry(20) budget, one response that legitimately needs
-                # longer than READ_TIMEOUT_SECONDS to generate became a ~half-hour
-                # silent resend storm. Callers handle the surfaced timeout instead
-                # (FeatureApi treats it as a 504 and grids the AOI).
-                read=1,
+                read=self.maxretry,
                 redirect=self.maxretry,
-                on_retry=self._count_urllib3_retry,
+                on_retry=self._weak_retry_counter(),
             )
             pool_size = min(max(self.threads, 10), 50)
             adapter = HTTPAdapter(
