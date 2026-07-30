@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
@@ -355,6 +356,40 @@ class TestJsonIO:
         storage.write_json(fpath, data, compressed=True, default=str)
         result = storage.read_json(fpath, compressed=True)
         assert result["path"] == str(Path("/tmp/test"))
+
+
+class TestJsonDumpsBytes:
+    """orjson compat shim: must keep the semantics stdlib json.dumps provided."""
+
+    def test_returns_bytes(self):
+        assert isinstance(storage.json_dumps_bytes({"a": 1}), bytes)
+
+    def test_non_str_keys_stringified_like_stdlib(self):
+        data = {1: "a", 2.5: "b"}
+        assert json.loads(storage.json_dumps_bytes(data)) == json.loads(json.dumps(data))
+
+    def test_numpy_scalars_serialize_as_numbers(self):
+        data = {"f": np.float64(0.95), "i": np.int64(7), "b": np.bool_(True)}
+        assert json.loads(storage.json_dumps_bytes(data)) == {"f": 0.95, "i": 7, "b": True}
+
+    def test_indent_two_supported(self):
+        assert b"\n" in storage.json_dumps_bytes({"a": 1}, indent=2)
+
+    def test_other_indent_rejected(self):
+        with pytest.raises(ValueError, match="indent"):
+            storage.json_dumps_bytes({"a": 1}, indent=4)
+
+    def test_nan_serializes_as_null(self):
+        """orjson emits null for NaN; stdlib emitted the non-standard NaN literal."""
+        assert json.loads(storage.json_dumps_bytes({"x": float("nan")})) == {"x": None}
+
+    def test_read_json_rejects_legacy_nan_literal(self, tmp_path):
+        """orjson-backed read_json is strict RFC 8259: stdlib-era entries holding
+        a NaN literal now fail to parse (callers treat that as a cache miss)."""
+        fpath = tmp_path / "legacy.json"
+        fpath.write_text(json.dumps({"x": float("nan")}))  # writes {"x": NaN}
+        with pytest.raises(ValueError):
+            storage.read_json(str(fpath))
 
 
 # ---------------------------------------------------------------------------
