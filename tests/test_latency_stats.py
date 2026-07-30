@@ -176,13 +176,29 @@ class TestComputeGlobalLatencyStats:
         assert result["mean"] == 150.0
 
     def test_zero_count_chunks_handled(self):
-        """Chunks with zero count should be handled gracefully."""
+        """Chunks with zero count carry no latency signal - result is empty."""
         chunk_stats = [
             {"mean": 0, "count": 0, "histogram": [0] * (len(LATENCY_BUCKETS) - 1)},
         ]
 
         result = compute_global_latency_stats(chunk_stats)
-        assert result["count"] == 0
+        assert result.get("count", 0) == 0
+
+    def test_zero_count_chunks_do_not_corrupt_confidence_intervals(self):
+        """Fully-cached chunks (count=0, all-zero histogram) must not enter the
+        bootstrap: a resample drawing only zero chunks yields percentile 0.0 and
+        drags the CI lower bound to 0 on warm-cache/resumed exports."""
+        hist = [0] * (len(LATENCY_BUCKETS) - 1)
+        hist[10] = 500  # all latencies in one bucket
+        live_chunk = {"mean": 400.0, "count": 500, "histogram": hist}
+        cached_chunk = {"mean": 0.0, "count": 0, "histogram": [0] * (len(LATENCY_BUCKETS) - 1)}
+
+        live_only = compute_global_latency_stats([live_chunk], seed=42)
+        with_cached = compute_global_latency_stats([live_chunk] + [dict(cached_chunk) for _ in range(99)], seed=42)
+
+        assert with_cached["p50_ci"] == live_only["p50_ci"]
+        assert with_cached["p99_ci"] == live_only["p99_ci"]
+        assert with_cached["count"] == live_only["count"]
 
 
 class TestCollectLatencyStatsFromApis:
@@ -262,8 +278,8 @@ class TestCollectLatencyStatsFromApis:
 
         assert result["count"] == 3
 
-    def test_empty_latencies_returns_none(self):
-        """API with empty latencies should return None."""
+    def test_no_activity_returns_none(self):
+        """API with no latencies and no cache/retry activity should return None."""
         api = self._create_mock_api([])
 
         result = collect_latency_stats_from_apis(
@@ -271,6 +287,22 @@ class TestCollectLatencyStatsFromApis:
         )
 
         assert result is None
+
+    def test_fully_cached_chunk_reports_zeroed_stats(self):
+        """A chunk served entirely from cache has no latencies but must keep its
+        cache counters (hit-rate display, latency sidecars) with zeroed latency
+        fields - consumers guard on count == 0."""
+        api = self._create_mock_api([], cache_hits=65)
+
+        result = collect_latency_stats_from_apis(
+            [api], "chunk_0", "2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 60000
+        )
+
+        assert result["count"] == 0
+        assert result["cache_hits"] == 65
+        assert result["cache_misses"] == 0
+        assert result["p50"] == 0.0
+        assert result["histogram"] == [0] * (len(LATENCY_BUCKETS) - 1)
 
 
 class TestLatencyIO:

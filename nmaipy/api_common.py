@@ -476,6 +476,23 @@ def clean_api_key_from_string(text: str) -> str:
 PROGRESS_BATCH_SIZE = 50
 
 
+class _InflightEntry:
+    """State shared by concurrent requests coalescing on one cache path.
+
+    See BaseApiClient._coalesce_inflight. ``fetch_failed`` transitions
+    False -> True only (benign unlocked writes): once a fetch under this
+    entry's lock has failed to produce a cache entry, waiters stop
+    serializing behind the lock and fetch independently.
+    """
+
+    __slots__ = ("lock", "refcount", "fetch_failed")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.refcount = 0
+        self.fetch_failed = False
+
+
 class BaseApiClient:
     """
     Base class for Nearmap AI API clients.
@@ -523,10 +540,10 @@ class BaseApiClient:
         self._lock = threading.Lock()
 
         # In-flight request coalescing (see _coalesce_inflight): cache path ->
-        # [lock, in-flight request count]. Guarded by _inflight_guard; bounded
-        # because each entry is dropped when its last in-flight request leaves,
-        # so the map can never exceed this client's thread count.
-        self._inflight_requests: Dict[str, list] = {}
+        # _InflightEntry. Guarded by _inflight_guard; bounded because each
+        # entry is dropped when its last in-flight request leaves, so the map
+        # can never exceed this client's thread count.
+        self._inflight_requests: Dict[str, _InflightEntry] = {}
         self._inflight_guard = threading.Lock()
 
         # Progress-counter plumbing. `progress_counters` is overridden by
@@ -580,14 +597,27 @@ class BaseApiClient:
         self.threads = threads
         self.maxretry = maxretry
 
-        # Latency and request tracking
-        # Note: These are safe because each chunk runs in a separate process (ProcessPoolExecutor),
-        # so each API client instance is isolated - no cross-thread access occurs.
+        # Latency and request tracking. One client instance is shared by all of
+        # a chunk's worker threads, so these ARE accessed cross-thread:
+        # list.append is atomic under the GIL, but the integer counters must be
+        # incremented under self._lock (see _count_cache_hit/_count_cache_miss
+        # and _count_urllib3_retry) — a bare `+= 1` loses updates.
         self._latencies = []
         self._retry_count = 0
         self._timeout_count = 0
         self._cache_hits = 0
         self._cache_misses = 0
+        self._cache_write_failures = 0
+
+    def _count_cache_hit(self):
+        """Thread-safe cache-hit increment; feeds sidecar stats and the progress-bar hit rate."""
+        with self._lock:
+            self._cache_hits += 1
+
+    def _count_cache_miss(self):
+        """Thread-safe cache-miss increment; feeds sidecar stats and the progress-bar hit rate."""
+        with self._lock:
+            self._cache_misses += 1
 
     def _count_urllib3_retry(self, cause):
         """RetryRequest.on_retry hook: count retries urllib3 performs inside the transport.
@@ -870,36 +900,51 @@ class BaseApiClient:
         units sharing one polygon), and those duplicate requests sit adjacent in
         input order — so on a cold cache they all miss together and fetch the
         same payload concurrently. Holding a per-cache-path lock lets the first
-        requester fetch and write the cache; the caller's second cache check
-        (inside this context) then turns every waiter into a cache hit.
+        requester fetch and write the cache; each waiter then reads the cache
+        instead of re-fetching the same payload.
 
-        Callers must re-check the cache after entering the context (double-checked
-        read). If the first fetch fails, each waiter proceeds with its own fetch
-        in turn — same outcome as today's duplicate fetches, just serialized.
+        Yields ``(joined, entry)``: ``joined`` is False for the request that
+        created the in-flight entry (nothing was in flight — fetch immediately,
+        no cache re-check needed) and True for requests that waited behind an
+        in-flight fetch (re-check the cache, which should now hold the result).
+        ``entry.fetch_failed`` is the escape hatch: the caller sets it when a
+        fetch under this lock failed to produce a cache entry (fetch raised, or
+        the best-effort cache write was skipped), and waiters that see it set
+        skip the wait-and-read protocol and fetch independently OUTSIDE the lock
+        — restoring the legacy concurrent-duplicates behaviour instead of
+        serializing repeated long-timeout failures behind one key.
 
-        No-op when cache_path is None (no cache — nowhere to share a result) or
-        in overwrite mode (every request must refetch by design). The lock map is
-        per-process: workers in other processes still fetch independently.
+        Deadlock safety: a coalesce lock is only ever held while a single
+        request fetches. Gridding never runs under it — an
+        APIRequestSizeError unwinds out of this context before the caller
+        grids, so no thread holds a coalesce lock while waiting on the
+        gridding semaphore or on another coalesce lock.
+
+        No-op (fresh unshared entry, joined=False) when cache_path is None
+        (no cache — nowhere to share a result) or in overwrite mode (every
+        request must refetch by design). The lock map is per-process and
+        bounded: an entry exists only while requests for its key are in
+        flight, so the map can never exceed this client's thread count.
         """
         if cache_path is None or self.overwrite_cache:
-            yield
+            yield False, _InflightEntry()
             return
 
         with self._inflight_guard:
             entry = self._inflight_requests.get(cache_path)
+            joined = entry is not None
             if entry is None:
-                entry = [threading.Lock(), 0]
+                entry = _InflightEntry()
                 self._inflight_requests[cache_path] = entry
-            entry[1] += 1
-            lock = entry[0]
+            entry.refcount += 1
 
         try:
-            with lock:
-                yield
+            with entry.lock:
+                yield joined, entry
         finally:
             with self._inflight_guard:
-                entry[1] -= 1
-                if entry[1] == 0 and self._inflight_requests.get(cache_path) is entry:
+                entry.refcount -= 1
+                if entry.refcount == 0 and self._inflight_requests.get(cache_path) is entry:
                     del self._inflight_requests[cache_path]
 
     def _sanitize_path_component(self, text: str) -> str:
@@ -1352,6 +1397,12 @@ def compute_global_latency_stats(
     Returns:
         Dict with global mean, percentiles, and 95% confidence intervals
     """
+    # Chunks served entirely from cache report count=0 with an all-zero
+    # histogram. They carry no latency signal, and letting them into the
+    # bootstrap corrupts the confidence intervals: a resample drawing only
+    # zero chunks yields an all-zero histogram whose percentile is 0.0,
+    # dragging the CI lower bound to 0 on warm-cache/resumed exports.
+    chunk_stats = [s for s in chunk_stats if s["count"] > 0]
     if not chunk_stats:
         return {}
 
@@ -1585,6 +1636,8 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
             "p99": float(row["p99"]),
             "min": float(row["min"]),
             "max": float(row["max"]),
+            "cache_hits": int(row.get("cache_hits", 0)),
+            "cache_misses": int(row.get("cache_misses", 0)),
             "histogram": [int(row[name]) for name in bucket_names if name in row],
         }
         for row in combined_df.to_dict("records")

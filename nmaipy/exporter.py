@@ -31,6 +31,7 @@ from typing import Dict, List, Optional
 
 import geopandas as gpd
 import numpy as np
+import orjson
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -2958,10 +2959,11 @@ class NearmapAIExporter(BaseExporter):
             "class_level_files": class_level_files,
             "max_retries": max_retries,
         }
-        # Round-trip through JSON now (with default=str) so the in-memory copy
-        # used for fast-path comparison matches the on-disk shape — same
-        # str-coercion of Path objects, list-not-tuple, etc.
-        self._current_config_params = json.loads(json.dumps(config_params, default=str))
+        # Round-trip through the same serializer that writes export_config.json
+        # (orjson, via storage.json_dumps_bytes) so the in-memory copy used for
+        # fast-path comparison matches the on-disk shape — same str-coercion of
+        # Path objects, list-not-tuple, numpy/datetime handling, etc.
+        self._current_config_params = orjson.loads(storage.json_dumps_bytes(config_params, default=str))
 
         # Save export configuration at start (before processing begins)
         self._save_config(config_params)

@@ -582,12 +582,12 @@ class RoofAgeApi(BaseApiClient):
             cache_key, until_as_of_date=effective_until, since_as_of_date=effective_since
         )
         if cached_response is not None:
-            self._cache_hits += 1
+            self._count_cache_hit()
             logger.debug(f"Using cached roof age data for {aoi_id}")
             return self._parse_response(cached_response, aoi_id)
 
         # Fetch all pages (this is a cache miss)
-        self._cache_misses += 1
+        self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
         params = {} if self.bearer_token else {"apikey": self.api_key}
@@ -652,12 +652,12 @@ class RoofAgeApi(BaseApiClient):
             cache_key, until_as_of_date=effective_until, since_as_of_date=effective_since
         )
         if cached_response is not None:
-            self._cache_hits += 1
+            self._count_cache_hit()
             logger.debug(f"Using cached roof age data for {aoi_id}")
             return self._parse_response(cached_response, aoi_id)
 
         # Fetch all pages (this is a cache miss)
-        self._cache_misses += 1
+        self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
         params = {} if self.bearer_token else {"apikey": self.api_key}

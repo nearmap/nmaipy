@@ -201,6 +201,46 @@ class TestInflightCoalescing:
         assert payloads == [real_feature_payload]
         assert api._inflight_requests == {}
 
+    def test_waiters_fail_in_parallel_after_leader_failure(self, tmp_path, real_feature_payload):
+        """After a failed fetch, queued duplicates fetch independently in
+        parallel (legacy behaviour) rather than serializing behind the per-key
+        lock — serialized, four 0.25s fetches would take >= 1.0s; the leader
+        plus three parallel waiters take ~0.5s."""
+        api = FeatureApi(api_key="dummy", cache_dir=tmp_path, compress_cache=True)
+        post_count = [0]
+        count_lock = threading.Lock()
+        fetch_seconds = 0.25
+
+        def fake_post(self, url, *args, **kwargs):
+            with count_lock:
+                post_count[0] += 1
+                calls = post_count[0]
+            time.sleep(fetch_seconds)
+            if calls == 1:
+                return _CannedResponse(404, {"message": "not found"})
+            return _CannedResponse(200, real_feature_payload)
+
+        aoi = _square(-111.926, 33.414)
+        statuses = []
+        t0 = time.monotonic()
+        with patch("requests.Session.post", new=fake_post):
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [
+                    pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(4)
+                ]
+                for f in futures:
+                    try:
+                        f.result()
+                        statuses.append("ok")
+                    except AIFeatureAPIError:
+                        statuses.append("error")
+        elapsed = time.monotonic() - t0
+
+        assert post_count[0] == 4
+        assert sorted(statuses) == ["error", "ok", "ok", "ok"]
+        assert elapsed < 3 * fetch_seconds + 0.1, f"waiters serialized after leader failure ({elapsed:.2f}s)"
+        assert api._inflight_requests == {}
+
 
 class TestTolerantCacheWrite:
     """Cache writes are best-effort: an externally-deleted cache dir must not fail the AOI."""

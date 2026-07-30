@@ -499,7 +499,17 @@ class FeatureApi(GriddedApiClient):
                 finally:
                     temp_path.unlink(missing_ok=True)
         except Exception as e:
-            logger.warning(f"Failed to write cache entry {path} - continuing without caching it: {e}")
+            # A systematic failure (read-only dir, ENOSPC, expired S3 creds)
+            # would otherwise warn once per AOI — surface the first few and a
+            # periodic running count instead of flooding the log.
+            with self._lock:
+                self._cache_write_failures += 1
+                n = self._cache_write_failures
+            msg = f"Failed to write cache entry {path} - continuing without caching it ({n} failures so far): {e}"
+            if n <= 3 or n % 1000 == 0:
+                logger.warning(msg)
+            else:
+                logger.debug(msg)
 
     def _create_post_request(
         self,
@@ -735,19 +745,36 @@ class FeatureApi(GriddedApiClient):
         # Check if it's already cached
         data = self._read_cached_response(cache_path)
         if data is not None:
-            self._cache_hits += 1
+            self._count_cache_hit()
             return data
 
         # Coalesce concurrent duplicate requests (byte-identical url + body ⇒
         # same cache path): the first requester fetches and writes the cache;
-        # the rest block on the per-key lock, then hit the cache on this
-        # second check instead of re-fetching the same payload.
-        with self._coalesce_inflight(cache_path):
-            data = self._read_cached_response(cache_path)
-            if data is not None:
-                self._cache_hits += 1
-                return data
-            return self._fetch_results(url, body, cache_path, in_gridding_mode)
+        # duplicates block on the per-key lock, then read the entry it wrote
+        # instead of re-fetching the same payload.
+        with self._coalesce_inflight(cache_path) as (joined, inflight):
+            if not joined:
+                # Nothing was in flight for this key: fetch it. Flag a failure
+                # so queued duplicates fetch for themselves instead of
+                # serializing behind a key that produced no cache entry.
+                try:
+                    return self._fetch_results(url, body, cache_path, in_gridding_mode)
+                except Exception:
+                    inflight.fetch_failed = True
+                    raise
+            if not inflight.fetch_failed:
+                data = self._read_cached_response(cache_path)
+                if data is not None:
+                    self._count_cache_hit()
+                    return data
+                # The fetch we waited for completed without raising, yet shared
+                # nothing (best-effort cache write skipped) — stop serializing.
+                inflight.fetch_failed = True
+        # The in-flight fetch for this key failed to produce a cache entry.
+        # Fetch independently OUTSIDE the lock, restoring the legacy
+        # concurrent-duplicates behaviour rather than repeating a potentially
+        # long-timeout failure serially, once per duplicate.
+        return self._fetch_results(url, body, cache_path, in_gridding_mode)
 
     def _read_cached_response(self, cache_path: Optional[str]) -> Optional[Dict]:
         """
@@ -786,7 +813,7 @@ class FeatureApi(GriddedApiClient):
             response_time_ms = None
 
             # Track this as a cache miss (we're making an API call)
-            self._cache_misses += 1
+            self._count_cache_miss()
 
             for retry_attempt in range(MAX_RETRIES):
                 try:
@@ -817,7 +844,8 @@ class FeatureApi(GriddedApiClient):
                     # READ_TIMEOUT_SECONDS, so grid the AOI into smaller requests rather
                     # than re-sending the same oversized one (each resend closes the
                     # connection server-side and re-runs the full computation).
-                    self._timeout_count += 1
+                    with self._lock:
+                        self._timeout_count += 1
                     logger.info(
                         f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504"
                     )
@@ -840,7 +868,8 @@ class FeatureApi(GriddedApiClient):
                 except requests.exceptions.ChunkedEncodingError as e:
                     if retry_attempt < MAX_RETRIES - 1:
                         # Log debug message for retry attempts
-                        self._retry_count += 1
+                        with self._lock:
+                            self._retry_count += 1
                         logger.debug(
                             f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}"
                         )
@@ -878,6 +907,16 @@ class FeatureApi(GriddedApiClient):
                     # cache replay and feature-dense responses are parse-bound, and
                     # orjson is 5-10x faster than stdlib on multi-MB payloads.
                     data = orjson.loads(response.content)
+                except orjson.JSONDecodeError as e:
+                    # Usually a truncated over-large response, so treat as a size
+                    # error to trigger gridding — but log visibly, because orjson
+                    # also rejects payloads stdlib accepted (NaN/Infinity literals,
+                    # BOM, invalid UTF-8) and those would masquerade as size errors.
+                    logger.warning(
+                        f"JSON parse error on 200 response ({len(response.content)} bytes) - "
+                        f"treating as size error to trigger gridding: {e}"
+                    )
+                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
                 except Exception as e:
                     # Treat JSON parsing errors as size errors to trigger gridding
                     logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")

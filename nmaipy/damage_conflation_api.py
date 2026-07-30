@@ -409,11 +409,11 @@ class DamageConflationApi(BaseApiClient):
         cache_key = self._build_cache_key(aoi=aoi)
         cached = self._load_from_cache(cache_key)
         if cached is not None:
-            self._cache_hits += 1
+            self._count_cache_hit()
             logger.debug(f"Using cached damage data for {aoi_id}")
             return self._parse_response(cached, aoi_id)
 
-        self._cache_misses += 1
+        self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
         params = {} if self.bearer_token else {"apikey": self.api_key}
@@ -443,11 +443,11 @@ class DamageConflationApi(BaseApiClient):
         cache_key = self._build_cache_key(address=address)
         cached = self._load_from_cache(cache_key)
         if cached is not None:
-            self._cache_hits += 1
+            self._count_cache_hit()
             logger.debug(f"Using cached damage data for {aoi_id}")
             return self._parse_response(cached, aoi_id)
 
-        self._cache_misses += 1
+        self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
         params = {} if self.bearer_token else {"apikey": self.api_key}

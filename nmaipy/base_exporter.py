@@ -644,21 +644,19 @@ class BaseExporter(ABC):
         last_progress_check = time.time()
         PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
         all_latency_stats = []  # Collect latency stats from each chunk
-        latest_latency_stats = None  # Track latest for progress bar display
+        latest_latency_stats = None  # Latest stats WITH live requests, for the P50 display
         total_cache_hits = 0  # Cumulative across completed chunks, for hit-rate display
         total_cache_misses = 0
 
         def build_lat_str():
             """Latency + cache hit-rate segment of the progress description.
 
-            Both figures update as chunks complete: latency shows the latest
-            chunk's P50 (or a placeholder when that chunk was served entirely
-            from cache), the cache hit rate is cumulative over all completed
-            chunks (per-chunk stats are what the workers report back).
+            Both figures update as chunks complete: latency shows the P50 of the
+            most recent chunk that made live requests (fully-cached chunks have
+            no latency signal, so they don't blank the readout), the cache hit
+            rate is cumulative over all completed chunks.
             """
-            if latest_latency_stats is None:
-                return "Lat: ---"
-            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms" if latest_latency_stats["count"] > 0 else "Lat: ---"
+            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms" if latest_latency_stats else "Lat: ---"
             cache_checked = total_cache_hits + total_cache_misses
             if cache_checked > 0:
                 lat_str += f" | Cache {100 * total_cache_hits / cache_checked:.0f}%"
@@ -693,7 +691,8 @@ class BaseExporter(ABC):
                                 latency_stats = result.get("latency_stats")
                                 if latency_stats is not None:
                                     all_latency_stats.append(latency_stats)
-                                    latest_latency_stats = latency_stats
+                                    if latency_stats["count"] > 0:
+                                        latest_latency_stats = latency_stats
                                     total_cache_hits += latency_stats["cache_hits"]
                                     total_cache_misses += latency_stats["cache_misses"]
 
