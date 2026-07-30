@@ -652,12 +652,13 @@ class BaseExporter(ABC):
             """Latency + cache hit-rate segment of the progress description.
 
             Both figures update as chunks complete: latency shows the latest
-            chunk's P50, the cache hit rate is cumulative over all completed
+            chunk's P50 (or a placeholder when that chunk was served entirely
+            from cache), the cache hit rate is cumulative over all completed
             chunks (per-chunk stats are what the workers report back).
             """
             if latest_latency_stats is None:
                 return "Lat: ---"
-            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
+            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms" if latest_latency_stats["count"] > 0 else "Lat: ---"
             cache_checked = total_cache_hits + total_cache_misses
             if cache_checked > 0:
                 lat_str += f" | Cache {100 * total_cache_hits / cache_checked:.0f}%"

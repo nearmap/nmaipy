@@ -993,10 +993,34 @@ class BaseApiClient:
         - cache_hits: Number of cache hits
         - cache_misses: Number of cache misses (API calls made)
 
-        Returns None if no latencies have been recorded.
+        A chunk served entirely from cache records no latencies but still has
+        cache activity worth reporting (hit-rate display, latency sidecars), so
+        the latency fields are zeroed rather than dropping the whole dict —
+        every consumer already guards on count == 0.
+
+        Returns None only when there was no API activity at all.
         """
+        counters = {
+            "retry_count": self._retry_count,
+            "timeout_count": self._timeout_count,
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+        }
         if not self._latencies:
-            return None
+            if not any(counters.values()):
+                return None
+            return {
+                "mean": 0.0,
+                "p50": 0.0,
+                "p90": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "min": 0.0,
+                "max": 0.0,
+                "count": 0,
+                "histogram": [0] * (len(LATENCY_BUCKETS) - 1),
+                **counters,
+            }
 
         arr = np.array(self._latencies)
         n = len(arr)
@@ -1014,10 +1038,7 @@ class BaseApiClient:
             "max": float(np.max(arr)),
             "count": n,
             "histogram": hist.tolist(),
-            "retry_count": self._retry_count,
-            "timeout_count": self._timeout_count,
-            "cache_hits": self._cache_hits,
-            "cache_misses": self._cache_misses,
+            **counters,
         }
 
 
@@ -1042,7 +1063,8 @@ def collect_latency_stats_from_apis(
         total_duration_ms: Total wall-clock time for chunk processing in milliseconds
 
     Returns:
-        Dict with combined latency stats, or None if no latencies were recorded
+        Dict with combined latency stats (latency fields zeroed with count=0 for
+        a fully-cached chunk), or None if there was no API activity at all
     """
     combined_latencies = []
     combined_retry_count = 0
@@ -1058,8 +1080,38 @@ def collect_latency_stats_from_apis(
             combined_cache_hits += api._cache_hits
             combined_cache_misses += api._cache_misses
 
+    counters = {
+        "retry_count": combined_retry_count,
+        "timeout_count": combined_timeout_count,
+        "cache_hits": combined_cache_hits,
+        "cache_misses": combined_cache_misses,
+    }
+    timing = {
+        "start_time": chunk_start_time,
+        "end_time": chunk_end_time,
+        "total_duration_ms": total_duration_ms,
+    }
+
     if not combined_latencies:
-        return None
+        # A chunk served entirely from cache records no latencies but the cache
+        # counters still matter (hit-rate display, latency sidecars): keep the
+        # row with zeroed latency fields — consumers guard on count == 0.
+        if not any(counters.values()):
+            return None
+        return {
+            "chunk_id": chunk_id,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "count": 0,
+            "histogram": [0] * (len(LATENCY_BUCKETS) - 1),
+            **counters,
+            **timing,
+        }
 
     arr = np.array(combined_latencies)
     n = len(arr)
@@ -1076,13 +1128,8 @@ def collect_latency_stats_from_apis(
         "max": float(np.max(arr)),
         "count": n,
         "histogram": hist.tolist(),
-        "retry_count": combined_retry_count,
-        "timeout_count": combined_timeout_count,
-        "cache_hits": combined_cache_hits,
-        "cache_misses": combined_cache_misses,
-        "start_time": chunk_start_time,
-        "end_time": chunk_end_time,
-        "total_duration_ms": total_duration_ms,
+        **counters,
+        **timing,
     }
 
 
