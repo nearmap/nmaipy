@@ -522,6 +522,13 @@ class BaseApiClient:
         self._thread_local = threading.local()
         self._lock = threading.Lock()
 
+        # In-flight request coalescing (see _coalesce_inflight): cache path ->
+        # [lock, in-flight request count]. Guarded by _inflight_guard; bounded
+        # because each entry is dropped when its last in-flight request leaves,
+        # so the map can never exceed this client's thread count.
+        self._inflight_requests: Dict[str, list] = {}
+        self._inflight_guard = threading.Lock()
+
         # Progress-counter plumbing. `progress_counters` is overridden by
         # subclasses that accept it as a constructor arg. The registry holds
         # one (buffer, lock) tuple per thread that has called
@@ -853,6 +860,47 @@ class BaseApiClient:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
         except Exception as e:
             logger.warning(f"Failed to save to cache: {e}")
+
+    @contextlib.contextmanager
+    def _coalesce_inflight(self, cache_path: Optional[str]):
+        """
+        Serialize concurrent fetches that share a cache entry (in-flight coalescing).
+
+        Address-mode datasets carry many rows per physical parcel (e.g. strata
+        units sharing one polygon), and those duplicate requests sit adjacent in
+        input order — so on a cold cache they all miss together and fetch the
+        same payload concurrently. Holding a per-cache-path lock lets the first
+        requester fetch and write the cache; the caller's second cache check
+        (inside this context) then turns every waiter into a cache hit.
+
+        Callers must re-check the cache after entering the context (double-checked
+        read). If the first fetch fails, each waiter proceeds with its own fetch
+        in turn — same outcome as today's duplicate fetches, just serialized.
+
+        No-op when cache_path is None (no cache — nowhere to share a result) or
+        in overwrite mode (every request must refetch by design). The lock map is
+        per-process: workers in other processes still fetch independently.
+        """
+        if cache_path is None or self.overwrite_cache:
+            yield
+            return
+
+        with self._inflight_guard:
+            entry = self._inflight_requests.get(cache_path)
+            if entry is None:
+                entry = [threading.Lock(), 0]
+                self._inflight_requests[cache_path] = entry
+            entry[1] += 1
+            lock = entry[0]
+
+        try:
+            with lock:
+                yield
+        finally:
+            with self._inflight_guard:
+                entry[1] -= 1
+                if entry[1] == 0 and self._inflight_requests.get(cache_path) is entry:
+                    del self._inflight_requests[cache_path]
 
     def _sanitize_path_component(self, text: str) -> str:
         """

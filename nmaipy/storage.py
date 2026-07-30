@@ -11,7 +11,6 @@ or ~/.aws/credentials.
 """
 
 import gzip
-import json
 import logging
 import os
 import shutil
@@ -21,6 +20,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import boto3
 import fsspec
+import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 from boto3.s3.transfer import TransferConfig
@@ -376,9 +376,46 @@ def move_file(src: str, dst: str) -> None:
         os.replace(src, dst)
 
 
+def json_dumps_bytes(data: Any, default=None, indent: Optional[int] = None) -> bytes:
+    """
+    Serialize data to JSON bytes via orjson (5-10x faster than stdlib json on
+    the multi-MB API payloads that dominate cache writes).
+
+    Compatibility with the stdlib json.dumps this replaced:
+    - Non-str dict keys are stringified (OPT_NON_STR_KEYS), matching stdlib
+      semantics (1 -> "1", 2.5 -> "2.5").
+    - Numpy scalars/arrays serialize as JSON numbers (OPT_SERIALIZE_NUMPY);
+      stdlib pushed non-float numpy values through ``default`` instead, which
+      turned them into strings when ``default=str``.
+    - Float NaN/Infinity serialize as ``null``; stdlib emitted the
+      non-standard ``NaN``/``Infinity`` literals.
+    - Only ``indent=2`` or ``None`` is supported (orjson limitation); no
+      caller uses any other indent.
+
+    Args:
+        data: Data to serialize
+        default: Function for non-serializable types (e.g. str)
+        indent: None for compact output, or 2 for pretty-printed
+
+    Returns:
+        UTF-8 encoded JSON bytes.
+    """
+    option = orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY
+    if indent is not None:
+        if indent != 2:
+            raise ValueError(f"json_dumps_bytes supports indent=None or 2, got {indent}")
+        option |= orjson.OPT_INDENT_2
+    return orjson.dumps(data, default=default, option=option)
+
+
 def read_json(path: str, compressed: bool = False) -> Dict:
     """
     Read a JSON file, optionally gzip-compressed. Works for both local and S3.
+
+    Parses with orjson: cache hits on large exports are parse-bound, and orjson
+    is 5-10x faster than stdlib json.loads on the multi-MB payloads that
+    dominate wall-clock. orjson is strict UTF-8/RFC 8259 (rejects the
+    non-standard NaN/Infinity literals stdlib accepted).
 
     Args:
         path: File path to read
@@ -388,16 +425,17 @@ def read_json(path: str, compressed: bool = False) -> Dict:
         Parsed JSON data.
 
     Raises:
-        OSError / json.JSONDecodeError on missing or unparseable files —
-        callers that tolerate failure wrap this in their own try/except.
+        OSError / orjson.JSONDecodeError (a json.JSONDecodeError subclass) on
+        missing or unparseable files — callers that tolerate failure wrap this
+        in their own try/except.
     """
     if compressed:
         with open_file(path, "rb") as raw_f:
             with gzip.GzipFile(fileobj=raw_f) as gz_f:
-                return json.loads(gz_f.read().decode("utf-8"))
+                return orjson.loads(gz_f.read())
     else:
-        with open_file(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open_file(path, "rb") as f:
+            return orjson.loads(f.read())
 
 
 def write_json(
@@ -410,20 +448,25 @@ def write_json(
     """
     Write data as JSON, optionally gzip-compressed. Works for both local and S3.
 
+    Serializes via json_dumps_bytes (orjson) — see its docstring for the
+    compatibility notes vs stdlib json.
+
     Args:
         path: File path to write
         data: Data to serialize as JSON
         compressed: If True, write as gzip-compressed JSON
-        indent: JSON indentation level (None for compact)
-        default: Function for non-serializable types (e.g. str). Passed to json.dump/json.dumps.
+        indent: JSON indentation level (None for compact, 2 is the only other
+            supported value)
+        default: Function for non-serializable types (e.g. str)
     """
+    payload = json_dumps_bytes(data, default=default, indent=indent)
     if compressed:
         with open_file(path, "wb") as raw_f:
             with gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
-                gz_f.write(json.dumps(data, default=default).encode("utf-8"))
+                gz_f.write(payload)
     else:
-        with open_file(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=indent, default=default)
+        with open_file(path, "wb") as f:
+            f.write(payload)
 
 
 def write_parquet(data, path: str, **kwargs) -> None:
