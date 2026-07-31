@@ -705,7 +705,7 @@ class TestFeatureAPI:
             # Create a mock response with all required fields
             mock_response = MagicMock()
             mock_response.ok = True
-            mock_response.json.return_value = {
+            payload = {
                 "features": [],
                 "systemVersion": "test-version",
                 "link": "https://apps.nearmap.com/maps/#/@-33.8688,151.2093,20.00z,0d/V/20250120?locationMarker",
@@ -715,6 +715,10 @@ class TestFeatureAPI:
                 "perspective": "Vert",
                 "postcat": False,
             }
+            mock_response.json.return_value = payload
+            # Successful responses are parsed from raw bytes (orjson), like
+            # requests.Response.content.
+            mock_response.content = json.dumps(payload).encode("utf-8")
             mock_post.return_value = mock_response
 
             # Call with param_dic - using 'include' as a test parameter
@@ -1103,11 +1107,12 @@ class TestFeatureAPI:
                 ), f"API key found in exception request_string: {e.request_string}"
                 assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
-        # Test case 3: JSON parsing error leading to exception
+        # Test case 3: JSON parsing error leading to exception (successful
+        # responses are parsed from raw bytes via orjson)
         with patch("requests.Session.post") as mock_post:
             mock_response = MagicMock()
             mock_response.ok = True
-            mock_response.json.side_effect = ValueError("Invalid JSON")
+            mock_response.content = b"not valid json {"
             mock_post.return_value = mock_response
 
             try:
