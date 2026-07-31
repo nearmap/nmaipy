@@ -67,6 +67,7 @@ from nmaipy.api_common import (
     combine_chunk_latency_stats,
     compute_global_latency_stats,
     format_error_summary_table,
+    log_request_cache_summary,
     sanitize_error_message,
     save_chunk_latency_stats,
 )
@@ -4587,6 +4588,7 @@ class NearmapAIExporter(BaseExporter):
                     f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
                     f"n={global_stats['count']}"
                 )
+            log_request_cache_summary(self.logger, all_latency_stats)
 
         data = []
         data_features = []

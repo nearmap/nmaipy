@@ -146,6 +146,59 @@ class TestInflightCoalescing:
         assert api._cache_hits == 0
         assert api._inflight_requests == {}
 
+    def test_creator_reprobes_cache_after_entry_drains(self, tmp_path, real_feature_payload):
+        """A thread parked between its fast-path cache miss and entering the
+        coalescer can find the in-flight entry already drained (a competing
+        thread fetched, cached, and left). It becomes a fresh entry creator and
+        must re-probe the cache under the lock instead of re-fetching a warm key."""
+        api = FeatureApi(api_key="dummy", cache_dir=tmp_path, compress_cache=True)
+        posts = []
+        post_lock = threading.Lock()
+
+        def fake_post(self, url, *args, **kwargs):
+            with post_lock:
+                posts.append(threading.current_thread().name)
+            return _CannedResponse(200, real_feature_payload)
+
+        a_parked = threading.Event()
+        b_done = threading.Event()
+        real_read = FeatureApi._read_cached_response
+
+        def parking_read(self, cache_path):
+            # Park thread A after its first (fast-path) cache read, while B
+            # runs a complete fetch-and-cache cycle and drains its entry.
+            result = real_read(self, cache_path)
+            if threading.current_thread().name == "park-A" and not a_parked.is_set():
+                a_parked.set()
+                assert b_done.wait(timeout=10)
+            return result
+
+        aoi = _square(-111.926, 33.414)
+
+        def run_a():
+            threading.current_thread().name = "park-A"
+            return api._get_results(geometry=aoi, region="us", packs=["building"])
+
+        def run_b():
+            threading.current_thread().name = "run-B"
+            assert a_parked.wait(timeout=10)
+            result = api._get_results(geometry=aoi, region="us", packs=["building"])
+            b_done.set()
+            return result
+
+        with patch("requests.Session.post", new=fake_post):
+            with patch.object(FeatureApi, "_read_cached_response", parking_read):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    future_a = pool.submit(run_a)
+                    future_b = pool.submit(run_b)
+                    result_a, result_b = future_a.result(), future_b.result()
+
+        assert posts == ["run-B"], "thread A must hit the cache B populated, not re-fetch it"
+        assert api._cache_hits == 1
+        assert api._cache_misses == 1
+        assert result_a == result_b == real_feature_payload
+        assert api._inflight_requests == {}
+
     def test_overwrite_cache_mode_does_not_coalesce(self, tmp_path, real_feature_payload):
         """Overwrite mode must refetch every request by design."""
         api = FeatureApi(api_key="dummy", cache_dir=tmp_path, compress_cache=True, overwrite_cache=True)
@@ -236,7 +289,11 @@ class TestInflightCoalescing:
                         statuses.append("error")
         elapsed = time.monotonic() - t0
 
-        assert post_count[0] == 4
+        # Between 2 and 4 fetches: normally all four threads fetch, but a worker
+        # scheduled late enough may legitimately hit the cache a successful
+        # waiter populated. The timing bound is the serialization check: four
+        # serialized 0.25s fetches would take >= 1.0s.
+        assert 2 <= post_count[0] <= 4
         assert sorted(statuses) == ["error", "ok", "ok", "ok"]
         assert elapsed < 3 * fetch_seconds + 0.1, f"waiters serialized after leader failure ({elapsed:.2f}s)"
         assert api._inflight_requests == {}

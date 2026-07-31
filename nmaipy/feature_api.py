@@ -753,20 +753,24 @@ class FeatureApi(GriddedApiClient):
         # duplicates block on the per-key lock, then read the entry it wrote
         # instead of re-fetching the same payload.
         with self._coalesce_inflight(cache_path) as (joined, inflight):
-            if not joined:
-                # Nothing was in flight for this key: fetch it. Flag a failure
-                # so queued duplicates fetch for themselves instead of
-                # serializing behind a key that produced no cache entry.
-                try:
-                    return self._fetch_results(url, body, cache_path, in_gridding_mode)
-                except Exception:
-                    inflight.fetch_failed = True
-                    raise
             if not inflight.fetch_failed:
+                # Double-checked read — for creators too: between the fast-path
+                # check and taking the lock, another thread may have fetched,
+                # cached, AND drained its in-flight entry, so a fresh creator
+                # can still be looking at a warm key.
                 data = self._read_cached_response(cache_path)
                 if data is not None:
                     self._count_cache_hit()
                     return data
+                if not joined:
+                    # Nothing was in flight for this key: fetch it. Flag a
+                    # failure so queued duplicates fetch for themselves instead
+                    # of serializing behind a key that produced no cache entry.
+                    try:
+                        return self._fetch_results(url, body, cache_path, in_gridding_mode)
+                    except Exception:
+                        inflight.fetch_failed = True
+                        raise
                 # The fetch we waited for completed without raising, yet shared
                 # nothing (best-effort cache write skipped) — stop serializing.
                 inflight.fetch_failed = True

@@ -904,9 +904,12 @@ class BaseApiClient:
         instead of re-fetching the same payload.
 
         Yields ``(joined, entry)``: ``joined`` is False for the request that
-        created the in-flight entry (nothing was in flight — fetch immediately,
-        no cache re-check needed) and True for requests that waited behind an
-        in-flight fetch (re-check the cache, which should now hold the result).
+        created the in-flight entry (nothing was in flight) and True for
+        requests that waited behind an in-flight fetch. Callers must re-check
+        the cache after entering the context in BOTH cases — a joiner reads the
+        result of the fetch it queued behind, and even a fresh creator can be
+        looking at a warm key, because a competing fetch can complete and drain
+        its entry between this caller's fast-path cache check and lock entry.
         ``entry.fetch_failed`` is the escape hatch: the caller sets it when a
         fetch under this lock failed to produce a cache entry (fetch raised, or
         the best-effort cache write was skipped), and waiters that see it set
@@ -1644,6 +1647,26 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
     ]
 
     return stats_list
+
+
+def log_request_cache_summary(logger_, chunk_stats: List[Dict]) -> None:
+    """
+    Log the overall request-cache hit rate for an export closeout.
+
+    "Hits" are requests served without an API call: entries already cached
+    before the run plus duplicates coalesced onto an in-flight fetch. Stats
+    come from combine_chunk_latency_stats(), which always carries the cache
+    counters (fully-cached chunks report them with count=0).
+    """
+    total_hits = sum(s["cache_hits"] for s in chunk_stats)
+    total_misses = sum(s["cache_misses"] for s in chunk_stats)
+    checked = total_hits + total_misses
+    if checked == 0:
+        return
+    logger_.info(
+        f"Request cache: {total_hits}/{checked} requests served without an API call "
+        f"({100 * total_hits / checked:.1f}% - pre-existing entries + coalesced duplicates)"
+    )
 
 
 def read_latency_csv(csv_path) -> List[Dict]:
