@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunp
 
 import geopandas as gpd
 import numpy as np
+import orjson
 import pandas as pd
 import requests
 import shapely.geometry
@@ -402,7 +403,10 @@ class FeatureApi(GriddedApiClient):
         # Clean API key from URL
         clean_url = self._clean_api_key(url)
 
-        # Convert body to a stable string representation for cache key
+        # Convert body to a stable string representation for cache key.
+        # Deliberately stdlib json, not orjson: stdlib's default separators
+        # (", ", ": ") are baked into the md5 of every existing cache entry —
+        # changing the serializer would invalidate warm production caches.
         body_str = json.dumps(body, sort_keys=True)
         combined_str = clean_url + body_str
         request_hash = hashlib.md5(combined_str.encode()).hexdigest()
@@ -461,30 +465,51 @@ class FeatureApi(GriddedApiClient):
 
         For local paths, uses atomic write via temp file + rename.
         For S3 paths, writes directly (S3 puts are atomic).
-        """
-        if storage.is_s3_path(str(path)):
-            # S3 puts are atomic, so write directly
-            storage.write_json(str(path), payload, compressed=self.compress_cache)
-        else:
-            # Local: atomic write via temp file + rename
-            parent_dir = str(Path(path).parent)
-            storage.ensure_directory(parent_dir)
-            temp_filename = f"{str(uuid.uuid4())}.tmp"
-            if self.compress_cache:
-                temp_filename = f"{temp_filename}.gz"
-            temp_path = Path(parent_dir) / temp_filename
 
-            try:
-                if self.compress_cache:
-                    with gzip.open(temp_path, "wb") as f:
-                        f.write(json.dumps(payload).encode("utf-8"))
-                else:
-                    with open(temp_path, "w", encoding="utf-8") as f:
-                        json.dump(payload, f)
-                temp_path.replace(path)
-            finally:
-                if temp_path.exists():
+        Best-effort: an external actor can delete the cache tree mid-run, which
+        makes the tmp-file rename race the deletion. One retry re-creates the
+        directory; if the write still fails, the entry is skipped with a warning
+        rather than failing the AOI — the response is simply not cached.
+        """
+        try:
+            if storage.is_s3_path(str(path)):
+                # S3 puts are atomic, so write directly
+                storage.write_json(str(path), payload, compressed=self.compress_cache)
+                return
+
+            # Local: atomic write via temp file + rename. Serialize/compress once,
+            # outside the retry loop — only the directory + file ops can race.
+            blob = storage.json_dumps_bytes(payload)
+            if self.compress_cache:
+                blob = gzip.compress(blob)
+
+            path = Path(path)
+            temp_suffix = ".tmp.gz" if self.compress_cache else ".tmp"
+            for attempt in range(2):
+                storage.ensure_directory(str(path.parent))
+                temp_path = path.parent / f"{uuid.uuid4()}{temp_suffix}"
+                try:
+                    temp_path.write_bytes(blob)
+                    temp_path.replace(path)
+                    return
+                except OSError as e:
+                    if attempt == 1:
+                        raise
+                    logger.debug(f"Cache write to {path} failed ({e}), re-creating cache dir and retrying")
+                finally:
                     temp_path.unlink(missing_ok=True)
+        except Exception as e:
+            # A systematic failure (read-only dir, ENOSPC, expired S3 creds)
+            # would otherwise warn once per AOI — surface the first few and a
+            # periodic running count instead of flooding the log.
+            with self._lock:
+                self._cache_write_failures += 1
+                n = self._cache_write_failures
+            msg = f"Failed to write cache entry {path} - continuing without caching it ({n} failures so far): {e}"
+            if n <= 3 or n % 1000 == 0:
+                logger.warning(msg)
+            else:
+                logger.debug(msg)
 
     def _create_post_request(
         self,
@@ -700,37 +725,88 @@ class FeatureApi(GriddedApiClient):
         Returns:
             API response as a Dictionary
         """
-        with self._session_scope(in_gridding_mode) as session:
-            # Use POST request with JSON body for better geometry handling
-            url, body, exact = self._create_post_request(
-                base_url=self.FEATURES_URL,
-                geometry=geometry,
-                packs=packs,
-                classes=classes,
-                include=include,
-                since=since,
-                until=until,
-                address_fields=address_fields,
-                survey_resource_id=survey_resource_id,
-                region=region,
-                param_dic=param_dic,
-                disable_parcel_mode=disable_parcel_mode,
-            )
-            cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
+        # Use POST request with JSON body for better geometry handling
+        url, body, exact = self._create_post_request(
+            base_url=self.FEATURES_URL,
+            geometry=geometry,
+            packs=packs,
+            classes=classes,
+            include=include,
+            since=since,
+            until=until,
+            address_fields=address_fields,
+            survey_resource_id=survey_resource_id,
+            region=region,
+            param_dic=param_dic,
+            disable_parcel_mode=disable_parcel_mode,
+        )
+        cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
 
-            # Check if it's already cached
-            if self.cache_dir is not None and not self.overwrite_cache:
-                if storage.file_exists(cache_path):
+        # Check if it's already cached
+        data = self._read_cached_response(cache_path)
+        if data is not None:
+            self._count_cache_hit()
+            return data
+
+        # Coalesce concurrent duplicate requests (byte-identical url + body ⇒
+        # same cache path): the first requester fetches and writes the cache;
+        # duplicates block on the per-key lock, then read the entry it wrote
+        # instead of re-fetching the same payload.
+        with self._coalesce_inflight(cache_path) as (joined, inflight):
+            if not inflight.fetch_failed:
+                # Double-checked read — for creators too: between the fast-path
+                # check and taking the lock, another thread may have fetched,
+                # cached, AND drained its in-flight entry, so a fresh creator
+                # can still be looking at a warm key.
+                data = self._read_cached_response(cache_path)
+                if data is not None:
+                    self._count_cache_hit()
+                    return data
+                if not joined:
+                    # Nothing was in flight for this key: fetch it. Flag a
+                    # failure so queued duplicates fetch for themselves instead
+                    # of serializing behind a key that produced no cache entry.
                     try:
-                        data = storage.read_json(cache_path, compressed=self.compress_cache)
-                        self._cache_hits += 1
-                        return data
-                    except EOFError as e:
-                        logger.error(f"Error loading compressed cache file {cache_path}.")
-                        logger.error(f"Error: {e}")
-                    except Exception as e:
-                        logger.error(f"Error loading cache file {cache_path}: {e}")
+                        return self._fetch_results(url, body, cache_path, in_gridding_mode)
+                    except Exception:
+                        inflight.fetch_failed = True
+                        raise
+                # The fetch we waited for completed without raising, yet shared
+                # nothing (best-effort cache write skipped) — stop serializing.
+                inflight.fetch_failed = True
+        # The in-flight fetch for this key failed to produce a cache entry.
+        # Fetch independently OUTSIDE the lock, restoring the legacy
+        # concurrent-duplicates behaviour rather than repeating a potentially
+        # long-timeout failure serially, once per duplicate.
+        return self._fetch_results(url, body, cache_path, in_gridding_mode)
 
+    def _read_cached_response(self, cache_path: Optional[str]) -> Optional[Dict]:
+        """
+        Return the cached response for cache_path, or None if there is nothing usable:
+        cache disabled, overwrite mode, entry absent, or entry unreadable (logged).
+        """
+        if cache_path is None or self.overwrite_cache:
+            return None
+        if not storage.file_exists(cache_path):
+            return None
+        try:
+            return storage.read_json(cache_path, compressed=self.compress_cache)
+        except EOFError as e:
+            logger.error(f"Error loading compressed cache file {cache_path}.")
+            logger.error(f"Error: {e}")
+        except Exception as e:
+            logger.error(f"Error loading cache file {cache_path}: {e}")
+        return None
+
+    def _fetch_results(self, url: str, body: dict, cache_path: Optional[str], in_gridding_mode: bool):
+        """
+        POST the request to the live API, parse the response, and cache it.
+
+        Split out of _get_results so the cache fast path and in-flight
+        coalescing wrap it cleanly. Raises AIFeatureAPIRequestSizeError /
+        AIFeatureAPIError like the API error handling always has.
+        """
+        with self._session_scope(in_gridding_mode) as session:
             # Request data with retry loop for ChunkedEncodingError
             # Note: While urllib3 RetryRequest handles ChunkedEncodingError, this additional
             # retry loop exists to catch cases where the response is successfully received but
@@ -741,7 +817,7 @@ class FeatureApi(GriddedApiClient):
             response_time_ms = None
 
             # Track this as a cache miss (we're making an API call)
-            self._cache_misses += 1
+            self._count_cache_miss()
 
             for retry_attempt in range(MAX_RETRIES):
                 try:
@@ -772,7 +848,8 @@ class FeatureApi(GriddedApiClient):
                     # READ_TIMEOUT_SECONDS, so grid the AOI into smaller requests rather
                     # than re-sending the same oversized one (each resend closes the
                     # connection server-side and re-runs the full computation).
-                    self._timeout_count += 1
+                    with self._lock:
+                        self._timeout_count += 1
                     logger.info(
                         f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504"
                     )
@@ -795,7 +872,8 @@ class FeatureApi(GriddedApiClient):
                 except requests.exceptions.ChunkedEncodingError as e:
                     if retry_attempt < MAX_RETRIES - 1:
                         # Log debug message for retry attempts
-                        self._retry_count += 1
+                        with self._lock:
+                            self._retry_count += 1
                         logger.debug(
                             f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}"
                         )
@@ -829,7 +907,20 @@ class FeatureApi(GriddedApiClient):
 
             if response.ok:
                 try:
-                    data = response.json()
+                    # orjson.loads(response.content) rather than response.json():
+                    # cache replay and feature-dense responses are parse-bound, and
+                    # orjson is 5-10x faster than stdlib on multi-MB payloads.
+                    data = orjson.loads(response.content)
+                except orjson.JSONDecodeError as e:
+                    # Usually a truncated over-large response, so treat as a size
+                    # error to trigger gridding — but log visibly, because orjson
+                    # also rejects payloads stdlib accepted (NaN/Infinity literals,
+                    # BOM, invalid UTF-8) and those would masquerade as size errors.
+                    logger.warning(
+                        f"JSON parse error on 200 response ({len(response.content)} bytes) - "
+                        f"treating as size error to trigger gridding: {e}"
+                    )
+                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
                 except Exception as e:
                     # Treat JSON parsing errors as size errors to trigger gridding
                     logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")

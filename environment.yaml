@@ -16,6 +16,7 @@ dependencies:
 
   # Other core dependencies
   - requests >=2.32.5
+  - orjson >=3.9
   - python-dotenv >=1.2.1
   - tqdm >=4.67.1
   - psutil >=7.1.3

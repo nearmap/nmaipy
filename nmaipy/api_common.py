@@ -476,6 +476,23 @@ def clean_api_key_from_string(text: str) -> str:
 PROGRESS_BATCH_SIZE = 50
 
 
+class _InflightEntry:
+    """State shared by concurrent requests coalescing on one cache path.
+
+    See BaseApiClient._coalesce_inflight. ``fetch_failed`` transitions
+    False -> True only (benign unlocked writes): once a fetch under this
+    entry's lock has failed to produce a cache entry, waiters stop
+    serializing behind the lock and fetch independently.
+    """
+
+    __slots__ = ("lock", "refcount", "fetch_failed")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.refcount = 0
+        self.fetch_failed = False
+
+
 class BaseApiClient:
     """
     Base class for Nearmap AI API clients.
@@ -521,6 +538,13 @@ class BaseApiClient:
         self._adapters = []
         self._thread_local = threading.local()
         self._lock = threading.Lock()
+
+        # In-flight request coalescing (see _coalesce_inflight): cache path ->
+        # _InflightEntry. Guarded by _inflight_guard; bounded because each
+        # entry is dropped when its last in-flight request leaves, so the map
+        # can never exceed this client's thread count.
+        self._inflight_requests: Dict[str, _InflightEntry] = {}
+        self._inflight_guard = threading.Lock()
 
         # Progress-counter plumbing. `progress_counters` is overridden by
         # subclasses that accept it as a constructor arg. The registry holds
@@ -573,14 +597,27 @@ class BaseApiClient:
         self.threads = threads
         self.maxretry = maxretry
 
-        # Latency and request tracking
-        # Note: These are safe because each chunk runs in a separate process (ProcessPoolExecutor),
-        # so each API client instance is isolated - no cross-thread access occurs.
+        # Latency and request tracking. One client instance is shared by all of
+        # a chunk's worker threads, so these ARE accessed cross-thread:
+        # list.append is atomic under the GIL, but the integer counters must be
+        # incremented under self._lock (see _count_cache_hit/_count_cache_miss
+        # and _count_urllib3_retry) — a bare `+= 1` loses updates.
         self._latencies = []
         self._retry_count = 0
         self._timeout_count = 0
         self._cache_hits = 0
         self._cache_misses = 0
+        self._cache_write_failures = 0
+
+    def _count_cache_hit(self):
+        """Thread-safe cache-hit increment; feeds sidecar stats and the progress-bar hit rate."""
+        with self._lock:
+            self._cache_hits += 1
+
+    def _count_cache_miss(self):
+        """Thread-safe cache-miss increment; feeds sidecar stats and the progress-bar hit rate."""
+        with self._lock:
+            self._cache_misses += 1
 
     def _count_urllib3_retry(self, cause):
         """RetryRequest.on_retry hook: count retries urllib3 performs inside the transport.
@@ -854,6 +891,65 @@ class BaseApiClient:
         except Exception as e:
             logger.warning(f"Failed to save to cache: {e}")
 
+    @contextlib.contextmanager
+    def _coalesce_inflight(self, cache_path: Optional[str]):
+        """
+        Serialize concurrent fetches that share a cache entry (in-flight coalescing).
+
+        Address-mode datasets carry many rows per physical parcel (e.g. strata
+        units sharing one polygon), and those duplicate requests sit adjacent in
+        input order — so on a cold cache they all miss together and fetch the
+        same payload concurrently. Holding a per-cache-path lock lets the first
+        requester fetch and write the cache; each waiter then reads the cache
+        instead of re-fetching the same payload.
+
+        Yields ``(joined, entry)``: ``joined`` is False for the request that
+        created the in-flight entry (nothing was in flight) and True for
+        requests that waited behind an in-flight fetch. Callers must re-check
+        the cache after entering the context in BOTH cases — a joiner reads the
+        result of the fetch it queued behind, and even a fresh creator can be
+        looking at a warm key, because a competing fetch can complete and drain
+        its entry between this caller's fast-path cache check and lock entry.
+        ``entry.fetch_failed`` is the escape hatch: the caller sets it when a
+        fetch under this lock failed to produce a cache entry (fetch raised, or
+        the best-effort cache write was skipped), and waiters that see it set
+        skip the wait-and-read protocol and fetch independently OUTSIDE the lock
+        — restoring the legacy concurrent-duplicates behaviour instead of
+        serializing repeated long-timeout failures behind one key.
+
+        Deadlock safety: a coalesce lock is only ever held while a single
+        request fetches. Gridding never runs under it — an
+        APIRequestSizeError unwinds out of this context before the caller
+        grids, so no thread holds a coalesce lock while waiting on the
+        gridding semaphore or on another coalesce lock.
+
+        No-op (fresh unshared entry, joined=False) when cache_path is None
+        (no cache — nowhere to share a result) or in overwrite mode (every
+        request must refetch by design). The lock map is per-process and
+        bounded: an entry exists only while requests for its key are in
+        flight, so the map can never exceed this client's thread count.
+        """
+        if cache_path is None or self.overwrite_cache:
+            yield False, _InflightEntry()
+            return
+
+        with self._inflight_guard:
+            entry = self._inflight_requests.get(cache_path)
+            joined = entry is not None
+            if entry is None:
+                entry = _InflightEntry()
+                self._inflight_requests[cache_path] = entry
+            entry.refcount += 1
+
+        try:
+            with entry.lock:
+                yield joined, entry
+        finally:
+            with self._inflight_guard:
+                entry.refcount -= 1
+                if entry.refcount == 0 and self._inflight_requests.get(cache_path) is entry:
+                    del self._inflight_requests[cache_path]
+
     def _sanitize_path_component(self, text: str) -> str:
         """
         Sanitize a string for use as a path component.
@@ -945,10 +1041,34 @@ class BaseApiClient:
         - cache_hits: Number of cache hits
         - cache_misses: Number of cache misses (API calls made)
 
-        Returns None if no latencies have been recorded.
+        A chunk served entirely from cache records no latencies but still has
+        cache activity worth reporting (hit-rate display, latency sidecars), so
+        the latency fields are zeroed rather than dropping the whole dict —
+        every consumer already guards on count == 0.
+
+        Returns None only when there was no API activity at all.
         """
+        counters = {
+            "retry_count": self._retry_count,
+            "timeout_count": self._timeout_count,
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+        }
         if not self._latencies:
-            return None
+            if not any(counters.values()):
+                return None
+            return {
+                "mean": 0.0,
+                "p50": 0.0,
+                "p90": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "min": 0.0,
+                "max": 0.0,
+                "count": 0,
+                "histogram": [0] * (len(LATENCY_BUCKETS) - 1),
+                **counters,
+            }
 
         arr = np.array(self._latencies)
         n = len(arr)
@@ -966,10 +1086,7 @@ class BaseApiClient:
             "max": float(np.max(arr)),
             "count": n,
             "histogram": hist.tolist(),
-            "retry_count": self._retry_count,
-            "timeout_count": self._timeout_count,
-            "cache_hits": self._cache_hits,
-            "cache_misses": self._cache_misses,
+            **counters,
         }
 
 
@@ -994,7 +1111,8 @@ def collect_latency_stats_from_apis(
         total_duration_ms: Total wall-clock time for chunk processing in milliseconds
 
     Returns:
-        Dict with combined latency stats, or None if no latencies were recorded
+        Dict with combined latency stats (latency fields zeroed with count=0 for
+        a fully-cached chunk), or None if there was no API activity at all
     """
     combined_latencies = []
     combined_retry_count = 0
@@ -1010,8 +1128,38 @@ def collect_latency_stats_from_apis(
             combined_cache_hits += api._cache_hits
             combined_cache_misses += api._cache_misses
 
+    counters = {
+        "retry_count": combined_retry_count,
+        "timeout_count": combined_timeout_count,
+        "cache_hits": combined_cache_hits,
+        "cache_misses": combined_cache_misses,
+    }
+    timing = {
+        "start_time": chunk_start_time,
+        "end_time": chunk_end_time,
+        "total_duration_ms": total_duration_ms,
+    }
+
     if not combined_latencies:
-        return None
+        # A chunk served entirely from cache records no latencies but the cache
+        # counters still matter (hit-rate display, latency sidecars): keep the
+        # row with zeroed latency fields — consumers guard on count == 0.
+        if not any(counters.values()):
+            return None
+        return {
+            "chunk_id": chunk_id,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "count": 0,
+            "histogram": [0] * (len(LATENCY_BUCKETS) - 1),
+            **counters,
+            **timing,
+        }
 
     arr = np.array(combined_latencies)
     n = len(arr)
@@ -1028,13 +1176,8 @@ def collect_latency_stats_from_apis(
         "max": float(np.max(arr)),
         "count": n,
         "histogram": hist.tolist(),
-        "retry_count": combined_retry_count,
-        "timeout_count": combined_timeout_count,
-        "cache_hits": combined_cache_hits,
-        "cache_misses": combined_cache_misses,
-        "start_time": chunk_start_time,
-        "end_time": chunk_end_time,
-        "total_duration_ms": total_duration_ms,
+        **counters,
+        **timing,
     }
 
 
@@ -1257,6 +1400,12 @@ def compute_global_latency_stats(
     Returns:
         Dict with global mean, percentiles, and 95% confidence intervals
     """
+    # Chunks served entirely from cache report count=0 with an all-zero
+    # histogram. They carry no latency signal, and letting them into the
+    # bootstrap corrupts the confidence intervals: a resample drawing only
+    # zero chunks yields an all-zero histogram whose percentile is 0.0,
+    # dragging the CI lower bound to 0 on warm-cache/resumed exports.
+    chunk_stats = [s for s in chunk_stats if s["count"] > 0]
     if not chunk_stats:
         return {}
 
@@ -1490,12 +1639,34 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
             "p99": float(row["p99"]),
             "min": float(row["min"]),
             "max": float(row["max"]),
+            "cache_hits": int(row.get("cache_hits", 0)),
+            "cache_misses": int(row.get("cache_misses", 0)),
             "histogram": [int(row[name]) for name in bucket_names if name in row],
         }
         for row in combined_df.to_dict("records")
     ]
 
     return stats_list
+
+
+def log_request_cache_summary(logger_, chunk_stats: List[Dict]) -> None:
+    """
+    Log the overall request-cache hit rate for an export closeout.
+
+    "Hits" are requests served without an API call: entries already cached
+    before the run plus duplicates coalesced onto an in-flight fetch. Stats
+    come from combine_chunk_latency_stats(), which always carries the cache
+    counters (fully-cached chunks report them with count=0).
+    """
+    total_hits = sum(s["cache_hits"] for s in chunk_stats)
+    total_misses = sum(s["cache_misses"] for s in chunk_stats)
+    checked = total_hits + total_misses
+    if checked == 0:
+        return
+    logger_.info(
+        f"Request cache: {total_hits}/{checked} requests served without an API call "
+        f"({100 * total_hits / checked:.1f}% - pre-existing entries + coalesced duplicates)"
+    )
 
 
 def read_latency_csv(csv_path) -> List[Dict]:

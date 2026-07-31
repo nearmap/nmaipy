@@ -644,7 +644,23 @@ class BaseExporter(ABC):
         last_progress_check = time.time()
         PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
         all_latency_stats = []  # Collect latency stats from each chunk
-        latest_latency_stats = None  # Track latest for progress bar display
+        latest_latency_stats = None  # Latest stats WITH live requests, for the P50 display
+        total_cache_hits = 0  # Cumulative across completed chunks, for hit-rate display
+        total_cache_misses = 0
+
+        def build_lat_str():
+            """Latency + cache hit-rate segment of the progress description.
+
+            Both figures update as chunks complete: latency shows the P50 of the
+            most recent chunk that made live requests (fully-cached chunks have
+            no latency signal, so they don't blank the readout), the cache hit
+            rate is cumulative over all completed chunks.
+            """
+            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms" if latest_latency_stats else "Lat: ---"
+            cache_checked = total_cache_hits + total_cache_misses
+            if cache_checked > 0:
+                lat_str += f" | Cache {100 * total_cache_hits / cache_checked:.0f}%"
+            return lat_str
 
         # Get initial total
         with progress_counters["lock"]:
@@ -675,7 +691,10 @@ class BaseExporter(ABC):
                                 latency_stats = result.get("latency_stats")
                                 if latency_stats is not None:
                                     all_latency_stats.append(latency_stats)
-                                    latest_latency_stats = latency_stats
+                                    if latency_stats["count"] > 0:
+                                        latest_latency_stats = latency_stats
+                                    total_cache_hits += latency_stats["cache_hits"]
+                                    total_cache_misses += latency_stats["cache_misses"]
 
                             # Update progress bar immediately. Blocking acquire
                             # so the displayed counter actually tracks the
@@ -688,14 +707,8 @@ class BaseExporter(ABC):
                                 pbar.total = requests_total
                             pbar.n = requests_completed
 
-                            # Build latency string for progress bar
-                            if latest_latency_stats:
-                                lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
-                            else:
-                                lat_str = "Lat: ---"
-
                             pbar.set_description(
-                                self._format_progress_description(completed_jobs, num_jobs, lat_str=lat_str)
+                                self._format_progress_description(completed_jobs, num_jobs, lat_str=build_lat_str())
                             )
                             pbar.refresh()
 
@@ -729,15 +742,11 @@ class BaseExporter(ABC):
                     if pbar.total != requests_total:
                         pbar.total = requests_total
 
-                    # Build latency string for progress bar
-                    if latest_latency_stats:
-                        lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
-                    else:
-                        lat_str = "Lat: ---"
-
                     # Update position and description
                     pbar.n = requests_completed
-                    pbar.set_description(self._format_progress_description(completed_jobs, num_jobs, lat_str=lat_str))
+                    pbar.set_description(
+                        self._format_progress_description(completed_jobs, num_jobs, lat_str=build_lat_str())
+                    )
                     pbar.refresh()
                     last_progress_check = current_time
 
@@ -746,15 +755,9 @@ class BaseExporter(ABC):
                 requests_completed = progress_counters["completed"]
                 requests_total = progress_counters["total"]
 
-            # Build final latency string
-            if latest_latency_stats:
-                lat_str = f"P50={latest_latency_stats['p50']:.0f}ms"
-            else:
-                lat_str = "Lat: ---"
-
             pbar.n = requests_completed
             pbar.total = requests_total
-            pbar.set_description(self._format_progress_description(num_jobs, num_jobs, lat_str=lat_str))
+            pbar.set_description(self._format_progress_description(num_jobs, num_jobs, lat_str=build_lat_str()))
             pbar.refresh()
 
         finally:

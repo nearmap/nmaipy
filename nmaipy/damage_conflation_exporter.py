@@ -36,6 +36,7 @@ from nmaipy.api_common import (
     combine_chunk_latency_stats,
     compute_global_latency_stats,
     format_error_summary_table,
+    log_request_cache_summary,
     sanitize_error_message,
     save_chunk_latency_stats,
 )
@@ -355,6 +356,7 @@ class DamageConflationExporter(BaseExporter):
                     f"P50={global_stats['p50']:.0f}ms, P90={global_stats['p90']:.0f}ms, "
                     f"P95={global_stats['p95']:.0f}ms, P99={global_stats['p99']:.0f}ms, n={global_stats['count']}"
                 )
+            log_request_cache_summary(self.logger, all_latency_stats)
 
         self.logger.info("Combining chunk results...")
         features_gdf = self.combine_chunk_files("damage_features", num_chunks, geo=True)

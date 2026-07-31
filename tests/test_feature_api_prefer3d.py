@@ -62,6 +62,9 @@ class _MockResponse:
             self.text = json.dumps(body)
         else:
             self.text = body
+        # Successful responses are parsed from raw bytes (orjson), like
+        # requests.Response.content.
+        self.content = self.text.encode("utf-8")
 
     def json(self):
         if isinstance(self._body, dict):
