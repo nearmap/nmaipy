@@ -4403,13 +4403,18 @@ class NearmapAIExporter(BaseExporter):
         aoi_path = self.aoi_file
         self.logger.info(f"Processing AOI file {aoi_path}")
 
-        cache_path = storage.join_path(self.output_dir, "cache")
-        if storage.is_s3_path(cache_path) and not self.no_cache:
-            self.logger.warning(
-                "API cache will be written to S3, which may be slow due to many small files. "
-                "Consider using --cache-dir to set a local cache directory, or --no-cache to disable caching."
-            )
-        storage.ensure_directory(cache_path)
+        # The effective cache root is the user-supplied --cache-dir when given,
+        # falling back to the output dir (mirrors process_chunk). Warning on
+        # output_dir unconditionally mis-fired on every S3 export that had a
+        # local --cache-dir configured.
+        cache_path = storage.join_path(self.cache_dir if self.cache_dir else self.output_dir, "cache")
+        if not self.no_cache:
+            if storage.is_s3_path(cache_path):
+                self.logger.warning(
+                    "API cache will be written to S3, which may be slow due to many small files. "
+                    "Consider using --cache-dir to set a local cache directory, or --no-cache to disable caching."
+                )
+            storage.ensure_directory(cache_path)
         # Note: chunk_path and final_path created by BaseExporter
 
         # Get classes
