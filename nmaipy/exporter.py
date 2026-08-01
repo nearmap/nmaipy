@@ -175,13 +175,20 @@ def _read_parquet_chunks_parallel(
         return []
 
     def _read_one(path: str):
+        # Open via storage.open_file so S3 reads share the per-process fsspec
+        # filesystem; a bare-URI gpd/pd.read_parquet constructs a fresh pyarrow
+        # S3FileSystem per call — a fixed per-file cost that dominates when
+        # reading thousands of small chunk files.
         if geo:
             try:
-                df = gpd.read_parquet(path)
+                with storage.open_file(path, "rb") as f:
+                    df = gpd.read_parquet(f)
             except Exception:
-                df = pd.read_parquet(path)
+                with storage.open_file(path, "rb") as f:
+                    df = pd.read_parquet(f)
         else:
-            df = pd.read_parquet(path)
+            with storage.open_file(path, "rb") as f:
+                df = pd.read_parquet(f)
         if len(df) > 0:
             return df
         return None
@@ -814,12 +821,17 @@ def _stream_merge_chunks_to_parquet(
     if total == 0:
         return 0
 
+    # One shared filesystem for every schema/data read (see pyarrow_read_paths);
+    # bare-URI pq.read_*() would construct a fresh S3 filesystem per file.
+    # Original chunk_paths are kept for log messages.
+    read_paths, read_fs = storage.pyarrow_read_paths(list(chunk_paths))
+
     # Pass 1 — derive the unified target schema from footers only (no row data).
     # Positional collection preserves chunk_paths order regardless of completion
     # order, so the resulting column order is deterministic.
     schemas = [None] * total
     with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
-        futures = {scan_executor.submit(pq.read_schema, chunk_paths[i]): i for i in range(total)}
+        futures = {scan_executor.submit(pq.read_schema, read_paths[i], filesystem=read_fs): i for i in range(total)}
         for future in as_completed(futures):
             idx = futures[future]
             try:
@@ -828,6 +840,7 @@ def _stream_merge_chunks_to_parquet(
                 logger.error(f"Failed to read schema from {chunk_paths[idx]}: {e}")
 
     valid_paths = [chunk_paths[i] for i, s in enumerate(schemas) if s is not None]
+    valid_read_paths = [read_paths[i] for i, s in enumerate(schemas) if s is not None]
     valid_schemas = [s for s in schemas if s is not None]
     if not valid_schemas:
         logger.error("All chunk schemas failed to read — cannot merge")
@@ -861,7 +874,7 @@ def _stream_merge_chunks_to_parquet(
     prefetch_futures = {}
     initial_submit = min(prefetch_workers, n)
     for idx in range(initial_submit):
-        prefetch_futures[idx] = executor.submit(pq.read_table, valid_paths[idx])
+        prefetch_futures[idx] = executor.submit(pq.read_table, valid_read_paths[idx], filesystem=read_fs)
     next_submit_idx = initial_submit
 
     try:
@@ -872,7 +885,9 @@ def _stream_merge_chunks_to_parquet(
             # is always in flight (read-ahead), keeping the resident count at the
             # prefetch_workers cap.
             if next_submit_idx < n:
-                prefetch_futures[next_submit_idx] = executor.submit(pq.read_table, valid_paths[next_submit_idx])
+                prefetch_futures[next_submit_idx] = executor.submit(
+                    pq.read_table, valid_read_paths[next_submit_idx], filesystem=read_fs
+                )
                 next_submit_idx += 1
             if pbar is not None:
                 pbar.update(1)
@@ -3058,9 +3073,13 @@ class NearmapAIExporter(BaseExporter):
         # resilience of the streaming loop, which also skips bad chunks.
         self.logger.info(f"Scanning schemas from {total} chunk files...")
         scan_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        # One shared filesystem for every schema/data read in this method (see
+        # pyarrow_read_paths); bare-URI pq.read_*() constructs a fresh S3
+        # filesystem per file. feature_paths are kept for log messages.
+        read_paths, read_fs = storage.pyarrow_read_paths(list(feature_paths))
         chunk_schemas = [None] * total
         with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
-            futures = {scan_executor.submit(pq.read_schema, feature_paths[i]): i for i in range(total)}
+            futures = {scan_executor.submit(pq.read_schema, read_paths[i], filesystem=read_fs): i for i in range(total)}
             for future in as_completed(futures):
                 idx = futures[future]
                 try:
@@ -3110,7 +3129,7 @@ class NearmapAIExporter(BaseExporter):
         initial_submit = min(prefetch_workers, total)
         for idx in range(initial_submit):
             if idx in valid_indices:
-                prefetch_futures[idx] = executor.submit(pq.read_table, feature_paths[idx])
+                prefetch_futures[idx] = executor.submit(pq.read_table, read_paths[idx], filesystem=read_fs)
         next_submit_idx = initial_submit
 
         try:
@@ -3134,7 +3153,7 @@ class NearmapAIExporter(BaseExporter):
                     if next_submit_idx < total:
                         if next_submit_idx in valid_indices:
                             prefetch_futures[next_submit_idx] = executor.submit(
-                                pq.read_table, feature_paths[next_submit_idx]
+                                pq.read_table, read_paths[next_submit_idx], filesystem=read_fs
                             )
                         next_submit_idx += 1
                     continue
@@ -3148,7 +3167,7 @@ class NearmapAIExporter(BaseExporter):
                     if next_submit_idx < total:
                         if next_submit_idx in valid_indices:
                             prefetch_futures[next_submit_idx] = executor.submit(
-                                pq.read_table, feature_paths[next_submit_idx]
+                                pq.read_table, read_paths[next_submit_idx], filesystem=read_fs
                             )
                         next_submit_idx += 1
                     continue
@@ -3157,7 +3176,7 @@ class NearmapAIExporter(BaseExporter):
                 if next_submit_idx < total:
                     if next_submit_idx in valid_indices:
                         prefetch_futures[next_submit_idx] = executor.submit(
-                            pq.read_table, feature_paths[next_submit_idx]
+                            pq.read_table, read_paths[next_submit_idx], filesystem=read_fs
                         )
                     next_submit_idx += 1
 

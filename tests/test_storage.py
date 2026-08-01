@@ -646,3 +646,43 @@ class TestInvalidateCache:
         mock_get_fs.return_value = mock_fs
         storage.invalidate_cache("s3://bucket/dir")
         mock_fs.invalidate_cache.assert_called_once_with("s3://bucket/dir")
+
+
+# ---------------------------------------------------------------------------
+# pyarrow_read_paths
+# ---------------------------------------------------------------------------
+
+
+class TestPyarrowReadPaths:
+    def test_empty_list(self):
+        assert storage.pyarrow_read_paths([]) == ([], None)
+
+    def test_local_paths_pass_through_with_no_filesystem(self):
+        paths = ["/tmp/a.parquet", "/tmp/b.parquet"]
+        out_paths, fs = storage.pyarrow_read_paths(paths)
+        assert out_paths == paths
+        assert out_paths is not paths  # defensive copy, caller list not aliased
+        assert fs is None
+
+    def test_mixed_schemes_raise(self):
+        with pytest.raises(ValueError, match="one scheme"):
+            storage.pyarrow_read_paths(["s3://bucket/a.parquet", "/tmp/b.parquet"])
+
+    def test_s3_paths_stripped_and_single_filesystem(self, monkeypatch):
+        sentinel_fs = object()
+        calls = []
+
+        class _StubFileSystem:
+            @staticmethod
+            def from_uri(uri):
+                calls.append(uri)
+                return sentinel_fs, uri[len("s3://") :]
+
+        monkeypatch.setattr(storage, "pa_fs", type("stub", (), {"FileSystem": _StubFileSystem}))
+        paths = ["s3://bucket/chunks/a.parquet", "s3://bucket/chunks/b.parquet"]
+        out_paths, fs = storage.pyarrow_read_paths(paths)
+
+        assert out_paths == ["bucket/chunks/a.parquet", "bucket/chunks/b.parquet"]
+        assert fs is sentinel_fs
+        # The filesystem is resolved exactly once, from the first path.
+        assert calls == ["s3://bucket/chunks/a.parquet"]

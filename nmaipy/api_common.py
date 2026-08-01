@@ -1608,8 +1608,11 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
         return []
 
     def _read_one(path):
+        # Open via storage.open_file so S3 reads share the per-process fsspec
+        # filesystem instead of constructing a fresh one per bare-URI read.
         try:
-            return pd.read_parquet(path)
+            with storage.open_file(path, "rb") as f:
+                return pd.read_parquet(f)
         except Exception:
             return None
 
