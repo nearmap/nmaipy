@@ -176,7 +176,7 @@ def _read_parquet_chunks_parallel(
 
     def _read_one(path: str):
         # Open via storage.open_file so S3 reads share the per-process fsspec
-        # filesystem; a bare-URI gpd/pd.read_parquet constructs a fresh pyarrow
+        # filesystem; a bare-URI gpd.read_parquet constructs a fresh pyarrow
         # S3FileSystem per call — a fixed per-file cost that dominates when
         # reading thousands of small chunk files. One open serves both the geo
         # attempt and the plain fallback (seek(0) instead of a second download).
@@ -3260,13 +3260,15 @@ class NearmapAIExporter(BaseExporter):
                                     f"{', '.join(type_warnings)}"
                                 )
                             schema_promotion_count += 1
-                    # Sort by class_id so row-group min/max statistics stay
-                    # class-clustered (filtered reads skip non-matching groups),
-                    # but cap rows per group explicitly. One group per class_id
-                    # run — the previous scheme — produced ~110 tiny groups per
-                    # chunk (169k groups / a 1.6GB footer at 1,544 chunks), which
-                    # made every row-group-granular reader pathologically slow;
-                    # a per-group scan over S3 pays one serial range-GET per group.
+                    # Sort by class_id for compression locality (contiguous class
+                    # values dictionary/RLE-encode well) and for class pushdown in
+                    # the oversized-chunk case, but cap rows per group explicitly —
+                    # a chunk under the cap lands in one group whose statistics span
+                    # all its classes. One group per class_id run — the previous
+                    # scheme — produced ~110 tiny groups per chunk (169k groups /
+                    # a 1.6GB footer at 1,544 chunks), which made every
+                    # row-group-granular reader pathologically slow; a per-group
+                    # scan over S3 pays one serial range-GET per group.
                     if "class_id" in table.column_names:
                         table = table.sort_by("class_id")
                     pqwriter.write_table(table, row_group_size=FEATURES_ROW_GROUP_SIZE)
@@ -4420,8 +4422,8 @@ class NearmapAIExporter(BaseExporter):
         # falling back to the output dir (mirrors process_chunk). Warning on
         # output_dir unconditionally mis-fired on every S3 export that had a
         # local --cache-dir configured.
-        cache_path = storage.join_path(self.cache_dir if self.cache_dir else self.output_dir, "cache")
         if not self.no_cache:
+            cache_path = storage.join_path(self.cache_dir if self.cache_dir else self.output_dir, "cache")
             if storage.is_s3_path(cache_path):
                 self.logger.warning(
                     "API cache will be written to S3, which may be slow due to many small files. "

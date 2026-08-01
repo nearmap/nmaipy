@@ -284,14 +284,16 @@ AREA_CRS = {
 API_CRS = "EPSG:4326"
 
 # Max rows per row group when streaming the combined features.parquet. The table
-# is sorted by class_id first, so row-group min/max statistics stay class-clustered
-# and filtered reads still skip the vast majority of groups. An explicit cap keeps
-# group count (and the footer) bounded: one group per class_id *run* — the previous
-# scheme — produced ~110 groups per chunk (169k groups / a 1.6GB footer on a
-# 1,544-chunk national export), which made every row-group-granular reader
-# pathologically slow: pyarrow's iter_batches over S3 pays one serial range-GET per
-# group, and every open of the file parses the full footer. 65,536 rows ≈ 60MB per
-# group on an all-packs export.
+# is still sorted by class_id per chunk, which keeps class values contiguous for
+# dictionary/RLE compression and gives class pushdown only when a chunk exceeds
+# this cap (a typical chunk fits in one group, whose min/max statistics then span
+# every class in the chunk — class-filtered readers scan those groups in full).
+# The explicit cap keeps group count (and the footer) bounded: one group per
+# class_id *run* — the previous scheme — produced ~110 groups per chunk (169k
+# groups / a 1.6GB footer on a 1,544-chunk national export), which made every
+# row-group-granular reader pathologically slow: pyarrow's iter_batches over S3
+# pays one serial range-GET per group, and every open of the file parses the full
+# footer. 65,536 rows ≈ 60MB per group on an all-packs export.
 FEATURES_ROW_GROUP_SIZE = 65_536
 
 IMPERIAL_COUNTRIES = ["us"]

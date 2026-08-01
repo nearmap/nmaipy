@@ -311,8 +311,8 @@ def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.File
         Tuple of (paths_for_pyarrow, filesystem); filesystem is None for local.
 
     Raises:
-        ValueError: If paths mix s3:// and local schemes, or the bucket name in
-            the first path cannot be parsed as a URI authority.
+        ValueError: If paths mix s3:// and local schemes, span more than one S3
+            bucket, or the bucket name cannot be parsed as a URI authority.
     """
     if not paths:
         return [], None
@@ -326,7 +326,10 @@ def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.File
     # which would hold element 0 to a stricter contract than the raw
     # scheme-stripped keys handed to pyarrow below — the same chunk set could
     # then pass or fail on sort order alone. Bucket names are URI-safe.
-    bucket = paths[0][len("s3://") :].split("/", 1)[0]
+    buckets = {p[len("s3://") :].split("/", 1)[0] for p in paths}
+    if len(buckets) > 1:
+        raise ValueError(f"pyarrow_read_paths requires all paths in one S3 bucket (got {sorted(buckets)})")
+    bucket = buckets.pop()
     filesystem, _ = pa_fs.FileSystem.from_uri(f"s3://{bucket}/")
     return [p[len("s3://") :] for p in paths], filesystem
 

@@ -668,6 +668,13 @@ class TestPyarrowReadPaths:
         with pytest.raises(ValueError, match="one scheme"):
             storage.pyarrow_read_paths(["s3://bucket/a.parquet", "/tmp/b.parquet"])
 
+    def test_cross_bucket_paths_raise(self):
+        # All paths share the single filesystem resolved from one bucket root;
+        # a second bucket would silently read through the wrong bucket's
+        # filesystem, so it must fail loudly instead.
+        with pytest.raises(ValueError, match="one S3 bucket"):
+            storage.pyarrow_read_paths(["s3://bucket-a/x.parquet", "s3://bucket-b/y.parquet"])
+
     def test_s3_paths_stripped_and_single_filesystem(self, monkeypatch):
         sentinel_fs = object()
         calls = []
