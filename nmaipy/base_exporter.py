@@ -383,7 +383,12 @@ class BaseExporter(ABC):
             f = storage.join_path(self.chunk_path, f"{prefix}_{chunk_id}.parquet")
             if storage.file_exists(f):
                 try:
-                    parts.append(reader(f))
+                    # Open via storage.open_file so S3 reads share the
+                    # per-process fsspec filesystem; a bare-URI read constructs
+                    # a fresh S3 filesystem per file — a fixed per-file cost
+                    # this serial loop pays with no concurrency to mask it.
+                    with storage.open_file(f, "rb") as fh:
+                        parts.append(reader(fh))
                 except Exception as e:
                     self.logger.warning(f"Chunk {chunk_id}: failed to read {prefix} file {f}: {e}. Skipping.")
         if not parts:

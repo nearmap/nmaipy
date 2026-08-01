@@ -16,12 +16,13 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import boto3
 import fsspec
 import orjson
 import pyarrow as pa
+import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
@@ -279,6 +280,55 @@ def open_file(path: str, mode: str = "r", **kwargs):
         return fs.open(path, mode, **kwargs)
     else:
         return open(path, mode, **kwargs)
+
+
+def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.FileSystem]]:
+    """Resolve same-scheme parquet paths for pyarrow readers sharing ONE filesystem.
+
+    For s3:// URIs, returns scheme-stripped "bucket/key" paths plus a single
+    pyarrow filesystem resolved once via ``FileSystem.from_uri`` — credential
+    resolution and the connection pool are then shared across every
+    ``pq.read_table``/``pq.read_schema`` call. A bare-URI ``pq.read_*(s3://…)``
+    constructs and tears down a fresh S3 filesystem per call, a fixed per-file
+    cost that dominates when scanning thousands of small chunk files
+    (consolidation phases were observed pinned at ~1-3 files/s regardless of
+    file size, at ~0% CPU, under 24-48-way read concurrency).
+
+    For local paths, returns them unchanged with ``filesystem=None`` (pyarrow's
+    default local handling — behaviour identical to today).
+
+    Fork-safety: pyarrow's native S3 filesystem must not be carried across a
+    fork (see ``_get_s3_filesystem`` / ``write_parquet``). This helper is for
+    the consolidation read paths, which run in the parent process after the
+    worker pool has shut down. (nmaipy uses a spawn multiprocessing context
+    everywhere, so no fork can inherit the object today — the constraint is
+    defence-in-depth for future callers.)
+
+    Args:
+        paths: Parquet paths, all sharing one scheme (all s3:// or all local).
+
+    Returns:
+        Tuple of (paths_for_pyarrow, filesystem); filesystem is None for local.
+
+    Raises:
+        ValueError: If paths mix s3:// and local schemes, or the bucket name in
+            the first path cannot be parsed as a URI authority.
+    """
+    if not paths:
+        return [], None
+    s3_flags = {is_s3_path(p) for p in paths}
+    if len(s3_flags) > 1:
+        raise ValueError("pyarrow_read_paths requires all paths to share one scheme (got mixed s3:// and local)")
+    if not s3_flags.pop():
+        return list(paths), None
+    # Resolve the filesystem from the bucket ROOT, not paths[0] verbatim: a full
+    # key goes through strict URI parsing (percent-decoding, no literal spaces),
+    # which would hold element 0 to a stricter contract than the raw
+    # scheme-stripped keys handed to pyarrow below — the same chunk set could
+    # then pass or fail on sort order alone. Bucket names are URI-safe.
+    bucket = paths[0][len("s3://") :].split("/", 1)[0]
+    filesystem, _ = pa_fs.FileSystem.from_uri(f"s3://{bucket}/")
+    return [p[len("s3://") :] for p in paths], filesystem
 
 
 def file_size(path: str) -> int:
