@@ -725,6 +725,84 @@ class TestExporter:
                 lob_field.type == pa.large_string()
             ), f"Expected large_string type for promoted null column, got {lob_field.type}"
 
+    def test_stream_and_convert_features_coalesces_row_groups(self):
+        """Row groups are capped by FEATURES_ROW_GROUP_SIZE, not one per class run.
+
+        The previous writer emitted one row group per class_id run per chunk,
+        which at national scale produced ~110 tiny groups per chunk (169k groups
+        and a 1.6GB footer on a 1,544-chunk export) and made every
+        row-group-granular reader pathologically slow. Now each chunk is written
+        sorted by class_id (so row-group stats stay class-clustered) in groups of
+        at most FEATURES_ROW_GROUP_SIZE rows.
+        """
+        from shapely.geometry import Point
+
+        from nmaipy.constants import FEATURES_ROW_GROUP_SIZE
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            chunk_dir = tmpdir / "chunks"
+            chunk_dir.mkdir()
+
+            # Chunk 1: one row more than the cap, class_ids interleaved so the
+            # old scheme would have produced many groups (one per sorted run).
+            n1 = FEATURES_ROW_GROUP_SIZE + 1
+            class_ids_1 = [f"class_{i % 40:02d}" for i in range(n1)]
+            chunk1 = gpd.GeoDataFrame(
+                {
+                    "feature_id": [f"f{i}" for i in range(n1)],
+                    "class_id": class_ids_1,
+                    "description": ["Test feature"] * n1,
+                    "geometry": [Point(0, 0)] * n1,
+                },
+                crs="EPSG:4326",
+            )
+            chunk1.to_parquet(chunk_dir / "features_test_1.parquet")
+
+            # Chunk 2: small, 30 distinct interleaved class_ids (old scheme: 30
+            # groups; new scheme: 1).
+            n2 = 90
+            chunk2 = gpd.GeoDataFrame(
+                {
+                    "feature_id": [f"g{i}" for i in range(n2)],
+                    "class_id": [f"class_{i % 30:02d}" for i in range(n2)],
+                    "description": ["Test feature"] * n2,
+                    "geometry": [Point(1, 1)] * n2,
+                },
+                crs="EPSG:4326",
+            )
+            chunk2.to_parquet(chunk_dir / "features_test_2.parquet")
+
+            exporter = AOIExporter(
+                output_dir=tmpdir,
+                country="au",
+                packs=["building"],
+                save_features=True,
+            )
+            output_path = tmpdir / "merged_features.parquet"
+            exporter._stream_and_convert_features(
+                [chunk_dir / "features_test_1.parquet", chunk_dir / "features_test_2.parquet"],
+                output_path,
+            )
+
+            meta = pq.read_metadata(output_path)
+            assert meta.num_rows == n1 + n2
+            # Chunk 1 → 2 groups (cap + remainder of 1), chunk 2 → 1 group. The
+            # old per-class-run writer would have produced 40 + 30 = 70.
+            assert meta.num_row_groups == 3, f"Expected 3 coalesced row groups, got {meta.num_row_groups}"
+
+            # Each row group is internally sorted by class_id so min/max stats
+            # stay useful for predicate pushdown on filtered reads.
+            pf = pq.ParquetFile(output_path)
+            for rg in range(meta.num_row_groups):
+                vals = pf.read_row_group(rg, columns=["class_id"]).column("class_id").to_pylist()
+                assert vals == sorted(vals), f"Row group {rg} not sorted by class_id"
+
+            # Still a valid GeoParquet: geo metadata survived the writer change.
+            merged = gpd.read_parquet(output_path)
+            assert merged.crs is not None
+            assert len(merged) == n1 + n2
+
 
 class TestReadParquetChunksParallel:
     """Tests for _read_parquet_chunks_parallel."""

@@ -88,6 +88,7 @@ from nmaipy.constants import (
     FEATURE_CLASS_DESCRIPTIONS,
     FEATURE_PREFETCH_FLOOR,
     FEATURE_PREFETCH_MULTIPLIER,
+    FEATURES_ROW_GROUP_SIZE,
     GRID_SIZE_DEGREES,
     IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
@@ -3240,23 +3241,16 @@ class NearmapAIExporter(BaseExporter):
                                     f"{', '.join(type_warnings)}"
                                 )
                             schema_promotion_count += 1
-                    # Write one row group per class_id so pyarrow's predicate
-                    # pushdown can skip non-matching row groups during filtered reads.
-                    # Uses zero-copy table.slice() on the sorted table instead of
-                    # per-class filter() to avoid N full-table scans and row copies.
+                    # Sort by class_id so row-group min/max statistics stay
+                    # class-clustered (filtered reads skip non-matching groups),
+                    # but cap rows per group explicitly. One group per class_id
+                    # run — the previous scheme — produced ~110 tiny groups per
+                    # chunk (169k groups / a 1.6GB footer at 1,544 chunks), which
+                    # made every row-group-granular reader pathologically slow;
+                    # a per-group scan over S3 pays one serial range-GET per group.
                     if "class_id" in table.column_names:
                         table = table.sort_by("class_id")
-                        n = table.num_rows
-                        if n > 0:
-                            class_vals = table.column("class_id").to_pylist()
-                            run_start = 0
-                            for j in range(1, n):
-                                if class_vals[j] != class_vals[run_start]:
-                                    pqwriter.write_table(table.slice(run_start, j - run_start))
-                                    run_start = j
-                            pqwriter.write_table(table.slice(run_start, n - run_start))
-                    else:
-                        pqwriter.write_table(table)
+                    pqwriter.write_table(table, row_group_size=FEATURES_ROW_GROUP_SIZE)
 
         finally:
             # Cancel queued futures and wait for running ones to finish,
