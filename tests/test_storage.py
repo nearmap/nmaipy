@@ -684,5 +684,30 @@ class TestPyarrowReadPaths:
 
         assert out_paths == ["bucket/chunks/a.parquet", "bucket/chunks/b.parquet"]
         assert fs is sentinel_fs
-        # The filesystem is resolved exactly once, from the first path.
-        assert calls == ["s3://bucket/chunks/a.parquet"]
+        # The filesystem is resolved exactly once, from the BUCKET ROOT — not
+        # paths[0] verbatim. Resolving from a full key would percent-decode it
+        # and reject legal-but-unusual key characters, holding element 0 to a
+        # stricter contract than the raw-stripped keys handed to pyarrow.
+        assert calls == ["s3://bucket/"]
+
+    def test_s3_key_with_literal_space_does_not_break_resolution(self, monkeypatch):
+        # Literal spaces are legal in S3 keys but illegal in URIs. Only the
+        # bucket name reaches the URI parser; keys are passed through raw.
+        sentinel_fs = object()
+        calls = []
+
+        class _StubFileSystem:
+            @staticmethod
+            def from_uri(uri):
+                calls.append(uri)
+                if " " in uri:
+                    raise ValueError(f"Cannot parse URI: {uri}")
+                return sentinel_fs, uri[len("s3://") :]
+
+        monkeypatch.setattr(storage, "pa_fs", type("stub", (), {"FileSystem": _StubFileSystem}))
+        paths = ["s3://bucket/My Project/chunks/a.parquet", "s3://bucket/My Project/chunks/b.parquet"]
+        out_paths, fs = storage.pyarrow_read_paths(paths)
+
+        assert out_paths == ["bucket/My Project/chunks/a.parquet", "bucket/My Project/chunks/b.parquet"]
+        assert fs is sentinel_fs
+        assert calls == ["s3://bucket/"]

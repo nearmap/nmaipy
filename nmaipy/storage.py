@@ -300,8 +300,9 @@ def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.File
     Fork-safety: pyarrow's native S3 filesystem must not be carried across a
     fork (see ``_get_s3_filesystem`` / ``write_parquet``). This helper is for
     the consolidation read paths, which run in the parent process after the
-    spawn-context worker pool has shut down; do not call it from code that
-    precedes worker spawning.
+    worker pool has shut down. (nmaipy uses a spawn multiprocessing context
+    everywhere, so no fork can inherit the object today — the constraint is
+    defence-in-depth for future callers.)
 
     Args:
         paths: Parquet paths, all sharing one scheme (all s3:// or all local).
@@ -310,7 +311,8 @@ def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.File
         Tuple of (paths_for_pyarrow, filesystem); filesystem is None for local.
 
     Raises:
-        ValueError: If paths mix s3:// and local schemes.
+        ValueError: If paths mix s3:// and local schemes, or the bucket name in
+            the first path cannot be parsed as a URI authority.
     """
     if not paths:
         return [], None
@@ -319,7 +321,13 @@ def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.File
         raise ValueError("pyarrow_read_paths requires all paths to share one scheme (got mixed s3:// and local)")
     if not s3_flags.pop():
         return list(paths), None
-    filesystem, _ = pa_fs.FileSystem.from_uri(paths[0])
+    # Resolve the filesystem from the bucket ROOT, not paths[0] verbatim: a full
+    # key goes through strict URI parsing (percent-decoding, no literal spaces),
+    # which would hold element 0 to a stricter contract than the raw
+    # scheme-stripped keys handed to pyarrow below — the same chunk set could
+    # then pass or fail on sort order alone. Bucket names are URI-safe.
+    bucket = paths[0][len("s3://") :].split("/", 1)[0]
+    filesystem, _ = pa_fs.FileSystem.from_uri(f"s3://{bucket}/")
     return [p[len("s3://") :] for p in paths], filesystem
 
 

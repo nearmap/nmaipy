@@ -178,16 +178,16 @@ def _read_parquet_chunks_parallel(
         # Open via storage.open_file so S3 reads share the per-process fsspec
         # filesystem; a bare-URI gpd/pd.read_parquet constructs a fresh pyarrow
         # S3FileSystem per call — a fixed per-file cost that dominates when
-        # reading thousands of small chunk files.
-        if geo:
-            try:
-                with storage.open_file(path, "rb") as f:
+        # reading thousands of small chunk files. One open serves both the geo
+        # attempt and the plain fallback (seek(0) instead of a second download).
+        with storage.open_file(path, "rb") as f:
+            if geo:
+                try:
                     df = gpd.read_parquet(f)
-            except Exception:
-                with storage.open_file(path, "rb") as f:
+                except Exception:
+                    f.seek(0)
                     df = pd.read_parquet(f)
-        else:
-            with storage.open_file(path, "rb") as f:
+            else:
                 df = pd.read_parquet(f)
         if len(df) > 0:
             return df
