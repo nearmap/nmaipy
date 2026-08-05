@@ -15,9 +15,9 @@ import pytest
 from shapely.geometry import box
 
 from nmaipy import parcels, storage
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, AREA_CRS
 from nmaipy.damage_conflation_api import DamageConflationApi
-from nmaipy.damage_conflation_exporter import DamageConflationExporter
+from nmaipy.damage_conflation_exporter import DamageConflationExporter, filter_buildings_to_aoi
 
 EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"
 
@@ -238,17 +238,40 @@ def test_save_outputs_skips_rollup_when_disabled(tmp_path, chunk_inputs):
     assert not (final / "damage_rollup.parquet").exists()
 
 
+def _seed_milton_chunk(exporter, milton_response):
+    """Write one chunk (AOIs p1/p2) to exporter.chunk_path exactly as get_damage_bulk would have."""
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
+    f1 = api._parse_response({**milton_response, "features": milton_response["features"][:6]}, "p1")
+    f2 = api._parse_response({**milton_response, "features": milton_response["features"][6:]}, "p2")
+    features = gpd.GeoDataFrame(pd.concat([f1, f2], ignore_index=True), crs=API_CRS)
+    metadata = pd.DataFrame(
+        {"event_uuid": [milton_response["eventUuid"]] * 2},
+        index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+    )
+    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+    storage.write_parquet(features, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
+    storage.write_parquet(metadata, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
+    return features
+
+
 def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     """End-to-end DamageConflationExporter.run(): read AOI file -> split -> (parallel
     processing) -> combine chunks -> rollup -> save. This is the whole consolidation ->
     rollup -> save path that previously failed silently (all-FALSE rollup). Chunks are
     pre-seeded (as the workers would have written them) and run_parallel is mocked, so no
     processes spawn and no API calls are made — the real code under test is _run_inner's
-    combine + conflation_rollup + _save_outputs."""
-    # AOI file with two property-sized AOIs (ids p1/p2) matching the seeded chunk data.
+    combine + conflation_rollup + _save_outputs. Also covers input-column passthrough:
+    customer-supplied columns must survive into the rollup, ahead of the rollup columns."""
+    # AOI file with two property-sized AOIs (ids p1/p2) matching the seeded chunk data,
+    # plus customer-supplied columns that must pass through to the rollup.
     aoi_csv = tmp_path / "aois.csv"
     pd.DataFrame(
-        {"aoi_id": ["p1", "p2"], "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt]}
+        {
+            "aoi_id": ["p1", "p2"],
+            "policy_number": ["POL-1", "POL-2"],
+            "portfolio": ["res", "com"],
+            "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt],
+        }
     ).to_csv(aoi_csv, index=False)
 
     exporter = DamageConflationExporter(
@@ -261,18 +284,7 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
         processes=1,
     )
 
-    # Seed one chunk exactly as get_damage_bulk would have written it.
-    api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
-    f1 = api._parse_response({**milton_response, "features": milton_response["features"][:6]}, "p1")
-    f2 = api._parse_response({**milton_response, "features": milton_response["features"][6:]}, "p2")
-    features = gpd.GeoDataFrame(pd.concat([f1, f2], ignore_index=True), crs=API_CRS)
-    metadata = pd.DataFrame(
-        {"event_uuid": [milton_response["eventUuid"]] * 2},
-        index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
-    )
-    Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
-    storage.write_parquet(features, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
-    storage.write_parquet(metadata, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
+    features = _seed_milton_chunk(exporter, milton_response)
 
     with (
         patch.object(exporter, "run_parallel", return_value=[]),
@@ -295,3 +307,94 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     assert rollup["query_succeeded"].all()
     assert rollup["n_buildings"].sum() == len(features)
     assert rollup["primary_damage_event_rating"].notna().all()
+
+    # Input columns pass through, ahead of the rollup columns, in both formats.
+    for fmt in (rollup, pd.read_parquet(final / "damage_rollup.parquet").reset_index()):
+        assert dict(zip(fmt["aoi_id"], fmt["policy_number"])) == {"p1": "POL-1", "p2": "POL-2"}
+        cols = list(fmt.columns)
+        assert cols.index("portfolio") < cols.index("n_buildings")
+        assert "geometry" not in cols
+
+
+def _parcel_filter_inputs():
+    """A 30x30m AOI + buildings with exact controlled overlaps, in EPSG:4326.
+
+    Geometries are authored in the US equal-area CRS (metres) so the overlap areas
+    and ratios are exact, then converted to API_CRS as the exporter sees them.
+    """
+    crs = AREA_CRS["us"]
+    anchor = gpd.GeoSeries.from_xy([-90.0], [35.0], crs=API_CRS).to_crs(crs).iloc[0]
+    x, y = anchor.x, anchor.y
+
+    aoi_gdf = gpd.GeoDataFrame(
+        geometry=[box(x, y, x + 30, y + 30)],
+        crs=crs,
+        index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME),
+    ).to_crs(API_CRS)
+
+    buildings = {
+        # 100 sqm fully inside: ratio 1.0 -> kept
+        "inside": box(x + 5, y + 5, x + 15, y + 15),
+        # 205 sqm building, 5 sqm inside: ratio ~2.4%, under the 30 sqm floor -> dropped
+        "sliver": box(x - 20, y, x + 0.5, y + 10),
+        # 400 sqm building, 80 sqm inside: ratio 20% but >= 30 sqm floor -> kept
+        # (the multi-parcel-structure case, e.g. a townhouse row)
+        "townhouse": box(x - 16, y, x + 4, y + 20),
+        # no intersection at all -> dropped
+        "outside": box(x + 40, y, x + 50, y + 10),
+    }
+    features_gdf = gpd.GeoDataFrame(
+        {"name": list(buildings), AOI_ID_COLUMN_NAME: ["p1"] * len(buildings)},
+        geometry=list(buildings.values()),
+        crs=crs,
+    ).to_crs(API_CRS)
+    return aoi_gdf, features_gdf
+
+
+def test_filter_buildings_to_aoi_thresholds():
+    aoi_gdf, features_gdf = _parcel_filter_inputs()
+    out = filter_buildings_to_aoi(features_gdf, aoi_gdf, country="us")
+    assert set(out["name"]) == {"inside", "townhouse"}
+
+
+def test_filter_buildings_to_aoi_keeps_unknown_and_address_mode_rows():
+    aoi_gdf, features_gdf = _parcel_filter_inputs()
+    # A building tagged to an AOI absent from aoi_gdf: overlap unknowable -> kept.
+    features_gdf.loc[features_gdf["name"] == "outside", AOI_ID_COLUMN_NAME] = "ghost"
+    out = filter_buildings_to_aoi(features_gdf, aoi_gdf, country="us")
+    assert set(out["name"]) == {"inside", "townhouse", "outside"}
+    # Address-mode input has no geometry column: the filter is a no-op.
+    no_geom = pd.DataFrame(index=aoi_gdf.index)
+    assert filter_buildings_to_aoi(features_gdf, no_geom, country="us").equals(features_gdf)
+
+
+def test_run_parcel_mode_drops_nonintersecting_buildings(tmp_path, milton_response):
+    """parcel_mode wiring: the test AOIs are nowhere near the fixture's buildings, so
+    every building is dropped before the rollup — counts go to zero and no buildings
+    files are written, but the rollup still has one row per AOI."""
+    aoi_csv = tmp_path / "aois.csv"
+    pd.DataFrame({"aoi_id": ["p1", "p2"], "geometry": [box(0, 0, 0.001, 0.001).wkt] * 2}).to_csv(aoi_csv, index=False)
+
+    exporter = DamageConflationExporter(
+        aoi_file=str(aoi_csv),
+        output_dir=str(tmp_path / "out"),
+        event_id=EVENT_ID,
+        api_key="test_key",
+        output_format="both",
+        rollup=True,
+        parcel_mode=True,
+        processes=1,
+    )
+    _seed_milton_chunk(exporter, milton_response)
+    with (
+        patch.object(exporter, "run_parallel", return_value=[]),
+        patch("nmaipy.damage_conflation_exporter.combine_chunk_latency_stats", return_value=[]),
+    ):
+        exporter.run()
+
+    final = Path(exporter.final_path)
+    assert not (final / "damage_buildings.parquet").exists()
+    rollup = pd.read_csv(final / "damage_rollup.csv")
+    assert set(rollup["aoi_id"]) == {"p1", "p2"}
+    assert (rollup["n_buildings"] == 0).all()
+    assert rollup["query_succeeded"].all()
