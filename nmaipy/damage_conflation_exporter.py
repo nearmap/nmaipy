@@ -7,8 +7,8 @@ Nearmap Damage Conflation API (ai/damage/v2) for multiple areas of interest (AOI
 Given an ``--event-id`` and an AOI file, this exporter:
 - Queries the conflation API per-AOI in parallel (pagination handles large AOIs)
 - Always emits per-building damage polygons with flattened attributes
-- Optionally (``--rollup``) emits a per-AOI rollup (one row per AOI: rating counts +
-  the primary building's attributes)
+- Optionally (``--rollup``) emits a per-AOI rollup (one row per AOI: the input file's
+  own columns, then rating counts + the primary building's attributes)
 - Caches API responses, tracks progress, and reports errors
 
 Example usage:
@@ -113,8 +113,8 @@ def parse_arguments():
     )
     parser.add_argument(
         "--rollup",
-        help="Also emit a per-AOI rollup (one row per AOI: rating counts + primary building). "
-        "Most useful when AOIs are property-sized.",
+        help="Also emit a per-AOI rollup (one row per AOI: your input columns, rating counts + "
+        "primary building). Most useful when AOIs are property-sized.",
         action="store_true",
     )
     parser.add_argument(
@@ -391,7 +391,7 @@ class DamageConflationExporter(BaseExporter):
 
         # Derive the rollup from the fully-combined features (not per-chunk) so it is
         # always correct, including on a resumed run with cached chunks. Compute before
-        # the include_aoi_geometry merge so AOI passthrough columns don't leak into it.
+        # the include_aoi_geometry merge so the rollup is built from pristine features.
         rollup_df = pd.DataFrame()
         if self.rollup:
             rollup_df = parcels.conflation_rollup(
@@ -401,6 +401,12 @@ class DamageConflationExporter(BaseExporter):
                 successful_aoi_ids=set(metadata_df.index),
                 primary_decision=self.primary_decision,
             )
+            if len(rollup_df) > 0:
+                # Lead with the input file's own columns (mirrors AOIExporter's rollup)
+                # so customer-supplied columns survive into the output. On a name
+                # collision the rollup schema wins; the input column gets `_input`.
+                passthrough = pd.DataFrame(aoi_gdf).drop(columns=["geometry"], errors="ignore")
+                rollup_df = passthrough.join(rollup_df, how="right", lsuffix="_input")
 
         if self.include_aoi_geometry and len(features_gdf) > 0:
             self.logger.info("Merging building data with AOI attributes...")

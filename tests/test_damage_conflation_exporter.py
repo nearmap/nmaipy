@@ -244,11 +244,18 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     rollup -> save path that previously failed silently (all-FALSE rollup). Chunks are
     pre-seeded (as the workers would have written them) and run_parallel is mocked, so no
     processes spawn and no API calls are made — the real code under test is _run_inner's
-    combine + conflation_rollup + _save_outputs."""
-    # AOI file with two property-sized AOIs (ids p1/p2) matching the seeded chunk data.
+    combine + conflation_rollup + _save_outputs. Also covers input-column passthrough:
+    customer-supplied columns must survive into the rollup, ahead of the rollup columns."""
+    # AOI file with two property-sized AOIs (ids p1/p2) matching the seeded chunk data,
+    # plus customer-supplied columns that must pass through to the rollup.
     aoi_csv = tmp_path / "aois.csv"
     pd.DataFrame(
-        {"aoi_id": ["p1", "p2"], "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt]}
+        {
+            "aoi_id": ["p1", "p2"],
+            "policy_number": ["POL-1", "POL-2"],
+            "portfolio": ["res", "com"],
+            "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt],
+        }
     ).to_csv(aoi_csv, index=False)
 
     exporter = DamageConflationExporter(
@@ -295,3 +302,10 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     assert rollup["query_succeeded"].all()
     assert rollup["n_buildings"].sum() == len(features)
     assert rollup["primary_damage_event_rating"].notna().all()
+
+    # Input columns pass through, ahead of the rollup columns, in both formats.
+    for fmt in (rollup, pd.read_parquet(final / "damage_rollup.parquet").reset_index()):
+        assert dict(zip(fmt["aoi_id"], fmt["policy_number"])) == {"p1": "POL-1", "p2": "POL-2"}
+        cols = list(fmt.columns)
+        assert cols.index("portfolio") < cols.index("n_buildings")
+        assert "geometry" not in cols
