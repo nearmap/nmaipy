@@ -9,6 +9,8 @@ Given an ``--event-id`` and an AOI file, this exporter:
 - Always emits per-building damage polygons with flattened attributes
 - Optionally (``--rollup``) emits a per-AOI rollup (one row per AOI: the input file's
   own columns, then rating counts + the primary building's attributes)
+- Optionally (``--parcel-mode``) drops buildings that barely intersect their AOI,
+  approximating the Feature API's parcelMode attribution client-side
 - Caches API responses, tracks progress, and reports errors
 
 Example usage:
@@ -45,11 +47,20 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     API_WARMUP_INTERVAL_SECONDS,
+    AREA_CRS,
     wrong_unit_area_columns,
 )
 from nmaipy.damage_conflation_api import DamageConflationApi
+from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = log.get_logger()
+
+# Parcel-mode filter: a building is kept when at least this fraction of it lies
+# inside the AOI, or when its in-AOI footprint is at least the small-building
+# area. The area floor protects multi-parcel structures (e.g. a townhouse row is
+# only ~25% on each parcel but has a substantial footprint on every one of them).
+PARCEL_MODE_MIN_RATIO = 0.5
+PARCEL_MODE_MIN_INTERSECTION_SQM = BUILDING_SMALL_MAX_AREA_SQM
 
 # Ordered, curated columns for the per-building CSV export. The verbose JSON
 # classRatios columns are kept in the geoparquet but omitted here for readability.
@@ -84,6 +95,44 @@ _BUILDINGS_CSV_BASE_FIELDS = (
 )
 
 
+def filter_buildings_to_aoi(
+    features_gdf: gpd.GeoDataFrame,
+    aoi_gdf: gpd.GeoDataFrame,
+    country: str,
+    min_ratio: float = PARCEL_MODE_MIN_RATIO,
+    min_intersection_sqm: float = PARCEL_MODE_MIN_INTERSECTION_SQM,
+) -> gpd.GeoDataFrame:
+    """Drop buildings that barely intersect their AOI (parcel-mode approximation).
+
+    The conflation API is map-style: every building intersecting the AOI comes back,
+    including neighbours' buildings that only clip the boundary. This is a client-side
+    approximation of the Feature API's ``parcelMode`` attribution: a building is kept
+    when at least ``min_ratio`` of its area lies inside the AOI, or when its in-AOI
+    footprint is at least ``min_intersection_sqm`` (the floor keeps multi-parcel
+    structures such as townhouse rows, which fail the ratio test on every parcel they
+    span). Unlike parcelMode, nothing is clipped — kept buildings stay whole.
+
+    Rows whose AOI has no geometry (address-mode input) or whose overlap cannot be
+    computed are kept, never silently dropped.
+    """
+    if len(features_gdf) == 0 or "geometry" not in aoi_gdf.columns:
+        return features_gdf
+
+    crs = AREA_CRS.get(country.lower(), AREA_CRS["us"])
+    buildings = features_gdf.geometry.to_crs(crs)
+    aois = aoi_gdf.geometry.to_crs(crs)
+    for series in (buildings, aois):
+        invalid = ~series.is_valid
+        if invalid.any():
+            series[invalid] = series[invalid].make_valid()
+
+    aoi_per_building = gpd.GeoSeries(features_gdf[AOI_ID_COLUMN_NAME].map(aois).values, index=buildings.index, crs=crs)
+    intersection_sqm = buildings.intersection(aoi_per_building).area
+    ratio = intersection_sqm / buildings.area
+    keep = (ratio >= min_ratio) | (intersection_sqm >= min_intersection_sqm) | ratio.isna()
+    return features_gdf[keep.values]
+
+
 def parse_arguments():
     """Parse command line arguments for the damage conflation exporter."""
     parser = argparse.ArgumentParser(
@@ -115,6 +164,14 @@ def parse_arguments():
         "--rollup",
         help="Also emit a per-AOI rollup (one row per AOI: your input columns, rating counts + "
         "primary building). Most useful when AOIs are property-sized.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--parcel-mode",
+        help="Treat each AOI as a parcel boundary and drop buildings that barely intersect it "
+        f"(kept when >={PARCEL_MODE_MIN_RATIO:.0%} inside the AOI or the in-AOI footprint is "
+        f">={PARCEL_MODE_MIN_INTERSECTION_SQM} sqm). Client-side approximation of the Feature "
+        "API's parcelMode; nothing is clipped.",
         action="store_true",
     )
     parser.add_argument(
@@ -175,6 +232,7 @@ class DamageConflationExporter(BaseExporter):
         event_id: str,
         output_format: str = "geoparquet",
         rollup: bool = False,
+        parcel_mode: bool = False,
         primary_decision: str = "largest",
         cache_dir: str = None,
         no_cache: bool = False,
@@ -204,6 +262,7 @@ class DamageConflationExporter(BaseExporter):
         self.event_id = event_id
         self.output_format = output_format
         self.rollup = rollup
+        self.parcel_mode = parcel_mode
         self.primary_decision = primary_decision
         self.cache_dir = str(cache_dir) if cache_dir else storage.join_path(self.output_dir, "cache")
         self.no_cache = no_cache
@@ -228,6 +287,7 @@ class DamageConflationExporter(BaseExporter):
                 "event_id": event_id,
                 "output_format": output_format,
                 "rollup": rollup,
+                "parcel_mode": parcel_mode,
                 "primary_decision": primary_decision,
                 "cache_dir": str(self.cache_dir),
                 "no_cache": no_cache,
@@ -389,6 +449,17 @@ class DamageConflationExporter(BaseExporter):
             error_table = format_error_summary_table(status_counts, message_counts)
             self.logger.info(f"Damage Conflation API: {error_count} failures{error_table}")
 
+        # Filter before the rollup so counts and primary selection only see kept
+        # buildings. Runs at combine time (not per-chunk) so cached chunks stay raw
+        # and the flag can change on a resumed run.
+        if self.parcel_mode and len(features_gdf) > 0:
+            before = len(features_gdf)
+            features_gdf = filter_buildings_to_aoi(features_gdf, aoi_gdf, self.country)
+            self.logger.info(
+                f"Parcel mode: dropped {before - len(features_gdf)} of {before} buildings "
+                "that barely intersect their AOI"
+            )
+
         # Derive the rollup from the fully-combined features (not per-chunk) so it is
         # always correct, including on a resumed run with cached chunks. Compute before
         # the include_aoi_geometry merge so the rollup is built from pristine features.
@@ -478,6 +549,7 @@ def main():
             event_id=args.event_id,
             output_format=args.output_format,
             rollup=args.rollup,
+            parcel_mode=args.parcel_mode,
             primary_decision=args.primary_decision,
             cache_dir=args.cache_dir,
             no_cache=args.no_cache,
