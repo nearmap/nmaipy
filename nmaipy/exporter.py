@@ -4662,10 +4662,12 @@ class NearmapAIExporter(BaseExporter):
         chunk_check_results.sort(key=lambda x: x[0])
 
         rollup_paths_to_read = []
+        failed_chunks = []
         for i, cp, has_error in chunk_check_results:
             if cp is not None:
                 rollup_paths_to_read.append(cp)
             elif has_error:
+                failed_chunks.append(i)
                 self.logger.debug(f"Chunk {i} rollup file missing, but error file found.")
             else:
                 self.logger.error(
@@ -4675,6 +4677,18 @@ class NearmapAIExporter(BaseExporter):
                     f"then re-run the export."
                 )
                 sys.exit(1)
+
+        # Chunks with only an error file returned no data at all. Completing here
+        # would mark the export complete with those AOIs missing.
+        if failed_chunks:
+            failed_pct = 100 * len(failed_chunks) / num_chunks
+            self.logger.error(
+                f"{len(failed_chunks)} of {num_chunks} chunks ({failed_pct:.1f}%) returned "
+                f"no data - every AOI request failed. First failed chunks: "
+                f"{failed_chunks[:10]}. Inspect feature_api_errors_*.parquet in "
+                f"'{self.chunk_path}' for status codes, then re-run the export."
+            )
+            sys.exit(1)
 
         # Phase 2: Read all valid rollup chunks in parallel
         if rollup_paths_to_read:
