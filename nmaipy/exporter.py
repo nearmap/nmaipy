@@ -250,6 +250,23 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
+def _all_errors_are_404(errors_df: pd.DataFrame) -> bool:
+    """True when ``errors_df`` is non-empty and every row's status_code is 404 (no survey coverage)."""
+    if len(errors_df) == 0 or "status_code" not in errors_df.columns:
+        return False
+    return bool((errors_df["status_code"] == HTTPStatus.NOT_FOUND).all())
+
+
+def _empty_rollup_like(aoi_gdf: gpd.GeoDataFrame) -> pd.DataFrame:
+    """
+    A zero-row rollup carrying the AOI id and the caller's parcel columns, used as the completion
+    marker for a chunk with no survey coverage. The chunk reader drops empty frames before concat,
+    so this never reaches the final rollup; it only has to be a valid parquet file.
+    """
+    parcels = pd.DataFrame(aoi_gdf.drop(columns=["geometry"], errors="ignore").iloc[0:0])
+    return parcels.rename_axis(AOI_ID_COLUMN_NAME).reset_index()
+
+
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
@@ -3706,6 +3723,14 @@ class NearmapAIExporter(BaseExporter):
                 _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
+                # A chunk whose every AOI returned 404 simply has no survey coverage (spatially
+                # sorted input over a coverage gap does this routinely). Write an empty rollup as
+                # its completion marker: resumes then skip it instead of re-sending every 404
+                # (404s are neither cached nor retried), and the final merge can tell it apart
+                # from a chunk that lost data. Any other status leaves no rollup, so the chunk is
+                # re-fetched on resume and the merge refuses to complete without it.
+                if _all_errors_are_404(feature_api_errors_df):
+                    storage.write_parquet(_empty_rollup_like(aoi_gdf), outfile)
                 chunk_end_time = datetime.now(timezone.utc).isoformat()
                 total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                 latency_stats = collect_latency_stats_from_apis(
@@ -4369,22 +4394,8 @@ class NearmapAIExporter(BaseExporter):
             except Exception:
                 pass
 
-    def _describe_rollup_less_chunk(self, chunk_index: int) -> Dict[str, object]:
-        """
-        Inspect a chunk that has an error file but no rollup and say whether it is a coverage gap or lost data.
-
-        process_chunk writes the error file early and the rollup last (the rollup is the chunk's
-        completion marker), so "error file but no rollup" has two very different causes:
-
-        * Every AOI in the chunk failed, so process_chunk took its early return and never built a
-          rollup. When every one of those failures is a 404 the chunk simply has no survey coverage,
-          which spatially sorted input over a coverage gap produces routinely. The export is complete
-          without it: those AOIs are already accounted for in the error file.
-        * The chunk got further than that (a features file exists, or the error rows are not all
-          404s) and the rollup write itself failed or the worker died. That is lost data.
-
-        Returns a dict with ``no_coverage`` (bool), ``n_rows`` (error rows) and a ``detail`` string.
-        """
+    def _rollup_less_chunk_detail(self, chunk_index: int) -> str:
+        """Describe a chunk that has an error file but no rollup, for the fatal message."""
         chunk_id = str(chunk_index).zfill(4)
         features_path = storage.join_path(self.chunk_path, f"features_{chunk_id}.parquet")
         errors_path = storage.join_path(self.chunk_path, f"feature_api_errors_{chunk_id}.parquet")
@@ -4393,25 +4404,23 @@ class NearmapAIExporter(BaseExporter):
             errors_df = pd.read_parquet(fh)
         if len(errors_df) > 0 and "status_code" in errors_df.columns:
             status_counts = errors_df["status_code"].value_counts(dropna=False).to_dict()
-            all_404 = bool((errors_df["status_code"] == HTTPStatus.NOT_FOUND).all())
         else:
             status_counts = {}
-            all_404 = False
-        detail = (
+        return (
             f"chunk {chunk_index}: {len(errors_df)} error rows, status codes {status_counts}, "
             f"features file {'present' if has_features else 'absent'}"
         )
-        return {"no_coverage": all_404 and not has_features, "n_rows": len(errors_df), "detail": detail}
 
     def _collect_rollup_chunk_paths(self, num_chunks: int) -> List[str]:
         """
-        Return the rollup file of every chunk, failing the export when a chunk's data was lost.
+        Return the rollup file of every chunk, failing the export when any chunk has none.
 
-        A chunk with neither a rollup nor an error file, or with an error file but no rollup for any
-        reason other than a plain coverage gap (see ``_describe_rollup_less_chunk``), exits with
-        status 1 so the caller never writes completion artifacts over a silently incomplete export.
-        A re-run then re-fetches only the chunks still lacking a rollup. Coverage-gap chunks are
-        logged and tolerated, unless no chunk at all produced a rollup.
+        process_chunk writes the rollup last, as the chunk's completion marker, and a chunk with no
+        survey coverage gets an empty one (see ``_all_errors_are_404``). So a chunk with no rollup
+        file lost data: either its rollup write failed after the API phase, or every request in it
+        failed with a status other than 404. Exit with status 1 so the caller never writes
+        completion artifacts over a silently incomplete export; a re-run re-fetches only the
+        chunks still lacking a rollup.
         """
         # Drop any cached s3fs directory listing for the chunk dir so the
         # existence sweep below reads S3 fresh. Earlier phases (cache-check,
@@ -4476,42 +4485,35 @@ class NearmapAIExporter(BaseExporter):
                 )
                 sys.exit(1)
 
-        if not rollup_less_chunks:
-            return rollup_paths_to_read
-
-        no_coverage = []
-        lost = []
-        for i in rollup_less_chunks:
-            info = self._describe_rollup_less_chunk(i)
-            (no_coverage if info["no_coverage"] else lost).append((i, info))
-
-        if no_coverage:
-            n_rows = sum(info["n_rows"] for _, info in no_coverage)
+        if rollup_less_chunks:
+            details = "\n  ".join(self._rollup_less_chunk_detail(i) for i in rollup_less_chunks[:10])
             self.logger.error(
-                f"{len(no_coverage)} of {num_chunks} chunks ({n_rows} AOIs) have no survey coverage: every "
-                f"request in them returned 404, so they have no rollup. Those AOIs are listed in "
-                f"feature_api_errors.parquet. First such chunks: {[i for i, _ in no_coverage][:10]}."
-            )
-        if not rollup_paths_to_read:
-            self.logger.error(
-                f"None of the {num_chunks} chunks produced a rollup, so there is nothing to export. "
-                f"Inspect feature_api_errors_*.parquet in '{self.chunk_path}' for the status codes "
-                f"(a misconfigured request can 404 everywhere just like a coverage gap), fix the cause, "
-                f"then re-run the export."
-            )
-            sys.exit(1)
-        if lost:
-            details = "\n  ".join(info["detail"] for _, info in lost[:10])
-            self.logger.error(
-                f"{len(lost)} of {num_chunks} chunks have an error file but no rollup file and are not plain "
-                f"coverage gaps, so their AOIs would be silently missing from the output. Either the chunk's "
-                f"rollup write failed (look for 'Failed writing final_df' in the log) or every request in it "
-                f"failed with a non-404 status. Details (first 10):\n  {details}\n"
+                f"{len(rollup_less_chunks)} of {num_chunks} chunks have an error file but no rollup file, so "
+                f"their AOIs would be silently missing from the output. Either the chunk's rollup write failed "
+                f"(look for 'Failed writing final_df' in the log) or every request in it failed with a non-404 "
+                f"status. Details (first 10):\n  {details}\n"
                 f"Inspect feature_api_errors_*.parquet in '{self.chunk_path}', fix the cause, then re-run the "
                 f"export: only chunks without a rollup are re-fetched."
             )
             sys.exit(1)
         return rollup_paths_to_read
+
+    def _fail_if_nothing_exported(self, rollup_frames: List[pd.DataFrame], num_chunks: int) -> None:
+        """
+        Exit when every chunk's rollup was empty: nothing was exported.
+
+        Every chunk having no survey coverage is indistinguishable, chunk by chunk, from a request
+        that is misconfigured so it 404s everywhere (for example classes the account cannot
+        reach). Completing would hand back an empty rollup as if it were a result.
+        """
+        if num_chunks > 0 and not rollup_frames:
+            self.logger.error(
+                f"None of the {num_chunks} chunks produced any rollup rows, so there is nothing to export. "
+                f"Every request returned 404: either the AOIs have no survey coverage or the request is "
+                f"misconfigured. Inspect feature_api_errors_*.parquet in '{self.chunk_path}', fix the cause, "
+                f"then re-run the export in a fresh output directory."
+            )
+            sys.exit(1)
 
     def run(self):
         try:
@@ -4774,9 +4776,10 @@ class NearmapAIExporter(BaseExporter):
             )
         else:
             data = []
+        # Filter out DataFrames that are entirely NA (all values NA across all columns)
+        data = [d for d in data if not d.isna().all().all()]
+        self._fail_if_nothing_exported(data, num_chunks)
         if len(data) > 0:
-            # Filter out DataFrames that are entirely NA (all values NA across all columns)
-            data = [d for d in data if not d.isna().all().all()]
             self.logger.info(f"Concatenating {len(data)} rollup chunks...")
             # Suppress FutureWarning about all-NA columns in concat dtype inference.
             # Individual chunks may have all-NA columns for feature types not present
