@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import geopandas as gpd
 import pandas as pd
 import pytest
+import requests
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.wkt import loads
@@ -32,7 +33,7 @@ from nmaipy.constants import (
     SOLAR_ID,
     VEG_MEDHIGH_ID,
 )
-from nmaipy.feature_api import FeatureApi
+from nmaipy.feature_api import AIFeatureAPIRequestSizeError, FeatureApi
 
 
 @pytest.mark.live_api
@@ -1406,3 +1407,16 @@ class TestMaxAllowedErrorBudget:
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
+
+
+@pytest.mark.parametrize("maxretry,expected_posts", [(0, 1), (2, 3)])
+def test_chunked_encoding_retry_loop_honours_maxretry(maxretry, expected_posts):
+    """The client-side ChunkedEncodingError loop must spend the configured budget
+    (1 initial attempt + maxretry retries), not the package constant."""
+    api = FeatureApi(api_key="k", cache_dir=None, maxretry=maxretry)
+    polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+    with patch("requests.Session.post") as mock_post, patch("nmaipy.feature_api.time.sleep"):
+        mock_post.side_effect = requests.exceptions.ChunkedEncodingError("boom")
+        with pytest.raises(AIFeatureAPIRequestSizeError):
+            api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
+    assert mock_post.call_count == expected_posts
