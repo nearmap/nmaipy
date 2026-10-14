@@ -819,7 +819,13 @@ class FeatureApi(GriddedApiClient):
             # Track this as a cache miss (we're making an API call)
             self._count_cache_miss()
 
-            for retry_attempt in range(MAX_RETRIES):
+            # Same budget as the urllib3 adapter: one initial attempt plus self.maxretry
+            # retries; None means keep retrying until the response can be read.
+            max_attempts = None if self.maxretry is None else self.maxretry + 1
+            attempts_label = "unlimited" if max_attempts is None else str(max_attempts)
+            retry_attempt = -1
+            while max_attempts is None or retry_attempt + 1 < max_attempts:
+                retry_attempt += 1
                 try:
                     headers = {"Content-Type": "application/json"}
                     t1 = time.monotonic()  # Start timing for THIS attempt
@@ -851,7 +857,7 @@ class FeatureApi(GriddedApiClient):
                     with self._lock:
                         self._timeout_count += 1
                     logger.info(
-                        f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{MAX_RETRIES}, treating as 504"
+                        f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{attempts_label}, treating as 504"
                     )
 
                     # Create a mock 504 response object
@@ -870,12 +876,12 @@ class FeatureApi(GriddedApiClient):
                     request_info = f"{url} (timed out after {READ_TIMEOUT_SECONDS}s)"
                     break  # Exit retry loop and handle as 504 below
                 except requests.exceptions.ChunkedEncodingError as e:
-                    if retry_attempt < MAX_RETRIES - 1:
+                    if max_attempts is None or retry_attempt < max_attempts - 1:
                         # Log debug message for retry attempts
                         with self._lock:
                             self._retry_count += 1
                         logger.debug(
-                            f"ChunkedEncodingError on attempt {retry_attempt + 1}/{MAX_RETRIES}, retrying: {e}"
+                            f"ChunkedEncodingError on attempt {retry_attempt + 1}/{attempts_label}, retrying: {e}"
                         )
                         base = CHUNKED_ENCODING_RETRY_DELAY * (2 ** (retry_attempt + 1))
                         time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff (min avg ~1s)
@@ -883,7 +889,7 @@ class FeatureApi(GriddedApiClient):
                     else:
                         # Exhausted all retries, log error and fall back to size error
                         logger.error(
-                            f"ChunkedEncodingError persisted after {MAX_RETRIES} attempts, treating as size error to trigger gridding: {e}"
+                            f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size error to trigger gridding: {e}"
                         )
                         raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 

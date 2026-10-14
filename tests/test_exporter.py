@@ -1870,6 +1870,30 @@ class TestSkipRebuildWhenReadmeExists:
             exporter2.run()
             mock_api.assert_not_called()
 
+    def test_fast_path_ignores_max_retries_change(self, tmp_path):
+        """max_retries only changes how hard we try, never what comes back — a
+        retry-budget tweak must not defeat the README fast path and force a rebuild."""
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            max_retries=10,
+        )
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            max_retries=20,
+        )
+        assert exporter2._config_diff_for_fast_path() == []
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter2.run()
+            mock_api.assert_not_called()
+
     def test_fast_path_skipped_when_output_affecting_param_changed(self, tmp_path):
         """README present but country changed → rebuild (don't silently return prior output)."""
         # Run 1: country=au
