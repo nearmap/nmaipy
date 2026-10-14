@@ -595,6 +595,10 @@ class BaseApiClient:
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
         self.threads = threads
+        # urllib3 treats Retry(total=None) as unbounded, so a None here would retry a
+        # 429 storm forever and never close the chunk. Fail at construction instead.
+        if isinstance(maxretry, bool) or not isinstance(maxretry, int) or maxretry < 0:
+            raise ValueError(f"maxretry must be a non-negative int, got {maxretry!r}")
         self.maxretry = maxretry
 
         # Latency and request tracking. One client instance is shared by all of

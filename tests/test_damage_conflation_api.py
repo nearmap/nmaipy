@@ -76,11 +76,19 @@ def test_init_maxretry_defaults_to_package_constant():
 def test_init_maxretry_is_forwarded_to_session_retry_adapter():
     """The retry budget must reach urllib3's Retry, not just sit on the instance —
     otherwise a caller raising it for a rate-limited event gets the default anyway."""
-    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=20)
-    assert api.maxretry == 20
+    budget = MAX_RETRIES + 3  # not a value any default could drift to
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=budget)
+    assert api.maxretry == budget
     with api._session_scope() as session:
         adapter = session.get_adapter(api.base_url)
-        assert adapter.max_retries.total == 20
+        assert adapter.max_retries.total == budget
+
+
+@pytest.mark.parametrize("bad", [None, -1, 2.5, "10", True])
+def test_init_rejects_invalid_maxretry(bad):
+    """urllib3 reads Retry(total=None) as unbounded — a None would retry forever."""
+    with pytest.raises(ValueError, match="maxretry must be a non-negative int"):
+        DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=bad)
 
 
 # ------------------------------------------------------------- payload building

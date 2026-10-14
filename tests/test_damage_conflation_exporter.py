@@ -15,7 +15,7 @@ import pytest
 from shapely.geometry import box
 
 from nmaipy import parcels, storage
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, MAX_RETRIES
 from nmaipy.damage_conflation_api import DamageConflationApi
 from nmaipy.damage_conflation_exporter import DamageConflationExporter
 
@@ -68,29 +68,31 @@ def test_exporter_initialization(tmp_path):
 
 
 def test_exporter_records_max_retries_in_config_sidecar(tmp_path):
-    exporter = _make_exporter(tmp_path, max_retries=20)
-    assert exporter.max_retries == 20
+    budget = MAX_RETRIES + 3  # not a value any default could drift to
+    exporter = _make_exporter(tmp_path, max_retries=budget)
+    assert exporter.max_retries == budget
     with open(Path(exporter.final_path) / "damage_conflation_export_config.json") as f:
         config = json.load(f)
-    assert config["parameters"]["max_retries"] == 20
+    assert config["parameters"]["max_retries"] == budget
 
 
 def test_process_chunk_passes_max_retries_to_api_client(tmp_path, chunk_inputs):
     """A per-request retry budget set on the exporter must reach the API client the
     chunk worker builds, so 429/5xx retries use it rather than the package default."""
     aoi_gdf, features_gdf, metadata_df = chunk_inputs
-    exporter = _make_exporter(tmp_path, max_retries=20)
+    budget = MAX_RETRIES + 3  # not a value any default could drift to
+    exporter = _make_exporter(tmp_path, max_retries=budget)
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
 
-    with patch("nmaipy.damage_conflation_exporter.DamageConflationApi") as mock_cls:
-        mock_api = Mock()
-        mock_cls.return_value = mock_api
+    # autospec so a renamed client kwarg fails here, not only at runtime
+    with patch("nmaipy.damage_conflation_exporter.DamageConflationApi", autospec=True) as mock_cls:
+        mock_api = mock_cls.return_value
         mock_api.get_damage_bulk.return_value = (features_gdf.copy(), metadata_df.copy(), pd.DataFrame())
         mock_api.get_latency_stats.return_value = None
 
         exporter.process_chunk("0000", aoi_gdf)
 
-    assert mock_cls.call_args.kwargs["maxretry"] == 20
+    assert mock_cls.call_args.kwargs["maxretry"] == budget
 
 
 def test_exporter_requires_event_id(tmp_path):

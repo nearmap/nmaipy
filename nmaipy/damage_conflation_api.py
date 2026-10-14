@@ -114,8 +114,10 @@ class DamageConflationApi(BaseApiClient):
             overwrite_cache: Whether to overwrite cached values.
             compress_cache: Whether to gzip cache files.
             threads: Number of threads for concurrent bulk execution.
-            maxretry: Retry budget per request for retryable HTTP statuses (429/5xx)
-                and connection errors, applied by the session's retry adapter.
+            maxretry: Per-HTTP-request retry budget for 429/500/502/503/504 responses
+                and connection errors, applied by the session's urllib3 retry adapter
+                (each page of a paginated query gets its own budget; read timeouts are
+                capped separately by READ_TIMEOUT_MAX_RETRIES).
             url_root: Override the default API root URL (for testing).
             country: Country code for address queries (e.g. 'us'). Also drives output
                 area units downstream.
