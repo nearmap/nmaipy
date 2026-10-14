@@ -1850,7 +1850,6 @@ class TestCoverageGapChunks:
         chunk_path = self._run_all_failed_chunk(exporter, [404, 404])
         rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
         assert len(rollup) == 0, "the marker must carry no rows (the chunk reader drops it before concat)"
-        assert AOI_ID_COLUMN_NAME in rollup.columns and "suburb" in rollup.columns
         assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 2
 
     def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
@@ -1860,7 +1859,7 @@ class TestCoverageGapChunks:
 
     def test_resume_skips_coverage_gap_chunk(self, exporter):
         aoi_gdf = self._aoi_gdf()
-        exporter_mod._empty_rollup_like(aoi_gdf).to_parquet(Path(exporter.chunk_path) / "rollup_0000.parquet")
+        self._write_rollup(exporter, 0, 0)
         chunks_to_process, skipped_chunks, skipped_aois, num_chunks = exporter.split_into_chunks(
             aoi_gdf, check_cache=True
         )
@@ -1881,7 +1880,7 @@ class TestCoverageGapChunks:
             exporter._collect_rollup_chunk_paths(2)
         assert exc.value.code == 1
         assert "1 of 2 chunks have an error file but no rollup file" in caplog.text
-        assert "403" in caplog.text and "features file absent" in caplog.text
+        assert "[1]" in caplog.text, "the failed chunk ids must be in the message"
 
     def test_chunk_with_neither_file_is_fatal(self, exporter, caplog):
         self._write_rollup(exporter, 0, 1)
@@ -1894,7 +1893,7 @@ class TestCoverageGapChunks:
         exporter._fail_if_nothing_exported([], 0)
         with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
             exporter._fail_if_nothing_exported([], 3)
-        assert "nothing to export" in caplog.text
+        assert "produced any rollup rows" in caplog.text
 
 
 if __name__ == "__main__":

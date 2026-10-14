@@ -250,23 +250,6 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
-def _all_errors_are_404(errors_df: pd.DataFrame) -> bool:
-    """True when ``errors_df`` is non-empty and every row's status_code is 404 (no survey coverage)."""
-    if len(errors_df) == 0 or "status_code" not in errors_df.columns:
-        return False
-    return bool((errors_df["status_code"] == HTTPStatus.NOT_FOUND).all())
-
-
-def _empty_rollup_like(aoi_gdf: gpd.GeoDataFrame) -> pd.DataFrame:
-    """
-    A zero-row rollup carrying the AOI id and the caller's parcel columns, used as the completion
-    marker for a chunk with no survey coverage. The chunk reader drops empty frames before concat,
-    so this never reaches the final rollup; it only has to be a valid parquet file.
-    """
-    parcels = pd.DataFrame(aoi_gdf.drop(columns=["geometry"], errors="ignore").iloc[0:0])
-    return parcels.rename_axis(AOI_ID_COLUMN_NAME).reset_index()
-
-
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
@@ -3723,14 +3706,13 @@ class NearmapAIExporter(BaseExporter):
                 _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
-                # A chunk whose every AOI returned 404 simply has no survey coverage (spatially
-                # sorted input over a coverage gap does this routinely). Write an empty rollup as
-                # its completion marker: resumes then skip it instead of re-sending every 404
-                # (404s are neither cached nor retried), and the final merge can tell it apart
-                # from a chunk that lost data. Any other status leaves no rollup, so the chunk is
-                # re-fetched on resume and the merge refuses to complete without it.
-                if _all_errors_are_404(feature_api_errors_df):
-                    storage.write_parquet(_empty_rollup_like(aoi_gdf), outfile)
+                # Every AOI 404'd: the chunk has no survey coverage (spatially sorted input over a
+                # coverage gap does this routinely). Write an empty rollup as its completion marker
+                # so resumes skip it (404s are neither cached nor retried) and the final merge
+                # accepts it. Any other status leaves no rollup: the chunk is re-fetched on resume
+                # and the merge refuses to complete without it.
+                if (feature_api_errors_df["status_code"] == HTTPStatus.NOT_FOUND).all():
+                    storage.write_parquet(pd.DataFrame({AOI_ID_COLUMN_NAME: pd.Series([], dtype=str)}), outfile)
                 chunk_end_time = datetime.now(timezone.utc).isoformat()
                 total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                 latency_stats = collect_latency_stats_from_apis(
@@ -4394,33 +4376,14 @@ class NearmapAIExporter(BaseExporter):
             except Exception:
                 pass
 
-    def _rollup_less_chunk_detail(self, chunk_index: int) -> str:
-        """Describe a chunk that has an error file but no rollup, for the fatal message."""
-        chunk_id = str(chunk_index).zfill(4)
-        features_path = storage.join_path(self.chunk_path, f"features_{chunk_id}.parquet")
-        errors_path = storage.join_path(self.chunk_path, f"feature_api_errors_{chunk_id}.parquet")
-        has_features = storage.file_exists(features_path)
-        with storage.open_file(errors_path, "rb") as fh:
-            errors_df = pd.read_parquet(fh)
-        if len(errors_df) > 0 and "status_code" in errors_df.columns:
-            status_counts = errors_df["status_code"].value_counts(dropna=False).to_dict()
-        else:
-            status_counts = {}
-        return (
-            f"chunk {chunk_index}: {len(errors_df)} error rows, status codes {status_counts}, "
-            f"features file {'present' if has_features else 'absent'}"
-        )
-
     def _collect_rollup_chunk_paths(self, num_chunks: int) -> List[str]:
         """
-        Return the rollup file of every chunk, failing the export when any chunk has none.
+        Return every chunk's rollup file, exiting 1 if any chunk has none.
 
-        process_chunk writes the rollup last, as the chunk's completion marker, and a chunk with no
-        survey coverage gets an empty one (see ``_all_errors_are_404``). So a chunk with no rollup
-        file lost data: either its rollup write failed after the API phase, or every request in it
-        failed with a status other than 404. Exit with status 1 so the caller never writes
-        completion artifacts over a silently incomplete export; a re-run re-fetches only the
-        chunks still lacking a rollup.
+        The rollup is written last as the chunk's completion marker, and a chunk with no survey
+        coverage gets an empty one, so a missing rollup means lost data: the rollup write failed,
+        or every request failed with a non-404 status. Exiting here keeps the caller from writing
+        completion artifacts over an incomplete export; a re-run re-fetches only these chunks.
         """
         # Drop any cached s3fs directory listing for the chunk dir so the
         # existence sweep below reads S3 fresh. Earlier phases (cache-check,
@@ -4486,32 +4449,23 @@ class NearmapAIExporter(BaseExporter):
                 sys.exit(1)
 
         if rollup_less_chunks:
-            details = "\n  ".join(self._rollup_less_chunk_detail(i) for i in rollup_less_chunks[:10])
             self.logger.error(
                 f"{len(rollup_less_chunks)} of {num_chunks} chunks have an error file but no rollup file, so "
-                f"their AOIs would be silently missing from the output. Either the chunk's rollup write failed "
-                f"(look for 'Failed writing final_df' in the log) or every request in it failed with a non-404 "
-                f"status. Details (first 10):\n  {details}\n"
-                f"Inspect feature_api_errors_*.parquet in '{self.chunk_path}', fix the cause, then re-run the "
-                f"export: only chunks without a rollup are re-fetched."
+                f"their AOIs would be missing from the output: either the rollup write failed (see 'Failed "
+                f"writing final_df' in the log) or every request in the chunk failed with a non-404 status. "
+                f"First such chunks: {rollup_less_chunks[:10]}. Inspect feature_api_errors_*.parquet in "
+                f"'{self.chunk_path}', fix the cause, then re-run: only chunks without a rollup are re-fetched."
             )
             sys.exit(1)
         return rollup_paths_to_read
 
     def _fail_if_nothing_exported(self, rollup_frames: List[pd.DataFrame], num_chunks: int) -> None:
-        """
-        Exit when every chunk's rollup was empty: nothing was exported.
-
-        Every chunk having no survey coverage is indistinguishable, chunk by chunk, from a request
-        that is misconfigured so it 404s everywhere (for example classes the account cannot
-        reach). Completing would hand back an empty rollup as if it were a result.
-        """
+        """Exit 1 when every rollup was empty: a misconfigured request 404s everywhere just like a coverage gap."""
         if num_chunks > 0 and not rollup_frames:
             self.logger.error(
-                f"None of the {num_chunks} chunks produced any rollup rows, so there is nothing to export. "
-                f"Every request returned 404: either the AOIs have no survey coverage or the request is "
-                f"misconfigured. Inspect feature_api_errors_*.parquet in '{self.chunk_path}', fix the cause, "
-                f"then re-run the export in a fresh output directory."
+                f"None of the {num_chunks} chunks produced any rollup rows: every request returned 404, so either "
+                f"the AOIs have no survey coverage or the request is misconfigured. Inspect "
+                f"feature_api_errors_*.parquet in '{self.chunk_path}', then re-run in a fresh output directory."
             )
             sys.exit(1)
 
