@@ -2788,6 +2788,7 @@ _CONFIG_KEYS_NOT_AFFECTING_OUTPUT = frozenset(
         "threads",
         "chunk_size",
         "merge_read_workers",
+        "max_retries",
         "log_level",
         "cache_dir",
         "compress_cache",

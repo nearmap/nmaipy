@@ -84,11 +84,30 @@ def test_init_maxretry_is_forwarded_to_session_retry_adapter():
         assert adapter.max_retries.total == budget
 
 
-@pytest.mark.parametrize("bad", [None, -1, 2.5, "10", True])
+@pytest.mark.parametrize("bad", [-1, 2.5, "10", True])
 def test_init_rejects_invalid_maxretry(bad):
-    """urllib3 reads Retry(total=None) as unbounded — a None would retry forever."""
     with pytest.raises(ValueError, match="maxretry must be a non-negative int"):
         DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=bad)
+
+
+def test_init_maxretry_none_means_retry_indefinitely():
+    """None is the sanctioned 'outlast the 429 storm' mode: urllib3 Retry(total=None)."""
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=None)
+    assert api.maxretry is None
+    with api._session_scope() as session:
+        assert session.get_adapter(api.base_url).max_retries.total is None
+
+
+def test_429_error_message_says_rate_limited_not_jsondecodeerror():
+    """A 429 reaching the error class means the retry budget ran out under rate
+    limiting; its body is plain text, so the old message was just 'JSONDecodeError'."""
+    resp = Mock()
+    resp.status_code = 429
+    resp.text = "Too Many Requests"
+    resp.json.side_effect = json.JSONDecodeError("Expecting value", "Too Many Requests", 0)
+    err = DamageConflationAPIError(resp, "https://example/url")
+    assert "JSONDecodeError" not in str(err)
+    assert "429" in str(err) and "Rate limited" in str(err) and "retry budget" in str(err)
 
 
 # ------------------------------------------------------------- payload building
