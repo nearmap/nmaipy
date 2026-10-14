@@ -16,6 +16,7 @@ import pstats
 import re
 import sys
 import tempfile
+from http import HTTPStatus
 
 # resource is a Unix-only stdlib module; on Windows we set the attribute to None
 # and gate every call site behind sys.platform != "win32" (or `resource is not None`).
@@ -4368,6 +4369,150 @@ class NearmapAIExporter(BaseExporter):
             except Exception:
                 pass
 
+    def _describe_rollup_less_chunk(self, chunk_index: int) -> Dict[str, object]:
+        """
+        Inspect a chunk that has an error file but no rollup and say whether it is a coverage gap or lost data.
+
+        process_chunk writes the error file early and the rollup last (the rollup is the chunk's
+        completion marker), so "error file but no rollup" has two very different causes:
+
+        * Every AOI in the chunk failed, so process_chunk took its early return and never built a
+          rollup. When every one of those failures is a 404 the chunk simply has no survey coverage,
+          which spatially sorted input over a coverage gap produces routinely. The export is complete
+          without it: those AOIs are already accounted for in the error file.
+        * The chunk got further than that (a features file exists, or the error rows are not all
+          404s) and the rollup write itself failed or the worker died. That is lost data.
+
+        Returns a dict with ``no_coverage`` (bool), ``n_rows`` (error rows) and a ``detail`` string.
+        """
+        chunk_id = str(chunk_index).zfill(4)
+        features_path = storage.join_path(self.chunk_path, f"features_{chunk_id}.parquet")
+        errors_path = storage.join_path(self.chunk_path, f"feature_api_errors_{chunk_id}.parquet")
+        has_features = storage.file_exists(features_path)
+        with storage.open_file(errors_path, "rb") as fh:
+            errors_df = pd.read_parquet(fh)
+        if len(errors_df) > 0 and "status_code" in errors_df.columns:
+            status_counts = errors_df["status_code"].value_counts(dropna=False).to_dict()
+            all_404 = bool((errors_df["status_code"] == HTTPStatus.NOT_FOUND).all())
+        else:
+            status_counts = {}
+            all_404 = False
+        detail = (
+            f"chunk {chunk_index}: {len(errors_df)} error rows, status codes {status_counts}, "
+            f"features file {'present' if has_features else 'absent'}"
+        )
+        return {"no_coverage": all_404 and not has_features, "n_rows": len(errors_df), "detail": detail}
+
+    def _collect_rollup_chunk_paths(self, num_chunks: int) -> List[str]:
+        """
+        Return the rollup file of every chunk, failing the export when a chunk's data was lost.
+
+        A chunk with neither a rollup nor an error file, or with an error file but no rollup for any
+        reason other than a plain coverage gap (see ``_describe_rollup_less_chunk``), exits with
+        status 1 so the caller never writes completion artifacts over a silently incomplete export.
+        A re-run then re-fetches only the chunks still lacking a rollup. Coverage-gap chunks are
+        logged and tolerated, unless no chunk at all produced a rollup.
+        """
+        # Drop any cached s3fs directory listing for the chunk dir so the
+        # existence sweep below reads S3 fresh. Earlier phases (cache-check,
+        # latency combine) may have cached a listing that predates some chunk
+        # writes; a stale listing would make a present chunk look missing and
+        # abort the merge (sys.exit below).
+        storage.invalidate_cache(self.chunk_path)
+
+        # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
+        def _check_chunk_files(i):
+            chunk_filename = f"rollup_{str(i).zfill(4)}.parquet"
+            cp = storage.join_path(self.chunk_path, chunk_filename)
+            if storage.file_exists(cp):
+                if storage.validate_parquet(cp):
+                    return (i, cp, None)
+                else:
+                    self.logger.warning(
+                        f"Chunk {i}: rollup file {cp} exists but is corrupted "
+                        f"(invalid parquet footer). Treating as missing."
+                    )
+            error_filename = f"feature_api_errors_{str(i).zfill(4)}.parquet"
+            has_error = storage.file_exists(storage.join_path(self.chunk_path, error_filename))
+            return (i, None, has_error)
+
+        chunk_check_results = []
+        read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        last_resource_update = 0.0
+        with ThreadPoolExecutor(max_workers=read_workers) as executor:
+            futures = {executor.submit(_check_chunk_files, i): i for i in range(num_chunks)}
+            pbar = tqdm(
+                as_completed(futures),
+                total=num_chunks,
+                desc="Checking chunk files",
+                file=sys.stdout,
+                position=0,
+                leave=True,
+            )
+            for future in pbar:
+                now = time.time()
+                if now - last_resource_update >= 5.0:
+                    pbar.set_postfix_str(resource_postfix())
+                    last_resource_update = now
+                chunk_check_results.append(future.result())
+
+        # Sort by index for deterministic error reporting
+        chunk_check_results.sort(key=lambda x: x[0])
+
+        rollup_paths_to_read = []
+        rollup_less_chunks = []
+        for i, cp, has_error in chunk_check_results:
+            if cp is not None:
+                rollup_paths_to_read.append(cp)
+            elif has_error:
+                rollup_less_chunks.append(i)
+                self.logger.debug(f"Chunk {i} rollup file missing, but error file found.")
+            else:
+                self.logger.error(
+                    f"Both error and data files for chunk {i} missing or corrupted, "
+                    f"indicating files failed to write, are corrupted, or have been "
+                    f"deleted. Check the '{self.chunk_path}' directory to diagnose, "
+                    f"then re-run the export."
+                )
+                sys.exit(1)
+
+        if not rollup_less_chunks:
+            return rollup_paths_to_read
+
+        no_coverage = []
+        lost = []
+        for i in rollup_less_chunks:
+            info = self._describe_rollup_less_chunk(i)
+            (no_coverage if info["no_coverage"] else lost).append((i, info))
+
+        if no_coverage:
+            n_rows = sum(info["n_rows"] for _, info in no_coverage)
+            self.logger.error(
+                f"{len(no_coverage)} of {num_chunks} chunks ({n_rows} AOIs) have no survey coverage: every "
+                f"request in them returned 404, so they have no rollup. Those AOIs are listed in "
+                f"feature_api_errors.parquet. First such chunks: {[i for i, _ in no_coverage][:10]}."
+            )
+        if not rollup_paths_to_read:
+            self.logger.error(
+                f"None of the {num_chunks} chunks produced a rollup, so there is nothing to export. "
+                f"Inspect feature_api_errors_*.parquet in '{self.chunk_path}' for the status codes "
+                f"(a misconfigured request can 404 everywhere just like a coverage gap), fix the cause, "
+                f"then re-run the export."
+            )
+            sys.exit(1)
+        if lost:
+            details = "\n  ".join(info["detail"] for _, info in lost[:10])
+            self.logger.error(
+                f"{len(lost)} of {num_chunks} chunks have an error file but no rollup file and are not plain "
+                f"coverage gaps, so their AOIs would be silently missing from the output. Either the chunk's "
+                f"rollup write failed (look for 'Failed writing final_df' in the log) or every request in it "
+                f"failed with a non-404 status. Details (first 10):\n  {details}\n"
+                f"Inspect feature_api_errors_*.parquet in '{self.chunk_path}', fix the cause, then re-run the "
+                f"export: only chunks without a rollup are re-fetched."
+            )
+            sys.exit(1)
+        return rollup_paths_to_read
+
     def run(self):
         try:
             self._run_inner()
@@ -4616,80 +4761,8 @@ class NearmapAIExporter(BaseExporter):
         errors = []
         self.logger.debug(f"Saving rollup data as {self.tabular_file_format} file to {outpath}")
 
-        # Drop any cached s3fs directory listing for the chunk dir so the
-        # existence sweep below reads S3 fresh. Earlier phases (cache-check,
-        # latency combine) may have cached a listing that predates some chunk
-        # writes; a stale listing would make a present chunk look missing and
-        # abort the merge (sys.exit below).
-        storage.invalidate_cache(self.chunk_path)
-
-        # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
-        def _check_chunk_files(i):
-            chunk_filename = f"rollup_{str(i).zfill(4)}.parquet"
-            cp = storage.join_path(self.chunk_path, chunk_filename)
-            if storage.file_exists(cp):
-                if storage.validate_parquet(cp):
-                    return (i, cp, None)
-                else:
-                    self.logger.warning(
-                        f"Chunk {i}: rollup file {cp} exists but is corrupted "
-                        f"(invalid parquet footer). Treating as missing."
-                    )
-            error_filename = f"feature_api_errors_{str(i).zfill(4)}.parquet"
-            has_error = storage.file_exists(storage.join_path(self.chunk_path, error_filename))
-            return (i, None, has_error)
-
-        chunk_check_results = []
+        rollup_paths_to_read = self._collect_rollup_chunk_paths(num_chunks)
         read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
-        last_resource_update = 0.0
-        with ThreadPoolExecutor(max_workers=read_workers) as executor:
-            futures = {executor.submit(_check_chunk_files, i): i for i in range(num_chunks)}
-            pbar = tqdm(
-                as_completed(futures),
-                total=num_chunks,
-                desc="Checking chunk files",
-                file=sys.stdout,
-                position=0,
-                leave=True,
-            )
-            for future in pbar:
-                now = time.time()
-                if now - last_resource_update >= 5.0:
-                    pbar.set_postfix_str(resource_postfix())
-                    last_resource_update = now
-                chunk_check_results.append(future.result())
-
-        # Sort by index for deterministic error reporting
-        chunk_check_results.sort(key=lambda x: x[0])
-
-        rollup_paths_to_read = []
-        failed_chunks = []
-        for i, cp, has_error in chunk_check_results:
-            if cp is not None:
-                rollup_paths_to_read.append(cp)
-            elif has_error:
-                failed_chunks.append(i)
-                self.logger.debug(f"Chunk {i} rollup file missing, but error file found.")
-            else:
-                self.logger.error(
-                    f"Both error and data files for chunk {i} missing or corrupted, "
-                    f"indicating files failed to write, are corrupted, or have been "
-                    f"deleted. Check the '{self.chunk_path}' directory to diagnose, "
-                    f"then re-run the export."
-                )
-                sys.exit(1)
-
-        # Chunks with only an error file returned no data at all. Completing here
-        # would mark the export complete with those AOIs missing.
-        if failed_chunks:
-            failed_pct = 100 * len(failed_chunks) / num_chunks
-            self.logger.error(
-                f"{len(failed_chunks)} of {num_chunks} chunks ({failed_pct:.1f}%) returned "
-                f"no data - every AOI request failed. First failed chunks: "
-                f"{failed_chunks[:10]}. Inspect feature_api_errors_*.parquet in "
-                f"'{self.chunk_path}' for status codes, then re-run the export."
-            )
-            sys.exit(1)
 
         # Phase 2: Read all valid rollup chunks in parallel
         if rollup_paths_to_read:

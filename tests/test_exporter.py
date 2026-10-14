@@ -1779,6 +1779,103 @@ class TestMergePerClassChunks:
         assert not os.path.exists(os.path.join(exporter.final_path, ".per_class_staging"))
 
 
+class TestRollupLessChunkGate:
+    """``_collect_rollup_chunk_paths``: a chunk with an error file but no rollup is tolerated only when it is a
+    plain coverage gap (every error row a 404, no features file). Anything else would ship an export silently
+    missing that chunk's AOIs, so the exporter must exit non-zero before any completion artifact is written."""
+
+    @pytest.fixture
+    def exporter(self, tmp_path, caplog):
+        ex = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+        )
+        Path(ex.chunk_path).mkdir(parents=True, exist_ok=True)
+        # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+        ex.logger.addHandler(caplog.handler)
+        yield ex
+        ex.logger.removeHandler(caplog.handler)
+
+    @staticmethod
+    def _write_rollup(ex, i):
+        path = Path(ex.chunk_path) / f"rollup_{i:04d}.parquet"
+        pd.DataFrame({AOI_ID_COLUMN_NAME: [f"aoi_{i}"], "building_count": [1]}).to_parquet(path)
+        return str(path)
+
+    @staticmethod
+    def _write_errors(ex, i, status_codes):
+        df = pd.DataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [f"aoi_{i}_{n}" for n in range(len(status_codes))],
+                "status_code": status_codes,
+                "message": ["no survey resources found" if s == 404 else "boom" for s in status_codes],
+                "failure_type": ["standard"] * len(status_codes),
+            }
+        ).set_index(AOI_ID_COLUMN_NAME)
+        df.to_parquet(Path(ex.chunk_path) / f"feature_api_errors_{i:04d}.parquet")
+
+    @staticmethod
+    def _write_features(ex, i):
+        pd.DataFrame({AOI_ID_COLUMN_NAME: [f"aoi_{i}_0"], "class_id": ["x"]}).to_parquet(
+            Path(ex.chunk_path) / f"features_{i:04d}.parquet"
+        )
+
+    def test_all_404_chunk_beside_good_chunk_is_tolerated(self, exporter, caplog):
+        good = self._write_rollup(exporter, 0)
+        self._write_errors(exporter, 1, [404, 404, 404])
+        with caplog.at_level(logging.ERROR):
+            paths = exporter._collect_rollup_chunk_paths(2)
+        assert paths == [good], "the coverage-gap chunk must be skipped, not fatal"
+        assert "1 of 2 chunks (3 AOIs) have no survey coverage" in caplog.text
+
+    def test_non_404_error_only_chunk_is_fatal(self, exporter, caplog):
+        self._write_rollup(exporter, 0)
+        self._write_errors(exporter, 1, [404, 403, 404])
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+            exporter._collect_rollup_chunk_paths(2)
+        assert exc.value.code == 1
+        assert "not plain coverage gaps" in caplog.text
+        assert "403" in caplog.text, "the status-code breakdown must be in the message"
+
+    def test_404_chunk_with_features_file_is_fatal(self, exporter, caplog):
+        """A features file means the chunk got past the all-failed early return, so a missing rollup is a
+        failed rollup write (lost data), however the few error rows happen to look."""
+        self._write_rollup(exporter, 0)
+        self._write_errors(exporter, 1, [404])
+        self._write_features(exporter, 1)
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(2)
+        assert "features file present" in caplog.text
+
+    def test_empty_error_file_without_rollup_is_fatal(self, exporter):
+        """Zero errors and no rollup is a chunk whose rollup write failed, not a coverage gap."""
+        self._write_rollup(exporter, 0)
+        pd.DataFrame().to_parquet(Path(exporter.chunk_path) / "feature_api_errors_0001.parquet")
+        with pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(2)
+
+    def test_every_chunk_error_only_is_fatal_even_if_all_404(self, exporter, caplog):
+        """A misconfigured request 404s everywhere exactly like a coverage gap; with no rollup anywhere there
+        is nothing to export, so fail rather than complete with an empty output."""
+        self._write_errors(exporter, 0, [404])
+        self._write_errors(exporter, 1, [404, 404])
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(2)
+        assert "nothing to export" in caplog.text
+
+    def test_chunk_with_neither_file_is_fatal(self, exporter, caplog):
+        self._write_rollup(exporter, 0)
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(2)
+        assert "Both error and data files for chunk 1 missing" in caplog.text
+
+    def test_all_good_chunks_pass_through(self, exporter):
+        paths = [self._write_rollup(exporter, i) for i in range(3)]
+        assert exporter._collect_rollup_chunk_paths(3) == paths
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
