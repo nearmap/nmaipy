@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, MAX_RETRIES
 from nmaipy.damage_conflation_api import DamageConflationApi, DamageConflationAPIError
 
 EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"  # Hurricane Milton
@@ -66,6 +66,21 @@ def test_init_base_url():
     api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
     assert "ai/damage/v2" in api.base_url
     assert api.base_url.endswith(f"/events/{EVENT_ID}/latest")
+
+
+def test_init_maxretry_defaults_to_package_constant():
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
+    assert api.maxretry == MAX_RETRIES
+
+
+def test_init_maxretry_is_forwarded_to_session_retry_adapter():
+    """The retry budget must reach urllib3's Retry, not just sit on the instance —
+    otherwise a caller raising it for a rate-limited event gets the default anyway."""
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=20)
+    assert api.maxretry == 20
+    with api._session_scope() as session:
+        adapter = session.get_adapter(api.base_url)
+        assert adapter.max_retries.total == 20
 
 
 # ------------------------------------------------------------- payload building

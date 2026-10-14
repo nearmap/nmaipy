@@ -45,6 +45,7 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     API_WARMUP_INTERVAL_SECONDS,
+    MAX_RETRIES,
     wrong_unit_area_columns,
 )
 from nmaipy.damage_conflation_api import DamageConflationApi
@@ -136,6 +137,12 @@ def parse_arguments():
         "--threads", help="Number of concurrent API requests within each process (default: 10)", type=int, default=10
     )
     parser.add_argument(
+        "--max-retries",
+        help=f"Maximum number of retry attempts for failed API requests (default: {MAX_RETRIES})",
+        type=int,
+        default=MAX_RETRIES,
+    )
+    parser.add_argument(
         "--chunk-size", help="Number of AOIs to process in a single chunk (default: 500)", type=int, default=500
     )
     parser.add_argument(
@@ -182,6 +189,7 @@ class DamageConflationExporter(BaseExporter):
         compress_cache: bool = False,
         processes: int = 4,
         threads: int = 10,
+        max_retries: int = MAX_RETRIES,
         chunk_size: int = 500,
         country: str = "us",
         api_key: str = None,
@@ -210,6 +218,7 @@ class DamageConflationExporter(BaseExporter):
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
         self.threads = threads
+        self.max_retries = max_retries
         self.country = country
         self.api_key = api_key
         self.include_aoi_geometry = include_aoi_geometry
@@ -235,6 +244,7 @@ class DamageConflationExporter(BaseExporter):
                 "compress_cache": compress_cache,
                 "processes": processes,
                 "threads": threads,
+                "max_retries": max_retries,
                 "chunk_size": chunk_size,
                 "country": country,
                 "include_aoi_geometry": include_aoi_geometry,
@@ -276,6 +286,7 @@ class DamageConflationExporter(BaseExporter):
                 overwrite_cache=self.overwrite_cache,
                 compress_cache=self.compress_cache,
                 threads=self.threads,
+                maxretry=self.max_retries,
                 country=self.country,
                 progress_counters=progress_counters,
             )
@@ -479,6 +490,7 @@ def main():
             compress_cache=args.compress_cache,
             processes=args.processes,
             threads=args.threads,
+            max_retries=args.max_retries,
             chunk_size=args.chunk_size,
             country=args.country,
             api_key=args.api_key,

@@ -48,6 +48,7 @@ from nmaipy.constants import (
     DAMAGE_CONFLATION_MAX_PAGES,
     DAMAGE_CONFLATION_NEXT_CURSOR_FIELD,
     DAMAGE_CONFLATION_URL_ROOT,
+    MAX_RETRIES,
 )
 from nmaipy.feature_attributes import flatten_conflated_damage_attributes
 
@@ -95,6 +96,7 @@ class DamageConflationApi(BaseApiClient):
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
         threads: Optional[int] = 10,
+        maxretry: int = MAX_RETRIES,
         url_root: Optional[str] = None,
         country: str = "us",
         progress_counters: Optional[dict] = None,
@@ -112,6 +114,8 @@ class DamageConflationApi(BaseApiClient):
             overwrite_cache: Whether to overwrite cached values.
             compress_cache: Whether to gzip cache files.
             threads: Number of threads for concurrent bulk execution.
+            maxretry: Retry budget per request for retryable HTTP statuses (429/5xx)
+                and connection errors, applied by the session's retry adapter.
             url_root: Override the default API root URL (for testing).
             country: Country code for address queries (e.g. 'us'). Also drives output
                 area units downstream.
@@ -126,6 +130,7 @@ class DamageConflationApi(BaseApiClient):
             overwrite_cache=overwrite_cache,
             compress_cache=compress_cache,
             threads=threads,
+            maxretry=maxretry,
             bearer_token=bearer_token,
         )
 
