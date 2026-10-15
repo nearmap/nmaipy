@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, MAX_RETRIES
 from nmaipy.damage_conflation_api import DamageConflationApi, DamageConflationAPIError
 
 EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"  # Hurricane Milton
@@ -66,6 +66,48 @@ def test_init_base_url():
     api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
     assert "ai/damage/v2" in api.base_url
     assert api.base_url.endswith(f"/events/{EVENT_ID}/latest")
+
+
+def test_init_maxretry_defaults_to_package_constant():
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
+    assert api.maxretry == MAX_RETRIES
+
+
+def test_init_maxretry_is_forwarded_to_session_retry_adapter():
+    """The retry budget must reach urllib3's Retry, not just sit on the instance —
+    otherwise a caller raising it for a rate-limited event gets the default anyway."""
+    budget = MAX_RETRIES + 3  # not a value any default could drift to
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=budget)
+    assert api.maxretry == budget
+    with api._session_scope() as session:
+        adapter = session.get_adapter(api.base_url)
+        assert adapter.max_retries.total == budget
+
+
+@pytest.mark.parametrize("bad", [-1, 2.5, "10", True])
+def test_init_rejects_invalid_maxretry(bad):
+    with pytest.raises(ValueError, match="maxretry must be a non-negative int"):
+        DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=bad)
+
+
+def test_init_maxretry_none_means_retry_indefinitely():
+    """None is the sanctioned 'outlast the 429 storm' mode: urllib3 Retry(total=None)."""
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=None)
+    assert api.maxretry is None
+    with api._session_scope() as session:
+        assert session.get_adapter(api.base_url).max_retries.total is None
+
+
+def test_429_error_message_says_rate_limited_not_jsondecodeerror():
+    """A 429 reaching the error class means the retry budget ran out under rate
+    limiting; its body is plain text, so the old message was just 'JSONDecodeError'."""
+    resp = Mock()
+    resp.status_code = 429
+    resp.text = "Too Many Requests"
+    resp.json.side_effect = json.JSONDecodeError("Expecting value", "Too Many Requests", 0)
+    err = DamageConflationAPIError(resp, "https://example/url")
+    assert "JSONDecodeError" not in str(err)
+    assert "429" in str(err) and "Rate limited" in str(err) and "retry budget" in str(err)
 
 
 # ------------------------------------------------------------- payload building

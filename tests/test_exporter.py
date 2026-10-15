@@ -17,7 +17,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyproj
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 
 import nmaipy.exporter as exporter_mod
 from nmaipy.constants import (
@@ -1779,6 +1779,123 @@ class TestMergePerClassChunks:
         assert not os.path.exists(os.path.join(exporter.final_path, ".per_class_staging"))
 
 
+class TestCoverageGapChunks:
+    """A chunk whose every AOI returned 404 has no survey coverage. process_chunk writes an empty rollup as
+    its completion marker, so resumes skip it and the final merge accepts it; any other all-failed chunk
+    (or a chunk whose rollup write failed) has no rollup and must fail the export before completion
+    artifacts are written."""
+
+    @pytest.fixture
+    def exporter(self, tmp_path, caplog):
+        ex = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            chunk_size=2,
+            no_cache=True,
+        )
+        Path(ex.chunk_path).mkdir(parents=True, exist_ok=True)
+        # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+        ex.logger.addHandler(caplog.handler)
+        yield ex
+        ex.logger.removeHandler(caplog.handler)
+
+    @staticmethod
+    def _aoi_gdf():
+        return gpd.GeoDataFrame(
+            {"suburb": ["x", "y"]},
+            geometry=[box(151.20, -33.90, 151.21, -33.89), box(151.22, -33.90, 151.23, -33.89)],
+            crs="EPSG:4326",
+            index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+        )
+
+    @staticmethod
+    def _errors_df(status_codes):
+        return pd.DataFrame(
+            {
+                AOI_ID_COLUMN_NAME: [f"p{n + 1}" for n in range(len(status_codes))],
+                "status_code": status_codes,
+                "message": ["no survey resources found" if s == 404 else "boom" for s in status_codes],
+                "text": [""] * len(status_codes),
+                "request": ["r"] * len(status_codes),
+                "failure_type": ["standard"] * len(status_codes),
+            }
+        ).set_index(AOI_ID_COLUMN_NAME)
+
+    def _run_all_failed_chunk(self, exporter, status_codes):
+        """Drive process_chunk through a chunk where every AOI request failed with the given statuses."""
+        empty_features = gpd.GeoDataFrame({"class_id": []}, geometry=[], crs="EPSG:4326")
+        with (
+            patch("nmaipy.exporter.FeatureApi") as mock_api,
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+        ):
+            mock_api.return_value.get_features_gdf_bulk.return_value = (
+                empty_features,
+                pd.DataFrame(),
+                self._errors_df(status_codes),
+            )
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf())
+        return Path(exporter.chunk_path)
+
+    @staticmethod
+    def _write_rollup(ex, i, n_rows):
+        path = Path(ex.chunk_path) / f"rollup_{i:04d}.parquet"
+        pd.DataFrame(
+            {AOI_ID_COLUMN_NAME: [f"aoi_{i}_{n}" for n in range(n_rows)], "building_count": [1] * n_rows}
+        ).to_parquet(path)
+        return str(path)
+
+    def test_all_404_chunk_writes_empty_rollup_marker(self, exporter):
+        chunk_path = self._run_all_failed_chunk(exporter, [404, 404])
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
+        assert len(rollup) == 0, "the marker must carry no rows (the chunk reader drops it before concat)"
+        assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 2
+
+    def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
+        chunk_path = self._run_all_failed_chunk(exporter, [404, 403])
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "a 403 is lost data, not a coverage gap"
+        assert (chunk_path / "feature_api_errors_0000.parquet").exists()
+
+    def test_resume_skips_coverage_gap_chunk(self, exporter):
+        aoi_gdf = self._aoi_gdf()
+        self._write_rollup(exporter, 0, 0)
+        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = exporter.split_into_chunks(
+            aoi_gdf, check_cache=True
+        )
+        assert (chunks_to_process, skipped_chunks, skipped_aois, num_chunks) == ([], 1, 2, 1)
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
+            mock_api.assert_not_called()
+
+    def test_empty_rollup_chunk_passes_merge_gate(self, exporter):
+        good = self._write_rollup(exporter, 0, 1)
+        gap = self._write_rollup(exporter, 1, 0)
+        assert exporter._collect_rollup_chunk_paths(2) == [good, gap]
+
+    def test_error_only_chunk_is_fatal(self, exporter, caplog):
+        self._write_rollup(exporter, 0, 1)
+        self._errors_df([404, 403]).to_parquet(Path(exporter.chunk_path) / "feature_api_errors_0001.parquet")
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+            exporter._collect_rollup_chunk_paths(2)
+        assert exc.value.code == 1
+        assert "1 of 2 chunks have an error file but no rollup file" in caplog.text
+        assert "[1]" in caplog.text, "the failed chunk ids must be in the message"
+
+    def test_chunk_with_neither_file_is_fatal(self, exporter, caplog):
+        self._write_rollup(exporter, 0, 1)
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(2)
+        assert "Both error and data files for chunk 1 missing" in caplog.text
+
+    def test_nothing_exported_is_fatal(self, exporter, caplog):
+        exporter._fail_if_nothing_exported([pd.DataFrame({"a": [1]})], 3)
+        exporter._fail_if_nothing_exported([], 0)
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+            exporter._fail_if_nothing_exported([], 3)
+        assert "produced any rollup rows" in caplog.text
+
+
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
     sys.exit(pytest.main([current_file]))
@@ -1866,6 +1983,30 @@ class TestSkipRebuildWhenReadmeExists:
             packs=["building"],
         )
 
+        with patch("nmaipy.exporter.FeatureApi") as mock_api:
+            exporter2.run()
+            mock_api.assert_not_called()
+
+    def test_fast_path_ignores_max_retries_change(self, tmp_path):
+        """max_retries only changes how hard we try, never what comes back — a
+        retry-budget tweak must not defeat the README fast path and force a rebuild."""
+        AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            max_retries=10,
+        )
+        (tmp_path / "final" / "README.md").write_text("# done")
+
+        exporter2 = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            max_retries=20,
+        )
+        assert exporter2._config_diff_for_fast_path() == []
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter2.run()
             mock_api.assert_not_called()

@@ -370,6 +370,15 @@ class APIError(Exception):
                 self.message = "ChunkedEncodingError"
             except AttributeError:
                 self.message = ""
+            if self.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+                # A 429 only surfaces here after the retry adapter gave up, and its body is
+                # usually not JSON, so the parsed message is a bare "JSONDecodeError". Say
+                # what actually happened so triage doesn't chase a parsing bug.
+                detail = self.message if self.message not in ("", "JSONDecodeError", "ValueError") else ""
+                self.message = (
+                    "Rate limited: the API answered 429 Too Many Requests on every attempt until the retry "
+                    "budget was exhausted (reduce concurrency or raise maxretry)"
+                ) + (f" - {detail}" if detail else "")
         self.request_string = request_string
 
     def __str__(self):
@@ -595,6 +604,11 @@ class BaseApiClient:
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
         self.threads = threads
+        # None is deliberate: urllib3 treats Retry(total=None) as unbounded, which is the
+        # right mode for a sustained 429 storm (keep retrying until the limiter clears
+        # rather than dropping the AOI). Anything else must be a non-negative int.
+        if maxretry is not None and (isinstance(maxretry, bool) or not isinstance(maxretry, int) or maxretry < 0):
+            raise ValueError(f"maxretry must be a non-negative int or None (retry indefinitely), got {maxretry!r}")
         self.maxretry = maxretry
 
         # Latency and request tracking. One client instance is shared by all of
