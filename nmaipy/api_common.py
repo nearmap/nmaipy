@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import json
 import logging
+import numbers
 import os
 import random
 import re
@@ -240,7 +241,9 @@ class RetryRequest(Retry):
         consecutive_errors_len = len(list(takewhile(lambda x: x.redirect_location is None, reversed(self.history))))
         if consecutive_errors_len <= 1:
             return 0
-        base = self.backoff_factor * (2 ** (consecutive_errors_len - 1))
+        # Cap the exponent: with maxretry=None the history is unbounded and 2**n overflows a
+        # float after ~1024 consecutive failures; anything past 2**16 is clamped by backoff_max.
+        base = self.backoff_factor * (2 ** min(consecutive_errors_len - 1, 16))
         return random.uniform(0, min(self.backoff_max, base))
 
     def increment(
@@ -607,9 +610,11 @@ class BaseApiClient:
         # None is deliberate: urllib3 treats Retry(total=None) as unbounded, which is the
         # right mode for a sustained 429 storm (keep retrying until the limiter clears
         # rather than dropping the AOI). Anything else must be a non-negative int.
-        if maxretry is not None and (isinstance(maxretry, bool) or not isinstance(maxretry, int) or maxretry < 0):
+        if maxretry is not None and (
+            isinstance(maxretry, bool) or not isinstance(maxretry, numbers.Integral) or maxretry < 0
+        ):
             raise ValueError(f"maxretry must be a non-negative int or None (retry indefinitely), got {maxretry!r}")
-        self.maxretry = maxretry
+        self.maxretry = None if maxretry is None else int(maxretry)
 
         # Latency and request tracking. One client instance is shared by all of
         # a chunk's worker threads, so these ARE accessed cross-thread:

@@ -10,13 +10,16 @@ import copy
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pytest
 from shapely.geometry import box
 
+from nmaipy.api_common import RetryRequest
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, MAX_RETRIES
 from nmaipy.damage_conflation_api import DamageConflationApi, DamageConflationAPIError
 
@@ -88,6 +91,19 @@ def test_init_maxretry_is_forwarded_to_session_retry_adapter():
 def test_init_rejects_invalid_maxretry(bad):
     with pytest.raises(ValueError, match="maxretry must be a non-negative int"):
         DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=bad)
+
+
+def test_init_accepts_numpy_integer_maxretry():
+    """Callers that read the budget out of a pandas/numpy config get a numpy int, not a Python int."""
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=np.int64(7))
+    assert api.maxretry == 7 and type(api.maxretry) is int
+
+
+def test_backoff_does_not_overflow_on_unbounded_retry_history():
+    """With maxretry=None the retry history is unbounded; 2**n must not overflow a float."""
+    retry = RetryRequest(total=None, backoff_factor=0.5, backoff_max=60)
+    retry.history = [SimpleNamespace(redirect_location=None)] * 5000
+    assert 0 <= retry.get_backoff_time() <= 60
 
 
 def test_init_maxretry_none_means_retry_indefinitely():

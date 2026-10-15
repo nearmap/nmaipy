@@ -1852,6 +1852,35 @@ class TestCoverageGapChunks:
         assert len(rollup) == 0, "the marker must carry no rows (the chunk reader drops it before concat)"
         assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 2
 
+    def test_partial_grid_failure_is_not_an_all_failed_chunk(self, exporter):
+        """errors_df carries one row per failed grid cell, so a single gridded AOI that lost one
+        seam cell has as many error rows as the chunk has AOIs. That must not be read as "every
+        AOI failed": the AOI answered (it has a metadata row) and its data must reach the rollup
+        path, not be replaced by a coverage-gap marker."""
+        aoi_gdf = self._aoi_gdf().iloc[:1]
+        feats = gpd.GeoDataFrame(
+            {AOI_ID_COLUMN_NAME: ["p1"], "class_id": ["x"], "feature_id": ["f1"]},
+            geometry=[box(151.201, -33.899, 151.202, -33.898)],
+            crs="EPSG:4326",
+        )
+        meta = pd.DataFrame(
+            {"survey_date": ["2024-01-01"], "gridded": [True]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME)
+        )
+        cell_error = self._errors_df([404]).assign(failure_type="grid")
+        with (
+            patch("nmaipy.exporter.FeatureApi") as mock_api,
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+            patch("nmaipy.exporter._write_errors_parquet") as write_errors,
+        ):
+            mock_api.return_value.get_features_gdf_bulk.return_value = (feats, meta, cell_error)
+            try:
+                exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
+            except Exception:
+                pass  # the stubbed features are too thin for the real rollup; the branch choice is what matters
+        rollup = Path(exporter.chunk_path) / "rollup_0000.parquet"
+        assert not (rollup.exists() and len(pd.read_parquet(rollup)) == 0), "AOI with data was marked as a coverage gap"
+        assert write_errors.call_count <= 1
+
     def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 403])
         assert not (chunk_path / "rollup_0000.parquet").exists(), "a 403 is lost data, not a coverage gap"

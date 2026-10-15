@@ -883,7 +883,7 @@ class FeatureApi(GriddedApiClient):
                         logger.debug(
                             f"ChunkedEncodingError on attempt {retry_attempt + 1}/{attempts_label}, retrying: {e}"
                         )
-                        base = CHUNKED_ENCODING_RETRY_DELAY * (2 ** (retry_attempt + 1))
+                        base = CHUNKED_ENCODING_RETRY_DELAY * (2 ** min(retry_attempt + 1, 16))
                         time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff (min avg ~1s)
                         continue
                     else:

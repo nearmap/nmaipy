@@ -3701,8 +3701,11 @@ class NearmapAIExporter(BaseExporter):
                 else set(aoi_gdf.index)
             )
 
-            # If all Feature API requests failed and no roof age data, save errors and return
-            if len(feature_api_errors_df) == len(aoi_gdf) and len(roof_age_gdf) == 0:
+            # If no AOI returned a response and there is no roof age data, save errors and
+            # return. Test metadata rows (one per AOI that answered), not error rows: errors_df
+            # also carries one row per failed grid cell, so an AOI that succeeded apart from a
+            # seam cell would otherwise make the counts match and its data would be dropped.
+            if len(metadata_df) == 0 and len(roof_age_gdf) == 0:
                 _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
