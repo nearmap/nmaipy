@@ -395,9 +395,11 @@ Outputs in `final/`:
 | File | When | Contents |
 |------|------|----------|
 | `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry |
-| `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
+| `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — your input file's columns (geometry excluded), then rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
 | `damage_metadata.csv` | always | Per-AOI query metadata (event id/name, model version) for AOIs that returned a response |
 | `damage_errors.csv` | on failures | Per-AOI failures (`status_code` + `message`) — e.g. a `403` for an AOI outside the event footprint |
+
+The conflation API is map-style: every building intersecting an AOI is returned, including neighbours' buildings that only clip a parcel boundary. For property-sized AOIs, `--parcel-mode` drops buildings that barely intersect their AOI (kept when at least 50% of the building lies inside it, or its in-AOI footprint is at least 30 sqm so multi-parcel structures such as townhouse rows survive). It is a client-side approximation of the Feature API's `parcelMode`; nothing is clipped. Off by default.
 
 See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 

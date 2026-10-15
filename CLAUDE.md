@@ -138,8 +138,9 @@ export API_KEY=your_api_key_here
 
 # Run the damage conflation exporter for a catastrophe event.
 # Always emits per-building damage polygons; add --rollup for a per-AOI summary
-# (one row per AOI: rating counts + the primary building's attributes — most
-# useful when AOIs are property-sized). Large AOIs are handled by pagination,
+# (one row per AOI: your input columns, rating counts + the primary building's
+# attributes — most useful when AOIs are property-sized; add --parcel-mode there
+# to drop neighbours' buildings that barely clip the parcel). Large AOIs are handled by pagination,
 # not gridding, so an AOI up to a full event boundary works in one go.
 python -m nmaipy.damage_conflation_exporter \
     --aoi-file "path/to/aoi.geojson" \
