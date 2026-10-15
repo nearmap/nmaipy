@@ -170,6 +170,25 @@ python nmaipy/exporter.py \
 
 AWS credentials are resolved from environment variables or `~/.aws/credentials`.
 
+## Pull Requests, Commits and Review Comments
+
+nmaipy is a public, standalone package. Everything that becomes part of the repository or its
+history (code, comments, docstrings, log strings, test data, commit messages, PR titles and
+descriptions, review comments, release notes) must stand on its own:
+
+- Do not reference specific applications, pipelines, deployment tooling or other harnesses that
+  consume nmaipy, by name or by description. State the need in terms of nmaipy's own API
+  ("callers of `AOIExporter` need to widen the retry budget"), not who the caller is.
+- Do not include internal ticket ids, project or dataset names, customer or partner names,
+  AOI/parcel counts or regions from a known workload, storage paths, or anything else that
+  identifies an internal or commercial use of the package. Describe the issue generically
+  ("a large export with spatially sorted input over a coverage gap").
+- Tests use synthetic or bundled example data, never excerpts of production outputs.
+- When editing an existing PR's description or replying to a review, the same rules apply.
+
+If a change only makes sense in the context of a downstream system, explain it in terms of
+nmaipy's behaviour and leave the downstream motivation out.
+
 ## Column Naming Conventions
 
 All output column names in nmaipy are **programmatically derived** from the API's `description` field using `.lower().replace(" ", "_")`. This applies everywhere: per-component columns, dominant summary columns, rollup prefixes, etc.
