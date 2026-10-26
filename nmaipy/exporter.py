@@ -3702,20 +3702,24 @@ class NearmapAIExporter(BaseExporter):
             )
 
             # If no AOI returned a response and there is no roof age data, save errors and
-            # return. Test metadata rows (one per AOI that answered), not error rows: errors_df
-            # also carries one row per failed grid cell, so an AOI that succeeded apart from a
-            # seam cell would otherwise make the counts match and its data would be dropped.
-            if len(metadata_df) == 0 and len(roof_age_gdf) == 0:
+            # return without a rollup, so the chunk is re-fetched on resume and the final merge
+            # refuses to complete without it. Test metadata rows (one per AOI that answered), not
+            # error rows: errors_df also carries one row per failed grid cell, so an AOI that
+            # succeeded apart from a seam cell would otherwise make the counts match and its data
+            # would be dropped.
+            # The exception is a chunk where every AOI 404'd: it has no survey coverage (spatially
+            # sorted input over a coverage gap does this routinely), which is a result, not lost
+            # data. It falls through to the normal rollup path like the 404s in a mixed chunk, so
+            # every AOI gets a feature_api_success = "N" row, and that rollup lets resumes skip the
+            # chunk (404s are neither cached nor retried).
+            if (
+                len(metadata_df) == 0
+                and len(roof_age_gdf) == 0
+                and not (feature_api_errors_df["status_code"] == HTTPStatus.NOT_FOUND).all()
+            ):
                 _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
-                # Every AOI 404'd: the chunk has no survey coverage (spatially sorted input over a
-                # coverage gap does this routinely). Write an empty rollup as its completion marker
-                # so resumes skip it (404s are neither cached nor retried) and the final merge
-                # accepts it. Any other status leaves no rollup: the chunk is re-fetched on resume
-                # and the merge refuses to complete without it.
-                if (feature_api_errors_df["status_code"] == HTTPStatus.NOT_FOUND).all():
-                    storage.write_parquet(pd.DataFrame({AOI_ID_COLUMN_NAME: pd.Series([], dtype=str)}), outfile)
                 chunk_end_time = datetime.now(timezone.utc).isoformat()
                 total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                 latency_stats = collect_latency_stats_from_apis(
@@ -4384,9 +4388,10 @@ class NearmapAIExporter(BaseExporter):
         Return every chunk's rollup file, exiting 1 if any chunk has none.
 
         The rollup is written last as the chunk's completion marker, and a chunk with no survey
-        coverage gets an empty one, so a missing rollup means lost data: the rollup write failed,
-        or every request failed with a non-404 status. Exiting here keeps the caller from writing
-        completion artifacts over an incomplete export; a re-run re-fetches only these chunks.
+        coverage still gets one (a feature_api_success = "N" row per AOI), so a missing rollup
+        means lost data: the rollup write failed, or every request failed with a non-404 status.
+        Exiting here keeps the caller from writing completion artifacts over an incomplete
+        export; a re-run re-fetches only these chunks.
         """
         # Drop any cached s3fs directory listing for the chunk dir so the
         # existence sweep below reads S3 fresh. Earlier phases (cache-check,
@@ -4463,14 +4468,37 @@ class NearmapAIExporter(BaseExporter):
         return rollup_paths_to_read
 
     def _fail_if_nothing_exported(self, rollup_frames: List[pd.DataFrame], num_chunks: int) -> None:
-        """Exit 1 when every rollup was empty: a misconfigured request 404s everywhere just like a coverage gap."""
-        if num_chunks > 0 and not rollup_frames:
+        """
+        Exit 1 when no AOI in any rollup succeeded: a misconfigured request 404s everywhere just like a
+        coverage gap, and its rollup would be nothing but feature_api_success = "N" rows.
+        """
+        success_columns = ["feature_api_success", "roof_age_api_success"]
+        any_success = any((df[c] == "Y").any() for df in rollup_frames for c in success_columns if c in df.columns)
+        if num_chunks > 0 and not any_success:
             self.logger.error(
-                f"None of the {num_chunks} chunks produced any rollup rows: every request returned 404, so either "
-                f"the AOIs have no survey coverage or the request is misconfigured. Inspect "
+                f"No AOI in any of the {num_chunks} chunks got a successful API response: every request returned "
+                f"404, so either the AOIs have no survey coverage or the request is misconfigured. Inspect "
                 f"feature_api_errors_*.parquet in '{self.chunk_path}', then re-run in a fresh output directory."
             )
             sys.exit(1)
+
+    def _read_rollup_chunks(self, num_chunks: int) -> List[pd.DataFrame]:
+        """Read every chunk's rollup in parallel, exiting 1 if a chunk is missing or nothing was exported."""
+        rollup_paths_to_read = self._collect_rollup_chunk_paths(num_chunks)
+        read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        if rollup_paths_to_read:
+            data = _read_parquet_chunks_parallel(
+                rollup_paths_to_read,
+                max_workers=read_workers,
+                desc=f"Reading {len(rollup_paths_to_read)} rollup chunks",
+                logger=self.logger,
+            )
+        else:
+            data = []
+        # Filter out DataFrames that are entirely NA (all values NA across all columns)
+        data = [d for d in data if not d.isna().all().all()]
+        self._fail_if_nothing_exported(data, num_chunks)
+        return data
 
     def run(self):
         try:
@@ -4720,22 +4748,8 @@ class NearmapAIExporter(BaseExporter):
         errors = []
         self.logger.debug(f"Saving rollup data as {self.tabular_file_format} file to {outpath}")
 
-        rollup_paths_to_read = self._collect_rollup_chunk_paths(num_chunks)
+        data = self._read_rollup_chunks(num_chunks)
         read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
-
-        # Phase 2: Read all valid rollup chunks in parallel
-        if rollup_paths_to_read:
-            data = _read_parquet_chunks_parallel(
-                rollup_paths_to_read,
-                max_workers=read_workers,
-                desc=f"Reading {len(rollup_paths_to_read)} rollup chunks",
-                logger=self.logger,
-            )
-        else:
-            data = []
-        # Filter out DataFrames that are entirely NA (all values NA across all columns)
-        data = [d for d in data if not d.isna().all().all()]
-        self._fail_if_nothing_exported(data, num_chunks)
         if len(data) > 0:
             self.logger.info(f"Concatenating {len(data)} rollup chunks...")
             # Suppress FutureWarning about all-NA columns in concat dtype inference.
