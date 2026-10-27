@@ -107,7 +107,7 @@ def example_pool_detection():
         output_dir="data/outputs/pools",
         country="au",
         # Pool detection
-        packs=["pools"],
+        packs=["pool"],
         # Include parcel boundaries for mapping
         include_parcel_geometry=True,
         processes=4,
