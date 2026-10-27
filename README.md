@@ -32,11 +32,13 @@ The repository ships with a 10-property smoke-test script (`run_10_test.py`) tha
 python run_10_test.py
 ```
 
-Output is written to `data/outputs/quick_test/final/`. Open `rollup.csv`, browse the rollup row per property, then have a look at `README.md` in the same directory — every export now ships an auto-generated, customer-readable data dictionary explaining every column.
+Output is written to `data/outputs/quick_test/final/`. Open `rollup.csv`, browse the rollup row per property, then have a look at `README.md` in the same directory — every export ships an auto-generated, customer-readable data dictionary explaining every column.
 
 The script itself is short — read it (`run_10_test.py`) to see the full call signature.
 
 ## Common Use Cases
+
+> **Running as a script:** the exporters start their worker processes with the `spawn` method, which re-imports your script in every worker. In a `.py` file, call `run()` under `if __name__ == "__main__":` (as the disaster-response examples do); notebooks and the REPL don't need it.
 
 ### Population-scale analysis with mesh blocks / census blocks
 
@@ -65,30 +67,59 @@ exporter.run()
 
 > **Tip:** if your input has a `since` or `until` column (string-typed `YYYY-MM-DD`), it overrides the bulk values per row, so you can mix windows in a single export.
 
-### Disaster Response
+### 3D-first exports with 2D fallback (`prefer3d`)
 
-Damage classification is a separate pack family. For a post-event sweep, request the buildings together with damage so you get the building footprint + the damage attributes on the same parcels:
+When you want **maximum 3D attribute coverage** in a single unified export — without losing AOIs that only have 2D coverage in your date window — use `prefer3d=True`. The exporter runs the bulk request as if `only3d=True`, then transparently retries each AOI that returned no 3D survey with `only3d=False`:
 
 ```python
 exporter = NearmapAIExporter(
-    aoi_file='affected_areas.geojson',
-    output_dir='damage_assessment',
+    aoi_file='properties.geojson',
+    output_dir='unified_3d_results',
     country='us',
-    packs=['building', 'damage_classifications', 'damage'],   # geometry + damage classes
-    since='2024-07-08',             # date range of the event
-    until='2024-07-11',
-    rapid=True,                     # Permit use of rapid post-catastrophe imagery (e.g. during an event)
-    include=['damage'],             # Adds the damage classification score (FEMA-style damage classification levels on a 5-point scale)
+    packs=['building', 'building_char', 'roof_char'],
+    prefer3d=True,
     save_features=True,
 )
 exporter.run()
 ```
 
-`rapid=True` enables consideration of post-catastrophe rapid-response surveys (when available). The damage pack has variants (`damage_postcat`, `damage_non_postcat`) for damage-related feature classes; `damage_classifications` is the richer pack used here, exposing ten damage feature classes (Roof, Missing Roof Tile or Shingle, Vegetation Debris, Junk and Wreckage, Building Structural Loss, Roof with Temporary Repair, Structural Damage, Building Damage by Tree, Building with Structural Damage, Building lifecycle). The damage classification *score* is a separate quantity, retrieved by passing `include=['damage']` — see the auto-generated README in your export's `final/` directory for what each emitted column contains.
+The output rollup carries a `mesh_date` column — non-empty when the row used a 3D survey, empty when it fell back to 2D. Mutually exclusive with `only3d`. No-op for AOIs pinned to a `survey_resource_id` (the survey is already chosen).
 
-#### Finding a catastrophe event from a point
+### Roof Condition (RSI) with Structural Damage Fallback
 
-For ImpactResponse workflows you often know roughly *where* an event hit but not its event id. Given a lat/lon, `nmaipy.coverage_utils.discover_event` resolves the **latest** post-catastrophe event covering that point and assembles its footprint — in memory, no files. Subdivide the footprint into AOIs and run the exporters over them with the discovered `event_id`; [Damage Conflation](#damage-conflation-event-scoped-damage) below has a complete point → event → building damage script.
+Extract Roof Spotlight Index scores that automatically resolve the best RSI per roof — using the roof's own score when available, or falling back to the Building Lifecycle score when structural damage is present:
+
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='rsi_results',
+    country='us',
+    packs=['building', 'building_structures'],
+    include=['roofSpotlightIndex'],
+    save_features=True,
+)
+exporter.run()
+```
+
+The `building_structures` pack provides the Building Lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
+
+### Wildfire Risk & Defensible Space
+
+Assess wildfire vulnerability with defensible space analysis around structures — per-zone metrics and per-class risk object breakdowns (vegetation, neighbouring roofs, yard debris) across three concentric zones (0-indexed, matching the CalFire convention):
+
+```python
+exporter = NearmapAIExporter(
+    aoi_file='properties.geojson',
+    output_dir='wildfire_risk',
+    country='us',
+    packs=['building'],
+    include=['defensibleSpace', 'wildfireScore'],
+    save_features=True,
+)
+exporter.run()
+```
+
+Output includes per-zone metrics (zone area, defensible-space area, coverage ratio) and per-class risk-object breakdowns for both the primary roof and the aggregate parcel.
 
 ### Roof Age Analysis (US Only)
 
@@ -121,7 +152,7 @@ exporter = RoofAgeExporter(
 exporter.run()
 ```
 
-**Dataset selection:** pass `roof_age_dataset='latest'` (default — pointer maintained by the Nearmap team), `'A.0'`, `'A.1'`, `'A.1Q2'`, or any raw resource UUID. **Historical "as-of" queries:** combine with `since` / `until` to ask "what was this roof like in the past?" — these drive the API's `sinceAsOfDate` / `untilAsOfDate` body parameters. Note: `--until` / `--since` are not supported on the `A.0` dataset and are rejected client-side with a clear error.
+**Dataset selection:** pass `roof_age_dataset='latest'` (default — pointer maintained by the Nearmap team), `'A.0'`, `'A.1'`, `'A.1Q2'`, or any raw resource UUID. **Historical "as-of" queries:** combine with `since` / `until` to ask "what was this roof like in the past?" — these drive the API's `sinceAsOfDate` / `untilAsOfDate` body parameters. Note: `since` / `until` are not supported on the `A.0` dataset and are rejected client-side with a clear error.
 
 Each roof carries:
 - Predicted installation date
@@ -131,9 +162,79 @@ Each roof carries:
 
 Useful for insurance underwriting, property valuation, maintenance planning, and real-estate due diligence.
 
-### Damage Conflation (Event-Scoped Damage)
+### Disaster Response
 
-For a catastrophe event (hurricane, wildfire), the Damage Conflation API returns a single *conflated* damage rating per building — the highest-confidence assessment fused across every capture in the event lifecycle, rather than one survey's classification. Queries are scoped by event id, which you can resolve from any point inside the damage zone. This script goes from one point to conflated damage for the whole event:
+After a catastrophe (hurricane, tornado, wildfire, flood), Nearmap flies **post-catastrophe (post-cat) surveys** over the affected area. Three kinds of damage data come from them:
+
+- [**Damage Classifications**](#damage-classifications) — a FEMA-style damage rating for each building, from a single survey (Feature API).
+- [**AI Layers on Post-Catastrophe Surveys**](#ai-layers-on-post-catastrophe-surveys) — debris, tarps, missing shingles, structural damage and other AI layers from a post-cat survey (Feature API).
+- [**Damage Conflation**](#damage-conflation) — one rating per building fused across every capture of the event, retrieved for a whole event at once (Damage Conflation API).
+
+Two rules apply to both Feature API workflows:
+
+- **Packs are either post-cat or standard**, and a request only returns features from surveys of the matching kind. The post-cat packs are `damage`, `damage_classifications`, `postcat` and `postcat_others`. They combine with each other, but mixing one with any standard pack (e.g. `building`) is rejected with `400 INCOMPATIBLE_PACKS`.
+- **Set `since` to the event date** so only surveys flown after the event are used. AOIs outside post-cat coverage fail with `404 no survey resources found` (listed in `feature_api_errors.csv`); post-cat AI coverage can stop slightly short of the imagery footprint, so expect some of these along the edge of an event.
+
+The examples use Hurricane Isaias (event date 2026-10-09, Florida Panhandle). To find an event's id and footprint from a point inside the damage zone, see [Damage Conflation](#damage-conflation).
+
+#### Damage Classifications
+
+The Feature API's damage classification is a **per-survey, real-time rating**: every `Building lifecycle` feature gets a FEMA 5-tier class — `Undamaged`, `Affected`, `Minor`, `Major` or `Destroyed` — with a confidence for each tier, computed from that one survey's imagery. Request the `damage` pack (Building lifecycle on post-cat surveys) and add `include=['damage']`:
+
+```python
+from nmaipy.exporter import NearmapAIExporter
+
+if __name__ == "__main__":
+    exporter = NearmapAIExporter(
+        aoi_file='properties.geojson',  # AOIs inside the event footprint
+        output_dir='isaias_damage_classifications',
+        country='us',
+        packs=['damage'],               # Building lifecycle features from post-cat surveys
+        include=['damage'],             # adds the 5-tier damage rating to each Building lifecycle feature
+        since='2026-10-09',             # event date: only surveys flown after it
+        rapid=True,                     # also use rapid post-cat surveys when available
+    )
+    exporter.run()
+```
+
+The rollup gets the primary building's rating — `primary_building_lifecycle_damage_class`, its confidence, and one confidence column per tier — and `building_lifecycle.csv` carries every building's 5-tier, 3-tier (`UndamagedOrAffected` / `Minor` / `MajorOrDestroyed`) and 2-tier confidences.
+
+- `rapid=True` also lets the API use surveys from Nearmap's rapid AI pipelines (e.g. during an event). They deliver only Building lifecycle and the damage rating, so `rapid` works only when Building lifecycle is the sole class requested (the `damage` pack); anything else is rejected with `400 UNSUPPORTED_CLASS_RAPID`.
+- For a pre-event baseline, request `damage_non_postcat` — the same class and rating from standard surveys — with `until` before the event.
+- To get the rating alongside the post-cat AI layers below, add `include=['damage']` to that export instead (without `rapid`).
+
+#### AI Layers on Post-Catastrophe Surveys
+
+Post-cat surveys carry their own AI layers — debris, tarps, missing shingles, exposed underlayment, temporary repairs, structural damage — but only **post-cat packs** can read them, and the pack names don't make that obvious. The standard `debris` pack reads standard surveys only: with `since` set to the event date it fails with `404 no survey resources found`, and without `since` it silently returns debris from the latest *pre-event* survey. Use the `postcat` pack instead:
+
+```python
+from nmaipy.exporter import NearmapAIExporter
+
+if __name__ == "__main__":
+    exporter = NearmapAIExporter(
+        aoi_file='census_blocks.geojson',  # AOIs inside the event footprint
+        output_dir='isaias_postcat_layers',
+        country='us',
+        packs=['postcat'],                 # post-cat AI layers; never mixed with standard packs such as 'building'
+        since='2026-10-09',                # event date: only surveys flown after it
+        save_features=True,                # per-class GeoParquet with feature geometries
+    )
+    exporter.run()
+```
+
+Which pack to ask for:
+
+| You want | Standard surveys | Post-cat surveys |
+|----------|------------------|------------------|
+| Building lifecycle + damage rating (`include=['damage']`) | `damage_non_postcat` | `damage` |
+| Debris (Vegetation Debris, Junk and Wreckage, Tyres) | `debris` | `postcat` |
+| Buildings and roofs | `building` | `postcat` |
+
+`postcat` (29 classes) also covers roof damage (Missing Roof Tile or Shingle, Exposed Underlayment, Exposed Roof Deck, Tarpaulin/Shade Cloth, Roof with Temporary / Permanent Repair), structural damage (Structural Damage, Building with Structural Damage, Building Structural Loss, Building Damage by Tree), swimming pools and Building lifecycle. `damage_classifications` is a 10-class, damage-focused subset of it, and `postcat_others` (100+ classes) holds the long tail — Roof Debris, Yard Debris, roof objects, vegetation, surfaces and more. `FeatureApi().get_feature_classes(packs=['postcat'])` lists the classes your account can query.
+
+#### Damage Conflation
+
+The Damage Conflation API is the **multi-date** counterpart of the damage classification above: instead of one survey's rating, it returns one *conflated* rating per building — the highest-confidence assessment across every capture in the event's lifecycle. Queries are scoped by event id rather than by date or survey, so there is no survey to choose: an AOI of any size, up to the whole event footprint, is answered in one go (large AOIs are paged). This script goes from one point to conflated damage for the whole event:
 
 ```python
 """Pull conflated building damage for a whole catastrophe event, starting from one point."""
@@ -181,61 +282,7 @@ if __name__ == "__main__":  # required: nmaipy's worker pool uses the "spawn" st
 
 `discover_event` picks the **latest** post-catastrophe event covering the point and logs any others — this point also sits under Hurricane Michael (2018) and a 2024 severe-weather event — so pass `since`/`until` to pin a specific one (they also bound the captures that make up the footprint). The event id is the Coverage API's `postCatEventId` survey tag. The two steps are also available separately: `latest_event_id_at_point(lat, lon)` and `event_boundary(event_id)` (one tag-filtered Coverage query — `include=postCatEventId:<id>` — unioned, no spatial search).
 
-The exporter always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building, which is most meaningful when AOIs are property-sized). Large AOIs — up to a full event boundary — are paged, not gridded. The Isaias footprint is ~3,600 km² (~3,850 cells), so slice `cells` (e.g. `cells.head(10)`) for a quick first run. See [Standalone Damage Conflation Export](#standalone-damage-conflation-export) for the CLI and the files written to `final/`.
-
-### Wildfire Risk & Defensible Space
-
-Assess wildfire vulnerability with defensible space analysis around structures — per-zone metrics and per-class risk object breakdowns (vegetation, neighbouring roofs, yard debris) across three concentric zones (0-indexed, matching the CalFire convention):
-
-```python
-exporter = NearmapAIExporter(
-    aoi_file='properties.geojson',
-    output_dir='wildfire_risk',
-    country='us',
-    packs=['building'],
-    include=['defensibleSpace', 'wildfireScore'],
-    save_features=True,
-)
-exporter.run()
-```
-
-Output includes per-zone metrics (zone area, defensible-space area, coverage ratio) and per-class risk-object breakdowns for both the primary roof and the aggregate parcel.
-
-### Roof Condition (RSI) with Structural Damage Fallback
-
-Extract Roof Spotlight Index scores that automatically resolve the best RSI per roof — using the roof's own score when available, or falling back to the Building Lifecycle score when structural damage is present:
-
-```python
-exporter = NearmapAIExporter(
-    aoi_file='properties.geojson',
-    output_dir='rsi_results',
-    country='us',
-    packs=['building', 'building_structures'],
-    include=['roofSpotlightIndex'],
-    save_features=True,
-)
-exporter.run()
-```
-
-The `building_structures` pack provides the Building Lifecycle features needed for the fallback. Without it, RSI is only available from roofs that have no structural damage.
-
-### 3D-first exports with 2D fallback (`prefer3d`)
-
-When you want **maximum 3D attribute coverage** in a single unified export — without losing AOIs that only have 2D coverage in your date window — use `prefer3d=True`. The exporter runs the bulk request as if `only3d=True`, then transparently retries each AOI that returned no 3D survey with `only3d=False`:
-
-```python
-exporter = NearmapAIExporter(
-    aoi_file='properties.geojson',
-    output_dir='unified_3d_results',
-    country='us',
-    packs=['building', 'building_char', 'roof_char'],
-    prefer3d=True,
-    save_features=True,
-)
-exporter.run()
-```
-
-The output rollup carries a `mesh_date` column — non-empty when the row used a 3D survey, empty when it fell back to 2D. Mutually exclusive with `only3d`. No-op for AOIs pinned to a `survey_resource_id` (the survey is already chosen).
+The exporter always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building, which is most meaningful when AOIs are property-sized). Ratings use the same five tiers, except that the lowest is `NoDamage` (the Feature API's `Undamaged`). Unlike the Feature API, an AOI outside the event footprint is not an error: it succeeds with no buildings. The Isaias footprint is ~3,600 km² (~3,850 cells), so slice `cells` (e.g. `cells.head(10)`) for a quick first run. See [Standalone Damage Conflation Export](#standalone-damage-conflation-export) for the CLI and the files written to `final/`.
 
 ## Discovering available AI Features
 
@@ -267,9 +314,11 @@ Commonly available packs (this list is not exhaustive):
 | `roof_char` | Detailed roof characteristics (material, shape, etc.) |
 | `vegetation` | Trees and vegetation coverage |
 | `surfaces` | Ground surface materials |
-| `pools` | Swimming pool detection |
+| `pool` | Swimming pool detection |
 | `solar` | Solar panel detection |
-| `damage` / `damage_postcat` / `damage_non_postcat` | Damage classification (post-catastrophe and lifecycle) |
+| `debris` | Vegetation debris, junk and wreckage, tyres (standard surveys) |
+| `damage` / `damage_non_postcat` | Building lifecycle, for the damage rating (`include=['damage']`) on post-cat / standard surveys |
+| `postcat` / `postcat_others` / `damage_classifications` | AI layers on post-catastrophe surveys (see [Disaster Response](#disaster-response)) |
 
 For the full catalog and access details, use the snippet above or check the [Nearmap help site](https://help.nearmap.com).
 
@@ -325,7 +374,7 @@ AWS credentials are resolved from environment variables (`AWS_ACCESS_KEY_ID`, `A
 
 ## Working with Large Areas
 
-Any AOI larger than 1 km² is **automatically gridded** — split into ~200 m cells, processed in parallel, then recombined and deduplicated. No configuration needed for the common case:
+Any AOI larger than 1 km² is **automatically gridded** — split into 0.005° (~500 m) cells, processed in parallel, then recombined and deduplicated. No configuration needed for the common case:
 
 ```python
 exporter = NearmapAIExporter(
@@ -350,10 +399,10 @@ By default, gridded AOIs require **every cell to succeed** (`aoi_grid_min_pct=10
 
 ## Command Line Interface
 
-Every Python API option has a CLI equivalent. See `python nmaipy/exporter.py --help` for the full list. Highlights:
+Every Python API option has a CLI equivalent. See `python -m nmaipy.exporter --help` for the full list. Highlights:
 
 ```bash
-python nmaipy/exporter.py \
+python -m nmaipy.exporter \
     --aoi-file "parcels.geojson" \
     --output-dir "results" \
     --country us \
@@ -366,15 +415,15 @@ Key options:
 
 | Flag | What it does |
 |------|--------------|
-| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pools`, `solar`, `damage`, etc.) |
-| `--include` | Additional calculated includes (`roofSpotlightIndex`, `defensibleSpace`, `hurricaneScore`, `windScore`, `hailScore`, `wildfireScore`, `windHailRisk`) |
+| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pool`, `solar`, `damage`, etc.) |
+| `--include` | Additional calculated includes (`roofSpotlightIndex`, `roofConditionConfidenceStats`, `damage`, `defensibleSpace`, `hurricaneScore`, `windScore`, `hailScore`, `wildfireScore`, `windHailRiskScore`) |
 | `--roof-age` | Include Roof Age API data (US only) |
 | `--roof-age-dataset` | `latest` (default), `A.0`, `A.1`, `A.1Q2`, or any raw resource UUID |
 | `--prefer3d` | Prefer 3D surveys, fall back to 2D per AOI when no 3D coverage exists in the window. Mutually exclusive with `--only3d` |
 | `--only3d` | Restrict every query to 3D surveys (no fallback) |
 | `--system-version-prefix` | Restrict to a specific AI generation (e.g. `gen6-`) |
 | `--system-version` | Pin to an exact version (e.g. `gen6-glowing_grove-1.0`) |
-| `--rapid` | Consider rapid post-catastrophe surveys (damage workflows) |
+| `--rapid` | Also consider rapid post-catastrophe surveys (Building lifecycle / `damage` pack only) |
 | `--since` / `--until` | Filter by survey date range (`YYYY-MM-DD`). Per-AOI columns override per-row. With `--roof-age`, drives `sinceAsOfDate` / `untilAsOfDate` for historical roof state |
 | `--save-features` | Save per-class GeoParquet files with feature geometries |
 | `--tabular-file-format` | `csv` (default) or `parquet` for rollup and per-class attribute files |
