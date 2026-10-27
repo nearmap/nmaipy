@@ -54,9 +54,9 @@ POST_CAT_EVENT_ID_TAG = "postCatEventId"
 POST_CAT_EVENT_NAME_TAG = "postCatEventName"
 POST_CAT_EVENT_DATE_TAG = "postCatEventDate"
 POST_CAT_EVENT_TYPE_TAG = "postCatEventType"
-# The /coverage/v2/surveys endpoint paginates via offset/limit and reports `total`; page
-# through all of an event's surveys so a large event (e.g. thousands of post-cat captures)
-# isn't silently truncated at a single page.
+# The /coverage/v2 point and surveys endpoints paginate via offset/limit and report `total`
+# (newest survey first); _get_all_survey_pages follows every page so a large event (thousands
+# of post-cat captures) or a heavily-flown point isn't silently truncated at a single page.
 _COVERAGE_PAGE_SIZE = 1000
 _MAX_COVERAGE_PAGES = 100  # safety bound (~100k surveys) against a missing/inconsistent `total`
 
@@ -121,17 +121,65 @@ def _resolve_apikey(apikey, bearer_token=None):
     return key
 
 
+def _get_all_survey_pages(url, page_size, apikey=None, timeout=DEFAULT_TIMEOUT, bearer_token=None):
+    """GET every page of a Coverage API v2 survey listing and merge them into one response.
+
+    The ``/coverage/v2`` point and surveys endpoints page via ``limit``/``offset`` and report
+    ``total``, so a single request silently drops every survey past the first page. Follows
+    ``offset`` until ``total`` is reached (or, if no ``total`` is reported, until a short page).
+
+    Args:
+        url: request URL, with a query string but without ``limit``/``offset``.
+        page_size: surveys requested per page (the API's ``limit``).
+        apikey, timeout, bearer_token: passed through to ``get_payload``.
+
+    Returns:
+        The first page's response with every page's ``surveys`` concatenated, or the integer
+        status code of the first failed request (``get_payload``'s contract).
+
+    Raises:
+        ValueError: if paging runs past ``_MAX_COVERAGE_PAGES`` pages without terminating.
+    """
+    first_page = None
+    surveys = []
+    for _ in range(_MAX_COVERAGE_PAGES):
+        response = get_payload(
+            f"{url}&limit={page_size}&offset={len(surveys)}", apikey=apikey, timeout=timeout, bearer_token=bearer_token
+        )
+        if isinstance(response, int):
+            return response
+        if first_page is None:
+            first_page = response
+        page = response.get("surveys", [])
+        surveys.extend(page)
+        total = response.get("total")
+        if not page:
+            break
+        if total is not None:
+            if len(surveys) >= total:
+                break
+        elif len(page) < page_size:  # no `total` reported — stop on a short page
+            break
+    else:
+        # Loop exhausted _MAX_COVERAGE_PAGES without terminating — surface rather than silently truncate.
+        raise ValueError(
+            f"Coverage API paging exceeded {_MAX_COVERAGE_PAGES} pages for {url} "
+            f"({len(surveys)} surveys so far) — aborting rather than truncating"
+        )
+    return {**first_page, "surveys": surveys}
+
+
 def _post_cat_events_at_point(lat, lon, since=None, until=None, apikey=None, bearer_token=None):
     """Return ``{event_id: {event_name, event_date, event_type}}`` for post-cat events whose
     surveys cover ``(lat, lon)``. Empty dict if none. Raises ValueError on a failed request."""
     apikey = _resolve_apikey(apikey, bearer_token)
     # Endpoint takes the point as `{lon},{lat}` in the path (see get_surveys_from_point).
-    url = f"{COVERAGE_V2_URL}/point/{lon},{lat}?fields=id,captureDate,tags&limit=100"
+    url = f"{COVERAGE_V2_URL}/point/{lon},{lat}?fields=id,captureDate,tags"
     if since is not None:
         url += f"&since={since}"
     if until is not None:
         url += f"&until={until}"
-    response = get_payload(url, apikey=apikey, bearer_token=bearer_token)
+    response = _get_all_survey_pages(url, _COVERAGE_PAGE_SIZE, apikey=apikey, bearer_token=bearer_token)
     if isinstance(response, int):
         raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")
 
@@ -218,47 +266,27 @@ def event_boundary(event_id, since=None, until=None, apikey=None, bearer_token=N
     if until is not None:
         window += f"&until={until}"
 
+    # The `include=<type>:<name>` tag filter is what the "Filter Surveys" doc means; it
+    # returns the event's surveys globally (the /surveys endpoint requires this non-date
+    # filter param).
+    url = (
+        f"{COVERAGE_V2_URL}/surveys"
+        f"?include={POST_CAT_EVENT_ID_TAG}:{event_id}"
+        f"&resources=tiles:Vert&fields=id,captureDate,resources,resources:boundary,tags{window}"
+    )
+    response = _get_all_survey_pages(url, _COVERAGE_PAGE_SIZE, apikey=apikey, bearer_token=bearer_token)
+    if isinstance(response, int):
+        raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")
+
     boundaries = []
-    offset = 0
-    for _ in range(_MAX_COVERAGE_PAGES):
-        # The `include=<type>:<name>` tag filter is what the "Filter Surveys" doc means; it
-        # returns the event's surveys globally (the /surveys endpoint requires this non-date
-        # filter param). The endpoint paginates via offset/limit and reports `total`.
-        url = (
-            f"{COVERAGE_V2_URL}/surveys"
-            f"?include={POST_CAT_EVENT_ID_TAG}:{event_id}"
-            "&resources=tiles:Vert&fields=id,captureDate,resources,resources:boundary,tags"
-            f"&limit={_COVERAGE_PAGE_SIZE}&offset={offset}{window}"
-        )
-        response = get_payload(url, apikey=apikey, bearer_token=bearer_token)
-        if isinstance(response, int):
-            raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")
-
-        surveys = response.get("surveys", [])
-        for survey in surveys:
-            # The server filters by the include tag; re-check client-side defensively.
-            if (survey.get("tags") or {}).get(POST_CAT_EVENT_ID_TAG) != event_id:
-                continue
-            for tile in survey.get("resources", {}).get("tiles", []) or []:
-                geom = tile.get("boundary")
-                if geom:
-                    boundaries.append(shape(geom))
-
-        offset += len(surveys)
-        total = response.get("total")
-        if not surveys:
-            break
-        if total is not None:
-            if offset >= total:
-                break
-        elif len(surveys) < _COVERAGE_PAGE_SIZE:  # no `total` reported — stop on a short page
-            break
-    else:
-        # Loop exhausted _MAX_COVERAGE_PAGES without terminating — surface rather than silently truncate.
-        raise ValueError(
-            f"Event {event_id} boundary paging exceeded {_MAX_COVERAGE_PAGES} pages "
-            f"({len(boundaries)} boundaries so far) — aborting rather than truncating"
-        )
+    for survey in response["surveys"]:
+        # The server filters by the include tag; re-check client-side defensively.
+        if (survey.get("tags") or {}).get(POST_CAT_EVENT_ID_TAG) != event_id:
+            continue
+        for tile in survey.get("resources", {}).get("tiles", []) or []:
+            geom = tile.get("boundary")
+            if geom:
+                boundaries.append(shape(geom))
 
     if not boundaries:
         win = f" in {since}..{until}" if (since or until) else ""
@@ -310,7 +338,9 @@ def get_surveys_from_point(
 ):
     fields = "id,captureDate,resources,tags"
     if coverage_type == STANDARD_COVERAGE:
-        url = f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
+        url = (
+            f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&resources=tiles:Vert,aifeatures,3d"
+        )
         if include_disaster:
             url += f"&include=disaster"
     elif coverage_type == AI_COVERAGE:
@@ -325,7 +355,12 @@ def get_surveys_from_point(
         url += f"&until={until}"
     if prerelease:
         url += "&prerelease=true"
-    response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
+    if coverage_type == STANDARD_COVERAGE:
+        # `limit` is the page size: page through every survey so heavily-flown points aren't truncated.
+        response = _get_all_survey_pages(url, limit, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
+    else:
+        # The AI coverage endpoint returns every survey in one response (it ignores limit/offset).
+        response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
