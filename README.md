@@ -170,9 +170,10 @@ After a catastrophe (hurricane, tornado, wildfire, flood), Nearmap flies **post-
 - [**AI Layers on Post-Catastrophe Surveys**](#ai-layers-on-post-catastrophe-surveys) — debris, tarps, missing shingles, structural damage and other AI layers from a post-cat survey (Feature API).
 - [**Damage Conflation**](#damage-conflation) — one rating per building fused across every capture of the event, retrieved for a whole event at once (Damage Conflation API).
 
-Two rules apply to both Feature API workflows:
+Three rules apply to both Feature API workflows:
 
 - **Packs are either post-cat or standard**, and a request only returns features from surveys of the matching kind. The post-cat packs are `damage`, `damage_classifications`, `postcat` and `postcat_others`. They combine with each other, but mixing one with any standard pack (e.g. `building`) is rejected with `400 INCOMPATIBLE_PACKS`.
+- **Use small AOIs**: individual property boundaries, or the smallest statistical unit of the country — census blocks (US) or mesh blocks (AU).
 - **Set `since` to the event date** so only surveys flown after the event are used. AOIs outside post-cat coverage fail with `404 no survey resources found` (listed in `feature_api_errors.csv`); post-cat AI coverage can stop slightly short of the imagery footprint, so expect some of these along the edge of an event.
 
 The examples use Hurricane Isaias (event date 2026-10-09, Florida Panhandle). To find an event's id and footprint from a point inside the damage zone, see [Damage Conflation](#damage-conflation).
@@ -186,7 +187,7 @@ from nmaipy.exporter import NearmapAIExporter
 
 if __name__ == "__main__":
     exporter = NearmapAIExporter(
-        aoi_file='properties.geojson',  # AOIs inside the event footprint
+        aoi_file='aois.geojson',        # property boundaries or census / mesh blocks, inside the event footprint
         output_dir='isaias_damage_classifications',
         country='us',
         packs=['damage'],               # Building lifecycle features from post-cat surveys
@@ -205,14 +206,14 @@ The rollup gets the primary building's rating — `primary_building_lifecycle_da
 
 #### AI Layers on Post-Catastrophe Surveys
 
-Post-cat surveys carry their own AI layers — debris, tarps, missing shingles, exposed underlayment, temporary repairs, structural damage — but only **post-cat packs** can read them, and the pack names don't make that obvious. The standard `debris` pack reads standard surveys only: with `since` set to the event date it fails with `404 no survey resources found`, and without `since` it silently returns debris from the latest *pre-event* survey. Use the `postcat` pack instead:
+Post-cat surveys get the full Nearmap AI suite, from the same processing as standard surveys. What changes is access: **packs control which layers you can read from post-cat versus standard surveys**, and the pack names don't make that obvious. The standard `debris` pack reads standard surveys only: with `since` set to the event date it fails with `404 no survey resources found`, and without `since` it silently returns debris from the latest *pre-event* survey. To read debris, tarps, missing shingles, exposed underlayment, temporary repairs or structural damage from a post-cat survey, use the `postcat` pack:
 
 ```python
 from nmaipy.exporter import NearmapAIExporter
 
 if __name__ == "__main__":
     exporter = NearmapAIExporter(
-        aoi_file='census_blocks.geojson',  # AOIs inside the event footprint
+        aoi_file='aois.geojson',           # property boundaries or census / mesh blocks, inside the event footprint
         output_dir='isaias_postcat_layers',
         country='us',
         packs=['postcat'],                 # post-cat AI layers; never mixed with standard packs such as 'building'
@@ -234,17 +235,20 @@ Which pack to ask for:
 
 #### Damage Conflation
 
-The Damage Conflation API is the **multi-date** counterpart of the damage classification above: instead of one survey's rating, it returns one *conflated* rating per building — the highest-confidence assessment across every capture in the event's lifecycle. Queries are scoped by event id rather than by date or survey, so there is no survey to choose: an AOI of any size, up to the whole event footprint, is answered in one go (large AOIs are paged). This script goes from one point to conflated damage for the whole event:
+The Damage Conflation API is the **multi-date** counterpart of the damage classification above: instead of one survey's rating, it returns one *conflated* rating per building — the highest-confidence assessment across every capture in the event's lifecycle. Queries are scoped by event id rather than by date or survey, so there is no survey to choose. Large AOIs are paged, so areas bigger than census blocks work too — up to the whole event footprint — though large AOIs take longer to return. This script goes from one point to conflated damage for the whole event, one census block at a time:
 
 ```python
 """Pull conflated building damage for a whole catastrophe event, starting from one point."""
 
+import geopandas as gpd
+
 from nmaipy.coverage_utils import discover_event
 from nmaipy.damage_conflation_exporter import DamageConflationExporter
-from nmaipy.geometry_utils import split_geometry_into_grid
 
 LAT, LON = 30.15465, -85.76716  # Panama City Beach, FL: inside the Hurricane Isaias (2026) damage zone
-AOI_FILE = "isaias_cells.parquet"
+# US Census 2020 blocks for Florida (TIGER/Line 2022, ~190 MB), read straight from census.gov
+BLOCKS_URL = "https://www2.census.gov/geo/tiger/TIGER2022/TABBLOCK20/tl_2022_12_tabblock20.zip"
+AOI_FILE = "isaias_blocks.parquet"
 
 
 def main():
@@ -254,12 +258,17 @@ def main():
     event_id, footprint = discover_event(lat=LAT, lon=LON, since="2026-10-09", until="2026-12-31")
     # event_id == "442c3974-5b6c-5335-a6e4-83b5b9afc8b7"  (Hurricane Isaias, event date 2026-10-09)
 
-    # 2. Footprint -> ~1 km grid cells as AOIs. The API pages a whole footprint, but cells spread
-    #    the work across processes, let an interrupted run resume chunk by chunk, and give
-    #    per-cell counts in the rollup. Census blocks or your own parcels work just as well.
-    cells = split_geometry_into_grid(footprint, cell_size=0.01).reset_index(drop=True)
-    cells["aoi_id"] = "cell_" + cells.index.astype(str)
-    cells[["aoi_id", "geometry"]].to_parquet(AOI_FILE)
+    # 2. Footprint -> one AOI per census block, clipped to the surveyed area. Block boundaries
+    #    mostly run down the middle of roads; an arbitrary grid would cut through buildings and
+    #    return each one in every AOI it touches. The bbox read is in the file's CRS (NAD83),
+    #    hence the small buffer.
+    minx, miny, maxx, maxy = footprint.bounds
+    blocks = gpd.read_file(
+        BLOCKS_URL, columns=["GEOID20"], bbox=(minx - 0.01, miny - 0.01, maxx + 0.01, maxy + 0.01)
+    ).to_crs("EPSG:4326")
+    blocks = gpd.clip(blocks, footprint, keep_geom_type=True)
+    blocks = blocks[~blocks.is_empty].rename(columns={"GEOID20": "aoi_id"})
+    blocks.to_parquet(AOI_FILE)
 
     # 3. One conflated damage rating per building, fused across every capture of the event.
     DamageConflationExporter(
@@ -268,7 +277,7 @@ def main():
         event_id=event_id,
         country="us",
         output_format="both",  # GeoParquet + CSV
-        rollup=True,  # adds a per-cell rollup (n_buildings, n_major, ...) alongside the per-building rows
+        rollup=True,  # adds a per-block rollup (n_buildings, n_major, ...) alongside the per-building rows
         processes=8,
         threads=1,  # the conflation API rate-limits well below the Feature API; keep concurrency low
         chunk_size=100,
@@ -282,7 +291,7 @@ if __name__ == "__main__":  # required: nmaipy's worker pool uses the "spawn" st
 
 `discover_event` picks the **latest** post-catastrophe event covering the point and logs any others — this point also sits under Hurricane Michael (2018) and a 2024 severe-weather event — so pass `since`/`until` to pin a specific one (they also bound the captures that make up the footprint). The event id is the Coverage API's `postCatEventId` survey tag. The two steps are also available separately: `latest_event_id_at_point(lat, lon)` and `event_boundary(event_id)` (one tag-filtered Coverage query — `include=postCatEventId:<id>` — unioned, no spatial search).
 
-The exporter always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building, which is most meaningful when AOIs are property-sized). Ratings use the same five tiers, except that the lowest is `NoDamage` (the Feature API's `Undamaged`). Unlike the Feature API, an AOI outside the event footprint is not an error: it succeeds with no buildings. The Isaias footprint is ~3,600 km² (~3,850 cells), so slice `cells` (e.g. `cells.head(10)`) for a quick first run. See [Standalone Damage Conflation Export](#standalone-damage-conflation-export) for the CLI and the files written to `final/`.
+The exporter always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building, which is most meaningful when AOIs are property-sized). Ratings use the same five tiers, except that the lowest is `NoDamage` (the Feature API's `Undamaged`). Unlike the Feature API, an AOI outside the event footprint is not an error: it succeeds with no buildings. A building that straddles two AOIs is returned for each, with the same `feature_id` and rating, so deduplicate on `feature_id` when counting across AOIs — census blocks keep this rare. The Isaias footprint covers ~14,700 blocks, so slice `blocks` (e.g. `blocks.head(10)`) for a quick first run. See [Standalone Damage Conflation Export](#standalone-damage-conflation-export) for the CLI and the files written to `final/`.
 
 ## Discovering available AI Features
 
@@ -374,7 +383,7 @@ AWS credentials are resolved from environment variables (`AWS_ACCESS_KEY_ID`, `A
 
 ## Working with Large Areas
 
-Any AOI larger than 1 km² is **automatically gridded** — split into 0.005° (~500 m) cells, processed in parallel, then recombined and deduplicated. No configuration needed for the common case:
+Any AOI larger than 1 km² is **automatically gridded** — split into 0.005° (~550 m) cells, processed in parallel, then recombined and deduplicated. No configuration needed for the common case:
 
 ```python
 exporter = NearmapAIExporter(
