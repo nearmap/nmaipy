@@ -291,8 +291,10 @@ def test_attempt_gridding_metadata_marks_gridded(monkeypatch):
     fake_features_gdf = gpd.GeoDataFrame(columns=["geometry"], crs=API_CRS)
     fake_errors_df = pd.DataFrame([])
 
+    fake_grid_summary = {"grid_cells": 4, "grid_cells_answered": 3, "answered_area_fraction": 0.8}
+
     def fake_gridded(**kwargs):
-        return fake_features_gdf, fake_metadata_df, fake_errors_df
+        return fake_features_gdf, fake_metadata_df, fake_errors_df, fake_grid_summary
 
     monkeypatch.setattr(api, "get_features_gdf_gridded", fake_gridded)
 
@@ -303,3 +305,4 @@ def test_attempt_gridding_metadata_marks_gridded(monkeypatch):
     )
     assert error is None
     assert metadata["gridded"] is True
+    assert {k: metadata[k] for k in fake_grid_summary} == fake_grid_summary, "grid coverage must reach the metadata"

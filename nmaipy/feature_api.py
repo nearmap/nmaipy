@@ -68,6 +68,18 @@ logger = log.get_logger()
 
 # Deprecated aliases — prefer APIGridError/APIRequestSizeError from api_common
 AIFeatureAPIGridError = APIGridError
+
+
+def _grid_failure_status(errors_df: pd.DataFrame):
+    """
+    Status code to report for a grid that failed as a whole: 404 only when every failed cell was a 404
+    (no coverage), otherwise the most common other status, so an outage is never reported as a coverage gap.
+    """
+    codes = errors_df["status_code"]
+    other = codes[codes != HTTPStatus.NOT_FOUND]
+    return HTTPStatus.NOT_FOUND.value if len(other) == 0 else other.value_counts(dropna=False).idxmax()
+
+
 AIFeatureAPIRequestSizeError = APIRequestSizeError
 
 
@@ -1181,7 +1193,7 @@ class FeatureApi(GriddedApiClient):
             # Disable parcel_mode during gridding to ensure consistent include parameter values.
             # When parcel_mode is on, features get clipped at grid boundaries, which can cause
             # include parameters (defensibleSpace, RSI, etc.) to be computed on arbitrary portions.
-            features_gdf, metadata_df, errors_df = self.get_features_gdf_gridded(
+            features_gdf, metadata_df, errors_df, grid_summary = self.get_features_gdf_gridded(
                 geometry=geometry,
                 region=region,
                 packs=packs,
@@ -1198,12 +1210,9 @@ class FeatureApi(GriddedApiClient):
             )
             error = None  # Reset error if we got here without an exception
 
-            # Recombine gridded features
+            # Recombine gridded features. get_features_gdf_gridded raises unless at least one cell
+            # answered, so metadata_df has a row.
             features_gdf = geometry_utils.combine_features_from_grid(features_gdf)
-
-            # Check for empty metadata (all grid cells failed)
-            if len(metadata_df) == 0:
-                raise AIFeatureAPIGridError(404, message="All grid cells failed - no coverage or data available")
 
             # Create metadata.
             # Whitelist guaranteed-scalar columns for dedup. Payload metadata can
@@ -1247,15 +1256,17 @@ class FeatureApi(GriddedApiClient):
                 # this flag to decide whether roof parents must be clipped to the
                 # AOI before component recalculation (see exporter.process_chunk).
                 "gridded": True,
+                # How much of the AOI the result covers: grid_cells, grid_cells_answered and
+                # answered_area_fraction (the answered cells' share of the AOI's area).
+                **grid_summary,
             }
 
             # Return grid cell errors as 4th element (may include geometry for failed grid squares)
             return features_gdf, metadata, error, errors_df
 
-        except (AIFeatureAPIError, AIFeatureAPIGridError) as e:
-            # Catch acceptable errors - these are complete grid failures
-            features_gdf = None
-            metadata = None
+        except AIFeatureAPIGridError as e:
+            # The grid failed as a whole (too few cells answered, none did, or mixed dates). Keep how
+            # far it got on the error row, so the errors file shows e.g. 12 of 17 cells answered.
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": e.status_code,
@@ -1264,8 +1275,11 @@ class FeatureApi(GriddedApiClient):
                 "request": "Grid error",
                 "failure_type": "grid",
                 "geometry": geometry,
+                "grid_cells": e.grid_cells,
+                "grid_cells_answered": e.grid_cells_answered,
+                "answered_area_fraction": e.answered_area_fraction,
             }
-            return features_gdf, metadata, error, None
+            return None, None, error, None
         except Exception as grid_error:
             # exc_info=True so unexpected exceptions surface with a full
             # traceback in logs instead of just a message. This is the catch-all
@@ -1550,7 +1564,7 @@ class FeatureApi(GriddedApiClient):
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
         reason: Optional[str] = None,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, dict]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
@@ -1567,8 +1581,15 @@ class FeatureApi(GriddedApiClient):
             grid_size: The AOI is gridded in the native projection (constants.API_CRS) to save compute.
 
         Returns:
-            API response features GeoDataFrame, metadata DataFrame, and an errors DataFrame
-            (per-grid-cell errors with cell geometry, marked failure_type="grid")
+            API response features GeoDataFrame, metadata DataFrame, an errors DataFrame
+            (per-grid-cell errors with cell geometry, marked failure_type="grid"), and a grid summary
+            dict: grid_cells, grid_cells_answered and answered_area_fraction (the answered cells'
+            share of the AOI's area).
+
+        Raises:
+            AIFeatureAPIGridError: fewer than aoi_grid_min_pct of the cells answered, none did, or
+                cells answered from different dates without aoi_grid_inexact. Carries the same grid
+                summary as attributes.
         """
         # Acquire semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened simultaneously
@@ -1603,38 +1624,69 @@ class FeatureApi(GriddedApiClient):
             df_gridded[AOI_ID_COLUMN_NAME] = aoi_id_tmp
             df_gridded = df_gridded.set_index(AOI_ID_COLUMN_NAME)
 
+            # Detach parent executor so grid cells get their own dedicated executor
+            # and execute immediately. Without this, grid cells queue behind remaining
+            # parcels in the parent executor's FIFO queue, blocking this thread until
+            # the entire parent queue drains — or deadlocking if enough threads are
+            # gridding simultaneously (all threads blocked, no one to process grid cells).
+            # Every cell is collected (max_allowed_error_pct=100) and aoi_grid_min_pct applied below,
+            # so a failed grid can report how many cells answered. Failing fast inside the bulk call
+            # saved no requests: its executor shutdown still ran every queued cell.
+            saved_executor = getattr(self._thread_local, "executor", None)
+            self._thread_local.executor = None
             try:
-                # Detach parent executor so grid cells get their own dedicated executor
-                # and execute immediately. Without this, grid cells queue behind remaining
-                # parcels in the parent executor's FIFO queue, blocking this thread until
-                # the entire parent queue drains — or deadlocking if enough threads are
-                # gridding simultaneously (all threads blocked, no one to process grid cells).
-                saved_executor = getattr(self._thread_local, "executor", None)
-                self._thread_local.executor = None
-                try:
-                    features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
-                        gdf=df_gridded,
-                        region=region,
-                        packs=packs,
-                        classes=classes,
-                        include=include,
-                        since_bulk=since,
-                        until_bulk=until,
-                        survey_resource_id_bulk=survey_resource_id,
-                        max_allowed_error_pct=100 - self.aoi_grid_min_pct,
-                        fail_hard_regrid=True,
-                        in_gridding_mode=True,
-                        disable_parcel_mode=disable_parcel_mode,
-                    )
-                finally:
-                    self._thread_local.executor = saved_executor
-            except AIFeatureAPIError as e:
-                logger.debug(
-                    f"Failed whole grid for aoi_id {aoi_id}. Errors exceeded max allowed (min valid {self.aoi_grid_min_pct}%) ({e.status_code})."
+                features_gdf, metadata_df, errors_df = self.get_features_gdf_bulk(
+                    gdf=df_gridded,
+                    region=region,
+                    packs=packs,
+                    classes=classes,
+                    include=include,
+                    since_bulk=since,
+                    until_bulk=until,
+                    survey_resource_id_bulk=survey_resource_id,
+                    max_allowed_error_pct=100,
+                    fail_hard_regrid=True,
+                    in_gridding_mode=True,
+                    disable_parcel_mode=disable_parcel_mode,
                 )
-                raise AIFeatureAPIGridError(e.status_code)
+            finally:
+                self._thread_local.executor = saved_executor
+
+            # Cells partition the AOI (the grid is overlaid on it and exploded), so the answered
+            # cells' share of the summed cell area is the share of the AOI the result covers.
+            # Count from metadata rows (one per answered cell) while the index still holds cell ids.
+            n_cells = len(df_gridded)
+            n_answered = len(metadata_df)
+            if n_answered + len(errors_df) != n_cells:
+                raise ValueError(
+                    f"Grid accounting for aoi_id {aoi_id}: {n_answered} answered + {len(errors_df)} failed "
+                    f"!= {n_cells} cells"
+                )
+            cell_area = df_gridded.geometry.to_crs(AREA_CRS[region.lower()]).area
+            answered_area_fraction = float(cell_area[cell_area.index.isin(metadata_df.index)].sum() / cell_area.sum())
+            grid_summary = {
+                "grid_cells": n_cells,
+                "grid_cells_answered": n_answered,
+                "answered_area_fraction": answered_area_fraction,
+            }
+            failed_by_status = errors_df["status_code"].value_counts(dropna=False).to_dict() if len(errors_df) else {}
+            summary_str = (
+                f"{n_answered} of {n_cells} grid cells answered ({answered_area_fraction:.1%} of area), "
+                f"failed cells by status {failed_by_status}"
+            )
+
+            max_failed = math.floor(n_cells * (100 - self.aoi_grid_min_pct) / 100)
+            if len(errors_df) > max_failed or n_answered == 0:
+                logger.debug(
+                    f"Failed whole grid for aoi_id {aoi_id}: {summary_str}; needed {self.aoi_grid_min_pct}% of cells."
+                )
+                raise AIFeatureAPIGridError(
+                    _grid_failure_status(errors_df),
+                    message=f"{summary_str}; needed {self.aoi_grid_min_pct}% of cells",
+                    **grid_summary,
+                )
             # Check for multiple survey dates using metadata (works even with empty features)
-            if len(metadata_df) > 0 and len(metadata_df["survey_date"].unique()) > 1:
+            if len(metadata_df["survey_date"].unique()) > 1:
                 if aoi_grid_inexact:
                     logger.info(
                         f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
@@ -1645,35 +1697,27 @@ class FeatureApi(GriddedApiClient):
                     )
                     raise AIFeatureAPIGridError(
                         DUMMY_STATUS_CODE,
-                        message="Multiple dates on non survey resource ID query.",
+                        message=f"Multiple dates on non survey resource ID query ({summary_str}).",
+                        **grid_summary,
                     )
-            elif len(metadata_df) > 0 and survey_resource_id is None:
+            elif survey_resource_id is None:
                 logger.debug(
                     f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
                 )
                 # TODO: We should change query to guarantee same survey id is used somehow.
 
             if len(errors_df) > 0:
-                # Check if we have any non-404 errors (which indicate retriable failures)
+                # Non-404 failures (retriable statuses that exhausted their retries) leave holes the
+                # caller may want to chase; 404 cells are plain coverage edges.
                 non_404_errors = errors_df[errors_df["status_code"] != 404]
-
                 if len(non_404_errors) > 0:
-                    # Log warning for non-404 errors that create holes in the grid
-                    logger.warning(
-                        f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
-                    )
+                    logger.warning(f"Allowing partial grid results on aoi {aoi_id}: {summary_str}.")
                     # Log a random sample of non-404 errors to avoid massive output
-                    if len(non_404_errors) > 0:
-                        sample_size = min(5, len(non_404_errors))
-                        error_sample = non_404_errors[["status_code", "message"]].sample(n=sample_size, random_state=42)
-                        logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
+                    sample_size = min(5, len(non_404_errors))
+                    error_sample = non_404_errors[["status_code", "message"]].sample(n=sample_size, random_state=42)
+                    logger.warning(f"Sample of {sample_size} non-404 errors: {error_sample.to_dict('records')}")
                 else:
-                    # Only 404s - use debug level as before
-                    logger.debug(
-                        f"Allowing partial grid results on aoi {aoi_id} with {len(features_gdf)} good results and {len(errors_df)} errors of types {errors_df.status_code.value_counts().to_json()}."
-                    )
-
-                # raise AIFeatureAPIGridError(errors_df.query("status_code != 200").status_code.mode())
+                    logger.debug(f"Allowing partial grid results on aoi {aoi_id}: {summary_str}.")
 
             # Reset the correct aoi_id for the gridded result
             features_gdf[AOI_ID_COLUMN_NAME] = aoi_id
@@ -1699,7 +1743,7 @@ class FeatureApi(GriddedApiClient):
                 errors_with_geom["failure_type"] = "grid"
                 errors_df = errors_with_geom
 
-            return features_gdf, metadata_df, errors_df
+            return features_gdf, metadata_df, errors_df, grid_summary
 
     def get_features_gdf_bulk(
         self,

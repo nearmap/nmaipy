@@ -79,7 +79,8 @@ def test_attempt_gridding_does_not_swallow_dict_aggregate(monkeypatch, defensibl
     fake_errors_df = pd.DataFrame([])
 
     def fake_gridded(**kwargs):
-        return fake_features_gdf, fake_metadata_df, fake_errors_df
+        grid_summary = {"grid_cells": 2, "grid_cells_answered": 2, "answered_area_fraction": 1.0}
+        return fake_features_gdf, fake_metadata_df, fake_errors_df, grid_summary
 
     monkeypatch.setattr(api, "get_features_gdf_gridded", fake_gridded)
 
