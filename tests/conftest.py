@@ -243,8 +243,10 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
         "until": "2025-01-01",
         "geometry": sydney_aoi,
     }
+    # Pinned by survey date, not survey resource id: resource ids change when a survey's AI is re-run.
     adelaide_row = {
-        "survey_resource_id": "68c1c4e7-9267-52a5-84e7-23b6ed43bceb",  # 2025-03-06, Gen 6 run
+        "since": "2025-03-06",
+        "until": "2025-03-06",
         "geometry": large_adelaide_aoi,
     }
 

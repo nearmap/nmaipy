@@ -149,7 +149,8 @@ class TestFeatureAPI:
         assert result.crs == API_CRS
 
     def test_large_aoi(self, cache_directory: Path, large_adelaide_aoi: Polygon):
-        survey_resource_id = "68c1c4e7-9267-52a5-84e7-23b6ed43bceb"  # 2025-03-06, Gen 6 run
+        # Pin the survey by date, not by survey resource id: resource ids change when a survey's AI is re-run.
+        survey_date = "2025-03-06"
         country = "au"
         packs = ["building", "vegetation"]
         aoi_id = "0"
@@ -160,7 +161,8 @@ class TestFeatureAPI:
             region=country,
             packs=packs,
             aoi_id=aoi_id,
-            survey_resource_id=survey_resource_id,
+            since=survey_date,
+            until=survey_date,
         )
         # No error
         assert error is None
