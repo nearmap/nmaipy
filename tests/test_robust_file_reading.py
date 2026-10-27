@@ -424,3 +424,29 @@ class TestRobustFileReading:
             ], "User's 'index' column values should be unchanged"
         finally:
             Path(parquet_path).unlink()
+
+    @pytest.mark.parametrize("suffix,driver", [("geojson", "GeoJSON"), ("gpkg", "GPKG")])
+    def test_since_until_come_back_as_date_strings(self, tmp_path, suffix, driver):
+        """GeoJSON/GeoPackage readers parse YYYY-MM-DD values as datetimes, which the exporters
+        reject; read_from_file must return them as strings, keeping nulls null."""
+        gdf = gpd.GeoDataFrame(
+            {
+                AOI_ID_COLUMN_NAME: ["a", "b"],
+                "since": ["2025-03-06", None],
+                "until": ["2025-12-31", None],
+            },
+            geometry=[
+                Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+                Polygon([(2, 2), (3, 2), (3, 3), (2, 3)]),
+            ],
+            crs="EPSG:4326",
+        )
+        path = tmp_path / f"aois.{suffix}"
+        gdf.to_file(path, driver=driver)
+
+        result = parcels.read_from_file(path)
+
+        for col, expected in (("since", "2025-03-06"), ("until", "2025-12-31")):
+            assert pd.api.types.is_string_dtype(result[col]), f"{col} dtype is {result[col].dtype}"
+            assert result.loc["a", col] == expected
+            assert pd.isna(result.loc["b", col]), f"null {col} should stay null, got {result.loc['b', col]!r}"

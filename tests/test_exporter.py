@@ -339,10 +339,10 @@ class TestExporter:
         Test the full export workflow with save_features=True to validate the new incremental
         parquet writing works correctly in the actual run() method.
         """
-        # Create a temporary AOI file. GeoParquet keeps the since/until columns as strings;
-        # GeoJSON would read them back as datetimes, which the exporter rejects.
-        aoi_file = tmp_path / "test_aoi.parquet"
-        parcel_gdf_au_tests.to_parquet(aoi_file)
+        # Create a temporary AOI file. GeoJSON round-trips the since/until columns as datetimes,
+        # which read_from_file must turn back into YYYY-MM-DD strings for the exporter.
+        aoi_file = tmp_path / "test_aoi.geojson"
+        parcel_gdf_au_tests.to_file(aoi_file, driver="GeoJSON")
 
         output_dir = processed_output_directory / "test_full_incremental"
 
