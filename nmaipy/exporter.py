@@ -2548,7 +2548,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--aoi-grid-cell-size",
-        help=f"Grid cell size in degrees for subdividing large AOIs (default: {GRID_SIZE_DEGREES}, approx 200m). Smaller values = finer grid.",
+        help=f"Grid cell size in degrees for subdividing large AOIs (default: {GRID_SIZE_DEGREES}, approx 500m). Smaller values = finer grid.",
         type=float,
         required=False,
         default=GRID_SIZE_DEGREES,
