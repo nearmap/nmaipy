@@ -448,6 +448,12 @@ class TestValidateParquet:
     def test_nonexistent_file(self, tmp_path):
         assert storage.validate_parquet(str(tmp_path / "missing.parquet")) is False
 
+    def test_min_rows(self, tmp_path):
+        path = str(tmp_path / "zero_rows.parquet")
+        pd.DataFrame({"a": pd.Series([], dtype="int64")}).to_parquet(path)
+        assert storage.validate_parquet(path) is True
+        assert storage.validate_parquet(path, min_rows=1) is False, "a zero-row file must fail min_rows=1"
+
 
 # ---------------------------------------------------------------------------
 # write_parquet
