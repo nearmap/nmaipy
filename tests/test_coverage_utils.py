@@ -77,10 +77,56 @@ def test_get_payload_sends_apikey_via_params_not_url():
 
 
 def test_get_surveys_from_point_standard():
+    """The returned response merges every page into a new dict, so compare its surveys."""
     with patch.object(cu, "get_payload", return_value=_STD_RESPONSE):
         df, resp = cu.get_surveys_from_point(151.0, -33.0, "2019-01-01", "2021-01-01", "KEY", cu.STANDARD_COVERAGE)
-    assert resp is _STD_RESPONSE
+    assert resp["surveys"] == _STD_RESPONSE["surveys"]
     assert set(df["id"]) == {"s1", "s2"}
+
+
+def _paged_fake(pages):
+    """A get_payload stand-in that serves `pages` in order and records each requested URL."""
+    urls = []
+
+    def fake(url, apikey=None, timeout=cu.DEFAULT_TIMEOUT, bearer_token=None):
+        urls.append(url)
+        return pages[len(urls) - 1]
+
+    return fake, urls
+
+
+def test_get_surveys_from_point_standard_paginates():
+    """A point flown more often than one page holds must return every survey, not just page one."""
+    s1, s2 = _STD_RESPONSE["surveys"]
+    s3 = {**s2, "id": "s3", "captureDate": "2018-06-01"}
+    fake, urls = _paged_fake(
+        [
+            {"surveys": [s1, s2], "total": 3, "limit": 2, "offset": 0},
+            {"surveys": [s3], "total": 3, "limit": 2, "offset": 2},
+        ]
+    )
+    with patch.object(cu, "get_payload", side_effect=fake):
+        df, resp = cu.get_surveys_from_point(151.0, -33.0, None, None, "KEY", cu.STANDARD_COVERAGE, limit=2)
+    assert list(df["id"]) == ["s1", "s2", "s3"]
+    assert len(urls) == 2, f"expected two page requests, got {urls}"
+    assert urls[1].count("limit=") == 1 and "&limit=2&offset=2" in urls[1], urls[1]
+
+
+def test_get_surveys_from_point_ai_single_request():
+    """The AI coverage endpoint returns every survey at once (it ignores limit/offset): no paging."""
+    fake, urls = _paged_fake([{"results": [{"id": "r1"}, {"id": "r2"}]}])
+    with patch.object(cu, "get_payload", side_effect=fake):
+        df, _ = cu.get_surveys_from_point(151.0, -33.0, None, None, "KEY", cu.AI_COVERAGE)
+    assert list(df["id"]) == ["r1", "r2"]
+    assert len(urls) == 1 and "offset=" not in urls[0], urls
+
+
+def test_get_all_survey_pages_raises_instead_of_truncating(monkeypatch):
+    """Full pages with no `total` past the page cap must fail loudly, not return a partial list."""
+    monkeypatch.setattr(cu, "_MAX_COVERAGE_PAGES", 3)
+    with patch.object(cu, "get_payload", return_value={"surveys": [{"id": "s"}]}):
+        with pytest.raises(ValueError, match="aborting rather than truncating"):
+            cu._get_all_survey_pages("https://example/coverage/v2/point/0,0?fields=id", page_size=1, apikey="k")
 
 
 def test_threaded_uses_global_window_when_no_columns():
@@ -289,3 +335,17 @@ def test_event_boundary_paginates_offset(coverage_boundary_response):
         boundary = cu.event_boundary(MILTON_EVENT_ID, apikey="k")
     assert calls["n"] >= 2, "should have paged (>=2 requests)"
     assert boundary.equals(expected)  # boundaries from BOTH pages were unioned
+
+
+def test_post_cat_events_at_point_paginates(coverage_point_response):
+    """An event whose surveys only appear on a later page must still be found (and logged as a
+    candidate), so discovery doesn't depend on how many surveys fit in one page."""
+    older = copy.deepcopy(coverage_point_response["surveys"][0])
+    older["id"] = "older-survey"
+    older["tags"] = {**older["tags"], "postCatEventId": "older-event-id", "postCatEventDate": "2019-01-01"}
+    first = {**coverage_point_response, "total": 2, "offset": 0}
+    fake, urls = _paged_fake([first, {"surveys": [older], "total": 2, "offset": 1}])
+    with patch.object(cu, "get_payload", side_effect=fake):
+        events = cu._post_cat_events_at_point(27.742889, -82.754961, apikey="k")
+    assert set(events) == {MILTON_EVENT_ID, "older-event-id"}
+    assert "offset=1" in urls[1], urls

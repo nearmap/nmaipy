@@ -167,10 +167,11 @@ def parse_arguments():
         "primary building). Most useful when AOIs are property-sized.",
         action="store_true",
     )
+    # argparse %-formats help strings, so a literal percent sign must be written as %%.
     parser.add_argument(
         "--parcel-mode",
         help="Treat each AOI as a parcel boundary and drop buildings that barely intersect it "
-        f"(kept when >={PARCEL_MODE_MIN_RATIO:.0%} inside the AOI or the in-AOI footprint is "
+        f"(kept when >={PARCEL_MODE_MIN_RATIO * 100:.0f}%% inside the AOI or the in-AOI footprint is "
         f">={PARCEL_MODE_MIN_INTERSECTION_SQM} sqm). Client-side approximation of the Feature "
         "API's parcelMode; nothing is clipped.",
         action="store_true",
