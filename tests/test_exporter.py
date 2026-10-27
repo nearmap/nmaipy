@@ -23,12 +23,14 @@ import nmaipy.exporter as exporter_mod
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
     BUILDING_NEW_ID,
     FEATURE_CLASS_DESCRIPTIONS,
     FEATURE_PREFETCH_FLOOR,
     PER_CLASS_FILE_CLASS_IDS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
 )
 from nmaipy.exporter import (
     AOIExporter,
@@ -2062,6 +2064,71 @@ class TestCoverageGapChunks:
         chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
         assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be re-fetched on resume"
         assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the merge gate keys on the errors file"
+
+    def test_rollup_reports_how_much_of_each_aoi_answered(self, exporter):
+        """A gridded AOI carries its grid counts and answered share; an AOI answered in one request is answered
+        whole; an AOI the Feature API didn't answer has no coverage figures. answered_area_<unit> is the
+        answered share of the AOI's own area. None of it leaks into the features or per-class files."""
+        aoi_gdf = gpd.GeoDataFrame(
+            {"suburb": ["x", "y", "z"]},
+            geometry=[
+                box(151.20, -33.90, 151.21, -33.89),
+                box(151.22, -33.90, 151.2205, -33.8995),
+                box(151.24, -33.90, 151.2405, -33.8995),
+            ],
+            crs="EPSG:4326",
+            index=pd.Index(["gridded", "single", "failed"], name=AOI_ID_COLUMN_NAME),
+        )
+        meta = pd.DataFrame(
+            {
+                "system_version": ["gen6-x", "gen6-x"],
+                "survey_date": ["2024-01-01", "2024-01-01"],
+                "gridded": [True, None],
+                "grid_cells": [17, None],
+                "grid_cells_answered": [15, None],
+                "answered_area_fraction": [0.9, None],
+            },
+            index=pd.Index(["gridded", "single"], name=AOI_ID_COLUMN_NAME),
+        )
+        errors = self._errors_df([404]).rename({"p1": "failed"})
+        features = self._building_features(["gridded", "single"])
+        chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, errors, features)
+
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
+        aoi_area_sqm = aoi_gdf.geometry.to_crs(AREA_CRS["au"]).area
+        assert (rollup.loc["gridded", "grid_cells"], rollup.loc["gridded", "grid_cells_answered"]) == (17, 15)
+        assert rollup.loc["gridded", "answered_area_fraction"] == pytest.approx(0.9)
+        assert rollup.loc["gridded", "answered_area_sqm"] == pytest.approx(0.9 * aoi_area_sqm["gridded"])
+        assert rollup.loc["single", ["grid_cells", "grid_cells_answered"]].isna().all(), "not gridded"
+        assert rollup.loc["single", "answered_area_fraction"] == 1.0, "one request answers the whole AOI"
+        assert str(rollup["answered_area_fraction"].dtype) == "Float64"
+        assert rollup.loc["single", "answered_area_sqm"] == pytest.approx(aoi_area_sqm["single"])
+        coverage = ["grid_cells", "grid_cells_answered", "answered_area_fraction", "answered_area_sqm"]
+        assert rollup.loc["failed", coverage].isna().all(), "an AOI that wasn't answered has no coverage figures"
+        assert "answered_area_sqft" not in rollup.columns, "only the country's area unit"
+
+        for name in ["features_0000.parquet", "building_0000.parquet", "building_features_0000.parquet"]:
+            leaked = set(coverage) & set(pd.read_parquet(chunk_path / name).columns)
+            assert not leaked, f"{name} must not carry AOI coverage columns: {leaked}"
+
+    def test_answered_area_uses_square_feet_in_the_us(self, tmp_path):
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            no_cache=True,
+        )
+        Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+        aoi_gdf = self._aoi_gdf().iloc[:1]
+        meta = pd.DataFrame({"system_version": ["gen6-x"]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME))
+        chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, self._no_errors())
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
+        area_sqft = aoi_gdf.geometry.to_crs(AREA_CRS["us"]).area.iloc[0] * SQUARED_METERS_TO_SQUARED_FEET
+        assert rollup.loc["p1", "answered_area_sqft"] == pytest.approx(area_sqft)
+        assert "answered_area_sqm" not in rollup.columns
+        # Every answered AOI was answered whole (1.0), which convert_dtypes alone would make Int64.
+        assert str(rollup["answered_area_fraction"].dtype) == "Float64", rollup["answered_area_fraction"].dtype
 
     def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 403])

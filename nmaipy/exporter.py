@@ -261,6 +261,19 @@ def _api_settled_for_chunk(answered: bool, errors_df: pd.DataFrame, final_status
     return answered or (len(errors_df) > 0 and errors_df["status_code"].isin(final_statuses).all())
 
 
+# Rollup coverage columns that are fractions or areas. convert_dtypes turns a float column whose values are all
+# whole (e.g. a chunk where every answered AOI was answered whole, fraction 1.0) into Int64; pin these to Float64.
+FLOAT_COVERAGE_COLUMNS = ["answered_area_fraction", "answered_area_sqm", "answered_area_sqft"]
+
+
+def _pin_float_coverage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return ``df`` with any FLOAT_COVERAGE_COLUMNS present cast to Float64."""
+    present = [c for c in FLOAT_COVERAGE_COLUMNS if c in df.columns]
+    if present:
+        df[present] = df[present].astype("Float64")
+    return df
+
+
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
@@ -3928,6 +3941,23 @@ class NearmapAIExporter(BaseExporter):
             # Use Feature API errors as the main errors file
             errors_df = feature_api_errors_df
 
+            # How much of each AOI the Feature API result covers, for the rollup. Gridded AOIs carry
+            # grid_cells, grid_cells_answered and answered_area_fraction from the grid; an AOI answered
+            # in one request was answered whole. metadata_df has rows only for AOIs that answered, so
+            # failed AOIs stay null in all of these. answered_area_{unit} is the denominator for a
+            # share-of-AOI figure such as percent cover.
+            answered_area_column = f"answered_area_{country_area_suffix(self.country)}"
+            coverage_columns = ["grid_cells", "grid_cells_answered", "answered_area_fraction", answered_area_column]
+            metadata_df = _add_missing_columns(metadata_df, coverage_columns[:3])
+            metadata_df["answered_area_fraction"] = pd.to_numeric(metadata_df["answered_area_fraction"]).fillna(1.0)
+            if isinstance(aoi_gdf, gpd.GeoDataFrame):
+                aoi_area = aoi_gdf.geometry.to_crs(AREA_CRS[self.country.lower()]).area
+                if answered_area_column.endswith("_sqft"):
+                    aoi_area = aoi_area * SQUARED_METERS_TO_SQUARED_FEET
+                metadata_df[answered_area_column] = metadata_df["answered_area_fraction"] * aoi_area.reindex(
+                    metadata_df.index
+                )
+
             # Put it all together and save
             meta_data_columns = [
                 "system_version",
@@ -3938,7 +3968,7 @@ class NearmapAIExporter(BaseExporter):
                 "perspective",
                 "postcat",
                 "mesh_date",
-            ]
+            ] + coverage_columns
             # Rename metadata columns that clash with user's AOI columns
             conflicting_columns = [c for c in meta_data_columns if c in aoi_gdf.columns]
             for meta_data_column in conflicting_columns:
@@ -3997,6 +4027,9 @@ class NearmapAIExporter(BaseExporter):
             metadata_cols_to_drop = [
                 c for c in ["survey_date", "mesh_date"] if c in metadata_df.columns and c in features_gdf.columns
             ]
+            # The coverage columns describe the AOI, not a feature: keep them out of the features and
+            # per-class files.
+            metadata_cols_to_drop += [c for c in coverage_columns if c in metadata_df.columns]
             if metadata_cols_to_drop:
                 metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
 
@@ -4288,7 +4321,7 @@ class NearmapAIExporter(BaseExporter):
                     final_df = final_df.drop(columns=["geometry"])
 
                 # Convert dtypes on the dataframe without geometry
-                final_df = final_df.convert_dtypes()
+                final_df = _pin_float_coverage_columns(final_df.convert_dtypes())
 
                 if has_geometry:
                     # Reattach the geometry column
@@ -4576,7 +4609,7 @@ class NearmapAIExporter(BaseExporter):
         object_columns = [c for c, dtype in data.dtypes.items() if dtype == object and c != "geometry"]
         if object_columns:
             data[object_columns] = data[object_columns].convert_dtypes()
-        return data
+        return _pin_float_coverage_columns(data)
 
     def run(self):
         try:

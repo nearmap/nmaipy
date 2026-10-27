@@ -512,6 +512,36 @@
       "min": "N",
       "max": "Y"
     },
+    "grid_cells": {
+      "group": "api_status",
+      "dtype": "int",
+      "min": "1",
+      "description": "Number of grid cells the AOI was split into because it was too large for a single Feature API request. Cells are the grid clipped to the AOI, so edge cells are smaller. Null when the AOI was queried in one request, or when the Feature API did not answer for it (a grid that failed as a whole has its counts on its row in feature_api_errors).",
+      "source": "model metadata"
+    },
+    "grid_cells_answered": {
+      "group": "api_status",
+      "dtype": "int",
+      "min": "1",
+      "description": "Number of the AOI's grid cells the Feature API answered (see grid_cells). The rest failed, with or without coverage, and are listed in feature_api_errors with their cell geometry. Null when the AOI was not gridded or not answered.",
+      "source": "model metadata"
+    },
+    "answered_area_fraction": {
+      "group": "api_status",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Share of the AOI's area covered by the Feature API result: the answered grid cells' area over the AOI's area for a gridded AOI, 1.0 for an AOI answered in one request. Null when the Feature API did not answer for the AOI.",
+      "source": "model metadata"
+    },
+    "answered_area_{unit}": {
+      "group": "api_status",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Area of the AOI covered by the Feature API result (answered_area_fraction times the AOI's area). Use it as the denominator for a share-of-AOI figure such as percent cover, so failed grid cells don't count as observed. Null when the Feature API did not answer for the AOI, or the AOI was given as an address.",
+      "source": "model metadata"
+    },
     "internal_class_id": {
       "group": "feature_meta",
       "dtype": "UUID",
