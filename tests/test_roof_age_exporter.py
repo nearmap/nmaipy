@@ -445,6 +445,7 @@ def test_exporter_process_chunk_with_errors(test_aoi_file, test_output_dir):
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 def test_exporter_integration(test_aoi_file, test_output_dir):
     """
     Integration test with real API.

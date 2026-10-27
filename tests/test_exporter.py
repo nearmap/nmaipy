@@ -437,6 +437,7 @@ class TestExporter:
             assert exporter.processes > 0
             assert exporter.chunk_size > 0
 
+    @pytest.mark.live_api
     def test_aoi_exporter_with_invalid_country(self):
         """Test AOIExporter validates country parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
