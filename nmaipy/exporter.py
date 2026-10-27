@@ -251,18 +251,11 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
 
 
 def _api_settled_for_chunk(answered: bool, errors_df: pd.DataFrame, final_statuses: set) -> bool:
-    """
-    Whether one API's results for a chunk are final, so the chunk can be marked complete.
-
-    They are when at least one AOI answered (per-AOI failures among them already spent their retry budget), or
-    when every failure has a status in ``final_statuses``, which re-asking will not change (e.g. 404: no data
-    there). Anything else, with nothing answered, is an outage or a client failure worth re-fetching.
-    """
+    """True if one API's results for a chunk are final: an AOI answered, or every failure is in ``final_statuses``."""
     return answered or (len(errors_df) > 0 and errors_df["status_code"].isin(final_statuses).all())
 
 
-# Rollup coverage columns that are fractions or areas. convert_dtypes turns a float column whose values are all
-# whole (e.g. a chunk where every answered AOI was answered whole, fraction 1.0) into Int64; pin these to Float64.
+# convert_dtypes makes an all-whole float column (e.g. every fraction 1.0) Int64; these stay Float64.
 FLOAT_COVERAGE_COLUMNS = ["answered_area_fraction", "answered_area_sqm", "answered_area_sqft"]
 
 
@@ -3673,10 +3666,8 @@ class NearmapAIExporter(BaseExporter):
                     self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                 else:
                     self.logger.debug(f"Found {len(errors_df)} errors")
-            # Track Feature API success per AOI: an AOI succeeded when it answered (has a metadata
-            # row), the same rule parcel_rollup uses to decide which AOIs carry data. Not "has no
-            # error rows": a gridded AOI that answered within aoi_grid_min_pct still lists its
-            # failed cells in errors_df under its own aoi_id.
+            # An AOI succeeded if it answered (has a metadata row); a gridded AOI that passed still has
+            # error rows for its failed cells.
             feature_api_errors_df = errors_df.copy()
             feature_api_success_aois = set(metadata_df.index) & set(aoi_gdf.index)
 
@@ -3726,20 +3717,9 @@ class NearmapAIExporter(BaseExporter):
                 else set(aoi_gdf.index)
             )
 
-            # The rollup is the chunk's completion marker: once written, resumes never query the
-            # chunk again. So write it only when every enabled API's results for the chunk are
-            # final (see _api_settled_for_chunk), judged per API so neither can stand in for the
-            # other. Otherwise save errors and return without a rollup, so the chunk is re-fetched
-            # on resume (answers that did come back are served from the cache) and the final merge
-            # refuses to complete without it.
-            # "Answered" means metadata rows (one per AOI that answered), not the absence of error
-            # rows: errors_df also carries one row per failed grid cell, so an AOI that succeeded
-            # apart from a seam cell would otherwise look failed.
-            # A chunk where every Feature API request 404'd has no survey coverage (spatially sorted
-            # input over a coverage gap does this routinely), which is a result, not lost data: it
-            # falls through to the normal rollup path like the 404s in a mixed chunk, so every AOI
-            # gets a feature_api_success = "N" row. For Roof Age a 403 is final too: an account
-            # without access gets "N" rows rather than a failed export.
+            # The rollup marks the chunk complete and resumes never re-query it, so write it only when
+            # each enabled API's results are final; otherwise keep the errors and return, so the chunk
+            # is re-fetched. All-404 (no coverage) and Roof Age 403 (no access) are final: "N" rows.
             feature_api_settled = _api_settled_for_chunk(
                 len(metadata_df) > 0, feature_api_errors_df, {HTTPStatus.NOT_FOUND}
             )
@@ -3941,11 +3921,8 @@ class NearmapAIExporter(BaseExporter):
             # Use Feature API errors as the main errors file
             errors_df = feature_api_errors_df
 
-            # How much of each AOI the Feature API result covers, for the rollup. Gridded AOIs carry
-            # grid_cells, grid_cells_answered and answered_area_fraction from the grid; an AOI answered
-            # in one request was answered whole. metadata_df has rows only for AOIs that answered, so
-            # failed AOIs stay null in all of these. answered_area_{unit} is the denominator for a
-            # share-of-AOI figure such as percent cover.
+            # Answered coverage: gridded AOIs carry their grid counts and share; others were answered
+            # whole. Failed AOIs have no metadata row, so stay null.
             answered_area_column = f"answered_area_{country_area_suffix(self.country)}"
             coverage_columns = ["grid_cells", "grid_cells_answered", "answered_area_fraction", answered_area_column]
             metadata_df = _add_missing_columns(metadata_df, coverage_columns[:3])
@@ -4027,8 +4004,7 @@ class NearmapAIExporter(BaseExporter):
             metadata_cols_to_drop = [
                 c for c in ["survey_date", "mesh_date"] if c in metadata_df.columns and c in features_gdf.columns
             ]
-            # The coverage columns describe the AOI, not a feature: keep them out of the features and
-            # per-class files.
+            # Coverage describes the AOI, not a feature.
             metadata_cols_to_drop += [c for c in coverage_columns if c in metadata_df.columns]
             if metadata_cols_to_drop:
                 metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
@@ -4447,12 +4423,10 @@ class NearmapAIExporter(BaseExporter):
         """
         Return every chunk's rollup file, exiting 1 if any chunk has none.
 
-        The rollup is written last as the chunk's completion marker, and a chunk with no survey
-        coverage still gets one (a feature_api_success = "N" row per AOI), so a missing rollup
-        means lost data: the rollup write failed, or an API answered no AOI in the chunk for a reason
-        re-asking could change (see _api_settled_for_chunk).
-        Exiting here keeps the caller from writing completion artifacts over an incomplete
-        export; a re-run re-fetches only these chunks.
+        The rollup is written last, as the chunk's completion marker, so a missing one means lost
+        data: the write failed, or an API answered nothing for a reason worth re-asking. Exiting
+        here keeps the caller from writing completion artifacts over an incomplete export; a re-run
+        re-fetches only these chunks.
         """
         # Drop any cached s3fs directory listing for the chunk dir so the
         # existence sweep below reads S3 fresh. Earlier phases (cache-check,
@@ -4530,10 +4504,7 @@ class NearmapAIExporter(BaseExporter):
         return rollup_paths_to_read
 
     def _fail_if_nothing_exported(self, rollup_frames: List[pd.DataFrame], num_chunks: int) -> None:
-        """
-        Exit 1 when no AOI in any rollup succeeded: a misconfigured request 404s everywhere just like a
-        coverage gap, and its rollup would be nothing but feature_api_success = "N" rows.
-        """
+        """Exit 1 when no AOI succeeded: a misconfigured request 404s everywhere, just like a coverage gap."""
         success_columns = ["feature_api_success", "roof_age_api_success"]
         any_success = any((df[c] == "Y").any() for df in rollup_frames for c in success_columns if c in df.columns)
         if num_chunks > 0 and not any_success:
@@ -4545,13 +4516,7 @@ class NearmapAIExporter(BaseExporter):
             sys.exit(1)
 
     def _fail_if_rollup_rows_missing(self, rollup_paths: List[str], n_rows: int, n_aois: int) -> None:
-        """
-        Exit 1 unless the rollup chunks hold exactly one row per input AOI.
-
-        Every chunk with a rollup has a row per AOI, failed AOIs included, so a shortfall is rows silently
-        lost. The known cause is a zero-row rollup left by nmaipy <= 5.1.8, which marked a chunk where every
-        AOI returned 404 that way: resumes skip it as done, so it would never be rewritten.
-        """
+        """Exit 1 unless the rollup has one row per input AOI, naming any zero-row chunks left by nmaipy <= 5.1.8."""
         if n_rows == n_aois:
             return
         zero_row_paths = []
@@ -4573,10 +4538,7 @@ class NearmapAIExporter(BaseExporter):
         sys.exit(1)
 
     def _read_rollup_chunks(self, num_chunks: int, n_aois: int) -> pd.DataFrame:
-        """
-        Read and concatenate every chunk's rollup, exiting 1 if a chunk is missing, the chunks don't hold one
-        row per input AOI, or nothing was exported.
-        """
+        """Read and concatenate every chunk's rollup, exiting 1 if any rows are missing or nothing was exported."""
         rollup_paths_to_read = self._collect_rollup_chunk_paths(num_chunks)
         read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
         if rollup_paths_to_read:
@@ -4602,10 +4564,8 @@ class NearmapAIExporter(BaseExporter):
                 message=".*concatenation with empty or all-NA.*",
             )
             data = pd.concat(frames)
-        # Each chunk ran convert_dtypes before it was written, but a column that is all-null in some chunk
-        # (every class column of a chunk where every AOI returned 404) stays object there, and concat then
-        # widens the column to object everywhere. Re-infer just those columns so the merged rollup keeps the
-        # nullable dtypes the chunks had.
+        # A column all-null in some chunk (e.g. an all-404 one) is object there, and concat widens it to
+        # object everywhere; re-infer those.
         object_columns = [c for c, dtype in data.dtypes.items() if dtype == object and c != "geometry"]
         if object_columns:
             data[object_columns] = data[object_columns].convert_dtypes()

@@ -1210,8 +1210,7 @@ class FeatureApi(GriddedApiClient):
             )
             error = None  # Reset error if we got here without an exception
 
-            # Recombine gridded features. get_features_gdf_gridded raises unless at least one cell
-            # answered, so metadata_df has a row.
+            # Recombine gridded features (the gridded call raises unless a cell answered).
             features_gdf = geometry_utils.combine_features_from_grid(features_gdf)
 
             # Create metadata.
@@ -1256,8 +1255,7 @@ class FeatureApi(GriddedApiClient):
                 # this flag to decide whether roof parents must be clipped to the
                 # AOI before component recalculation (see exporter.process_chunk).
                 "gridded": True,
-                # How much of the AOI the result covers: grid_cells, grid_cells_answered and
-                # answered_area_fraction (the answered cells' share of the AOI's area).
+                # grid_cells, grid_cells_answered, answered_area_fraction
                 **grid_summary,
             }
 
@@ -1265,8 +1263,7 @@ class FeatureApi(GriddedApiClient):
             return features_gdf, metadata, error, errors_df
 
         except AIFeatureAPIGridError as e:
-            # The grid failed as a whole (too few cells answered, none did, or mixed dates). Keep how
-            # far it got on the error row, so the errors file shows e.g. 12 of 17 cells answered.
+            # The grid failed as a whole: keep how far it got on the error row.
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": e.status_code,
@@ -1629,9 +1626,8 @@ class FeatureApi(GriddedApiClient):
             # parcels in the parent executor's FIFO queue, blocking this thread until
             # the entire parent queue drains — or deadlocking if enough threads are
             # gridding simultaneously (all threads blocked, no one to process grid cells).
-            # Every cell is collected (max_allowed_error_pct=100) and aoi_grid_min_pct applied below,
-            # so a failed grid can report how many cells answered. Failing fast inside the bulk call
-            # saved no requests: its executor shutdown still ran every queued cell.
+            # Collect every cell and apply aoi_grid_min_pct below, so a failed grid can report its counts
+            # (failing fast saved no requests: the executor still ran queued cells).
             saved_executor = getattr(self._thread_local, "executor", None)
             self._thread_local.executor = None
             try:
@@ -1652,9 +1648,8 @@ class FeatureApi(GriddedApiClient):
             finally:
                 self._thread_local.executor = saved_executor
 
-            # Cells partition the AOI (the grid is overlaid on it and exploded), so the answered
-            # cells' share of the summed cell area is the share of the AOI the result covers.
-            # Count from metadata rows (one per answered cell) while the index still holds cell ids.
+            # Cells partition the AOI, so answered cell area / total cell area is the answered share.
+            # Count metadata rows (one per answered cell) while the index still holds cell ids.
             n_cells = len(df_gridded)
             n_answered = len(metadata_df)
             if n_answered + len(errors_df) != n_cells:
@@ -1707,8 +1702,7 @@ class FeatureApi(GriddedApiClient):
                 # TODO: We should change query to guarantee same survey id is used somehow.
 
             if len(errors_df) > 0:
-                # Non-404 failures (retriable statuses that exhausted their retries) leave holes the
-                # caller may want to chase; 404 cells are plain coverage edges.
+                # Non-404 failures are worth chasing; 404 cells are just coverage edges.
                 non_404_errors = errors_df[errors_df["status_code"] != 404]
                 if len(non_404_errors) > 0:
                     logger.warning(f"Allowing partial grid results on aoi {aoi_id}: {summary_str}.")
