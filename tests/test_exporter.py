@@ -1836,9 +1836,35 @@ class TestCoverageGapChunks:
         metadata.index.name = AOI_ID_COLUMN_NAME
         return features, metadata
 
-    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors):
-        """Drive process_chunk through a chunk whose AOIs returned no features, with the given metadata/errors."""
-        features, _ = self._empty_api_response()
+    @staticmethod
+    def _building_features(aoi_ids):
+        """One small building per AOI, with the columns parcel_rollup needs to roll it up."""
+        n = len(aoi_ids)
+        return gpd.GeoDataFrame(
+            {
+                "class_id": [BUILDING_NEW_ID] * n,
+                "feature_id": [f"f_{a}" for a in aoi_ids],
+                "parent_id": [None] * n,
+                "confidence": [0.9] * n,
+                "fidelity": [0.9] * n,
+                "area_sqm": [100.0] * n,
+                "clipped_area_sqm": [100.0] * n,
+                "unclipped_area_sqm": [100.0] * n,
+                "survey_date": ["2024-01-01"] * n,
+                "mesh_date": ["2024-01-01"] * n,
+                "description": ["Building"] * n,
+                "attributes": [[]] * n,
+                "belongs_to_parcel": [True] * n,
+            },
+            geometry=[box(151.201, -33.899, 151.2012, -33.8988)] * n,
+            crs=API_CRS,
+            index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME),
+        )
+
+    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors, features=None):
+        """Drive process_chunk through a chunk with the given API response (no features unless given)."""
+        if features is None:
+            features, _ = self._empty_api_response()
         with (
             patch("nmaipy.exporter.FeatureApi") as mock_api,
             patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
@@ -1903,36 +1929,22 @@ class TestCoverageGapChunks:
         assert sorted(rollup.index) == ["p1", "p2", "p3", "p4"], "the merged rollup needs one row per input AOI"
         assert rollup["feature_api_success"].to_dict() == {"p1": "N", "p2": "N", "p3": "Y", "p4": "N"}
 
-    def test_partial_grid_failure_is_not_an_all_failed_chunk(self, exporter):
-        """errors_df carries one row per failed grid cell, so a single gridded AOI that lost one
-        seam cell has as many error rows as the chunk has AOIs. That must not be read as "every
-        AOI failed": the AOI answered (it has a metadata row) and its data must reach the rollup
-        path, not be replaced by a coverage-gap marker."""
+    def test_partial_grid_failure_is_a_success(self, exporter):
+        """errors_df carries one row per failed grid cell, under the AOI's own aoi_id, so a single gridded AOI
+        that lost one seam cell has as many error rows as the chunk has AOIs. The AOI answered within the
+        accepted grid-failure threshold (it has a metadata row): its data must reach the rollup and it must be
+        a success, or an export made only of such AOIs would be rejected as having exported nothing."""
         aoi_gdf = self._aoi_gdf().iloc[:1]
-        feats = gpd.GeoDataFrame(
-            {AOI_ID_COLUMN_NAME: ["p1"], "class_id": ["x"], "feature_id": ["f1"]},
-            geometry=[box(151.201, -33.899, 151.202, -33.898)],
-            crs="EPSG:4326",
-        )
         meta = pd.DataFrame(
-            {"survey_date": ["2024-01-01"], "gridded": [True]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME)
+            {"system_version": ["gen6-x"], "survey_date": ["2024-01-01"], "gridded": [True]},
+            index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME),
         )
         cell_error = self._errors_df([404]).assign(failure_type="grid")
-        with (
-            patch("nmaipy.exporter.FeatureApi") as mock_api,
-            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
-            patch("nmaipy.exporter._write_errors_parquet") as write_errors,
-        ):
-            mock_api.return_value.get_features_gdf_bulk.return_value = (feats, meta, cell_error)
-            try:
-                exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
-            except Exception:
-                pass  # the stubbed features are too thin for the real rollup; the branch choice is what matters
-        rollup = Path(exporter.chunk_path) / "rollup_0000.parquet"
-        if rollup.exists():
-            success = pd.read_parquet(rollup)["feature_api_success"]
-            assert success.to_dict() == {"p1": "Y"}, "AOI with data was marked as a coverage gap"
-        assert write_errors.call_count <= 1
+        chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, cell_error, self._building_features(["p1"]))
+        rollup = pd.concat(exporter._read_rollup_chunks(1))
+        assert rollup["feature_api_success"].to_dict() == {"p1": "Y"}, "an AOI that answered must be a success"
+        assert rollup.loc["p1", "building_count"] == 1
+        assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 1, "the failed cell is kept"
 
     def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 403])

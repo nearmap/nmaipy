@@ -3649,11 +3649,12 @@ class NearmapAIExporter(BaseExporter):
                     self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                 else:
                     self.logger.debug(f"Found {len(errors_df)} errors")
-            # Track Feature API success per AOI
+            # Track Feature API success per AOI: an AOI succeeded when it answered (has a metadata
+            # row), the same rule parcel_rollup uses to decide which AOIs carry data. Not "has no
+            # error rows": a gridded AOI that answered within aoi_grid_min_pct still lists its
+            # failed cells in errors_df under its own aoi_id.
             feature_api_errors_df = errors_df.copy()
-            feature_api_success_aois = (
-                set(aoi_gdf.index) - set(errors_df.index) if len(errors_df) > 0 else set(aoi_gdf.index)
-            )
+            feature_api_success_aois = set(metadata_df.index) & set(aoi_gdf.index)
 
             # Query Roof Age API if enabled
             roof_age_gdf = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)

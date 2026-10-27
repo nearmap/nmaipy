@@ -497,7 +497,7 @@
     "feature_api_success": {
       "group": "api_status",
       "dtype": "binary",
-      "description": "Whether the Feature API call succeeded for this AOI.",
+      "description": "Whether the Feature API answered for this AOI. A gridded AOI whose failed grid cells stayed within the accepted threshold is Y; its failed cells are listed in the errors file.",
       "allowed_values": "Y | N",
       "source": "model metadata",
       "min": "N",
