@@ -23,6 +23,9 @@ load_dotenv()
 # Check if API key is available for integration tests
 HAS_API_KEY = bool(os.environ.get("API_KEY"))
 
+# Every test here runs an export against the real API (the error-handling ones reach it before the bad input).
+pytestmark = pytest.mark.live_api
+
 
 class TestIntegration:
     """End-to-end integration tests using example data."""

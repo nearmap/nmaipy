@@ -13,6 +13,9 @@ from shapely.geometry import Polygon
 
 from nmaipy.exporter import AOIExporter
 
+# Every test here runs an export against the real API.
+pytestmark = pytest.mark.live_api
+
 
 @pytest.fixture
 def integration_test_dir():

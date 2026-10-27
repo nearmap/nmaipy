@@ -104,3 +104,12 @@ def test_spec_example_absent_when_spec_missing():
     """Columns with no spec counterpart have an empty example."""
     meta = lookup_column("aoi_id")
     assert meta.example == ""
+
+
+@pytest.mark.parametrize("unit,unit_name", [("sqm", "square metres"), ("sqft", "square feet")])
+def test_grid_coverage_columns_resolve(unit, unit_name):
+    """The rollup's coverage columns resolve to their own entries, the area one in either unit."""
+    for name in ["grid_cells", "grid_cells_answered", "answered_area_fraction"]:
+        assert lookup_column(name, area_unit=unit).group == "api_status", name
+    meta = lookup_column(f"answered_area_{unit}", area_unit=unit)
+    assert "denominator" in meta.description and meta.unit == unit_name

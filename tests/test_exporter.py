@@ -23,11 +23,14 @@ import nmaipy.exporter as exporter_mod
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
+    AREA_CRS,
     BUILDING_NEW_ID,
     FEATURE_CLASS_DESCRIPTIONS,
     FEATURE_PREFETCH_FLOOR,
     PER_CLASS_FILE_CLASS_IDS,
     ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
 )
 from nmaipy.exporter import (
     AOIExporter,
@@ -434,6 +437,7 @@ class TestExporter:
             assert exporter.processes > 0
             assert exporter.chunk_size > 0
 
+    @pytest.mark.live_api
     def test_aoi_exporter_with_invalid_country(self):
         """Test AOIExporter validates country parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1780,10 +1784,10 @@ class TestMergePerClassChunks:
 
 
 class TestCoverageGapChunks:
-    """A chunk whose every AOI returned 404 has no survey coverage. process_chunk writes an empty rollup as
-    its completion marker, so resumes skip it and the final merge accepts it; any other all-failed chunk
-    (or a chunk whose rollup write failed) has no rollup and must fail the export before completion
-    artifacts are written."""
+    """A chunk whose every AOI returned 404 has no survey coverage. process_chunk still writes its rollup, one
+    feature_api_success = "N" row per AOI like the 404s in a mixed chunk, so resumes skip it and the final
+    rollup keeps one row per input AOI; any other all-failed chunk (or a chunk whose rollup write failed) has
+    no rollup and must fail the export before completion artifacts are written."""
 
     @pytest.fixture
     def exporter(self, tmp_path, caplog):
@@ -1823,20 +1827,60 @@ class TestCoverageGapChunks:
             }
         ).set_index(AOI_ID_COLUMN_NAME)
 
-    def _run_all_failed_chunk(self, exporter, status_codes):
-        """Drive process_chunk through a chunk where every AOI request failed with the given statuses."""
-        empty_features = gpd.GeoDataFrame({"class_id": []}, geometry=[], crs="EPSG:4326")
+    @staticmethod
+    def _classes_df():
+        return pd.DataFrame({"description": ["Building"]}, index=pd.Index([BUILDING_NEW_ID], name="id"))
+
+    @staticmethod
+    def _empty_api_response():
+        """The (features, metadata) pair FeatureApi.get_features_gdf_bulk returns when no AOI answered."""
+        features = gpd.GeoDataFrame(columns=["geometry"], crs=API_CRS)
+        features.index.name = AOI_ID_COLUMN_NAME
+        metadata = pd.DataFrame([])
+        metadata.index.name = AOI_ID_COLUMN_NAME
+        return features, metadata
+
+    @staticmethod
+    def _building_features(aoi_ids):
+        """One small building per AOI, with the columns parcel_rollup needs to roll it up."""
+        n = len(aoi_ids)
+        return gpd.GeoDataFrame(
+            {
+                "class_id": [BUILDING_NEW_ID] * n,
+                "feature_id": [f"f_{a}" for a in aoi_ids],
+                "parent_id": [None] * n,
+                "confidence": [0.9] * n,
+                "fidelity": [0.9] * n,
+                "area_sqm": [100.0] * n,
+                "clipped_area_sqm": [100.0] * n,
+                "unclipped_area_sqm": [100.0] * n,
+                "survey_date": ["2024-01-01"] * n,
+                "mesh_date": ["2024-01-01"] * n,
+                "description": ["Building"] * n,
+                "attributes": [[]] * n,
+                "belongs_to_parcel": [True] * n,
+            },
+            geometry=[box(151.201, -33.899, 151.2012, -33.8988)] * n,
+            crs=API_CRS,
+            index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME),
+        )
+
+    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors, features=None):
+        """Drive process_chunk through a chunk with the given API response (no features unless given)."""
+        if features is None:
+            features, _ = self._empty_api_response()
         with (
             patch("nmaipy.exporter.FeatureApi") as mock_api,
             patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
         ):
-            mock_api.return_value.get_features_gdf_bulk.return_value = (
-                empty_features,
-                pd.DataFrame(),
-                self._errors_df(status_codes),
-            )
-            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf())
+            mock_api.return_value.get_features_gdf_bulk.return_value = (features, metadata, errors)
+            exporter.process_chunk(chunk_id=chunk_id, aoi_gdf=aoi_gdf, classes_df=self._classes_df())
         return Path(exporter.chunk_path)
+
+    def _run_all_failed_chunk(self, exporter, status_codes):
+        """Drive process_chunk through a chunk where every AOI request failed with the given statuses."""
+        _, metadata = self._empty_api_response()
+        return self._run_chunk(exporter, "0000", self._aoi_gdf(), metadata, self._errors_df(status_codes))
 
     @staticmethod
     def _write_rollup(ex, i, n_rows):
@@ -1846,40 +1890,246 @@ class TestCoverageGapChunks:
         ).to_parquet(path)
         return str(path)
 
-    def test_all_404_chunk_writes_empty_rollup_marker(self, exporter):
+    def test_all_404_chunk_writes_failed_rollup_rows(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 404])
         rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
-        assert len(rollup) == 0, "the marker must carry no rows (the chunk reader drops it before concat)"
+        assert sorted(rollup.index) == ["p1", "p2"], "every AOI in the chunk needs a rollup row"
+        assert (rollup["feature_api_success"] == "N").all()
+        assert list(rollup["suburb"]) == ["x", "y"], "the caller's AOI columns must be carried through"
         assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 2
 
-    def test_partial_grid_failure_is_not_an_all_failed_chunk(self, exporter):
-        """errors_df carries one row per failed grid cell, so a single gridded AOI that lost one
-        seam cell has as many error rows as the chunk has AOIs. That must not be read as "every
-        AOI failed": the AOI answered (it has a metadata row) and its data must reach the rollup
-        path, not be replaced by a coverage-gap marker."""
-        aoi_gdf = self._aoi_gdf().iloc[:1]
-        feats = gpd.GeoDataFrame(
-            {AOI_ID_COLUMN_NAME: ["p1"], "class_id": ["x"], "feature_id": ["f1"]},
-            geometry=[box(151.201, -33.899, 151.202, -33.898)],
-            crs="EPSG:4326",
-        )
+    def test_all_404_rollup_matches_mixed_chunk_failed_rows(self, exporter):
+        """The all-404 chunk's rows must come from the same code as the 404 rows of a mixed chunk, so the two
+        can't drift: the 404 AOI's values identical, and any column only the mixed chunk has (from the
+        successful AOI's features) null for its 404 AOI."""
+        aoi_gdf = self._aoi_gdf()
         meta = pd.DataFrame(
-            {"survey_date": ["2024-01-01"], "gridded": [True]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME)
+            {"system_version": ["gen6-x"], "survey_date": ["2024-01-01"]},
+            index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME),
+        )
+        errors = self._errors_df([404]).rename({"p1": "p2"})
+        chunk_path = self._run_chunk(exporter, "0001", aoi_gdf, meta, errors, self._building_features(["p1"]))
+        self._run_all_failed_chunk(exporter, [404, 404])
+        mixed = pd.read_parquet(chunk_path / "rollup_0001.parquet")
+        all_404 = pd.read_parquet(chunk_path / "rollup_0000.parquet")
+        assert mixed.loc["p1", "feature_api_success"] == "Y" and mixed.loc["p1", "building_count"] == 1
+        assert set(all_404.columns) <= set(mixed.columns)
+        assert mixed.loc["p2", list(set(mixed.columns) - set(all_404.columns))].isna().all()
+        # Per-chunk convert_dtypes can spell a null as None or <NA>, so compare null-ness and the non-null values.
+        gap_row, mixed_row = all_404.loc["p2"], mixed.loc["p2", all_404.columns]
+        assert gap_row.isna().equals(mixed_row.isna())
+        assert gap_row.dropna().equals(mixed_row.dropna())
+
+    def test_export_spanning_all_404_and_mixed_chunks_keeps_every_aoi(self, exporter):
+        aoi_gdf = self._aoi_gdf()
+        mixed_aois = gpd.GeoDataFrame(
+            {"suburb": ["z", "w"]},
+            geometry=[box(151.24, -33.90, 151.25, -33.89), box(151.26, -33.90, 151.27, -33.89)],
+            crs="EPSG:4326",
+            index=pd.Index(["p3", "p4"], name=AOI_ID_COLUMN_NAME),
+        )
+        meta = pd.DataFrame({"system_version": ["gen6-x"]}, index=pd.Index(["p3"], name=AOI_ID_COLUMN_NAME))
+        errors = self._errors_df([404]).rename({"p1": "p4"})
+        self._run_all_failed_chunk(exporter, [404, 404])
+        self._run_chunk(exporter, "0001", mixed_aois, meta, errors, self._building_features(["p3"]))
+        rollup = exporter._read_rollup_chunks(2, 4)
+        assert sorted(rollup.index) == ["p1", "p2", "p3", "p4"], "the merged rollup needs one row per input AOI"
+        assert rollup["feature_api_success"].to_dict() == {"p1": "N", "p2": "N", "p3": "Y", "p4": "N"}
+        # The all-404 chunk's class columns are all-null (object) in its file; the merge must not widen the
+        # mixed chunk's nullable dtypes to object.
+        assert str(rollup["building_count"].dtype) == "Int64", rollup["building_count"].dtype
+        assert rollup["building_count"].isna().to_dict() == {"p1": True, "p2": True, "p3": False, "p4": True}
+        assert rollup.loc["p3", "building_count"] == 1
+
+    def test_zero_row_rollup_from_older_version_is_fatal(self, exporter, caplog):
+        """nmaipy <= 5.1.8 marked an all-404 chunk with a zero-row rollup. A resume skips it as done, so the merge
+        must refuse to complete with those AOIs missing, and name the file to delete."""
+        meta = pd.DataFrame({"system_version": ["gen6-x"]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME))
+        self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, self._errors_df([404]).rename({"p1": "p2"}))
+        legacy_marker = Path(exporter.chunk_path) / "rollup_0001.parquet"
+        pd.DataFrame({AOI_ID_COLUMN_NAME: pd.Series([], dtype=str)}).to_parquet(legacy_marker)
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+            exporter._read_rollup_chunks(2, 4)
+        assert exc.value.code == 1
+        assert "hold 2 rows but the input has 4 AOIs" in caplog.text
+        assert str(legacy_marker) in caplog.text, "the zero-row rollup to delete must be named"
+
+    def test_partial_grid_failure_is_a_success(self, exporter):
+        """errors_df carries one row per failed grid cell, under the AOI's own aoi_id, so a single gridded AOI
+        that lost one seam cell has as many error rows as the chunk has AOIs. The AOI answered within the
+        accepted grid-failure threshold (it has a metadata row): its data must reach the rollup and it must be
+        a success, or an export made only of such AOIs would be rejected as having exported nothing."""
+        aoi_gdf = self._aoi_gdf().iloc[:1]
+        meta = pd.DataFrame(
+            {"system_version": ["gen6-x"], "survey_date": ["2024-01-01"], "gridded": [True]},
+            index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME),
         )
         cell_error = self._errors_df([404]).assign(failure_type="grid")
+        chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, cell_error, self._building_features(["p1"]))
+        rollup = exporter._read_rollup_chunks(1, 1)
+        assert rollup["feature_api_success"].to_dict() == {"p1": "Y"}, "an AOI that answered must be a success"
+        assert rollup.loc["p1", "building_count"] == 1
+        assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 1, "the failed cell is kept"
+
+    @pytest.fixture
+    def roof_age_exporter(self, tmp_path):
+        ex = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            chunk_size=2,
+            no_cache=True,
+            roof_age=True,
+        )
+        Path(ex.chunk_path).mkdir(parents=True, exist_ok=True)
+        return ex
+
+    @staticmethod
+    def _answered(aoi_ids):
+        """Metadata for AOIs that answered: one row each, indexed by aoi_id (Roof Age adds no columns without roofs)."""
+        return pd.DataFrame(index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME))
+
+    @staticmethod
+    def _no_errors():
+        errors = pd.DataFrame([])
+        errors.index.name = AOI_ID_COLUMN_NAME
+        return errors
+
+    def _feature_response(self, kind):
+        features, metadata = self._empty_api_response()
+        if kind == "answered":
+            return features, self._answered(["p1", "p2"]), self._no_errors()
+        return features, metadata, self._errors_df([404, 404] if kind == "404" else [503, 503])
+
+    def _roof_age_response(self, kind):
+        """(roofs, metadata, errors) as RoofAgeApi.get_roof_age_bulk returns them, or an exception it raises."""
+        no_roofs = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+        if kind == "answered":
+            return no_roofs, self._answered(["p1", "p2"]), self._no_errors()
+        if kind == "roofs":
+            roofs = gpd.GeoDataFrame(
+                {AOI_ID_COLUMN_NAME: ["p1"], "class_id": [ROOF_INSTANCE_CLASS_ID]},
+                geometry=[box(151.201, -33.899, 151.2012, -33.8988)],
+                crs=API_CRS,
+            )
+            return roofs, self._answered(["p1", "p2"]), self._no_errors()
+        if kind == "half":
+            return no_roofs, self._answered(["p1"]), self._errors_df([503]).rename({"p1": "p2"})
+        if kind == "raises":
+            return RuntimeError("roof age client blew up")
+        codes = {"403": [403, 403], "503": [503, 503]}[kind]
+        return no_roofs, pd.DataFrame([]), self._errors_df(codes)
+
+    def _run_two_api_chunk(self, exporter, feature_kind, roof_age_kind):
+        roof_age = self._roof_age_response(roof_age_kind)
         with (
-            patch("nmaipy.exporter.FeatureApi") as mock_api,
+            patch("nmaipy.exporter.FeatureApi") as feature_api,
+            patch("nmaipy.exporter.RoofAgeApi") as roof_age_api,
             patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
-            patch("nmaipy.exporter._write_errors_parquet") as write_errors,
         ):
-            mock_api.return_value.get_features_gdf_bulk.return_value = (feats, meta, cell_error)
-            try:
-                exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
-            except Exception:
-                pass  # the stubbed features are too thin for the real rollup; the branch choice is what matters
-        rollup = Path(exporter.chunk_path) / "rollup_0000.parquet"
-        assert not (rollup.exists() and len(pd.read_parquet(rollup)) == 0), "AOI with data was marked as a coverage gap"
-        assert write_errors.call_count <= 1
+            feature_api.return_value.get_features_gdf_bulk.return_value = self._feature_response(feature_kind)
+            if isinstance(roof_age, Exception):
+                roof_age_api.return_value.get_roof_age_bulk.side_effect = roof_age
+            else:
+                roof_age_api.return_value.get_roof_age_bulk.return_value = roof_age
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(), classes_df=self._classes_df())
+        return Path(exporter.chunk_path)
+
+    @pytest.mark.parametrize(
+        "feature_kind,roof_age_kind,expected_feature,expected_roof_age",
+        [
+            ("404", "answered", ["N", "N"], ["Y", "Y"]),  # no survey coverage, but Roof Age has an answer
+            ("answered", "403", ["Y", "Y"], ["N", "N"]),  # no Roof Age access: N rows, not a failed export
+            ("answered", "half", ["Y", "Y"], ["Y", "N"]),  # per-AOI failure in an answered chunk stays N
+        ],
+    )
+    def test_chunk_complete_when_each_api_is_settled(
+        self, roof_age_exporter, feature_kind, roof_age_kind, expected_feature, expected_roof_age
+    ):
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet").sort_index()
+        assert list(rollup["feature_api_success"]) == expected_feature
+        assert list(rollup["roof_age_api_success"]) == expected_roof_age
+
+    @pytest.mark.parametrize(
+        "feature_kind,roof_age_kind",
+        [
+            ("answered", "503"),  # Roof Age outage must not become permanent N rows
+            ("answered", "raises"),  # nor a Roof Age client failure
+            ("404", "503"),  # a Feature API coverage gap doesn't excuse a Roof Age outage
+            ("503", "roofs"),  # Roof Age roofs don't excuse a Feature API outage
+        ],
+    )
+    def test_chunk_left_for_refetch_when_an_api_answered_nothing(self, roof_age_exporter, feature_kind, roof_age_kind):
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be re-fetched on resume"
+        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the merge gate keys on the errors file"
+
+    def test_rollup_reports_how_much_of_each_aoi_answered(self, exporter):
+        """A gridded AOI carries its grid counts and answered share; an AOI answered in one request is answered
+        whole; an AOI the Feature API didn't answer has no coverage figures. answered_area_<unit> is the
+        answered share of the AOI's own area. None of it leaks into the features or per-class files."""
+        aoi_gdf = gpd.GeoDataFrame(
+            {"suburb": ["x", "y", "z"]},
+            geometry=[
+                box(151.20, -33.90, 151.21, -33.89),
+                box(151.22, -33.90, 151.2205, -33.8995),
+                box(151.24, -33.90, 151.2405, -33.8995),
+            ],
+            crs="EPSG:4326",
+            index=pd.Index(["gridded", "single", "failed"], name=AOI_ID_COLUMN_NAME),
+        )
+        meta = pd.DataFrame(
+            {
+                "system_version": ["gen6-x", "gen6-x"],
+                "survey_date": ["2024-01-01", "2024-01-01"],
+                "gridded": [True, None],
+                "grid_cells": [17, None],
+                "grid_cells_answered": [15, None],
+                "answered_area_fraction": [0.9, None],
+            },
+            index=pd.Index(["gridded", "single"], name=AOI_ID_COLUMN_NAME),
+        )
+        errors = self._errors_df([404]).rename({"p1": "failed"})
+        features = self._building_features(["gridded", "single"])
+        chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, errors, features)
+
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
+        aoi_area_sqm = aoi_gdf.geometry.to_crs(AREA_CRS["au"]).area
+        assert (rollup.loc["gridded", "grid_cells"], rollup.loc["gridded", "grid_cells_answered"]) == (17, 15)
+        assert rollup.loc["gridded", "answered_area_fraction"] == pytest.approx(0.9)
+        assert rollup.loc["gridded", "answered_area_sqm"] == pytest.approx(0.9 * aoi_area_sqm["gridded"])
+        assert rollup.loc["single", ["grid_cells", "grid_cells_answered"]].isna().all(), "not gridded"
+        assert rollup.loc["single", "answered_area_fraction"] == 1.0, "one request answers the whole AOI"
+        assert str(rollup["answered_area_fraction"].dtype) == "Float64"
+        assert rollup.loc["single", "answered_area_sqm"] == pytest.approx(aoi_area_sqm["single"])
+        coverage = ["grid_cells", "grid_cells_answered", "answered_area_fraction", "answered_area_sqm"]
+        assert rollup.loc["failed", coverage].isna().all(), "an AOI that wasn't answered has no coverage figures"
+        assert "answered_area_sqft" not in rollup.columns, "only the country's area unit"
+
+        for name in ["features_0000.parquet", "building_0000.parquet", "building_features_0000.parquet"]:
+            leaked = set(coverage) & set(pd.read_parquet(chunk_path / name).columns)
+            assert not leaked, f"{name} must not carry AOI coverage columns: {leaked}"
+
+    def test_answered_area_uses_square_feet_in_the_us(self, tmp_path):
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            no_cache=True,
+        )
+        Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
+        aoi_gdf = self._aoi_gdf().iloc[:1]
+        meta = pd.DataFrame({"system_version": ["gen6-x"]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME))
+        chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, self._no_errors())
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
+        area_sqft = aoi_gdf.geometry.to_crs(AREA_CRS["us"]).area.iloc[0] * SQUARED_METERS_TO_SQUARED_FEET
+        assert rollup.loc["p1", "answered_area_sqft"] == pytest.approx(area_sqft)
+        assert "answered_area_sqm" not in rollup.columns
+        # Every answered AOI was answered whole (1.0), which convert_dtypes alone would make Int64.
+        assert str(rollup["answered_area_fraction"].dtype) == "Float64", rollup["answered_area_fraction"].dtype
 
     def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 403])
@@ -1888,7 +2138,7 @@ class TestCoverageGapChunks:
 
     def test_resume_skips_coverage_gap_chunk(self, exporter):
         aoi_gdf = self._aoi_gdf()
-        self._write_rollup(exporter, 0, 0)
+        self._run_all_failed_chunk(exporter, [404, 404])
         chunks_to_process, skipped_chunks, skipped_aois, num_chunks = exporter.split_into_chunks(
             aoi_gdf, check_cache=True
         )
@@ -1896,11 +2146,6 @@ class TestCoverageGapChunks:
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
             mock_api.assert_not_called()
-
-    def test_empty_rollup_chunk_passes_merge_gate(self, exporter):
-        good = self._write_rollup(exporter, 0, 1)
-        gap = self._write_rollup(exporter, 1, 0)
-        assert exporter._collect_rollup_chunk_paths(2) == [good, gap]
 
     def test_error_only_chunk_is_fatal(self, exporter, caplog):
         self._write_rollup(exporter, 0, 1)
@@ -1918,11 +2163,22 @@ class TestCoverageGapChunks:
         assert "Both error and data files for chunk 1 missing" in caplog.text
 
     def test_nothing_exported_is_fatal(self, exporter, caplog):
-        exporter._fail_if_nothing_exported([pd.DataFrame({"a": [1]})], 3)
+        failed = pd.DataFrame({AOI_ID_COLUMN_NAME: ["a"], "feature_api_success": ["N"]})
+        exporter._fail_if_nothing_exported([failed, failed.assign(feature_api_success="Y")], 3)
+        exporter._fail_if_nothing_exported([failed.assign(roof_age_api_success="Y")], 3)
         exporter._fail_if_nothing_exported([], 0)
-        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
-            exporter._fail_if_nothing_exported([], 3)
-        assert "produced any rollup rows" in caplog.text
+        for frames in ([], [failed, failed]):
+            with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+                exporter._fail_if_nothing_exported(frames, 3)
+        assert "got a successful API response" in caplog.text
+
+    def test_every_chunk_all_404_is_fatal(self, exporter, caplog):
+        """A request misconfigured so it 404s everywhere looks exactly like a coverage gap; with no successful AOI
+        anywhere the export must fail rather than hand back an all-"N" rollup as a result."""
+        self._run_all_failed_chunk(exporter, [404, 404])
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+            exporter._read_rollup_chunks(1, 2)
+        assert exc.value.code == 1
 
 
 if __name__ == "__main__":

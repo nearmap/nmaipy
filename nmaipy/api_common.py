@@ -441,11 +441,22 @@ class APIGridError(Exception):
     but one or more grid cells failed to process successfully.
     """
 
-    def __init__(self, status_code_error_mode, message=""):
+    def __init__(
+        self,
+        status_code_error_mode,
+        message="",
+        grid_cells: Optional[int] = None,
+        grid_cells_answered: Optional[int] = None,
+        answered_area_fraction: Optional[float] = None,
+    ):
         self.status_code = status_code_error_mode
         self.text = "Gridding and re-requesting failed on one or more grid cell queries."
         self.request_string = ""
         self.message = message
+        # How far the grid got: total cells, cells that answered, and their share of the AOI's area.
+        self.grid_cells = grid_cells
+        self.grid_cells_answered = grid_cells_answered
+        self.answered_area_fraction = answered_area_fraction
 
     def __str__(self):
         """Return a concise error message"""

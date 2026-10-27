@@ -250,6 +250,23 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
+def _api_settled_for_chunk(answered: bool, errors_df: pd.DataFrame, final_statuses: set) -> bool:
+    """True if one API's results for a chunk are final: an AOI answered, or every failure is in ``final_statuses``."""
+    return answered or (len(errors_df) > 0 and errors_df["status_code"].isin(final_statuses).all())
+
+
+# convert_dtypes makes an all-whole float column (e.g. every fraction 1.0) Int64; these stay Float64.
+FLOAT_COVERAGE_COLUMNS = ["answered_area_fraction", "answered_area_sqm", "answered_area_sqft"]
+
+
+def _pin_float_coverage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return ``df`` with any FLOAT_COVERAGE_COLUMNS present cast to Float64."""
+    present = [c for c in FLOAT_COVERAGE_COLUMNS if c in df.columns]
+    if present:
+        df[present] = df[present].astype("Float64")
+    return df
+
+
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
@@ -3649,11 +3666,10 @@ class NearmapAIExporter(BaseExporter):
                     self.logger.debug(f"Found {len(errors_df)} errors by type: {error_counts}")
                 else:
                     self.logger.debug(f"Found {len(errors_df)} errors")
-            # Track Feature API success per AOI
+            # An AOI succeeded if it answered (has a metadata row); a gridded AOI that passed still has
+            # error rows for its failed cells.
             feature_api_errors_df = errors_df.copy()
-            feature_api_success_aois = (
-                set(aoi_gdf.index) - set(errors_df.index) if len(errors_df) > 0 else set(aoi_gdf.index)
-            )
+            feature_api_success_aois = set(metadata_df.index) & set(aoi_gdf.index)
 
             # Query Roof Age API if enabled
             roof_age_gdf = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
@@ -3701,21 +3717,29 @@ class NearmapAIExporter(BaseExporter):
                 else set(aoi_gdf.index)
             )
 
-            # If no AOI returned a response and there is no roof age data, save errors and
-            # return. Test metadata rows (one per AOI that answered), not error rows: errors_df
-            # also carries one row per failed grid cell, so an AOI that succeeded apart from a
-            # seam cell would otherwise make the counts match and its data would be dropped.
-            if len(metadata_df) == 0 and len(roof_age_gdf) == 0:
+            # The rollup marks the chunk complete and resumes never re-query it, so write it only when
+            # each enabled API's results are final; otherwise keep the errors and return, so the chunk
+            # is re-fetched. All-404 (no coverage) and Roof Age 403 (no access) are final: "N" rows.
+            feature_api_settled = _api_settled_for_chunk(
+                len(metadata_df) > 0, feature_api_errors_df, {HTTPStatus.NOT_FOUND}
+            )
+            roof_age_settled = not self.roof_age or _api_settled_for_chunk(
+                len(roof_age_metadata_df) > 0, roof_age_errors_df, {HTTPStatus.NOT_FOUND, HTTPStatus.FORBIDDEN}
+            )
+            if not (feature_api_settled and roof_age_settled):
+                api_name, api_errors_df = (
+                    ("Feature API", feature_api_errors_df)
+                    if not feature_api_settled
+                    else ("Roof Age API", roof_age_errors_df)
+                )
+                status_counts = api_errors_df["status_code"].value_counts().to_dict()
+                logger.warning(
+                    f"Chunk {chunk_id}: the {api_name} answered no AOI (status codes {status_counts}), so the "
+                    f"chunk gets no rollup and will be re-fetched on resume."
+                )
                 _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
-                # Every AOI 404'd: the chunk has no survey coverage (spatially sorted input over a
-                # coverage gap does this routinely). Write an empty rollup as its completion marker
-                # so resumes skip it (404s are neither cached nor retried) and the final merge
-                # accepts it. Any other status leaves no rollup: the chunk is re-fetched on resume
-                # and the merge refuses to complete without it.
-                if (feature_api_errors_df["status_code"] == HTTPStatus.NOT_FOUND).all():
-                    storage.write_parquet(pd.DataFrame({AOI_ID_COLUMN_NAME: pd.Series([], dtype=str)}), outfile)
                 chunk_end_time = datetime.now(timezone.utc).isoformat()
                 total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                 latency_stats = collect_latency_stats_from_apis(
@@ -3897,6 +3921,20 @@ class NearmapAIExporter(BaseExporter):
             # Use Feature API errors as the main errors file
             errors_df = feature_api_errors_df
 
+            # Answered coverage: gridded AOIs carry their grid counts and share; others were answered
+            # whole. Failed AOIs have no metadata row, so stay null.
+            answered_area_column = f"answered_area_{country_area_suffix(self.country)}"
+            coverage_columns = ["grid_cells", "grid_cells_answered", "answered_area_fraction", answered_area_column]
+            metadata_df = _add_missing_columns(metadata_df, coverage_columns[:3])
+            metadata_df["answered_area_fraction"] = pd.to_numeric(metadata_df["answered_area_fraction"]).fillna(1.0)
+            if isinstance(aoi_gdf, gpd.GeoDataFrame):
+                aoi_area = aoi_gdf.geometry.to_crs(AREA_CRS[self.country.lower()]).area
+                if answered_area_column.endswith("_sqft"):
+                    aoi_area = aoi_area * SQUARED_METERS_TO_SQUARED_FEET
+                metadata_df[answered_area_column] = metadata_df["answered_area_fraction"] * aoi_area.reindex(
+                    metadata_df.index
+                )
+
             # Put it all together and save
             meta_data_columns = [
                 "system_version",
@@ -3907,7 +3945,7 @@ class NearmapAIExporter(BaseExporter):
                 "perspective",
                 "postcat",
                 "mesh_date",
-            ]
+            ] + coverage_columns
             # Rename metadata columns that clash with user's AOI columns
             conflicting_columns = [c for c in meta_data_columns if c in aoi_gdf.columns]
             for meta_data_column in conflicting_columns:
@@ -3966,6 +4004,8 @@ class NearmapAIExporter(BaseExporter):
             metadata_cols_to_drop = [
                 c for c in ["survey_date", "mesh_date"] if c in metadata_df.columns and c in features_gdf.columns
             ]
+            # Coverage describes the AOI, not a feature.
+            metadata_cols_to_drop += [c for c in coverage_columns if c in metadata_df.columns]
             if metadata_cols_to_drop:
                 metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
 
@@ -4257,7 +4297,7 @@ class NearmapAIExporter(BaseExporter):
                     final_df = final_df.drop(columns=["geometry"])
 
                 # Convert dtypes on the dataframe without geometry
-                final_df = final_df.convert_dtypes()
+                final_df = _pin_float_coverage_columns(final_df.convert_dtypes())
 
                 if has_geometry:
                     # Reattach the geometry column
@@ -4383,10 +4423,10 @@ class NearmapAIExporter(BaseExporter):
         """
         Return every chunk's rollup file, exiting 1 if any chunk has none.
 
-        The rollup is written last as the chunk's completion marker, and a chunk with no survey
-        coverage gets an empty one, so a missing rollup means lost data: the rollup write failed,
-        or every request failed with a non-404 status. Exiting here keeps the caller from writing
-        completion artifacts over an incomplete export; a re-run re-fetches only these chunks.
+        The rollup is written last, as the chunk's completion marker, so a missing one means lost
+        data: the write failed, or an API answered nothing for a reason worth re-asking. Exiting
+        here keeps the caller from writing completion artifacts over an incomplete export; a re-run
+        re-fetches only these chunks.
         """
         # Drop any cached s3fs directory listing for the chunk dir so the
         # existence sweep below reads S3 fresh. Earlier phases (cache-check,
@@ -4455,22 +4495,81 @@ class NearmapAIExporter(BaseExporter):
             self.logger.error(
                 f"{len(rollup_less_chunks)} of {num_chunks} chunks have an error file but no rollup file, so "
                 f"their AOIs would be missing from the output: either the rollup write failed (see 'Failed "
-                f"writing final_df' in the log) or every request in the chunk failed with a non-404 status. "
-                f"First such chunks: {rollup_less_chunks[:10]}. Inspect feature_api_errors_*.parquet in "
-                f"'{self.chunk_path}', fix the cause, then re-run: only chunks without a rollup are re-fetched."
+                f"writing final_df' in the log) or an API answered no AOI in the chunk (an outage or client "
+                f"failure, see 'answered no AOI' in the log). First such chunks: {rollup_less_chunks[:10]}. Inspect "
+                f"feature_api_errors_*.parquet and roof_age_errors_*.parquet in '{self.chunk_path}', fix the cause, "
+                f"then re-run: only chunks without a rollup are re-fetched."
             )
             sys.exit(1)
         return rollup_paths_to_read
 
     def _fail_if_nothing_exported(self, rollup_frames: List[pd.DataFrame], num_chunks: int) -> None:
-        """Exit 1 when every rollup was empty: a misconfigured request 404s everywhere just like a coverage gap."""
-        if num_chunks > 0 and not rollup_frames:
+        """Exit 1 when no AOI succeeded: a misconfigured request 404s everywhere, just like a coverage gap."""
+        success_columns = ["feature_api_success", "roof_age_api_success"]
+        any_success = any((df[c] == "Y").any() for df in rollup_frames for c in success_columns if c in df.columns)
+        if num_chunks > 0 and not any_success:
             self.logger.error(
-                f"None of the {num_chunks} chunks produced any rollup rows: every request returned 404, so either "
-                f"the AOIs have no survey coverage or the request is misconfigured. Inspect "
-                f"feature_api_errors_*.parquet in '{self.chunk_path}', then re-run in a fresh output directory."
+                f"No AOI in any of the {num_chunks} chunks got a successful API response: every Feature API "
+                f"request returned 404, so either the AOIs have no survey coverage or the request is misconfigured. "
+                f"Inspect feature_api_errors_*.parquet in '{self.chunk_path}', then re-run in a fresh output directory."
             )
             sys.exit(1)
+
+    def _fail_if_rollup_rows_missing(self, rollup_paths: List[str], n_rows: int, n_aois: int) -> None:
+        """Exit 1 unless the rollup has one row per input AOI, naming any zero-row chunks left by nmaipy <= 5.1.8."""
+        if n_rows == n_aois:
+            return
+        zero_row_paths = []
+        for path in rollup_paths:
+            with storage.open_file(path, "rb") as f:
+                if pq.ParquetFile(f).metadata.num_rows == 0:
+                    zero_row_paths.append(path)
+        detail = (
+            f" {len(zero_row_paths)} rollup chunks have zero rows (written by nmaipy <= 5.1.8 for chunks where every "
+            f"AOI returned 404): {zero_row_paths[:10]}. Delete them and re-run: only chunks without a rollup are "
+            f"re-fetched."
+            if zero_row_paths
+            else ""
+        )
+        self.logger.error(
+            f"The rollup chunks hold {n_rows} rows but the input has {n_aois} AOIs, so AOIs would be silently "
+            f"missing from the output.{detail}"
+        )
+        sys.exit(1)
+
+    def _read_rollup_chunks(self, num_chunks: int, n_aois: int) -> pd.DataFrame:
+        """Read and concatenate every chunk's rollup, exiting 1 if any rows are missing or nothing was exported."""
+        rollup_paths_to_read = self._collect_rollup_chunk_paths(num_chunks)
+        read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
+        if rollup_paths_to_read:
+            frames = _read_parquet_chunks_parallel(
+                rollup_paths_to_read,
+                max_workers=read_workers,
+                desc=f"Reading {len(rollup_paths_to_read)} rollup chunks",
+                logger=self.logger,
+            )
+        else:
+            frames = []
+        self._fail_if_rollup_rows_missing(rollup_paths_to_read, sum(len(d) for d in frames), n_aois)
+        self._fail_if_nothing_exported(frames, num_chunks)
+
+        self.logger.info(f"Concatenating {len(frames)} rollup chunks...")
+        # Suppress FutureWarning about all-NA columns in concat dtype inference.
+        # Individual chunks may have all-NA columns for feature types not present
+        # in that chunk; this doesn't affect correctness.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=FutureWarning,
+                message=".*concatenation with empty or all-NA.*",
+            )
+            data = pd.concat(frames)
+        # A column all-null in some chunk (e.g. an all-404 one) is object there, and concat widens it to
+        # object everywhere; re-infer those.
+        object_columns = [c for c, dtype in data.dtypes.items() if dtype == object and c != "geometry"]
+        if object_columns:
+            data[object_columns] = data[object_columns].convert_dtypes()
+        return _pin_float_coverage_columns(data)
 
     def run(self):
         try:
@@ -4720,55 +4819,26 @@ class NearmapAIExporter(BaseExporter):
         errors = []
         self.logger.debug(f"Saving rollup data as {self.tabular_file_format} file to {outpath}")
 
-        rollup_paths_to_read = self._collect_rollup_chunk_paths(num_chunks)
+        data = self._read_rollup_chunks(num_chunks, len(aoi_gdf))
         read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
 
-        # Phase 2: Read all valid rollup chunks in parallel
-        if rollup_paths_to_read:
-            data = _read_parquet_chunks_parallel(
-                rollup_paths_to_read,
-                max_workers=read_workers,
-                desc=f"Reading {len(rollup_paths_to_read)} rollup chunks",
-                logger=self.logger,
-            )
-        else:
-            data = []
-        # Filter out DataFrames that are entirely NA (all values NA across all columns)
-        data = [d for d in data if not d.isna().all().all()]
-        self._fail_if_nothing_exported(data, num_chunks)
-        if len(data) > 0:
-            self.logger.info(f"Concatenating {len(data)} rollup chunks...")
-            # Suppress FutureWarning about all-NA columns in concat dtype inference.
-            # Individual chunks may have all-NA columns for feature types not present
-            # in that chunk; this doesn't affect correctness.
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    category=FutureWarning,
-                    message=".*concatenation with empty or all-NA.*",
-                )
-                data = pd.concat(data) if data else pd.DataFrame()
+        # Drop class-scoped columns that are 100% NaN. These correspond to
+        # classes that were unreturnable at every AOI's system_version (via
+        # per-AOI null-out in parcel_rollup). The candidate set is the
+        # authoritative class_id → columns mapping from feature_attributes()
+        # with empty input — not a prefix heuristic — so user input columns
+        # and metadata are never considered for pruning even if all-NaN.
+        class_cols_by_id = class_column_names(classes_df, self.country, self.primary_decision)
+        candidate_cols = set().union(*class_cols_by_id.values()) if class_cols_by_id else set()
+        all_nan_class_cols = [c for c in data.columns if c in candidate_cols and data[c].isna().all()]
+        if all_nan_class_cols:
+            data = data.drop(columns=all_nan_class_cols)
 
-            # Drop class-scoped columns that are 100% NaN. These correspond to
-            # classes that were unreturnable at every AOI's system_version (via
-            # per-AOI null-out in parcel_rollup). The candidate set is the
-            # authoritative class_id → columns mapping from feature_attributes()
-            # with empty input — not a prefix heuristic — so user input columns
-            # and metadata are never considered for pruning even if all-NaN.
-            if len(data) > 0:
-                class_cols_by_id = class_column_names(classes_df, self.country, self.primary_decision)
-                candidate_cols = set().union(*class_cols_by_id.values()) if class_cols_by_id else set()
-                all_nan_class_cols = [c for c in data.columns if c in candidate_cols and data[c].isna().all()]
-                if all_nan_class_cols:
-                    data = data.drop(columns=all_nan_class_cols)
+        if "geometry" in data.columns:
+            if not isinstance(data.geometry, gpd.GeoSeries):
+                data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
+            data = gpd.GeoDataFrame(data, crs=API_CRS)
 
-            if "geometry" in data.columns:
-                if not isinstance(data.geometry, gpd.GeoSeries):
-                    data["geometry"] = gpd.GeoSeries.from_wkt(data.geometry)
-                data = gpd.GeoDataFrame(data, crs=API_CRS)
-
-        else:
-            data = pd.DataFrame(data)
         if len(data) > 0:
             self.logger.info(f"Writing rollup {self.tabular_file_format} ({len(data)} rows)...")
             if self.tabular_file_format == "parquet":
