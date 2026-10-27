@@ -15,8 +15,8 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
-from nmaipy import storage
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
+from nmaipy import parcels, storage
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, UNTIL_COL_NAME
 from nmaipy.roof_age_exporter import RoofAgeExporter
 
 
@@ -172,29 +172,17 @@ def test_exporter_rejects_per_aoi_until_with_a0(tmp_path, parcels_2_gdf):
         exporter.run()
 
 
-def test_exporter_rejects_non_string_until_column(tmp_path, parcels_2_gdf):
-    """A 'until' column with datetime64 dtype must be rejected loudly at AOI-load.
-
-    Pandas may auto-parse ISO date columns as datetime; the per-AOI override silently
-    skips non-strings at request time, so we surface that loud at AOI load.
-    """
-    from nmaipy.constants import UNTIL_COL_NAME
-
+def test_datetime_until_column_is_read_as_date_strings(tmp_path, parcels_2_gdf):
+    """A datetime-typed 'until' column in the AOI file is read back as YYYY-MM-DD strings, the form the
+    exporters' per-AOI override needs (it silently skips non-strings at request time)."""
     aoi_path = tmp_path / "with_dt_until.parquet"
     gdf = parcels_2_gdf.head(2).copy()
     gdf[UNTIL_COL_NAME] = pd.to_datetime(["2020-01-01", "2020-06-30"])
     gdf.to_parquet(aoi_path)
 
-    exporter = RoofAgeExporter(
-        aoi_file=str(aoi_path),
-        output_dir=str(tmp_path / "out"),
-        country="us",
-        api_key="test_key",
-        roof_age_dataset="A.1",  # supports untilAsOfDate
-    )
+    aoi_gdf = parcels.read_from_file(str(aoi_path), id_column=AOI_ID_COLUMN_NAME)
 
-    with pytest.raises(ValueError, match="must contain YYYY-MM-DD strings"):
-        exporter.run()
+    assert aoi_gdf[UNTIL_COL_NAME].tolist() == ["2020-01-01", "2020-06-30"]
 
 
 def test_exporter_propagates_dataset_to_api(test_aoi_file, test_output_dir):

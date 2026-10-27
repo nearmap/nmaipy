@@ -181,7 +181,7 @@ def file_exists(path: str) -> bool:
     raise last_exc
 
 
-def validate_parquet(path: str) -> bool:
+def validate_parquet(path: str, min_rows: int = 0) -> bool:
     """
     Check if a parquet file has a valid footer (schema + row group metadata).
 
@@ -196,16 +196,17 @@ def validate_parquet(path: str) -> bool:
 
     Args:
         path: File path (local or S3 URI).
+        min_rows: Minimum row count (from the footer) for the file to count as valid.
 
     Returns:
-        True if the file has a valid parquet footer, False otherwise.
+        True if the file has a valid parquet footer with at least ``min_rows`` rows, False otherwise.
     """
     last_exc: Optional[Exception] = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             with open_file(path, "rb") as f:
-                pq.ParquetFile(f)
-            return True
+                num_rows = pq.ParquetFile(f).metadata.num_rows
+            return num_rows >= min_rows
         except (pa.ArrowInvalid, FileNotFoundError):
             # Genuinely corrupt/truncated, or genuinely absent — retrying won't help.
             return False

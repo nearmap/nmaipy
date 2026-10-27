@@ -267,6 +267,38 @@ def _pin_float_coverage_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _cast_all_null_object_columns(frames: list[pd.DataFrame]) -> list[pd.DataFrame]:
+    """
+    Cast each frame's all-null object columns to that column's dtype in a frame that has values.
+
+    A column with no values in a chunk (e.g. every class column of an all-404 chunk) is object there, and
+    ``pd.concat`` would widen that column to object in every chunk, several times the memory of the typed
+    columns on a large rollup. Only dtypes that can hold a missing value are cast to (numpy bool would turn
+    None into False); columns with no values in any frame are left as they are.
+    """
+
+    def _all_null_object(df: pd.DataFrame, col: str) -> bool:
+        return df[col].dtype == object and df[col].isna().all()
+
+    def _holds_missing(dtype) -> bool:
+        return (
+            pd.api.types.is_extension_array_dtype(dtype)
+            or pd.api.types.is_float_dtype(dtype)
+            or pd.api.types.is_datetime64_any_dtype(dtype)
+        )
+
+    typed = {}
+    for df in frames:
+        for col in df.columns:
+            if col not in typed and not _all_null_object(df, col):
+                typed[col] = df[col].dtype
+    casts = [
+        {c: typed[c] for c in df.columns if c in typed and _holds_missing(typed[c]) and _all_null_object(df, c)}
+        for df in frames
+    ]
+    return [df.astype(cast) if cast else df for df, cast in zip(frames, casts)]
+
+
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
@@ -3515,6 +3547,20 @@ class NearmapAIExporter(BaseExporter):
         """
         return storage.join_path(self.chunk_path, f"rollup_{chunk_id}.parquet")
 
+    def is_chunk_output_complete(self, path: str) -> bool:
+        """
+        A rollup chunk is done when it holds rows: every chunk writes one row per AOI. nmaipy <= 5.1.8 wrote a
+        zero-row rollup for a chunk where every AOI returned 404, so a resume re-fetches those chunks rather than
+        reaching the merge with their AOIs missing.
+
+        Args:
+            path: The chunk's rollup file
+
+        Returns:
+            True if the file is a readable parquet file with at least one row
+        """
+        return storage.validate_parquet(path, min_rows=1)
+
     def process_chunk(
         self,
         chunk_id: str,
@@ -3572,7 +3618,7 @@ class NearmapAIExporter(BaseExporter):
             outfile_features = storage.join_path(self.chunk_path, f"features_{chunk_id}.parquet")
             outfile_errors = storage.join_path(self.chunk_path, f"feature_api_errors_{chunk_id}.parquet")
             outfile_roof_age_errors = storage.join_path(self.chunk_path, f"roof_age_errors_{chunk_id}.parquet")
-            if storage.file_exists(outfile) and storage.validate_parquet(outfile):
+            if storage.file_exists(outfile) and self.is_chunk_output_complete(outfile):
                 return {"chunk_id": chunk_id, "latency_stats": None}
 
             # Get additional parcel attributes from parcel geometry
@@ -4556,6 +4602,7 @@ class NearmapAIExporter(BaseExporter):
         self._fail_if_nothing_exported(frames, num_chunks)
 
         self.logger.info(f"Concatenating {len(frames)} rollup chunks...")
+        frames = _cast_all_null_object_columns(frames)
         # Suppress FutureWarning about all-NA columns in concat dtype inference.
         # Individual chunks may have all-NA columns for feature types not present
         # in that chunk; this doesn't affect correctness.

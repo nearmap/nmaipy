@@ -20,7 +20,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from nmaipy import log
-from nmaipy.constants import ADDRESS_FIELDS, AOI_ID_COLUMN_NAME, LAT_LONG_CRS
+from nmaipy.constants import ADDRESS_FIELDS, AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME
 
 logger = log.get_logger()
 
@@ -91,11 +91,12 @@ def read_from_file(
         ValueError: If duplicate IDs are found
 
     Note on date columns:
-        Optional ``until`` and ``since`` columns must be **string-typed** ``YYYY-MM-DD`` values.
-        Pandas will sometimes infer ISO-formatted columns as ``datetime64`` from CSV/parquet input;
-        callers downstream check ``isinstance(value, str)`` and would silently skip per-AOI
+        Optional ``until`` and ``since`` columns are returned as ``YYYY-MM-DD`` strings. GeoJSON and
+        GeoPackage have no column types, so the reader parses date-like values as ``datetime64``
+        (as can a typed parquet column); those are converted back here, with nulls left null.
+        Callers downstream check ``isinstance(value, str)`` and would silently skip per-AOI
         overrides on a ``Timestamp`` value. The exporters validate dtype at AOI-load time and raise
-        a clear error when this happens — cast with
+        a clear error for in-memory frames that still carry datetimes — cast with
         ``df[col] = df[col].dt.strftime('%Y-%m-%d')`` before passing.
 
     Example:
@@ -179,6 +180,12 @@ def read_from_file(
                 geometry=geometry,
                 crs=source_crs,
             )
+
+    # The API takes per-AOI cutoffs as YYYY-MM-DD strings, but GeoJSON/GeoPackage readers parse
+    # date-like values as datetimes. Convert them back; NaT becomes null (no per-AOI override).
+    for col in (SINCE_COL_NAME, UNTIL_COL_NAME):
+        if col in parcels_gdf.columns and pd.api.types.is_datetime64_any_dtype(parcels_gdf[col]):
+            parcels_gdf[col] = parcels_gdf[col].dt.strftime("%Y-%m-%d")
 
     # Check if both geometry and address fields are present - geometry will take priority
     has_geometry = "geometry" in parcels_gdf.columns

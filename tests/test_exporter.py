@@ -35,6 +35,7 @@ from nmaipy.constants import (
 from nmaipy.exporter import (
     AOIExporter,
     _add_missing_columns,
+    _cast_all_null_object_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
     _nonnegative_int,
@@ -339,7 +340,8 @@ class TestExporter:
         Test the full export workflow with save_features=True to validate the new incremental
         parquet writing works correctly in the actual run() method.
         """
-        # Create a temporary AOI file
+        # Create a temporary AOI file. GeoJSON round-trips the since/until columns as datetimes,
+        # which read_from_file must turn back into YYYY-MM-DD strings for the exporter.
         aoi_file = tmp_path / "test_aoi.geojson"
         parcel_gdf_au_tests.to_file(aoi_file, driver="GeoJSON")
 
@@ -1941,6 +1943,21 @@ class TestCoverageGapChunks:
         assert rollup["building_count"].isna().to_dict() == {"p1": True, "p2": True, "p3": False, "p4": True}
         assert rollup.loc["p3", "building_count"] == 1
 
+    def test_resume_refetches_zero_row_rollup_from_older_version(self, exporter):
+        """A resume skips a chunk whose rollup holds rows, but re-fetches one holding nmaipy <= 5.1.8's zero-row
+        coverage-gap marker, so the export completes instead of failing at the merge."""
+        aoi_gdf = pd.concat([self._aoi_gdf(), self._aoi_gdf().rename({"p1": "p3", "p2": "p4"})])
+        chunk_path = Path(exporter.chunk_path)
+        pd.DataFrame(
+            {"feature_api_success": ["N", "N"]}, index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME)
+        ).to_parquet(chunk_path / "rollup_0000.parquet")
+        pd.DataFrame({AOI_ID_COLUMN_NAME: pd.Series([], dtype=str)}).to_parquet(chunk_path / "rollup_0001.parquet")
+
+        to_process, skipped_chunks, skipped_aois, num_chunks = exporter.split_into_chunks(aoi_gdf, check_cache=True)
+
+        assert (num_chunks, skipped_chunks, skipped_aois) == (2, 1, 2)
+        assert [i for i, _ in to_process] == [1], "the chunk with the zero-row legacy marker must be re-fetched"
+
     def test_zero_row_rollup_from_older_version_is_fatal(self, exporter, caplog):
         """nmaipy <= 5.1.8 marked an all-404 chunk with a zero-row rollup. A resume skips it as done, so the merge
         must refuse to complete with those AOIs missing, and name the file to delete."""
@@ -2421,3 +2438,25 @@ class TestSkipRebuildWhenReadmeExists:
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter.run()
             mock_api.assert_not_called()
+
+
+def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
+    """An all-404 chunk's class columns are all-null object. They must take the dtype of the chunks that have
+    values, or concat widens those columns to object in every chunk. A numpy bool column must be left alone,
+    since casting would turn None into False."""
+    typed = pd.DataFrame(
+        {
+            "area": pd.array([1.5, 2.0], dtype="Float64"),
+            "flag": pd.array([True, False], dtype="boolean"),
+            "np_bool": [True, False],
+        }
+    )
+    gap = pd.DataFrame({c: pd.Series([None, None], dtype=object) for c in typed.columns})
+
+    cast = _cast_all_null_object_columns([typed, gap])
+
+    assert str(cast[1]["area"].dtype) == "Float64" and str(cast[1]["flag"].dtype) == "boolean"
+    assert cast[1]["np_bool"].dtype == object and cast[1]["np_bool"].isna().all(), "None must not become False"
+    merged = pd.concat(cast, ignore_index=True)
+    assert str(merged["area"].dtype) == "Float64", merged["area"].dtype
+    assert merged["area"].isna().tolist() == [False, False, True, True]

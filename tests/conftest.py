@@ -67,8 +67,7 @@ def processed_output_directory() -> Path:
 
 @pytest.fixture(scope="session")
 def sydney_aoi() -> Polygon:
-    return loads(
-        """
+    return loads("""
         POLYGON ((
             151.2770527676921 -33.79276755642528,
             151.2774527676922 -33.79276755642528,
@@ -76,8 +75,7 @@ def sydney_aoi() -> Polygon:
             151.2770527676921 -33.79236755642528,
             151.2770527676921 -33.79276755642528
         ))
-    """
-    )
+    """)
 
 
 @pytest.fixture(scope="session")
@@ -86,8 +84,7 @@ def large_adelaide_aoi() -> Polygon:
     MB_CODE_2021
     40215247200
     """
-    return loads(
-        """
+    return loads("""
     POLYGON ((
         138.58494782597298922 -35.0916037690875342, 138.58494023597955902 -35.09151746908665359,
         138.58116021657605188 -35.09172645893046649, 138.58108491658788353 -35.09173058892735497,
@@ -103,8 +100,7 @@ def large_adelaide_aoi() -> Polygon:
         138.58558022536499266 -35.09980492916529471, 138.58535924558324837 -35.09684546913752712,
         138.58527102567015277 -35.09566727912645945, 138.58494782597298922 -35.0916037690875342
     ))
-    """
-    )
+    """)
 
 
 @pytest.fixture(scope="session")
@@ -247,8 +243,10 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
         "until": "2025-01-01",
         "geometry": sydney_aoi,
     }
+    # Pinned by survey date, not survey resource id: resource ids change when a survey's AI is re-run.
     adelaide_row = {
-        "survey_resource_id": "68c1c4e7-9267-52a5-84e7-23b6ed43bceb",  # 2025-03-06, Gen 6 run
+        "since": "2025-03-06",
+        "until": "2025-03-06",
         "geometry": large_adelaide_aoi,
     }
 

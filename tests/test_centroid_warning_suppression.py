@@ -26,8 +26,7 @@ def test_centroid_warning_suppressed_in_production_environment():
     # The script triggers the exact warning that production emits and exits 0
     # iff no warning was raised. ``warnings.simplefilter("error")`` converts any
     # un-suppressed warning into an exception, which makes silent leaks fatal.
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import warnings
         warnings.simplefilter("error")  # any un-ignored warning becomes an error
         import nmaipy.exporter  # installs the module-level ignore filter
@@ -36,8 +35,7 @@ def test_centroid_warning_suppressed_in_production_environment():
 
         gs = gpd.GeoSeries([Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])], crs="EPSG:4326")
         _ = gs.centroid  # would raise UserWarning if not suppressed
-        """
-    ).strip()
+        """).strip()
 
     result = subprocess.run(
         [sys.executable, "-c", script],

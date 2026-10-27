@@ -261,6 +261,18 @@ class BaseExporter(ABC):
         """
         pass
 
+    def is_chunk_output_complete(self, path: str) -> bool:
+        """
+        Whether a chunk's main output file marks the chunk as done, so a resume skips it.
+
+        Args:
+            path: The file returned by ``get_chunk_output_file``
+
+        Returns:
+            True if the file is a readable parquet file
+        """
+        return storage.validate_parquet(path)
+
     def split_into_chunks(
         self, aoi_gdf: gpd.GeoDataFrame, check_cache: bool = True
     ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int, int]:
@@ -317,7 +329,7 @@ class BaseExporter(ABC):
                 chunk_id = str(i).zfill(4)
                 outfile = self.get_chunk_output_file(chunk_id)
                 if storage.file_exists(outfile):
-                    if storage.validate_parquet(outfile):
+                    if self.is_chunk_output_complete(outfile):
                         return (i, batch, True, None)
                     else:
                         return (i, batch, False, chunk_id)
@@ -335,8 +347,8 @@ class BaseExporter(ABC):
                     if corrupt_chunk_id is not None:
                         outfile = self.get_chunk_output_file(corrupt_chunk_id)
                         self.logger.warning(
-                            f"Chunk {corrupt_chunk_id}: cached file {outfile} is corrupted "
-                            f"(invalid parquet footer). Will reprocess."
+                            f"Chunk {corrupt_chunk_id}: cached file {outfile} does not mark the chunk as done "
+                            f"(invalid parquet footer, or a legacy empty marker). Will reprocess."
                         )
                     chunks_to_process.append((i, batch))
         else:
