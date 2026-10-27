@@ -1896,18 +1896,21 @@ class TestCoverageGapChunks:
 
     def test_all_404_rollup_matches_mixed_chunk_failed_rows(self, exporter):
         """The all-404 chunk's rows must come from the same code as the 404 rows of a mixed chunk, so the two
-        can't drift: same columns, and the 404 AOI's values identical."""
+        can't drift: the 404 AOI's values identical, and any column only the mixed chunk has (from the
+        successful AOI's features) null for its 404 AOI."""
         aoi_gdf = self._aoi_gdf()
         meta = pd.DataFrame(
             {"system_version": ["gen6-x"], "survey_date": ["2024-01-01"]},
             index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME),
         )
-        chunk_path = self._run_chunk(exporter, "0001", aoi_gdf, meta, self._errors_df([404]).rename({"p1": "p2"}))
+        errors = self._errors_df([404]).rename({"p1": "p2"})
+        chunk_path = self._run_chunk(exporter, "0001", aoi_gdf, meta, errors, self._building_features(["p1"]))
         self._run_all_failed_chunk(exporter, [404, 404])
         mixed = pd.read_parquet(chunk_path / "rollup_0001.parquet")
         all_404 = pd.read_parquet(chunk_path / "rollup_0000.parquet")
-        assert list(mixed.loc["p1", ["feature_api_success"]]) == ["Y"]
-        assert sorted(all_404.columns) == sorted(mixed.columns)
+        assert mixed.loc["p1", "feature_api_success"] == "Y" and mixed.loc["p1", "building_count"] == 1
+        assert set(all_404.columns) <= set(mixed.columns)
+        assert mixed.loc["p2", list(set(mixed.columns) - set(all_404.columns))].isna().all()
         # Per-chunk convert_dtypes can spell a null as None or <NA>, so compare null-ness and the non-null values.
         gap_row, mixed_row = all_404.loc["p2"], mixed.loc["p2", all_404.columns]
         assert gap_row.isna().equals(mixed_row.isna())
@@ -1924,10 +1927,28 @@ class TestCoverageGapChunks:
         meta = pd.DataFrame({"system_version": ["gen6-x"]}, index=pd.Index(["p3"], name=AOI_ID_COLUMN_NAME))
         errors = self._errors_df([404]).rename({"p1": "p4"})
         self._run_all_failed_chunk(exporter, [404, 404])
-        self._run_chunk(exporter, "0001", mixed_aois, meta, errors)
-        rollup = pd.concat(exporter._read_rollup_chunks(2))
+        self._run_chunk(exporter, "0001", mixed_aois, meta, errors, self._building_features(["p3"]))
+        rollup = exporter._read_rollup_chunks(2, 4)
         assert sorted(rollup.index) == ["p1", "p2", "p3", "p4"], "the merged rollup needs one row per input AOI"
         assert rollup["feature_api_success"].to_dict() == {"p1": "N", "p2": "N", "p3": "Y", "p4": "N"}
+        # The all-404 chunk's class columns are all-null (object) in its file; the merge must not widen the
+        # mixed chunk's nullable dtypes to object.
+        assert str(rollup["building_count"].dtype) == "Int64", rollup["building_count"].dtype
+        assert rollup["building_count"].isna().to_dict() == {"p1": True, "p2": True, "p3": False, "p4": True}
+        assert rollup.loc["p3", "building_count"] == 1
+
+    def test_zero_row_rollup_from_older_version_is_fatal(self, exporter, caplog):
+        """nmaipy <= 5.1.8 marked an all-404 chunk with a zero-row rollup. A resume skips it as done, so the merge
+        must refuse to complete with those AOIs missing, and name the file to delete."""
+        meta = pd.DataFrame({"system_version": ["gen6-x"]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME))
+        self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, self._errors_df([404]).rename({"p1": "p2"}))
+        legacy_marker = Path(exporter.chunk_path) / "rollup_0001.parquet"
+        pd.DataFrame({AOI_ID_COLUMN_NAME: pd.Series([], dtype=str)}).to_parquet(legacy_marker)
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+            exporter._read_rollup_chunks(2, 4)
+        assert exc.value.code == 1
+        assert "hold 2 rows but the input has 4 AOIs" in caplog.text
+        assert str(legacy_marker) in caplog.text, "the zero-row rollup to delete must be named"
 
     def test_partial_grid_failure_is_a_success(self, exporter):
         """errors_df carries one row per failed grid cell, under the AOI's own aoi_id, so a single gridded AOI
@@ -1941,7 +1962,7 @@ class TestCoverageGapChunks:
         )
         cell_error = self._errors_df([404]).assign(failure_type="grid")
         chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, cell_error, self._building_features(["p1"]))
-        rollup = pd.concat(exporter._read_rollup_chunks(1))
+        rollup = exporter._read_rollup_chunks(1, 1)
         assert rollup["feature_api_success"].to_dict() == {"p1": "Y"}, "an AOI that answered must be a success"
         assert rollup.loc["p1", "building_count"] == 1
         assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 1, "the failed cell is kept"
@@ -1992,7 +2013,7 @@ class TestCoverageGapChunks:
         anywhere the export must fail rather than hand back an all-"N" rollup as a result."""
         self._run_all_failed_chunk(exporter, [404, 404])
         with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
-            exporter._read_rollup_chunks(1)
+            exporter._read_rollup_chunks(1, 2)
         assert exc.value.code == 1
 
 
