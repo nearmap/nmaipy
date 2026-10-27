@@ -316,8 +316,7 @@ class TestFeatureAPI:
 
     def test_not_found(self, cache_directory: Path):
         # Somewhere in the Pacific
-        aoi = loads(
-            """
+        aoi = loads("""
             POLYGON((
                 -145.5385490968286 -28.74031798505824, 
                 -145.5381490968286 -28.74031798505824,
@@ -325,8 +324,7 @@ class TestFeatureAPI:
                 -145.5385490968286 -28.73991798505824,
                 -145.5385490968286 -28.74031798505824
                 ))
-        """
-        )
+        """)
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory, maxretry=3)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(aoi, region=country)
@@ -455,11 +453,9 @@ class TestFeatureAPI:
 
     def test_point_data(self, cache_directory: Path):
         # Small area around a power pole in Darwin, AU
-        aoi = loads(
-            """
+        aoi = loads("""
             Polygon ((130.85230645835545715 -12.39611155192925374, 130.85240838555137088 -12.39610856112810566, 130.85241538484379475 -12.3961991396618636, 130.85233576789246968 -12.39619572160455263, 130.85233576789246968 -12.39619572160455263, 130.85230645835545715 -12.39611155192925374))
-            """
-        )
+            """)
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
         features_gdf, metadata, error, _ = feature_api.get_features_gdf(

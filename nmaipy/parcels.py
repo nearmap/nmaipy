@@ -67,9 +67,7 @@ from nmaipy.feature_attributes import (
     is_resolved_score_column,
 )
 from nmaipy.primary_feature_selection import DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH
-from nmaipy.primary_feature_selection import (
-    select_primary,
-)
+from nmaipy.primary_feature_selection import select_primary
 
 logger = log.get_logger()
 
