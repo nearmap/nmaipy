@@ -17,7 +17,7 @@ from shapely.geometry import box
 from nmaipy import parcels, storage
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, AREA_CRS, MAX_RETRIES
 from nmaipy.damage_conflation_api import DamageConflationApi
-from nmaipy.damage_conflation_exporter import DamageConflationExporter, filter_buildings_to_aoi
+from nmaipy.damage_conflation_exporter import DamageConflationExporter, filter_buildings_to_aoi, parse_arguments
 
 EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"
 
@@ -426,3 +426,14 @@ def test_run_parcel_mode_drops_nonintersecting_buildings(tmp_path, milton_respon
     assert set(rollup["aoi_id"]) == {"p1", "p2"}
     assert (rollup["n_buildings"] == 0).all()
     assert rollup["query_succeeded"].all()
+
+
+def test_cli_help_renders(monkeypatch, capsys):
+    """argparse %-formats every help string: a bare '%' crashes --help (and, from Python 3.14,
+    every invocation, since add_argument validates help strings up front)."""
+    monkeypatch.setattr("sys.argv", ["damage_conflation_exporter", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        parse_arguments()
+    assert exc.value.code == 0, "--help should exit cleanly"
+    help_text = " ".join(capsys.readouterr().out.split())  # undo argparse's line wrapping
+    assert ">=50% inside the AOI" in help_text
