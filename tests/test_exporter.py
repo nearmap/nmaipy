@@ -28,6 +28,7 @@ from nmaipy.constants import (
     FEATURE_PREFETCH_FLOOR,
     PER_CLASS_FILE_CLASS_IDS,
     ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
 )
 from nmaipy.exporter import (
     AOIExporter,
@@ -1966,6 +1967,101 @@ class TestCoverageGapChunks:
         assert rollup["feature_api_success"].to_dict() == {"p1": "Y"}, "an AOI that answered must be a success"
         assert rollup.loc["p1", "building_count"] == 1
         assert len(pd.read_parquet(chunk_path / "feature_api_errors_0000.parquet")) == 1, "the failed cell is kept"
+
+    @pytest.fixture
+    def roof_age_exporter(self, tmp_path):
+        ex = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            chunk_size=2,
+            no_cache=True,
+            roof_age=True,
+        )
+        Path(ex.chunk_path).mkdir(parents=True, exist_ok=True)
+        return ex
+
+    @staticmethod
+    def _answered(aoi_ids):
+        """Metadata for AOIs that answered: one row each, indexed by aoi_id (Roof Age adds no columns without roofs)."""
+        return pd.DataFrame(index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME))
+
+    @staticmethod
+    def _no_errors():
+        errors = pd.DataFrame([])
+        errors.index.name = AOI_ID_COLUMN_NAME
+        return errors
+
+    def _feature_response(self, kind):
+        features, metadata = self._empty_api_response()
+        if kind == "answered":
+            return features, self._answered(["p1", "p2"]), self._no_errors()
+        return features, metadata, self._errors_df([404, 404] if kind == "404" else [503, 503])
+
+    def _roof_age_response(self, kind):
+        """(roofs, metadata, errors) as RoofAgeApi.get_roof_age_bulk returns them, or an exception it raises."""
+        no_roofs = gpd.GeoDataFrame(columns=[AOI_ID_COLUMN_NAME, "geometry"], crs=API_CRS)
+        if kind == "answered":
+            return no_roofs, self._answered(["p1", "p2"]), self._no_errors()
+        if kind == "roofs":
+            roofs = gpd.GeoDataFrame(
+                {AOI_ID_COLUMN_NAME: ["p1"], "class_id": [ROOF_INSTANCE_CLASS_ID]},
+                geometry=[box(151.201, -33.899, 151.2012, -33.8988)],
+                crs=API_CRS,
+            )
+            return roofs, self._answered(["p1", "p2"]), self._no_errors()
+        if kind == "half":
+            return no_roofs, self._answered(["p1"]), self._errors_df([503]).rename({"p1": "p2"})
+        if kind == "raises":
+            return RuntimeError("roof age client blew up")
+        codes = {"403": [403, 403], "503": [503, 503]}[kind]
+        return no_roofs, pd.DataFrame([]), self._errors_df(codes)
+
+    def _run_two_api_chunk(self, exporter, feature_kind, roof_age_kind):
+        roof_age = self._roof_age_response(roof_age_kind)
+        with (
+            patch("nmaipy.exporter.FeatureApi") as feature_api,
+            patch("nmaipy.exporter.RoofAgeApi") as roof_age_api,
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+        ):
+            feature_api.return_value.get_features_gdf_bulk.return_value = self._feature_response(feature_kind)
+            if isinstance(roof_age, Exception):
+                roof_age_api.return_value.get_roof_age_bulk.side_effect = roof_age
+            else:
+                roof_age_api.return_value.get_roof_age_bulk.return_value = roof_age
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(), classes_df=self._classes_df())
+        return Path(exporter.chunk_path)
+
+    @pytest.mark.parametrize(
+        "feature_kind,roof_age_kind,expected_feature,expected_roof_age",
+        [
+            ("404", "answered", ["N", "N"], ["Y", "Y"]),  # no survey coverage, but Roof Age has an answer
+            ("answered", "403", ["Y", "Y"], ["N", "N"]),  # no Roof Age access: N rows, not a failed export
+            ("answered", "half", ["Y", "Y"], ["Y", "N"]),  # per-AOI failure in an answered chunk stays N
+        ],
+    )
+    def test_chunk_complete_when_each_api_is_settled(
+        self, roof_age_exporter, feature_kind, roof_age_kind, expected_feature, expected_roof_age
+    ):
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
+        rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet").sort_index()
+        assert list(rollup["feature_api_success"]) == expected_feature
+        assert list(rollup["roof_age_api_success"]) == expected_roof_age
+
+    @pytest.mark.parametrize(
+        "feature_kind,roof_age_kind",
+        [
+            ("answered", "503"),  # Roof Age outage must not become permanent N rows
+            ("answered", "raises"),  # nor a Roof Age client failure
+            ("404", "503"),  # a Feature API coverage gap doesn't excuse a Roof Age outage
+            ("503", "roofs"),  # Roof Age roofs don't excuse a Feature API outage
+        ],
+    )
+    def test_chunk_left_for_refetch_when_an_api_answered_nothing(self, roof_age_exporter, feature_kind, roof_age_kind):
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be re-fetched on resume"
+        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the merge gate keys on the errors file"
 
     def test_all_failed_chunk_with_non_404_writes_no_rollup(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 403])

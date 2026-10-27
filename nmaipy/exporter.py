@@ -250,6 +250,17 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
+def _api_settled_for_chunk(answered: bool, errors_df: pd.DataFrame, final_statuses: set) -> bool:
+    """
+    Whether one API's results for a chunk are final, so the chunk can be marked complete.
+
+    They are when at least one AOI answered (per-AOI failures among them already spent their retry budget), or
+    when every failure has a status in ``final_statuses``, which re-asking will not change (e.g. 404: no data
+    there). Anything else, with nothing answered, is an outage or a client failure worth re-fetching.
+    """
+    return answered or (len(errors_df) > 0 and errors_df["status_code"].isin(final_statuses).all())
+
+
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
     """
     Return ``df`` with every name in ``columns`` present, adding missing ones in a single concat.
@@ -3702,22 +3713,37 @@ class NearmapAIExporter(BaseExporter):
                 else set(aoi_gdf.index)
             )
 
-            # If no AOI returned a response and there is no roof age data, save errors and
-            # return without a rollup, so the chunk is re-fetched on resume and the final merge
-            # refuses to complete without it. Test metadata rows (one per AOI that answered), not
-            # error rows: errors_df also carries one row per failed grid cell, so an AOI that
-            # succeeded apart from a seam cell would otherwise make the counts match and its data
-            # would be dropped.
-            # The exception is a chunk where every AOI 404'd: it has no survey coverage (spatially
-            # sorted input over a coverage gap does this routinely), which is a result, not lost
-            # data. It falls through to the normal rollup path like the 404s in a mixed chunk, so
-            # every AOI gets a feature_api_success = "N" row, and that rollup lets resumes skip the
-            # chunk (404s are neither cached nor retried).
-            if (
-                len(metadata_df) == 0
-                and len(roof_age_gdf) == 0
-                and not (feature_api_errors_df["status_code"] == HTTPStatus.NOT_FOUND).all()
-            ):
+            # The rollup is the chunk's completion marker: once written, resumes never query the
+            # chunk again. So write it only when every enabled API's results for the chunk are
+            # final (see _api_settled_for_chunk), judged per API so neither can stand in for the
+            # other. Otherwise save errors and return without a rollup, so the chunk is re-fetched
+            # on resume (answers that did come back are served from the cache) and the final merge
+            # refuses to complete without it.
+            # "Answered" means metadata rows (one per AOI that answered), not the absence of error
+            # rows: errors_df also carries one row per failed grid cell, so an AOI that succeeded
+            # apart from a seam cell would otherwise look failed.
+            # A chunk where every Feature API request 404'd has no survey coverage (spatially sorted
+            # input over a coverage gap does this routinely), which is a result, not lost data: it
+            # falls through to the normal rollup path like the 404s in a mixed chunk, so every AOI
+            # gets a feature_api_success = "N" row. For Roof Age a 403 is final too: an account
+            # without access gets "N" rows rather than a failed export.
+            feature_api_settled = _api_settled_for_chunk(
+                len(metadata_df) > 0, feature_api_errors_df, {HTTPStatus.NOT_FOUND}
+            )
+            roof_age_settled = not self.roof_age or _api_settled_for_chunk(
+                len(roof_age_metadata_df) > 0, roof_age_errors_df, {HTTPStatus.NOT_FOUND, HTTPStatus.FORBIDDEN}
+            )
+            if not (feature_api_settled and roof_age_settled):
+                api_name, api_errors_df = (
+                    ("Feature API", feature_api_errors_df)
+                    if not feature_api_settled
+                    else ("Roof Age API", roof_age_errors_df)
+                )
+                status_counts = api_errors_df["status_code"].value_counts().to_dict()
+                logger.warning(
+                    f"Chunk {chunk_id}: the {api_name} answered no AOI (status codes {status_counts}), so the "
+                    f"chunk gets no rollup and will be re-fetched on resume."
+                )
                 _write_errors_parquet(feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
@@ -4390,7 +4416,8 @@ class NearmapAIExporter(BaseExporter):
 
         The rollup is written last as the chunk's completion marker, and a chunk with no survey
         coverage still gets one (a feature_api_success = "N" row per AOI), so a missing rollup
-        means lost data: the rollup write failed, or every request failed with a non-404 status.
+        means lost data: the rollup write failed, or an API answered no AOI in the chunk for a reason
+        re-asking could change (see _api_settled_for_chunk).
         Exiting here keeps the caller from writing completion artifacts over an incomplete
         export; a re-run re-fetches only these chunks.
         """
@@ -4461,9 +4488,10 @@ class NearmapAIExporter(BaseExporter):
             self.logger.error(
                 f"{len(rollup_less_chunks)} of {num_chunks} chunks have an error file but no rollup file, so "
                 f"their AOIs would be missing from the output: either the rollup write failed (see 'Failed "
-                f"writing final_df' in the log) or every request in the chunk failed with a non-404 status. "
-                f"First such chunks: {rollup_less_chunks[:10]}. Inspect feature_api_errors_*.parquet in "
-                f"'{self.chunk_path}', fix the cause, then re-run: only chunks without a rollup are re-fetched."
+                f"writing final_df' in the log) or an API answered no AOI in the chunk (an outage or client "
+                f"failure, see 'answered no AOI' in the log). First such chunks: {rollup_less_chunks[:10]}. Inspect "
+                f"feature_api_errors_*.parquet and roof_age_errors_*.parquet in '{self.chunk_path}', fix the cause, "
+                f"then re-run: only chunks without a rollup are re-fetched."
             )
             sys.exit(1)
         return rollup_paths_to_read
