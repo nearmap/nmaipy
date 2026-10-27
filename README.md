@@ -88,16 +88,7 @@ exporter.run()
 
 #### Finding a catastrophe event from a point
 
-For ImpactResponse workflows you often know roughly *where* an event hit but not its event id. Given a lat/lon, `nmaipy.coverage_utils.discover_event` resolves the **latest** post-catastrophe event covering that point and assembles its footprint — in memory, no files:
-
-```python
-from nmaipy.coverage_utils import discover_event
-
-event_id, boundary = discover_event(lat=27.742889, lon=-82.754961)
-# event_id: str UUID (e.g. Hurricane Milton); boundary: shapely (Multi)Polygon in EPSG:4326
-```
-
-You then subdivide `boundary` into your own AOIs (e.g. census/mesh blocks) and run the exporters over them with the discovered `event_id`. Pass `since`/`until` to disambiguate a location hit by more than one event (e.g. St Pete Beach sits under both Hurricanes Milton and Helene — the latest wins, and the others are logged). The pieces are also available separately: `latest_event_id_at_point(lat, lon)` and `event_boundary(event_id)` (the boundary is one tag-filtered Coverage query — `include=postCatEventId:<id>` — unioned, no spatial search).
+For ImpactResponse workflows you often know roughly *where* an event hit but not its event id. Given a lat/lon, `nmaipy.coverage_utils.discover_event` resolves the **latest** post-catastrophe event covering that point and assembles its footprint — in memory, no files. Subdivide the footprint into AOIs and run the exporters over them with the discovered `event_id`; [Damage Conflation](#damage-conflation-event-scoped-damage) below has a complete point → event → building damage script.
 
 ### Roof Age Analysis (US Only)
 
@@ -142,23 +133,55 @@ Useful for insurance underwriting, property valuation, maintenance planning, and
 
 ### Damage Conflation (Event-Scoped Damage)
 
-For a catastrophe event (hurricane, wildfire), the Damage Conflation API returns a single *conflated* damage rating per building — the highest-confidence assessment fused across every capture in the event lifecycle, rather than one survey's classification. Query it standalone with an event id:
+For a catastrophe event (hurricane, wildfire), the Damage Conflation API returns a single *conflated* damage rating per building — the highest-confidence assessment fused across every capture in the event lifecycle, rather than one survey's classification. Queries are scoped by event id, which you can resolve from any point inside the damage zone. This script goes from one point to conflated damage for the whole event:
 
 ```python
-from nmaipy.damage_conflation_exporter import DamageConflationExporter
+"""Pull conflated building damage for a whole catastrophe event, starting from one point."""
 
-exporter = DamageConflationExporter(
-    aoi_file='properties.geojson',
-    output_dir='damage_results',
-    event_id='2f510853-5d55-50f4-9102-2c02de08190e',  # e.g. Hurricane Milton
-    country='us',
-    output_format='both',         # GeoParquet and CSV
-    rollup=True,                  # also emit a per-AOI summary
-)
-exporter.run()
+from nmaipy.coverage_utils import discover_event
+from nmaipy.damage_conflation_exporter import DamageConflationExporter
+from nmaipy.geometry_utils import split_geometry_into_grid
+
+LAT, LON = 30.15465, -85.76716  # Panama City Beach, FL: inside the Hurricane Isaias (2026) damage zone
+AOI_FILE = "isaias_cells.parquet"
+
+
+def main():
+    # 1. Point -> the latest post-catastrophe event covering it, plus that event's footprint
+    #    (the union of its post-cat surveys). since/until bracket the event, so a later event
+    #    at the same spot can't take over.
+    event_id, footprint = discover_event(lat=LAT, lon=LON, since="2026-10-09", until="2026-12-31")
+    # event_id == "442c3974-5b6c-5335-a6e4-83b5b9afc8b7"  (Hurricane Isaias, event date 2026-10-09)
+
+    # 2. Footprint -> ~1 km grid cells as AOIs. The API pages a whole footprint, but cells spread
+    #    the work across processes, let an interrupted run resume chunk by chunk, and give
+    #    per-cell counts in the rollup. Census blocks or your own parcels work just as well.
+    cells = split_geometry_into_grid(footprint, cell_size=0.01).reset_index(drop=True)
+    cells["aoi_id"] = "cell_" + cells.index.astype(str)
+    cells[["aoi_id", "geometry"]].to_parquet(AOI_FILE)
+
+    # 3. One conflated damage rating per building, fused across every capture of the event.
+    DamageConflationExporter(
+        aoi_file=AOI_FILE,
+        output_dir="isaias_damage",
+        event_id=event_id,
+        country="us",
+        output_format="both",  # GeoParquet + CSV
+        rollup=True,  # adds a per-cell rollup (n_buildings, n_major, ...) alongside the per-building rows
+        processes=8,
+        threads=1,  # the conflation API rate-limits well below the Feature API; keep concurrency low
+        chunk_size=100,
+        max_retries=20,  # default 10; AOIs still failing after this are listed in damage_errors.csv
+    ).run()
+
+
+if __name__ == "__main__":  # required: nmaipy's worker pool uses the "spawn" start method
+    main()
 ```
 
-Always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building). Large AOIs — up to a full event boundary — are paged, not gridded. The `event_id` comes from the Coverage API's `eventId` survey tag.
+`discover_event` picks the **latest** post-catastrophe event covering the point and logs any others — this point also sits under Hurricane Michael (2018) and a 2024 severe-weather event — so pass `since`/`until` to pin a specific one (they also bound the captures that make up the footprint). The event id is the Coverage API's `postCatEventId` survey tag. The two steps are also available separately: `latest_event_id_at_point(lat, lon)` and `event_boundary(event_id)` (one tag-filtered Coverage query — `include=postCatEventId:<id>` — unioned, no spatial search).
+
+The exporter always emits per-building damage polygons (`damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings scores); `rollup=True` adds a per-AOI summary (rating counts + the primary building, which is most meaningful when AOIs are property-sized). Large AOIs — up to a full event boundary — are paged, not gridded. The Isaias footprint is ~3,600 km² (~3,850 cells), so slice `cells` (e.g. `cells.head(10)`) for a quick first run. See [Standalone Damage Conflation Export](#standalone-damage-conflation-export) for the CLI and the files written to `final/`.
 
 ### Wildfire Risk & Defensible Space
 
@@ -377,15 +400,20 @@ Accepts the same `--roof-age-dataset`, `--until`, `--since` flags as the unified
 
 ### Standalone Damage Conflation Export
 
-Event-scoped, building-level conflated damage for a catastrophe event (requires `--event-id`):
+Event-scoped, building-level conflated damage for a catastrophe event (requires `--event-id`). Resolve the event id from a point inside the damage zone, then export your AOIs (e.g. properties) inside its footprint:
 
 ```bash
+# Resolves to 442c3974-5b6c-5335-a6e4-83b5b9afc8b7 (Hurricane Isaias, event date 2026-10-09)
+EVENT_ID=$(python -c "from nmaipy.coverage_utils import latest_event_id_at_point; print(latest_event_id_at_point(30.15465, -85.76716, since='2026-10-09', until='2026-12-31'))")
+
 python -m nmaipy.damage_conflation_exporter \
     --aoi-file "us_properties.geojson" \
     --output-dir "damage_results" \
-    --event-id "2f510853-5d55-50f4-9102-2c02de08190e" \
+    --event-id "$EVENT_ID" \
     --country us \
     --processes 4 \
+    --threads 1 \
+    --max-retries 20 \
     --output-format both \
     --rollup
 ```
@@ -397,7 +425,9 @@ Outputs in `final/`:
 | `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry |
 | `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — your input file's columns (geometry excluded), then rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
 | `damage_metadata.csv` | always | Per-AOI query metadata (event id/name, model version) for AOIs that returned a response |
-| `damage_errors.csv` | on failures | Per-AOI failures (`status_code` + `message`) — e.g. a `403` for an AOI outside the event footprint |
+| `damage_errors.csv` | on failures | Per-AOI requests that still failed after `--max-retries` (`status_code` + `message`). An AOI outside the event footprint is not a failure: it succeeds with no buildings (`query_succeeded=True`, `n_buildings=0` in the rollup) |
+| `latency_stats.csv` | always | Per-chunk API latency summary (request count, percentiles, retries) |
+| `damage_conflation_export_config.json` | always | The export's parameters and `nmaipy` version |
 
 The conflation API is map-style: every building intersecting an AOI is returned, including neighbours' buildings that only clip a parcel boundary. For property-sized AOIs, `--parcel-mode` drops buildings that barely intersect their AOI (kept when at least 50% of the building lies inside it, or its in-AOI footprint is at least 30 sqm so multi-parcel structures such as townhouse rows survive). It is a client-side approximation of the Feature API's `parcelMode`; nothing is clipped. Off by default.
 
