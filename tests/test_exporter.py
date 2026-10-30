@@ -48,6 +48,7 @@ from nmaipy.exporter import (
     _stream_merge_chunks_to_parquet,
     _unify_and_concat_tables,
     _write_errors_parquet,
+    parse_arguments,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -2460,3 +2461,52 @@ def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
     merged = pd.concat(cast, ignore_index=True)
     assert str(merged["area"].dtype) == "Float64", merged["area"].dtype
     assert merged["area"].isna().tolist() == [False, False, True, True]
+
+
+class TestPacksAndClasses:
+    """The Feature API rejects a request carrying both packs and classes, so the exporter takes one or the other,
+    and an unknown class must fail the export instead of silently producing no class outputs."""
+
+    _ROOF_CLASSES = pd.DataFrame({"description": ["Roof"], "type": ["Feature"]}, index=pd.Index([ROOF_ID], name="id"))
+
+    @staticmethod
+    def _parse(monkeypatch, *flags):
+        argv = ["exporter", "--aoi-file", "aoi.geojson", "--output-dir", "out", "--country", "us", *flags]
+        monkeypatch.setattr("sys.argv", argv)
+        return parse_arguments()
+
+    def test_cli_defaults_to_building_pack(self, monkeypatch):
+        args = self._parse(monkeypatch)
+        assert (args.packs, args.classes) == (["building"], None)
+
+    def test_cli_classes_replace_default_pack(self, monkeypatch):
+        args = self._parse(monkeypatch, "--classes", ROOF_ID)
+        assert (args.packs, args.classes) == (None, [ROOF_ID])
+
+    def test_cli_packs_and_classes_are_mutually_exclusive(self, monkeypatch, capsys):
+        with pytest.raises(SystemExit):
+            self._parse(monkeypatch, "--packs", "building", "--classes", ROOF_ID)
+        assert "--packs and --classes are mutually exclusive" in capsys.readouterr().err
+
+    def test_exporter_rejects_packs_and_classes(self, tmp_path):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            AOIExporter(
+                aoi_file="data/examples/sydney_parcels.geojson",
+                output_dir=str(tmp_path),
+                country="us",
+                packs=["building"],
+                classes=[ROOF_ID],
+            )
+
+    @pytest.mark.parametrize("classes", [["not-a-class-id"], [f"{ROOF_ID},{BUILDING_NEW_ID}"]])
+    def test_unknown_class_fails_the_export(self, tmp_path, classes):
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            classes=classes,
+        )
+        with patch("nmaipy.exporter.FeatureApi") as api:
+            api.return_value.get_feature_classes.return_value = self._ROOF_CLASSES
+            with pytest.raises(ValueError, match="Unknown classes"):
+                exporter.run()
