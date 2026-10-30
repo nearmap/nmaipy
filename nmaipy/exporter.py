@@ -4693,6 +4693,7 @@ class NearmapAIExporter(BaseExporter):
             prerelease=self.prerelease,
             only3d=self.only3d,
             parcel_mode=self.parcel_mode,
+            url_root=self.url_root,
         )
         try:
             if self.packs is not None:

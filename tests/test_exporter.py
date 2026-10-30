@@ -2460,3 +2460,19 @@ def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
     merged = pd.concat(cast, ignore_index=True)
     assert str(merged["area"].dtype) == "Float64", merged["area"].dtype
     assert merged["area"].isna().tolist() == [False, False, True, True]
+
+
+def test_class_list_is_read_from_the_configured_url_root(tmp_path):
+    """The classes/packs lookup at the start of run() must use the exporter's url_root, like the feature
+    requests do, so an export against another Feature API host doesn't read its class list from the default one."""
+    exporter = AOIExporter(
+        aoi_file="data/examples/sydney_parcels.geojson",
+        output_dir=str(tmp_path),
+        country="au",
+        packs=["building"],
+        url_root="api.example.test/ai/features/v4/bulk",
+    )
+    with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("stop after the class lookup client")) as api:
+        with pytest.raises(RuntimeError, match="stop after the class lookup client"):
+            exporter.run()
+    assert api.call_args.kwargs["url_root"] == "api.example.test/ai/features/v4/bulk"
