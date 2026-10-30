@@ -4115,6 +4115,13 @@ class NearmapAIExporter(BaseExporter):
                 raise ValueError(error_msg)
             del merged2  # wrapper cleanup; array buffers are shared with final_features_df
 
+            # The merges leave aoi_id in the index; make it a column now, before the
+            # features save below. The per-class export reads this same frame and
+            # groups child features by the aoi_id column, so it must not depend on
+            # the save getting that far.
+            if final_features_df.index.name == AOI_ID_COLUMN_NAME:
+                final_features_df = final_features_df.reset_index()
+
             # aoi_geometry was converted to WKT before the merge (above) — no
             # second pass needed here.
 
@@ -4191,10 +4198,12 @@ class NearmapAIExporter(BaseExporter):
                         # Build a boolean mask of cells that actually need
                         # json.dumps, then map only those positions. NaN/None
                         # cells are left untouched (already valid for parquet).
+                        # default=str covers values JSON has no type for, such as
+                        # dates nested in an input AOI column (ISO strings).
                         mask = s.map(lambda v: isinstance(v, (dict, list, np.ndarray)))
                         if mask.any():
                             final_features_df.loc[mask, col] = s[mask].map(
-                                lambda v: json.dumps(v.tolist() if isinstance(v, np.ndarray) else v)
+                                lambda v: json.dumps(v.tolist() if isinstance(v, np.ndarray) else v, default=str)
                             )
 
                     # Ensure it's a proper GeoDataFrame before saving to parquet
@@ -4202,10 +4211,6 @@ class NearmapAIExporter(BaseExporter):
                         final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
                     else:
                         final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
-
-                    # Reset index to preserve aoi_id as a column (needed for building-roof linking)
-                    if final_features_df.index.name == AOI_ID_COLUMN_NAME:
-                        final_features_df = final_features_df.reset_index()
 
                     # Save with explicit schema version for better QGIS compatibility
                     # Requires geopandas >= 1.1.0
