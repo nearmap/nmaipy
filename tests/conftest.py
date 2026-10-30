@@ -2,15 +2,23 @@ import ast
 import os
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import geopandas as gpd
 import pandas as pd
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 from shapely.wkt import loads
 
 from nmaipy import parcels
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, LAT_LONG_CRS
+from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
+    API_CRS,
+    AREA_CRS,
+    LAT_LONG_CRS,
+    ROOF_ID,
+    SQUARED_METERS_TO_SQUARED_FEET,
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -254,3 +262,97 @@ def parcel_gdf_au_tests(large_adelaide_aoi: Polygon, sydney_aoi: Polygon) -> gpd
     parcel_gdf.index = range(len(parcel_gdf))
     parcel_gdf.index.name = AOI_ID_COLUMN_NAME
     return parcel_gdf
+
+
+@pytest.fixture(scope="session")
+def clipped_roof() -> SimpleNamespace:
+    """
+    A US roof clipped to half its area by a parcel, as stored for a gridded AOI: the
+    geometry is the whole roof outline, clipped_area is the parcel-clipped area, and the
+    API's "Roof material" component (Tile) carries the whole-roof area. A Tile child
+    feature covers the whole roof.
+
+    The parcel is the LEFT HALF of the roof, so a component recomputed against the
+    parcel-clipped roof equals ``clipped_sqft``; one taken from the whole outline equals
+    ``unclipped_sqft``. ``roof_row`` / ``tile_child_row`` build a fresh feature row dict
+    for the given aoi_id on each call.
+    """
+    roof_full = box(-74.2820, 40.6300, -74.2800, 40.6320)
+    parcel = box(-74.2820, 40.6300, -74.2810, 40.6320)  # left half
+    tile_class_id = "test-tile-class-id"
+
+    def proj_area_sqft(geom):
+        return gpd.GeoSeries([geom], crs=API_CRS).to_crs(AREA_CRS["us"]).area.iloc[0] * SQUARED_METERS_TO_SQUARED_FEET
+
+    # Ground-truth areas derived from the geometry itself (single source of truth).
+    unclipped_sqft = proj_area_sqft(roof_full)
+    clipped_sqft = proj_area_sqft(roof_full.intersection(parcel))
+
+    def area_columns():
+        return {
+            "area_sqft": unclipped_sqft,
+            "clipped_area_sqft": clipped_sqft,  # correctly clipped (summed per grid cell)
+            "unclipped_area_sqft": unclipped_sqft,
+            "area_sqm": unclipped_sqft / SQUARED_METERS_TO_SQUARED_FEET,
+            "clipped_area_sqm": clipped_sqft / SQUARED_METERS_TO_SQUARED_FEET,
+            "unclipped_area_sqm": unclipped_sqft / SQUARED_METERS_TO_SQUARED_FEET,
+        }
+
+    def roof_row(aoi_id="parcel-a"):
+        return {
+            AOI_ID_COLUMN_NAME: aoi_id,
+            "feature_id": "roof-1",
+            "class_id": ROOF_ID,
+            "description": "Roof",
+            "confidence": 0.9,
+            "fidelity": 0.9,
+            "parent_id": None,
+            "is_primary": True,
+            "geometry": roof_full,  # unclipped outline (as stored for gridded roofs)
+            **area_columns(),
+            "attributes": [
+                {
+                    "description": "Roof material",
+                    "components": [
+                        {
+                            "classId": tile_class_id,
+                            "description": "Tile",
+                            "areaSqm": unclipped_sqft / SQUARED_METERS_TO_SQUARED_FEET,
+                            "areaSqft": unclipped_sqft,  # API component area is UNCLIPPED
+                            "ratio": 1.0,
+                            "confidence": 0.9,
+                            "dominant": True,
+                        }
+                    ],
+                }
+            ],
+            "survey_date": "2026-03-28",
+            "mesh_date": "",
+            "belongs_to_parcel": True,
+        }
+
+    def tile_child_row(aoi_id="parcel-a"):
+        return {
+            AOI_ID_COLUMN_NAME: aoi_id,
+            "feature_id": "tile-1",
+            "class_id": tile_class_id,
+            "description": "Tile",
+            "confidence": 0.9,
+            "parent_id": "roof-1",
+            "geometry": roof_full,
+            **area_columns(),
+            "attributes": [],
+            "survey_date": "2026-03-28",
+            "mesh_date": "",
+            "belongs_to_parcel": True,
+        }
+
+    return SimpleNamespace(
+        roof_full=roof_full,
+        parcel=parcel,
+        unclipped_sqft=unclipped_sqft,
+        clipped_sqft=clipped_sqft,
+        proj_area_sqft=proj_area_sqft,
+        roof_row=roof_row,
+        tile_child_row=tile_child_row,
+    )
