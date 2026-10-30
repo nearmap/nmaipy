@@ -4142,6 +4142,10 @@ class NearmapAIExporter(BaseExporter):
                     lambda x: json.dumps(x) if isinstance(x, dict) else x
                 )
             _t_prep_geom_attr = time.monotonic()
+            # Set when a file the export's output is merged from failed to write. The
+            # rollup (completion marker) is then withheld so the chunk is re-processed
+            # on resume instead of its rows silently missing from the merged output.
+            chunk_output_failed = False
             if len(final_features_df) > 0:
                 try:
                     if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
@@ -4228,6 +4232,8 @@ class NearmapAIExporter(BaseExporter):
                     )
                     self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
                     self.logger.error(e)
+                    # features_<chunk>.parquet only reaches the output with --save-features.
+                    chunk_output_failed = self.save_features
 
             # Per-class export: compute and write per-class tabular + geo parquet
             # while final_features_df is still in memory from the features section above.
@@ -4328,42 +4334,50 @@ class NearmapAIExporter(BaseExporter):
                     del chunk_gdf, per_class_results
                 except Exception as e:
                     self.logger.error(f"Per-class chunk export failed for chunk {chunk_id}: {e}")
-                    # Non-fatal: rollup still written below, merge step falls back to
-                    # recomputing per-class from feature chunks
+                    # The per-class merge only concatenates per-class chunk files.
+                    chunk_output_failed = True
 
             # Write rollup LAST — it serves as the chunk completion marker.
             # If the process is killed before this point, the chunk will be
             # re-processed on resume (errors, features, per-class files rewritten).
-            try:
-                # Handle the geometry column separately to avoid conversion issues
-                has_geometry = "geometry" in final_df.columns
-                geometry_series = None
-
-                if has_geometry:
-                    # Store the geometry column separately
-                    geometry_series = final_df["geometry"]
-                    final_df = final_df.drop(columns=["geometry"])
-
-                # Convert dtypes on the dataframe without geometry
-                final_df = _pin_float_coverage_columns(final_df.convert_dtypes())
-
-                if has_geometry:
-                    # Reattach the geometry column
-                    final_df["geometry"] = geometry_series
-                    # Create a proper GeoDataFrame
-                    final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
-
-                # Save with explicit schema version for better QGIS compatibility
-                # Requires geopandas >= 1.1.0
+            # The errors file is already written, so a chunk without a rollup fails
+            # the merge (_collect_rollup_chunk_paths) until a re-run re-processes it.
+            if chunk_output_failed:
+                self.logger.error(
+                    f"Chunk {chunk_id}: a feature output file failed to write (see above), so the chunk gets no "
+                    f"rollup and will be re-processed on resume."
+                )
+            else:
                 try:
-                    storage.write_parquet(final_df, outfile, schema_version="1.0.0")
-                except (TypeError, ValueError) as e:
-                    # Fallback for older geopandas or pyarrow versions
-                    self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
-                    storage.write_parquet(final_df, outfile)
-            except Exception as e:
-                self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
-                self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
+                    # Handle the geometry column separately to avoid conversion issues
+                    has_geometry = "geometry" in final_df.columns
+                    geometry_series = None
+
+                    if has_geometry:
+                        # Store the geometry column separately
+                        geometry_series = final_df["geometry"]
+                        final_df = final_df.drop(columns=["geometry"])
+
+                    # Convert dtypes on the dataframe without geometry
+                    final_df = _pin_float_coverage_columns(final_df.convert_dtypes())
+
+                    if has_geometry:
+                        # Reattach the geometry column
+                        final_df["geometry"] = geometry_series
+                        # Create a proper GeoDataFrame
+                        final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
+
+                    # Save with explicit schema version for better QGIS compatibility
+                    # Requires geopandas >= 1.1.0
+                    try:
+                        storage.write_parquet(final_df, outfile, schema_version="1.0.0")
+                    except (TypeError, ValueError) as e:
+                        # Fallback for older geopandas or pyarrow versions
+                        self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
+                        storage.write_parquet(final_df, outfile)
+                except Exception as e:
+                    self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
+                    self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
 
             _t_rollup_write = time.monotonic()
 
@@ -4542,9 +4556,10 @@ class NearmapAIExporter(BaseExporter):
         if rollup_less_chunks:
             self.logger.error(
                 f"{len(rollup_less_chunks)} of {num_chunks} chunks have an error file but no rollup file, so "
-                f"their AOIs would be missing from the output: either the rollup write failed (see 'Failed "
-                f"writing final_df' in the log) or an API answered no AOI in the chunk (an outage or client "
-                f"failure, see 'answered no AOI' in the log). First such chunks: {rollup_less_chunks[:10]}. Inspect "
+                f"their AOIs would be missing from the output: either a chunk output failed to write (see "
+                f"'Failed writing final_df' or 'gets no rollup' in the log) or an API answered no AOI in the "
+                f"chunk (an outage or client failure, see 'answered no AOI' in the log). First such chunks: "
+                f"{rollup_less_chunks[:10]}. Inspect "
                 f"feature_api_errors_*.parquet and roof_age_errors_*.parquet in '{self.chunk_path}', fix the cause, "
                 f"then re-run: only chunks without a rollup are re-fetched."
             )

@@ -2197,6 +2197,61 @@ class TestCoverageGapChunks:
             exporter._read_rollup_chunks(1, 2)
         assert exc.value.code == 1
 
+    def _run_answered_chunk(self, exporter):
+        """Drive process_chunk through a chunk where both AOIs answered with one building each."""
+        meta = pd.DataFrame(
+            {"system_version": ["gen6-x", "gen6-x"], "survey_date": ["2024-01-01", "2024-01-01"]},
+            index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+        )
+        errors = pd.DataFrame([])
+        errors.index.name = AOI_ID_COLUMN_NAME
+        return self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, errors, self._building_features(["p1", "p2"]))
+
+    @staticmethod
+    def _failing_features_write(monkeypatch):
+        """Make only the combined features chunk file (features_<chunk>.parquet) fail to write."""
+        real_write = exporter_mod.storage.write_parquet
+
+        def write_parquet(data, path, *args, **kwargs):
+            if os.path.basename(str(path)) == "features_0000.parquet":
+                raise OSError("simulated features write failure")
+            return real_write(data, path, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_mod.storage, "write_parquet", write_parquet)
+
+    def test_failed_features_write_withholds_rollup(self, exporter, monkeypatch, caplog):
+        """With --save-features the features chunk file is part of the output: if it fails to write, the chunk
+        must get no rollup, so the merge stops instead of silently dropping its rows, and a resume re-processes it."""
+        exporter.save_features = True
+        self._failing_features_write(monkeypatch)
+        chunk_path = self._run_answered_chunk(exporter)
+        assert not (chunk_path / "features_0000.parquet").exists()
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must not be marked complete"
+        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the merge gate keys on the errors file"
+        assert "gets no rollup" in caplog.text
+        to_process, *_ = exporter.split_into_chunks(self._aoi_gdf(), check_cache=True)
+        assert [i for i, _ in to_process] == [0], "a resume must re-process the chunk"
+        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(1)
+
+    def test_failed_features_write_without_save_features_keeps_rollup(self, exporter, monkeypatch):
+        """Without --save-features the features chunk file is never merged into the output, so failing to write
+        it must not hold back the chunk."""
+        assert not exporter.save_features
+        self._failing_features_write(monkeypatch)
+        chunk_path = self._run_answered_chunk(exporter)
+        assert (chunk_path / "rollup_0000.parquet").exists()
+
+    def test_failed_per_class_export_withholds_rollup(self, exporter, monkeypatch, caplog):
+        """The per-class merge only concatenates per-class chunk files, so a chunk whose per-class export failed
+        must get no rollup rather than leave its rows out of the per-class outputs."""
+        monkeypatch.setattr(
+            exporter_mod, "_compute_all_per_class_data", MagicMock(side_effect=RuntimeError("simulated per-class"))
+        )
+        chunk_path = self._run_answered_chunk(exporter)
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must not be marked complete"
+        assert "gets no rollup" in caplog.text
+
 
 if __name__ == "__main__":
     current_file = os.path.abspath(__file__)
