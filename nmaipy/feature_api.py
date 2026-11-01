@@ -80,6 +80,22 @@ def _grid_failure_status(errors_df: pd.DataFrame):
     return HTTPStatus.NOT_FOUND.value if len(other) == 0 else other.value_counts(dropna=False).idxmax()
 
 
+def _grid_rejection_message(n_answered: int, n_cells: int, failed_statuses: pd.Series, min_pct) -> str:
+    """
+    Message for a grid that failed as a whole. Gives the share of cells answered as a 10-point bracket and
+    the failed cells' distinct statuses rather than exact counts, so grids that failed alike share one message
+    and group together in error summaries. The exact counts go on the error row's own columns.
+    """
+    statuses = "{" + ", ".join(str(s) for s in sorted({int(s) for s in failed_statuses})) + "}"
+    if n_answered == 0:
+        return f"Rejected as no grid cells answered. Failed due to {statuses}"
+    low = n_answered * 10 // n_cells * 10
+    return (
+        f"Rejected as only [{low}-{low + 10})% of grid cells answered, below the {min_pct}% threshold. "
+        f"Failed due to {statuses}"
+    )
+
+
 AIFeatureAPIRequestSizeError = APIRequestSizeError
 
 
@@ -1677,7 +1693,9 @@ class FeatureApi(GriddedApiClient):
                 )
                 raise AIFeatureAPIGridError(
                     _grid_failure_status(errors_df),
-                    message=f"{summary_str}; needed {self.aoi_grid_min_pct}% of cells",
+                    message=_grid_rejection_message(
+                        n_answered, n_cells, errors_df["status_code"], self.aoi_grid_min_pct
+                    ),
                     **grid_summary,
                 )
             # Check for multiple survey dates using metadata (works even with empty features)
@@ -1692,7 +1710,7 @@ class FeatureApi(GriddedApiClient):
                     )
                     raise AIFeatureAPIGridError(
                         DUMMY_STATUS_CODE,
-                        message=f"Multiple dates on non survey resource ID query ({summary_str}).",
+                        message="Multiple dates on non survey resource ID query.",
                         **grid_summary,
                     )
             elif survey_resource_id is None:
