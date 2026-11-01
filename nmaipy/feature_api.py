@@ -90,8 +90,10 @@ def _grid_rejection_message(n_answered: int, n_cells: int, failed_statuses: pd.S
     if n_answered == 0:
         return f"Rejected as no grid cells answered. Failed due to {statuses}"
     low = n_answered * 10 // n_cells * 10
+    # At least one cell answered, so the lowest bracket excludes 0.
+    opening = "(" if low == 0 else "["
     return (
-        f"Rejected as only [{low}-{low + 10})% of grid cells answered, below the {min_pct}% threshold. "
+        f"Rejected as only {opening}{low}-{low + 10})% of grid cells answered, below the {min_pct}% threshold. "
         f"Failed due to {statuses}"
     )
 

@@ -196,7 +196,7 @@ class TestRejectionMessage:
 
     @pytest.mark.parametrize(
         "n_failed,bracket",
-        [(11, "[80-90)"), (20, "[80-90)"), (21, "[70-80)"), (99, "[0-10)")],
+        [(11, "[80-90)"), (20, "[80-90)"), (21, "[70-80)"), (90, "[10-20)"), (91, "(0-10)"), (99, "(0-10)")],
     )
     def test_names_the_bracket_of_cells_answered(self, tmp_path, monkeypatch, hundred_cells, n_failed, bracket):
         api = _api(tmp_path, monkeypatch, {i: 404 for i in range(n_failed)}, aoi_grid_min_pct=100)
