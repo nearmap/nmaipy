@@ -1892,6 +1892,30 @@ class TestCoverageGapChunks:
         ).to_parquet(path)
         return str(path)
 
+    def _run_answered_chunk(self, exporter):
+        """Drive process_chunk through a chunk where both AOIs answered with one building each."""
+        meta = pd.DataFrame(
+            {"system_version": ["gen6-x", "gen6-x"], "survey_date": ["2024-01-01", "2024-01-01"]},
+            index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+        )
+        errors = pd.DataFrame([])
+        errors.index.name = AOI_ID_COLUMN_NAME
+        return self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, errors, self._building_features(["p1", "p2"]))
+
+    def test_rollup_written_in_one_attempt(self, exporter, monkeypatch):
+        """The rollup is a plain DataFrame: one write, not an attempt with a GeoParquet-only argument that fails and
+        a retry without it (on S3 the failed attempt commits an empty object before the retry runs)."""
+        writes = []
+        real_write = exporter_mod.storage.write_parquet
+
+        def write_parquet(data, path, *args, **kwargs):
+            writes.append(os.path.basename(str(path)))
+            return real_write(data, path, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_mod.storage, "write_parquet", write_parquet)
+        self._run_answered_chunk(exporter)
+        assert writes.count("rollup_0000.parquet") == 1, writes
+
     def test_all_404_chunk_writes_failed_rollup_rows(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 404])
         rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")

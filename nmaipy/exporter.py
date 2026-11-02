@@ -90,6 +90,7 @@ from nmaipy.constants import (
     FEATURE_PREFETCH_FLOOR,
     FEATURE_PREFETCH_MULTIPLIER,
     FEATURES_ROW_GROUP_SIZE,
+    GEOPARQUET_SCHEMA_VERSION,
     GRID_SIZE_DEGREES,
     IMPERIAL_COUNTRIES,
     LAT_PRIMARY_COL_NAME,
@@ -2471,10 +2472,7 @@ def export_feature_class(
 
     # Save GeoParquet (with geometry)
     if export_geo_parquet and geo_gdf is not None:
-        try:
-            storage.write_parquet(geo_gdf, geo_parquet_path, index=False, schema_version="1.0.0")
-        except (TypeError, ValueError):
-            storage.write_parquet(geo_gdf, geo_parquet_path, index=False)
+        storage.write_parquet(geo_gdf, geo_parquet_path, index=False)
     else:
         geo_parquet_path = None
 
@@ -3250,7 +3248,7 @@ class NearmapAIExporter(BaseExporter):
                         # Create geoparquet metadata
                         crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
                         geo_metadata = {
-                            "version": "1.0.0",
+                            "version": GEOPARQUET_SCHEMA_VERSION,
                             "primary_column": "geometry",
                             "columns": {
                                 "geometry": {
@@ -3417,7 +3415,7 @@ class NearmapAIExporter(BaseExporter):
         # Build geoparquet metadata (shared across all per-class geo files)
         crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
         geo_metadata = {
-            "version": "1.0.0",
+            "version": GEOPARQUET_SCHEMA_VERSION,
             "primary_column": "geometry",
             "columns": {
                 "geometry": {
@@ -4207,20 +4205,8 @@ class NearmapAIExporter(BaseExporter):
                     if final_features_df.index.name == AOI_ID_COLUMN_NAME:
                         final_features_df = final_features_df.reset_index()
 
-                    # Save with explicit schema version for better QGIS compatibility
-                    # Requires geopandas >= 1.1.0
                     _t_features_prep = time.monotonic()
-                    try:
-                        storage.write_parquet(
-                            final_features_df,
-                            outfile_features,
-                            index=False,
-                            schema_version="1.0.0",
-                        )
-                    except (TypeError, ValueError) as e:
-                        # Fallback for older geopandas or pyarrow versions
-                        self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
-                        storage.write_parquet(final_features_df, outfile_features, index=False)
+                    storage.write_parquet(final_features_df, outfile_features, index=False)
                     _t_features_write = time.monotonic()
                 except Exception as e:
                     self.logger.error(
@@ -4353,14 +4339,7 @@ class NearmapAIExporter(BaseExporter):
                     # Create a proper GeoDataFrame
                     final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
 
-                # Save with explicit schema version for better QGIS compatibility
-                # Requires geopandas >= 1.1.0
-                try:
-                    storage.write_parquet(final_df, outfile, schema_version="1.0.0")
-                except (TypeError, ValueError) as e:
-                    # Fallback for older geopandas or pyarrow versions
-                    self.logger.debug(f"Could not use schema_version parameter: {e}. Falling back to default.")
-                    storage.write_parquet(final_df, outfile)
+                storage.write_parquet(final_df, outfile)
             except Exception as e:
                 self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
                 self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
