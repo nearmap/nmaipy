@@ -361,7 +361,7 @@ The exporter writes results to `{output_dir}/final/`:
 | `export_config.json` | Full record of export parameters and `nmaipy` version, used by the fast-path re-invocation detector |
 | `README.md` | **Auto-generated, customer-readable README** — column tables grouped by section, class hierarchy diagram, primary-feature selection explainer, full data dictionary for the export |
 
-A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing and enables resume after interruption.
+A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing and enables resume after interruption. A chunk counts as done once its rollup file is written, which happens only after every other file for that chunk was written. If any chunk is left unfinished (a failed write, or an API that answered nothing), the export exits with an error naming those chunks instead of writing the merged outputs; re-running the same command re-processes only those chunks, reusing cached API responses.
 
 For column-level documentation, open `final/README.md` from your export — it always reflects exactly what's in the files (including any 3D / prefer3d / pack-specific columns).
 
