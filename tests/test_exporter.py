@@ -1788,8 +1788,8 @@ class TestMergePerClassChunks:
 class TestCoverageGapChunks:
     """A chunk whose every AOI returned 404 has no survey coverage. process_chunk still writes its rollup, one
     feature_api_success = "N" row per AOI like the 404s in a mixed chunk, so resumes skip it and the final
-    rollup keeps one row per input AOI; any other all-failed chunk (or a chunk whose rollup write failed) has
-    no rollup and must fail the export before completion artifacts are written."""
+    rollup keeps one row per input AOI; any other all-failed chunk (or a chunk any of whose files failed to
+    write) has no rollup and must fail the export before completion artifacts are written."""
 
     @pytest.fixture
     def exporter(self, tmp_path, caplog):
