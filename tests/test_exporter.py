@@ -2283,20 +2283,16 @@ class TestCoverageGapChunks:
             exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
             mock_api.assert_not_called()
 
-    def test_error_only_chunk_is_fatal(self, exporter, caplog):
+    def test_chunks_without_rollup_are_fatal_and_all_named(self, exporter, caplog):
+        """A chunk without a rollup is incomplete whether or not its errors file was written (that write can fail
+        too); the merge must stop and name every such chunk, not just the first."""
         self._write_rollup(exporter, 0, 1)
         self._errors_df([404, 403]).to_parquet(Path(exporter.chunk_path) / "feature_api_errors_0001.parquet")
         with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
-            exporter._collect_rollup_chunk_paths(2)
+            exporter._collect_rollup_chunk_paths(3)
         assert exc.value.code == 1
-        assert "1 of 2 chunks have an error file but no rollup file" in caplog.text
-        assert "[1]" in caplog.text, "the failed chunk ids must be in the message"
-
-    def test_chunk_with_neither_file_is_fatal(self, exporter, caplog):
-        self._write_rollup(exporter, 0, 1)
-        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
-            exporter._collect_rollup_chunk_paths(2)
-        assert "Both error and data files for chunk 1 missing" in caplog.text
+        assert "2 of 3 chunks have no rollup file" in caplog.text
+        assert "[1, 2]" in caplog.text, "the incomplete chunk ids must be in the message"
 
     def test_nothing_exported_is_fatal(self, exporter, caplog):
         failed = pd.DataFrame({AOI_ID_COLUMN_NAME: ["a"], "feature_api_success": ["N"]})

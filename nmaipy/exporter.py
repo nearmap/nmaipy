@@ -3399,9 +3399,10 @@ class NearmapAIExporter(BaseExporter):
         prefetch window rather than the whole class, so national-scale classes
         consolidate without OOM.
 
-        Classes with no per-class chunk files (e.g. old exports, or per-class
-        computation failed) are skipped with a warning; regenerating requires
-        deleting the rollup chunk files and re-running the export.
+        Classes with no per-class chunk files (e.g. an export first run without
+        class-level files) are skipped with a warning; regenerating requires
+        deleting the rollup chunk files and re-running the export. A chunk whose
+        per-class files failed has no rollup, so the merge stops before this.
         """
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
         if requested_class_ids is not None:
@@ -4489,9 +4490,9 @@ class NearmapAIExporter(BaseExporter):
         Return every chunk's rollup file, exiting 1 if any chunk has none.
 
         The rollup is written last, as the chunk's completion marker, so a missing one means lost
-        data: the write failed, or an API answered nothing for a reason worth re-asking. Exiting
-        here keeps the caller from writing completion artifacts over an incomplete export; a re-run
-        re-fetches only these chunks.
+        data: one of the chunk's files failed to write, or an API answered nothing for a reason worth
+        re-asking. Exiting here keeps the caller from writing completion artifacts over an incomplete
+        export; a re-run re-processes only these chunks.
         """
         # Drop any cached s3fs directory listing for the chunk dir so the
         # existence sweep below reads S3 fresh. Earlier phases (cache-check,
@@ -4500,21 +4501,18 @@ class NearmapAIExporter(BaseExporter):
         # abort the merge (sys.exit below).
         storage.invalidate_cache(self.chunk_path)
 
-        # Phase 1: Check which chunk files exist (parallel for S3 HEAD requests)
+        # Phase 1: Check which rollup files exist (parallel for S3 HEAD requests)
         def _check_chunk_files(i):
             chunk_filename = f"rollup_{str(i).zfill(4)}.parquet"
             cp = storage.join_path(self.chunk_path, chunk_filename)
             if storage.file_exists(cp):
                 if storage.validate_parquet(cp):
-                    return (i, cp, None)
-                else:
-                    self.logger.warning(
-                        f"Chunk {i}: rollup file {cp} exists but is corrupted "
-                        f"(invalid parquet footer). Treating as missing."
-                    )
-            error_filename = f"feature_api_errors_{str(i).zfill(4)}.parquet"
-            has_error = storage.file_exists(storage.join_path(self.chunk_path, error_filename))
-            return (i, None, has_error)
+                    return (i, cp)
+                self.logger.warning(
+                    f"Chunk {i}: rollup file {cp} exists but is corrupted "
+                    f"(invalid parquet footer). Treating as missing."
+                )
+            return (i, None)
 
         chunk_check_results = []
         read_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
@@ -4539,31 +4537,16 @@ class NearmapAIExporter(BaseExporter):
         # Sort by index for deterministic error reporting
         chunk_check_results.sort(key=lambda x: x[0])
 
-        rollup_paths_to_read = []
-        rollup_less_chunks = []
-        for i, cp, has_error in chunk_check_results:
-            if cp is not None:
-                rollup_paths_to_read.append(cp)
-            elif has_error:
-                rollup_less_chunks.append(i)
-                self.logger.debug(f"Chunk {i} rollup file missing, but error file found.")
-            else:
-                self.logger.error(
-                    f"Both error and data files for chunk {i} missing or corrupted, "
-                    f"indicating files failed to write, are corrupted, or have been "
-                    f"deleted. Check the '{self.chunk_path}' directory to diagnose, "
-                    f"then re-run the export."
-                )
-                sys.exit(1)
-
+        rollup_paths_to_read = [cp for _, cp in chunk_check_results if cp is not None]
+        rollup_less_chunks = [i for i, cp in chunk_check_results if cp is None]
         if rollup_less_chunks:
             self.logger.error(
-                f"{len(rollup_less_chunks)} of {num_chunks} chunks have an error file but no rollup file, so "
-                f"their AOIs would be missing from the output: either the rollup write failed (see 'Failed "
-                f"writing final_df' in the log) or an API answered no AOI in the chunk (an outage or client "
-                f"failure, see 'answered no AOI' in the log). First such chunks: {rollup_less_chunks[:10]}. Inspect "
-                f"feature_api_errors_*.parquet and roof_age_errors_*.parquet in '{self.chunk_path}', fix the cause, "
-                f"then re-run: only chunks without a rollup are re-fetched."
+                f"{len(rollup_less_chunks)} of {num_chunks} chunks have no rollup file, so their AOIs would be "
+                f"missing from the output: one of the chunk's files failed to write (see 'gets no rollup' in the "
+                f"log), an API answered no AOI in the chunk (an outage or client failure, see 'answered no AOI'), "
+                f"or the rollup is corrupted or was deleted. First such chunks: {rollup_less_chunks[:10]}. Inspect "
+                f"the log and feature_api_errors_*.parquet and roof_age_errors_*.parquet in '{self.chunk_path}', "
+                f"fix the cause, then re-run: only chunks without a rollup are processed again."
             )
             sys.exit(1)
         return rollup_paths_to_read
