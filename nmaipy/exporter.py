@@ -4140,7 +4140,9 @@ class NearmapAIExporter(BaseExporter):
                     lambda x: json.dumps(x) if isinstance(x, dict) else x
                 )
             _t_prep_geom_attr = time.monotonic()
-            if len(final_features_df) > 0:
+            # The prepared features feed the features chunk file (--save-features) and the per-class files,
+            # so they are only prepared when one of those is written.
+            if len(final_features_df) > 0 and (self.save_features or self.class_level_files):
                 try:
                     if not self.include_parcel_geometry and "aoi_geometry" in final_features_df.columns:
                         final_features_df = final_features_df.drop(columns=["aoi_geometry"])
@@ -4206,7 +4208,9 @@ class NearmapAIExporter(BaseExporter):
                         final_features_df = final_features_df.reset_index()
 
                     _t_features_prep = time.monotonic()
-                    storage.write_parquet(final_features_df, outfile_features, index=False)
+                    # Only the final merge reads this file, and only with --save-features.
+                    if self.save_features:
+                        storage.write_parquet(final_features_df, outfile_features, index=False)
                     _t_features_write = time.monotonic()
                 except Exception as e:
                     self.logger.error(

@@ -1916,6 +1916,15 @@ class TestCoverageGapChunks:
         self._run_answered_chunk(exporter)
         assert writes.count("rollup_0000.parquet") == 1, writes
 
+    @pytest.mark.parametrize("save_features", [False, True])
+    def test_features_chunk_written_only_with_save_features(self, exporter, save_features):
+        """Only the --save-features merge reads features_<chunk>.parquet; the per-class files are written either way."""
+        exporter.save_features = save_features
+        chunk_path = self._run_answered_chunk(exporter)
+        assert (chunk_path / "features_0000.parquet").exists() == save_features
+        assert (chunk_path / "building_0000.parquet").exists()
+        assert (chunk_path / "rollup_0000.parquet").exists()
+
     def test_all_404_chunk_writes_failed_rollup_rows(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 404])
         rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
@@ -2134,6 +2143,7 @@ class TestCoverageGapChunks:
         )
         errors = self._errors_df([404]).rename({"p1": "failed"})
         features = self._building_features(["gridded", "single"])
+        exporter.save_features = True  # so the features chunk file is written and checked too
         chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, errors, features)
 
         rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
