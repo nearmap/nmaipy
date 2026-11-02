@@ -1867,13 +1867,13 @@ class TestCoverageGapChunks:
             index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME),
         )
 
-    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors, features=None):
+    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors, features=None, latency_stats=None):
         """Drive process_chunk through a chunk with the given API response (no features unless given)."""
         if features is None:
             features, _ = self._empty_api_response()
         with (
             patch("nmaipy.exporter.FeatureApi") as mock_api,
-            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=latency_stats),
         ):
             mock_api.return_value.get_features_gdf_bulk.return_value = (features, metadata, errors)
             exporter.process_chunk(chunk_id=chunk_id, aoi_gdf=aoi_gdf, classes_df=self._classes_df())
@@ -1892,15 +1892,89 @@ class TestCoverageGapChunks:
         ).to_parquet(path)
         return str(path)
 
-    def _run_answered_chunk(self, exporter):
+    def _run_answered_chunk(self, exporter, latency_stats=None):
         """Drive process_chunk through a chunk where both AOIs answered with one building each."""
         meta = pd.DataFrame(
             {"system_version": ["gen6-x", "gen6-x"], "survey_date": ["2024-01-01", "2024-01-01"]},
             index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
         )
-        errors = pd.DataFrame([])
-        errors.index.name = AOI_ID_COLUMN_NAME
-        return self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, errors, self._building_features(["p1", "p2"]))
+        features = self._building_features(["p1", "p2"])
+        return self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, self._no_errors(), features, latency_stats)
+
+    @staticmethod
+    def _fail_writes(monkeypatch, *names):
+        """Make writing the named chunk files raise, as an S3 PUT that fails does."""
+        real_write = exporter_mod.storage.write_parquet
+
+        def write_parquet(data, path, *args, **kwargs):
+            if os.path.basename(str(path)) in names:
+                raise OSError("simulated write failure")
+            return real_write(data, path, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_mod.storage, "write_parquet", write_parquet)
+
+    def _assert_left_for_reprocessing(self, exporter, chunk_path, caplog):
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must not be marked complete"
+        to_process, *_ = exporter.split_into_chunks(self._aoi_gdf(), check_cache=True)
+        assert [i for i, _ in to_process] == [0], "a resume must re-process the chunk"
+        with pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(1)
+        assert "Chunk 0000 gets no rollup" in caplog.text
+
+    @pytest.mark.parametrize(
+        "failing_file",
+        [
+            "feature_api_errors_0000.parquet",
+            "features_0000.parquet",
+            "building_0000.parquet",
+            "building_features_0000.parquet",
+        ],
+    )
+    def test_failed_chunk_file_write_withholds_rollup(self, exporter, monkeypatch, caplog, failing_file):
+        """The merge reads every chunk file, so one that fails to write must leave the chunk without its rollup: the
+        merge then stops instead of completing without the chunk's rows, and a resume re-processes the chunk."""
+        exporter.save_features = True
+        self._fail_writes(monkeypatch, failing_file)
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert f"failed writing {failing_file}" in caplog.text
+
+    def test_every_failed_per_class_write_is_reported(self, exporter, monkeypatch, caplog):
+        """Per-class files are written in parallel; the first failure must not hide the others."""
+        self._fail_writes(monkeypatch, "building_0000.parquet", "building_features_0000.parquet")
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert "failed writing building_0000.parquet" in caplog.text
+        assert "failed writing building_features_0000.parquet" in caplog.text
+
+    def test_failed_feature_preparation_withholds_rollup_and_per_class_files(self, exporter, monkeypatch, caplog):
+        """Per-class files are built from the prepared features, so a half-prepared frame must not reach them."""
+        monkeypatch.setattr(exporter_mod, "wrong_unit_area_columns", MagicMock(side_effect=RuntimeError("simulated")))
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert not (chunk_path / "building_0000.parquet").exists()
+        assert "failed preparing features: RuntimeError: simulated" in caplog.text
+
+    def test_failed_per_class_computation_withholds_rollup(self, exporter, monkeypatch, caplog):
+        monkeypatch.setattr(
+            exporter_mod, "_compute_all_per_class_data", MagicMock(side_effect=RuntimeError("simulated"))
+        )
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert "failed computing per-class files: RuntimeError: simulated" in caplog.text
+
+    def test_failed_rollup_write_is_reported_like_other_chunk_files(self, exporter, monkeypatch, caplog):
+        self._fail_writes(monkeypatch, "rollup_0000.parquet")
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert "failed writing rollup_0000.parquet: OSError: simulated write failure" in caplog.text
+
+    def test_failed_latency_stats_write_is_only_logged(self, exporter, monkeypatch, caplog):
+        """Latency stats are diagnostics written after the rollup: a failure must neither undo the chunk nor raise."""
+        monkeypatch.setattr(exporter_mod, "save_chunk_latency_stats", MagicMock(side_effect=OSError("simulated")))
+        chunk_path = self._run_answered_chunk(exporter, latency_stats={"count": 0})
+        assert (chunk_path / "rollup_0000.parquet").exists()
+        assert "failed writing latency stats: OSError: simulated" in caplog.text
 
     def test_rollup_written_in_one_attempt(self, exporter, monkeypatch):
         """The rollup is a plain DataFrame: one write, not an attempt with a GeoParquet-only argument that fails and
@@ -2114,7 +2188,18 @@ class TestCoverageGapChunks:
     def test_chunk_left_for_refetch_when_an_api_answered_nothing(self, roof_age_exporter, feature_kind, roof_age_kind):
         chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
         assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be re-fetched on resume"
-        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the merge gate keys on the errors file"
+        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the failed requests are kept"
+
+    def test_failed_roof_age_errors_write_withholds_rollup(self, roof_age_exporter, monkeypatch):
+        """A failed write is recorded, not raised: raising out of process_chunk would stop every other chunk."""
+        self._fail_writes(monkeypatch, "roof_age_errors_0000.parquet")
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, "answered", "half")
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must not be marked complete"
+
+    def test_failed_errors_write_on_refetch_path_does_not_raise(self, roof_age_exporter, monkeypatch):
+        self._fail_writes(monkeypatch, "feature_api_errors_0000.parquet", "roof_age_errors_0000.parquet")
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, "answered", "503")
+        assert not (chunk_path / "rollup_0000.parquet").exists()
 
     def test_rollup_reports_how_much_of_each_aoi_answered(self, exporter):
         """A gridded AOI carries its grid counts and answered share; an AOI answered in one request is answered

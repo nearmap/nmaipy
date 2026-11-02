@@ -251,6 +251,20 @@ def _write_errors_parquet(errors_df: pd.DataFrame, outfile: str) -> None:
         storage.write_parquet(errors_df, outfile)
 
 
+def _describe_exception(e: BaseException) -> str:
+    """
+    One line naming an exception and the one it was raised while handling, if any.
+
+    An S3 file that fails to write commits on close even when the write raised, so a failing commit can replace
+    the write's own error; that error is the context.
+    """
+    text = f"{type(e).__name__}: {e}"
+    context = e.__context__
+    if context is not None and context is not e.__cause__:
+        text += f" (raised while handling {type(context).__name__}: {context})"
+    return text
+
+
 def _api_settled_for_chunk(answered: bool, errors_df: pd.DataFrame, final_statuses: set) -> bool:
     """True if one API's results for a chunk are final: an AOI answered, or every failure is in ``final_statuses``."""
     return answered or (len(errors_df) > 0 and errors_df["status_code"].isin(final_statuses).all())
@@ -3619,6 +3633,29 @@ class NearmapAIExporter(BaseExporter):
             if storage.file_exists(outfile) and self.is_chunk_output_complete(outfile):
                 return {"chunk_id": chunk_id, "latency_stats": None}
 
+            # Each data file this chunk writes is merged into the export's output. A failure while preparing or
+            # writing one is recorded here, and any record withholds the rollup (the completion marker): the merge
+            # then stops and a resume re-processes the chunk, instead of the export completing without the chunk's
+            # rows. A failure never raises, so the other chunks still finish.
+            failed_outputs = []
+
+            def record_failure(action, e):
+                failed_outputs.append(action)
+                self.logger.error(f"Chunk {chunk_id}: failed {action}: {_describe_exception(e)}")
+
+            def write_chunk_file(writer, data, path, **kwargs):
+                try:
+                    writer(data, path, **kwargs)
+                except Exception as e:
+                    record_failure(f"writing {storage.basename(path)}", e)
+
+            def save_latency_stats(latency_stats, **kwargs):
+                # Diagnostics, written after the rollup, so a failure is only logged.
+                try:
+                    save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id, **kwargs)
+                except Exception as e:
+                    self.logger.warning(f"Chunk {chunk_id}: failed writing latency stats: {_describe_exception(e)}")
+
             # Get additional parcel attributes from parcel geometry
             if isinstance(aoi_gdf, gpd.GeoDataFrame):
                 rep_point = aoi_gdf.representative_point()
@@ -3783,9 +3820,9 @@ class NearmapAIExporter(BaseExporter):
                     f"Chunk {chunk_id}: the {api_name} answered no AOI (status codes {status_counts}), so the "
                     f"chunk gets no rollup and will be re-fetched on resume."
                 )
-                _write_errors_parquet(feature_api_errors_df, outfile_errors)
+                write_chunk_file(_write_errors_parquet, feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
-                    storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
+                    write_chunk_file(storage.write_parquet, roof_age_errors_df, outfile_roof_age_errors)
                 chunk_end_time = datetime.now(timezone.utc).isoformat()
                 total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                 latency_stats = collect_latency_stats_from_apis(
@@ -3796,7 +3833,7 @@ class NearmapAIExporter(BaseExporter):
                     total_duration_ms,
                 )
                 if latency_stats is not None:
-                    save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
+                    save_latency_stats(latency_stats)
                 return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
             # Combine features from both APIs (roof instances are treated as a feature class)
@@ -3962,7 +3999,7 @@ class NearmapAIExporter(BaseExporter):
 
             # Save Roof Age API errors separately
             if self.roof_age and len(roof_age_errors_df) > 0:
-                storage.write_parquet(roof_age_errors_df, outfile_roof_age_errors)
+                write_chunk_file(storage.write_parquet, roof_age_errors_df, outfile_roof_age_errors)
 
             # Use Feature API errors as the main errors file
             errors_df = feature_api_errors_df
@@ -4037,13 +4074,7 @@ class NearmapAIExporter(BaseExporter):
             self.logger.debug(
                 f"Chunk {chunk_id}: Writing {len(final_df)} rows for rollups and {len(errors_df)} for errors."
             )
-            try:
-                _write_errors_parquet(errors_df, outfile_errors)
-            except Exception as e:
-                self.logger.error(
-                    f"Chunk {chunk_id}: Failed writing errors_df ({len(errors_df)} rows) to {outfile_errors}."
-                )
-                self.logger.error(f"Error: {type(e).__name__}: {str(e)}")
+            write_chunk_file(_write_errors_parquet, errors_df, outfile_errors)
             # Drop survey_date/mesh_date from metadata_df to avoid collision with features_gdf
             # (features_gdf has per-feature survey_date/mesh_date which is more accurate for gridded AOIs).
             # The AOI-level mesh_date in metadata acts as a fallback for AOIs with zero features.
@@ -4206,18 +4237,14 @@ class NearmapAIExporter(BaseExporter):
                     # Reset index to preserve aoi_id as a column (needed for building-roof linking)
                     if final_features_df.index.name == AOI_ID_COLUMN_NAME:
                         final_features_df = final_features_df.reset_index()
-
-                    _t_features_prep = time.monotonic()
-                    # Only the final merge reads this file, and only with --save-features.
-                    if self.save_features:
-                        storage.write_parquet(final_features_df, outfile_features, index=False)
-                    _t_features_write = time.monotonic()
                 except Exception as e:
-                    self.logger.error(
-                        f"Failed to save features parquet file for chunk_id {chunk_id}. Errors saved to {outfile_errors}."
-                    )
-                    self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
-                    self.logger.error(e)
+                    record_failure("preparing features", e)
+                    final_features_df = None  # half-prepared: nothing may be written from it
+                _t_features_prep = time.monotonic()
+                # Only the final merge reads this file, and only with --save-features.
+                if self.save_features and final_features_df is not None:
+                    write_chunk_file(storage.write_parquet, final_features_df, outfile_features, index=False)
+                _t_features_write = time.monotonic()
 
             # Per-class export: compute and write per-class tabular + geo parquet
             # while final_features_df is still in memory from the features section above.
@@ -4290,17 +4317,20 @@ class NearmapAIExporter(BaseExporter):
 
                     # Parallel S3 PUTs hide network latency; max_workers=4 caps in-flight
                     # memory. Thread-safe: each worker reads only its own (cid, tables);
-                    # del runs from the main thread after the worker returns.
+                    # del runs from the main thread after the worker returns. A failed
+                    # write is recorded rather than raised, so every class is attempted.
                     def _write_one(cid_tables):
                         cid, tables = cid_tables
                         desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
                         cname = _description_to_cname(desc)
-                        storage.write_parquet(
+                        write_chunk_file(
+                            storage.write_parquet,
                             tables["tabular"],
                             storage.join_path(self.chunk_path, f"{cname}_{chunk_id}.parquet"),
                         )
                         if "geo" in tables:
-                            storage.write_parquet(
+                            write_chunk_file(
+                                storage.write_parquet,
                                 tables["geo"],
                                 storage.join_path(
                                     self.chunk_path,
@@ -4317,36 +4347,40 @@ class NearmapAIExporter(BaseExporter):
                     _t_per_class_writes = time.monotonic()
                     del chunk_gdf, per_class_results
                 except Exception as e:
-                    self.logger.error(f"Per-class chunk export failed for chunk {chunk_id}: {e}")
-                    # Non-fatal: rollup still written below, merge step falls back to
-                    # recomputing per-class from feature chunks
+                    record_failure("computing per-class files", e)
 
-            # Write rollup LAST — it serves as the chunk completion marker.
-            # If the process is killed before this point, the chunk will be
-            # re-processed on resume (errors, features, per-class files rewritten).
-            try:
-                # Handle the geometry column separately to avoid conversion issues
-                has_geometry = "geometry" in final_df.columns
-                geometry_series = None
+            # Write rollup LAST — it serves as the chunk completion marker, so only
+            # once every other chunk file is written. If the process is killed before
+            # this point, the chunk will be re-processed on resume (errors, features,
+            # per-class files rewritten).
+            if not failed_outputs:
+                try:
+                    # Handle the geometry column separately to avoid conversion issues
+                    has_geometry = "geometry" in final_df.columns
+                    geometry_series = None
 
-                if has_geometry:
-                    # Store the geometry column separately
-                    geometry_series = final_df["geometry"]
-                    final_df = final_df.drop(columns=["geometry"])
+                    if has_geometry:
+                        # Store the geometry column separately
+                        geometry_series = final_df["geometry"]
+                        final_df = final_df.drop(columns=["geometry"])
 
-                # Convert dtypes on the dataframe without geometry
-                final_df = _pin_float_coverage_columns(final_df.convert_dtypes())
+                    # Convert dtypes on the dataframe without geometry
+                    final_df = _pin_float_coverage_columns(final_df.convert_dtypes())
 
-                if has_geometry:
-                    # Reattach the geometry column
-                    final_df["geometry"] = geometry_series
-                    # Create a proper GeoDataFrame
-                    final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
+                    if has_geometry:
+                        # Reattach the geometry column
+                        final_df["geometry"] = geometry_series
+                        # Create a proper GeoDataFrame
+                        final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
 
-                storage.write_parquet(final_df, outfile)
-            except Exception as e:
-                self.logger.error(f"Chunk {chunk_id}: Failed writing final_df ({len(final_df)} rows) to {outfile}.")
-                self.logger.error(f"Error type: {type(e).__name__}, Error message: {str(e)}")
+                    storage.write_parquet(final_df, outfile)
+                except Exception as e:
+                    record_failure(f"writing {storage.basename(outfile)}", e)
+            if failed_outputs:
+                self.logger.error(
+                    f"Chunk {chunk_id} gets no rollup and will be re-processed on resume: failed "
+                    f"{'; '.join(failed_outputs)}."
+                )
 
             _t_rollup_write = time.monotonic()
 
@@ -4406,7 +4440,7 @@ class NearmapAIExporter(BaseExporter):
                 total_duration_ms,
             )
             if latency_stats is not None:
-                save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id, extra_columns=phase_timings or None)
+                save_latency_stats(latency_stats, extra_columns=phase_timings or None)
 
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
