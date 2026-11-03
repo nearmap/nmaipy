@@ -2644,6 +2644,7 @@ class TestAoiInputColumnsWithDates:
             country="us",
             packs=["building"],
             no_cache=True,
+            save_features=True,
         )
         Path(ex.chunk_path).mkdir(parents=True, exist_ok=True)
         return ex
