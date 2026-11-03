@@ -331,6 +331,8 @@ Commonly available packs (this list is not exhaustive):
 
 For the full catalog and access details, use the snippet above or check the [Nearmap help site](https://help.nearmap.com).
 
+`NearmapAIExporter` takes either `packs` or `classes` (feature class UUIDs from `get_feature_classes()`), not both. The Feature API rejects a request carrying both, so the constructor raises `ValueError`. Pass neither and requests carry no filter, so you get every class your account can query, which can be a very large response. The CLI defaults to `--packs building` instead. A class id that isn't in `get_feature_classes()` fails the export before any AOI is requested.
+
 ## Input Data Formats
 
 `nmaipy` accepts AOIs in:
@@ -424,7 +426,8 @@ Key options:
 
 | Flag | What it does |
 |------|--------------|
-| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pool`, `solar`, `damage`, etc.) |
+| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pool`, `solar`, `damage`, etc.). Defaults to `building` when neither `--packs` nor `--classes` is given |
+| `--classes` | Feature class UUIDs to extract, separated by spaces (not commas). Mutually exclusive with `--packs` |
 | `--include` | Additional calculated includes (`roofSpotlightIndex`, `roofConditionConfidenceStats`, `damage`, `defensibleSpace`, `hurricaneScore`, `windScore`, `hailScore`, `wildfireScore`, `windHailRiskScore`) |
 | `--roof-age` | Include Roof Age API data (US only) |
 | `--roof-age-dataset` | `latest` (default), `A.0`, `A.1`, `A.1Q2`, or any raw resource UUID |
