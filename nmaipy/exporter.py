@@ -2534,11 +2534,11 @@ def parse_arguments():
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(
         "--packs",
-        help="List of AI packs (default: building)",
+        help="List of AI packs (default: building, unless --classes is given)",
         type=str,
         nargs="+",
         required=False,
-        default=["building"],
+        default=None,
     )
     parser.add_argument(
         "--roof-age",
@@ -2557,7 +2557,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--classes",
-        help="List of Feature Class IDs (UUIDs)",
+        help="List of Feature Class IDs (UUIDs), separated by spaces. Mutually exclusive with --packs",
         type=str,
         nargs="+",
         required=False,
@@ -2804,6 +2804,13 @@ def parse_arguments():
     if args.only3d and args.prefer3d:
         parser.error("--only3d and --prefer3d are mutually exclusive")
 
+    # The Feature API takes either packs or classes, never both, so the building
+    # pack is only the default when no classes are given.
+    if args.packs and args.classes:
+        parser.error("--packs and --classes are mutually exclusive")
+    if not args.packs and not args.classes:
+        args.packs = ["building"]
+
     if args.roof_age:
         resolved = resolve_roof_age_dataset(args.roof_age_dataset)
         if resolved in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
@@ -2931,6 +2938,8 @@ class NearmapAIExporter(BaseExporter):
 
         # Assign NearmapAIExporter-specific parameters to instance variables
         self.aoi_file = aoi_file
+        if packs is not None and classes is not None:
+            raise ValueError("packs and classes are mutually exclusive: the Feature API accepts only one of them")
         self.packs = packs
         self.classes = classes
         self.include = include
@@ -4743,6 +4752,10 @@ class NearmapAIExporter(BaseExporter):
             else:
                 classes_df = feature_api.get_feature_classes()  # All classes
                 if self.classes is not None:
+                    # An unknown id (a typo, or several ids joined into one string) would
+                    # otherwise be dropped here and the export would have no class outputs.
+                    if diff := set(self.classes) - set(classes_df.index):
+                        raise ValueError(f"Unknown classes: {sorted(diff)}")
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
             feature_api.cleanup()
