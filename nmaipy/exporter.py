@@ -3069,7 +3069,7 @@ class NearmapAIExporter(BaseExporter):
         try:
             prev = storage.read_json(prev_path)
         except Exception as e:
-            self.logger.debug(f"Could not read previous export_config.json: {e}")
+            self.logger.warning(f"Could not read previous export_config.json: {e}")
             return None
         if not isinstance(prev, dict):
             return None
