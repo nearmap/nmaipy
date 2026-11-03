@@ -2838,19 +2838,19 @@ def cleanup_thread_sessions(executor):
                         pass
 
 
-# Export-config keys whose values do not affect output content. Differences in
-# these keys between a previously-completed run and the current run do NOT
-# invalidate the README.md "fully complete" sentinel — they're either pure
-# performance / ergonomics knobs (processes, threads, chunk_size, log_level),
-# infrastructure paths that don't change row-level results (cache_dir,
-# compress_cache), or API-cache controls that operate beneath the chunk-cache
-# layer the fast-path actually depends on (no_cache, overwrite_cache: chunks
-# are reused regardless).
-_CONFIG_KEYS_NOT_AFFECTING_OUTPUT = frozenset(
+# Export-config keys that may differ between runs into the same output directory:
+# a resume may change them, and they don't invalidate the README.md "fully
+# complete" sentinel. They're either pure performance / ergonomics knobs
+# (processes, threads, log_level), infrastructure paths that don't change
+# row-level results (cache_dir, compress_cache), or API-cache controls that
+# operate beneath the chunk files (no_cache, overwrite_cache). Every other key
+# decides which AOIs a chunk holds or what its files contain, so chunks written
+# under one value must not be merged into a run with another. That includes
+# chunk_size: it moves the chunk boundaries under the existing rollup files.
+_CONFIG_KEYS_SAFE_TO_CHANGE = frozenset(
     {
         "processes",
         "threads",
-        "chunk_size",
         "merge_read_workers",
         "max_retries",
         "log_level",
@@ -2860,6 +2860,8 @@ _CONFIG_KEYS_NOT_AFFECTING_OUTPUT = frozenset(
         "overwrite_cache",
     }
 )
+# List-valued keys that select a set of things: their order carries no meaning.
+_CONFIG_KEYS_COMPARED_AS_SETS = frozenset({"packs", "classes", "include"})
 
 
 class NearmapAIExporter(BaseExporter):
@@ -3047,6 +3049,9 @@ class NearmapAIExporter(BaseExporter):
         # Path objects, list-not-tuple, numpy/datetime handling, etc.
         self._current_config_params = orjson.loads(storage.json_dumps_bytes(config_params, default=str))
 
+        # Before _save_config overwrites the previous config, so a refused run leaves it to compare against.
+        self._check_resume_config()
+
         # Save export configuration at start (before processing begins)
         self._save_config(config_params)
 
@@ -3071,10 +3076,11 @@ class NearmapAIExporter(BaseExporter):
         params = prev.get("parameters")
         return params if isinstance(params, dict) else None
 
-    def _config_diff_for_fast_path(self):
+    def _config_diff(self):
         """Return list of (key, previous_value, current_value) tuples for params
         that differ between the previously-saved run and this run, ignoring
-        keys in _CONFIG_KEYS_NOT_AFFECTING_OUTPUT.
+        keys in _CONFIG_KEYS_SAFE_TO_CHANGE and the order of the keys in
+        _CONFIG_KEYS_COMPARED_AS_SETS.
 
         Returns empty list when no previous config is available — preserves the
         baseline "README presence alone is the sentinel" behaviour for exports
@@ -3084,13 +3090,48 @@ class NearmapAIExporter(BaseExporter):
             return []
         cur = self._current_config_params
         prev = self._previous_config_params
+
+        def comparable(key, value):
+            if key in _CONFIG_KEYS_COMPARED_AS_SETS and isinstance(value, list):
+                return sorted(value, key=str)
+            return value
+
         diff = []
         for key in sorted(set(cur.keys()) | set(prev.keys())):
-            if key in _CONFIG_KEYS_NOT_AFFECTING_OUTPUT:
+            if key in _CONFIG_KEYS_SAFE_TO_CHANGE:
                 continue
-            if cur.get(key) != prev.get(key):
+            if comparable(key, cur.get(key)) != comparable(key, prev.get(key)):
                 diff.append((key, prev.get(key), cur.get(key)))
         return diff
+
+    def _check_resume_config(self):
+        """
+        Refuse to reuse chunks written under a different export config.
+
+        A run skips every chunk that already has a rollup and merges whatever chunk files it finds, so chunks
+        written with other packs, dates, chunk size or file flags would be merged as if this run had written them.
+        Only the keys in _CONFIG_KEYS_SAFE_TO_CHANGE may differ. The rollup listing runs only when the config
+        changed or no previous config exists, so an ordinary resume doesn't pay for it.
+
+        Raises:
+            ValueError: If the chunk directory holds rollups and the previous run's config differs or is missing.
+        """
+        diff = self._config_diff()
+        if self._previous_config_params is not None and not diff:
+            return
+        if not storage.glob_files(self.chunk_path, "rollup_*.parquet"):
+            return
+        remedy = (
+            f"Re-run with the original settings, or use a new output directory (or delete '{self.chunk_path}') "
+            f"to export with the new ones."
+        )
+        if self._previous_config_params is None:
+            raise ValueError(
+                f"'{self.chunk_path}' holds chunks from an earlier run, but '{self.final_path}' has no readable "
+                f"export_config.json, so they can't be shown to match this run's settings. {remedy}"
+            )
+        changed = ", ".join(f"{k} ({prev!r} -> {cur!r})" for k, prev, cur in diff)
+        raise ValueError(f"'{self.chunk_path}' holds chunks written with different settings: {changed}. {remedy}")
 
     def api_key(self) -> str:
         # Use provided API key if available, otherwise fall back to environment variable
@@ -4640,18 +4681,19 @@ class NearmapAIExporter(BaseExporter):
         # file only ever exists with full content; no torn-write false signal.
         #
         # We additionally validate that the export config hasn't changed in
-        # any output-affecting way (see _CONFIG_KEYS_NOT_AFFECTING_OUTPUT):
+        # any output-affecting way (see _CONFIG_KEYS_SAFE_TO_CHANGE):
         # if the user re-ran with different packs / country / date range /
         # etc., we rebuild rather than silently returning the previous run's
-        # output.
+        # output. __init__ refuses such a change while rollup chunks remain,
+        # so that rebuild starts from scratch.
         readme_path = storage.join_path(self.final_path, "README.md")
         if storage.file_exists(readme_path):
-            config_diff = self._config_diff_for_fast_path()
+            config_diff = self._config_diff()
             if not config_diff:
                 self.logger.info(
                     f"Prior run already complete: README.md present at {readme_path}. "
-                    "Skipping all processing. Delete this file (or change export "
-                    "flags) to force a rebuild from cached chunks."
+                    "Skipping all processing. Delete this file to rebuild the merged "
+                    "outputs from the cached chunks."
                 )
                 return
             else:

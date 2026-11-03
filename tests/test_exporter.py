@@ -2423,7 +2423,7 @@ class TestSkipRebuildWhenReadmeExists:
             packs=["building"],
             max_retries=20,
         )
-        assert exporter2._config_diff_for_fast_path() == []
+        assert exporter2._config_diff() == []
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter2.run()
             mock_api.assert_not_called()
@@ -2553,6 +2553,58 @@ class TestSkipRebuildWhenReadmeExists:
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter.run()
             mock_api.assert_not_called()
+
+
+class TestResumeRequiresSameConfig:
+    """A run skips every chunk that has a rollup and merges the chunk files it finds, so it must refuse chunks
+    written under different settings. Only _CONFIG_KEYS_SAFE_TO_CHANGE may differ."""
+
+    BASE = dict(aoi_file="data/examples/sydney_parcels.geojson", country="au", packs=["building", "vegetation"])
+
+    def _exporter(self, tmp_path, **overrides):
+        return AOIExporter(output_dir=str(tmp_path), **{**self.BASE, **overrides})
+
+    @staticmethod
+    def _write_rollup(tmp_path):
+        pd.DataFrame({AOI_ID_COLUMN_NAME: ["p1"]}).to_parquet(tmp_path / "chunks" / "rollup_0000.parquet")
+
+    @pytest.mark.parametrize(
+        "change",
+        [{"save_features": True}, {"class_level_files": False}, {"chunk_size": 250}, {"packs": ["building"]}],
+        ids=lambda change: next(iter(change)),
+    )
+    def test_changed_setting_refused_while_chunks_remain(self, tmp_path, change):
+        """save_features is the case that matters most: chunks completed without it have no features file, so
+        turning it on for a resume would merge a features.parquet missing those chunks without any error."""
+        self._exporter(tmp_path)
+        self._write_rollup(tmp_path)
+        key = next(iter(change))
+        with pytest.raises(ValueError, match=f"different settings: {key} "):
+            self._exporter(tmp_path, **change)
+        with pytest.raises(ValueError, match=f"different settings: {key} "):
+            # The refused run must not have saved its config, or this attempt would compare against itself.
+            self._exporter(tmp_path, **change)
+
+    @pytest.mark.parametrize(
+        "change",
+        [{}, {"processes": 2}, {"threads": 3}, {"max_retries": 5}, {"packs": ["vegetation", "building"]}],
+        ids=lambda change: next(iter(change), "unchanged"),
+    )
+    def test_safe_change_resumes(self, tmp_path, change):
+        self._exporter(tmp_path)
+        self._write_rollup(tmp_path)
+        assert self._exporter(tmp_path, **change)._config_diff() == []
+
+    def test_changed_setting_allowed_once_chunks_are_gone(self, tmp_path):
+        self._exporter(tmp_path)
+        exporter = self._exporter(tmp_path, packs=["building"])
+        assert exporter._config_diff() == [("packs", ["building", "vegetation"], ["building"])]
+
+    def test_chunks_without_previous_config_refused(self, tmp_path):
+        (tmp_path / "chunks").mkdir()
+        self._write_rollup(tmp_path)
+        with pytest.raises(ValueError, match="no readable export_config.json"):
+            self._exporter(tmp_path)
 
 
 def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
