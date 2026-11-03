@@ -2924,7 +2924,7 @@ class NearmapAIExporter(BaseExporter):
 
         # Assign NearmapAIExporter-specific parameters to instance variables
         self.aoi_file = aoi_file
-        if packs and classes:
+        if packs is not None and classes is not None:
             raise ValueError("packs and classes are mutually exclusive: the Feature API accepts only one of them")
         self.packs = packs
         self.classes = classes
@@ -4712,7 +4712,7 @@ class NearmapAIExporter(BaseExporter):
                     # An unknown id (a typo, or several ids joined into one string) would
                     # otherwise be dropped here and the export would have no class outputs.
                     if diff := set(self.classes) - set(classes_df.index):
-                        raise ValueError(f"Unknown classes: {diff}")
+                        raise ValueError(f"Unknown classes: {sorted(diff)}")
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
             feature_api.cleanup()

@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -2488,18 +2489,28 @@ class TestPacksAndClasses:
             self._parse(monkeypatch, "--packs", "building", "--classes", ROOF_ID)
         assert "--packs and --classes are mutually exclusive" in capsys.readouterr().err
 
-    def test_exporter_rejects_packs_and_classes(self, tmp_path):
+    # An empty pack list still counts as given: otherwise run() would take the packs branch with no packs,
+    # build the rollup against every class, and skip the unknown-class check.
+    @pytest.mark.parametrize("packs", [["building"], []])
+    def test_exporter_rejects_packs_and_classes(self, tmp_path, packs):
         with pytest.raises(ValueError, match="mutually exclusive"):
             AOIExporter(
                 aoi_file="data/examples/sydney_parcels.geojson",
                 output_dir=str(tmp_path),
                 country="us",
-                packs=["building"],
+                packs=packs,
                 classes=[ROOF_ID],
             )
 
-    @pytest.mark.parametrize("classes", [["not-a-class-id"], [f"{ROOF_ID},{BUILDING_NEW_ID}"]])
-    def test_unknown_class_fails_the_export(self, tmp_path, classes):
+    @pytest.mark.parametrize(
+        "classes, unknown",
+        [
+            (["not-a-class-id"], ["not-a-class-id"]),
+            ([f"{ROOF_ID},{BUILDING_NEW_ID}"], [f"{ROOF_ID},{BUILDING_NEW_ID}"]),
+            (["zz-unknown", ROOF_ID, "aa-unknown"], ["aa-unknown", "zz-unknown"]),
+        ],
+    )
+    def test_unknown_class_fails_the_export(self, tmp_path, classes, unknown):
         exporter = AOIExporter(
             aoi_file="data/examples/sydney_parcels.geojson",
             output_dir=str(tmp_path),
@@ -2508,5 +2519,5 @@ class TestPacksAndClasses:
         )
         with patch("nmaipy.exporter.FeatureApi") as api:
             api.return_value.get_feature_classes.return_value = self._ROOF_CLASSES
-            with pytest.raises(ValueError, match="Unknown classes"):
+            with pytest.raises(ValueError, match=re.escape(f"Unknown classes: {unknown}")):
                 exporter.run()
