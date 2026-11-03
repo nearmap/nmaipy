@@ -58,12 +58,17 @@ def _cell_error(cell_id, status_code):
 
 
 def _api(tmp_path, monkeypatch, failures, aoi_grid_min_pct):
-    """A FeatureApi whose per-cell query answers every cell except those in ``failures`` ({cell id: status})."""
+    """
+    A FeatureApi whose per-cell query answers every cell except those in ``failures`` ({cell id: status}).
+    A failure given as an exception is raised by the cell's query instead.
+    """
     api = FeatureApi(api_key="test-key", cache_dir=tmp_path, aoi_grid_min_pct=aoi_grid_min_pct, grid_size=CELL_SIZE)
     calls = []
 
     def stub_get_features_gdf(geometry, region, aoi_id, **kwargs):
         calls.append(aoi_id)
+        if isinstance(failures.get(aoi_id), Exception):
+            raise failures[aoi_id]
         if aoi_id in failures:
             return None, None, _cell_error(aoi_id, failures[aoi_id]), None
         return None, _cell_metadata(aoi_id), None, None
@@ -217,3 +222,14 @@ class TestRejectionMessage:
     def test_no_cell_answered_is_its_own_message(self, tmp_path, monkeypatch, hundred_cells):
         api = _api(tmp_path, monkeypatch, {i: 404 for i in range(100)}, aoi_grid_min_pct=100)
         assert _rejection_message(api) == "Rejected as no grid cells answered. Failed due to {404}"
+
+    @pytest.mark.parametrize(
+        "failures,statuses",
+        [({0: RuntimeError("boom"), 1: 404}, "{404, no status}"), ({0: RuntimeError("boom")}, "{no status}")],
+    )
+    def test_a_cell_whose_query_raised_has_no_status(self, tmp_path, monkeypatch, hundred_cells, failures, statuses):
+        api = _api(tmp_path, monkeypatch, failures, aoi_grid_min_pct=100)
+        expected = (
+            f"Rejected as only [90-100)% of grid cells answered, below the 100% threshold. Failed due to {statuses}"
+        )
+        assert _rejection_message(api) == expected
