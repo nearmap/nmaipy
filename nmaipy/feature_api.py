@@ -84,9 +84,14 @@ def _grid_rejection_message(n_answered: int, n_cells: int, failed_statuses: pd.S
     """
     Message for a grid that failed as a whole. Gives the share of cells answered as a 10-point bracket and
     the failed cells' distinct statuses rather than exact counts, so grids that failed alike share one message
-    and group together in error summaries. The exact counts go on the error row's own columns.
+    and group together in error summaries. The exact counts go on the error row's own columns. A cell whose
+    request raised has no status, so it is listed as "no status".
     """
-    statuses = "{" + ", ".join(str(s) for s in sorted({int(s) for s in failed_statuses})) + "}"
+    known = failed_statuses.dropna()
+    labels = [str(s) for s in sorted({int(s) for s in known})]
+    if len(known) < len(failed_statuses):
+        labels.append("no status")
+    statuses = "{" + ", ".join(labels) + "}"
     if n_answered == 0:
         return f"Rejected as no grid cells answered. Failed due to {statuses}"
     low = n_answered * 10 // n_cells * 10
