@@ -20,12 +20,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import boto3
 import fsspec
+import geopandas as gpd
 import orjson
 import pyarrow as pa
 import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
+
+from nmaipy.constants import GEOPARQUET_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -538,12 +541,18 @@ def write_parquet(data, path: str, **kwargs) -> None:
     upload time (less data to push) and ongoing storage cost. Callers that
     pass `compression=...` explicitly override this.
 
+    GeoDataFrames are written as GeoParquet GEOPARQUET_SCHEMA_VERSION unless the
+    caller passes `schema_version`. Only GeoDataFrame.to_parquet accepts that
+    argument, so it is never set for a plain DataFrame or a pyarrow Table.
+
     Args:
         data: pandas DataFrame, geopandas GeoDataFrame, or pyarrow Table
         path: Output file path (local or S3 URI)
         **kwargs: Additional arguments passed to the underlying writer
     """
     kwargs.setdefault("compression", "zstd")
+    if isinstance(data, gpd.GeoDataFrame):
+        kwargs.setdefault("schema_version", GEOPARQUET_SCHEMA_VERSION)
     if is_s3_path(path):
         with open_file(path, "wb") as f:
             if isinstance(data, pa.Table):

@@ -283,6 +283,11 @@ AREA_CRS = {
 }
 API_CRS = "EPSG:4326"
 
+# GeoParquet version for every geometry file nmaipy writes. Readers pinned to GeoParquet 1.0 may reject 1.1 files,
+# and 1.1 only adds opt-in features nmaipy doesn't use (bbox covering, GeoArrow encodings), so pin it rather than
+# take the geopandas default (1.1.0 since geopandas 1.2).
+GEOPARQUET_SCHEMA_VERSION = "1.0.0"
+
 # Max rows per row group when streaming the combined features.parquet. The table
 # is still sorted by class_id per chunk, which keeps class values contiguous for
 # dictionary/RLE compression and gives class pushdown only when a chunk exceeds

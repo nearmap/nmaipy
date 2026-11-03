@@ -1788,8 +1788,8 @@ class TestMergePerClassChunks:
 class TestCoverageGapChunks:
     """A chunk whose every AOI returned 404 has no survey coverage. process_chunk still writes its rollup, one
     feature_api_success = "N" row per AOI like the 404s in a mixed chunk, so resumes skip it and the final
-    rollup keeps one row per input AOI; any other all-failed chunk (or a chunk whose rollup write failed) has
-    no rollup and must fail the export before completion artifacts are written."""
+    rollup keeps one row per input AOI; any other all-failed chunk (or a chunk any of whose files failed to
+    write) has no rollup and must fail the export before completion artifacts are written."""
 
     @pytest.fixture
     def exporter(self, tmp_path, caplog):
@@ -1867,13 +1867,13 @@ class TestCoverageGapChunks:
             index=pd.Index(aoi_ids, name=AOI_ID_COLUMN_NAME),
         )
 
-    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors, features=None):
+    def _run_chunk(self, exporter, chunk_id, aoi_gdf, metadata, errors, features=None, latency_stats=None):
         """Drive process_chunk through a chunk with the given API response (no features unless given)."""
         if features is None:
             features, _ = self._empty_api_response()
         with (
             patch("nmaipy.exporter.FeatureApi") as mock_api,
-            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=latency_stats),
         ):
             mock_api.return_value.get_features_gdf_bulk.return_value = (features, metadata, errors)
             exporter.process_chunk(chunk_id=chunk_id, aoi_gdf=aoi_gdf, classes_df=self._classes_df())
@@ -1891,6 +1891,113 @@ class TestCoverageGapChunks:
             {AOI_ID_COLUMN_NAME: [f"aoi_{i}_{n}" for n in range(n_rows)], "building_count": [1] * n_rows}
         ).to_parquet(path)
         return str(path)
+
+    def _run_answered_chunk(self, exporter, latency_stats=None):
+        """Drive process_chunk through a chunk where both AOIs answered with one building each."""
+        meta = pd.DataFrame(
+            {"system_version": ["gen6-x", "gen6-x"], "survey_date": ["2024-01-01", "2024-01-01"]},
+            index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+        )
+        features = self._building_features(["p1", "p2"])
+        return self._run_chunk(exporter, "0000", self._aoi_gdf(), meta, self._no_errors(), features, latency_stats)
+
+    @staticmethod
+    def _fail_writes(monkeypatch, *names):
+        """Make writing the named chunk files raise, as an S3 PUT that fails does."""
+        real_write = exporter_mod.storage.write_parquet
+
+        def write_parquet(data, path, *args, **kwargs):
+            if os.path.basename(str(path)) in names:
+                raise OSError("simulated write failure")
+            return real_write(data, path, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_mod.storage, "write_parquet", write_parquet)
+
+    def _assert_left_for_reprocessing(self, exporter, chunk_path, caplog):
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must not be marked complete"
+        to_process, *_ = exporter.split_into_chunks(self._aoi_gdf(), check_cache=True)
+        assert [i for i, _ in to_process] == [0], "a resume must re-process the chunk"
+        with pytest.raises(SystemExit):
+            exporter._collect_rollup_chunk_paths(1)
+        assert "Chunk 0000 gets no rollup" in caplog.text
+
+    @pytest.mark.parametrize(
+        "failing_file",
+        [
+            "feature_api_errors_0000.parquet",
+            "features_0000.parquet",
+            "building_0000.parquet",
+            "building_features_0000.parquet",
+        ],
+    )
+    def test_failed_chunk_file_write_withholds_rollup(self, exporter, monkeypatch, caplog, failing_file):
+        """The merge reads every chunk file, so one that fails to write must leave the chunk without its rollup: the
+        merge then stops instead of completing without the chunk's rows, and a resume re-processes the chunk."""
+        exporter.save_features = True
+        self._fail_writes(monkeypatch, failing_file)
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert f"failed writing {failing_file}" in caplog.text
+
+    def test_every_failed_per_class_write_is_reported(self, exporter, monkeypatch, caplog):
+        """Per-class files are written in parallel; the first failure must not hide the others."""
+        self._fail_writes(monkeypatch, "building_0000.parquet", "building_features_0000.parquet")
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert "failed writing building_0000.parquet" in caplog.text
+        assert "failed writing building_features_0000.parquet" in caplog.text
+
+    def test_failed_feature_preparation_withholds_rollup_and_per_class_files(self, exporter, monkeypatch, caplog):
+        """Per-class files are built from the prepared features, so a half-prepared frame must not reach them."""
+        monkeypatch.setattr(exporter_mod, "wrong_unit_area_columns", MagicMock(side_effect=RuntimeError("simulated")))
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert not (chunk_path / "building_0000.parquet").exists()
+        assert "failed preparing features: RuntimeError: simulated" in caplog.text
+
+    def test_failed_per_class_computation_withholds_rollup(self, exporter, monkeypatch, caplog):
+        monkeypatch.setattr(
+            exporter_mod, "_compute_all_per_class_data", MagicMock(side_effect=RuntimeError("simulated"))
+        )
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert "failed computing per-class files: RuntimeError: simulated" in caplog.text
+
+    def test_failed_rollup_write_is_reported_like_other_chunk_files(self, exporter, monkeypatch, caplog):
+        self._fail_writes(monkeypatch, "rollup_0000.parquet")
+        chunk_path = self._run_answered_chunk(exporter)
+        self._assert_left_for_reprocessing(exporter, chunk_path, caplog)
+        assert "failed writing rollup_0000.parquet: OSError: simulated write failure" in caplog.text
+
+    def test_failed_latency_stats_write_is_only_logged(self, exporter, monkeypatch, caplog):
+        """Latency stats are diagnostics written after the rollup: a failure must neither undo the chunk nor raise."""
+        monkeypatch.setattr(exporter_mod, "save_chunk_latency_stats", MagicMock(side_effect=OSError("simulated")))
+        chunk_path = self._run_answered_chunk(exporter, latency_stats={"count": 0})
+        assert (chunk_path / "rollup_0000.parquet").exists()
+        assert "failed writing latency stats: OSError: simulated" in caplog.text
+
+    def test_rollup_written_in_one_attempt(self, exporter, monkeypatch):
+        """The rollup is a plain DataFrame: one write, not an attempt with a GeoParquet-only argument that fails and
+        a retry without it (on S3 the failed attempt commits an empty object before the retry runs)."""
+        writes = []
+        real_write = exporter_mod.storage.write_parquet
+
+        def write_parquet(data, path, *args, **kwargs):
+            writes.append(os.path.basename(str(path)))
+            return real_write(data, path, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_mod.storage, "write_parquet", write_parquet)
+        self._run_answered_chunk(exporter)
+        assert writes.count("rollup_0000.parquet") == 1, writes
+
+    @pytest.mark.parametrize("save_features", [False, True])
+    def test_features_chunk_written_only_with_save_features(self, exporter, save_features):
+        """Only the --save-features merge reads features_<chunk>.parquet; the per-class files are written either way."""
+        exporter.save_features = save_features
+        chunk_path = self._run_answered_chunk(exporter)
+        assert (chunk_path / "features_0000.parquet").exists() == save_features
+        assert (chunk_path / "building_0000.parquet").exists()
+        assert (chunk_path / "rollup_0000.parquet").exists()
 
     def test_all_404_chunk_writes_failed_rollup_rows(self, exporter):
         chunk_path = self._run_all_failed_chunk(exporter, [404, 404])
@@ -2081,7 +2188,18 @@ class TestCoverageGapChunks:
     def test_chunk_left_for_refetch_when_an_api_answered_nothing(self, roof_age_exporter, feature_kind, roof_age_kind):
         chunk_path = self._run_two_api_chunk(roof_age_exporter, feature_kind, roof_age_kind)
         assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be re-fetched on resume"
-        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the merge gate keys on the errors file"
+        assert (chunk_path / "feature_api_errors_0000.parquet").exists(), "the failed requests are kept"
+
+    def test_failed_roof_age_errors_write_withholds_rollup(self, roof_age_exporter, monkeypatch):
+        """A failed write is recorded, not raised: raising out of process_chunk would stop every other chunk."""
+        self._fail_writes(monkeypatch, "roof_age_errors_0000.parquet")
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, "answered", "half")
+        assert not (chunk_path / "rollup_0000.parquet").exists(), "the chunk must not be marked complete"
+
+    def test_failed_errors_write_on_refetch_path_does_not_raise(self, roof_age_exporter, monkeypatch):
+        self._fail_writes(monkeypatch, "feature_api_errors_0000.parquet", "roof_age_errors_0000.parquet")
+        chunk_path = self._run_two_api_chunk(roof_age_exporter, "answered", "503")
+        assert not (chunk_path / "rollup_0000.parquet").exists()
 
     def test_rollup_reports_how_much_of_each_aoi_answered(self, exporter):
         """A gridded AOI carries its grid counts and answered share; an AOI answered in one request is answered
@@ -2110,6 +2228,7 @@ class TestCoverageGapChunks:
         )
         errors = self._errors_df([404]).rename({"p1": "failed"})
         features = self._building_features(["gridded", "single"])
+        exporter.save_features = True  # so the features chunk file is written and checked too
         chunk_path = self._run_chunk(exporter, "0000", aoi_gdf, meta, errors, features)
 
         rollup = pd.read_parquet(chunk_path / "rollup_0000.parquet")
@@ -2164,20 +2283,16 @@ class TestCoverageGapChunks:
             exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf)
             mock_api.assert_not_called()
 
-    def test_error_only_chunk_is_fatal(self, exporter, caplog):
+    def test_chunks_without_rollup_are_fatal_and_all_named(self, exporter, caplog):
+        """A chunk without a rollup is incomplete whether or not its errors file was written (that write can fail
+        too); the merge must stop and name every such chunk, not just the first."""
         self._write_rollup(exporter, 0, 1)
         self._errors_df([404, 403]).to_parquet(Path(exporter.chunk_path) / "feature_api_errors_0001.parquet")
         with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
-            exporter._collect_rollup_chunk_paths(2)
+            exporter._collect_rollup_chunk_paths(3)
         assert exc.value.code == 1
-        assert "1 of 2 chunks have an error file but no rollup file" in caplog.text
-        assert "[1]" in caplog.text, "the failed chunk ids must be in the message"
-
-    def test_chunk_with_neither_file_is_fatal(self, exporter, caplog):
-        self._write_rollup(exporter, 0, 1)
-        with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
-            exporter._collect_rollup_chunk_paths(2)
-        assert "Both error and data files for chunk 1 missing" in caplog.text
+        assert "2 of 3 chunks have no rollup file" in caplog.text
+        assert "[1, 2]" in caplog.text, "the incomplete chunk ids must be in the message"
 
     def test_nothing_exported_is_fatal(self, exporter, caplog):
         failed = pd.DataFrame({AOI_ID_COLUMN_NAME: ["a"], "feature_api_success": ["N"]})
@@ -2308,7 +2423,7 @@ class TestSkipRebuildWhenReadmeExists:
             packs=["building"],
             max_retries=20,
         )
-        assert exporter2._config_diff_for_fast_path() == []
+        assert exporter2._config_diff() == []
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter2.run()
             mock_api.assert_not_called()
@@ -2438,6 +2553,58 @@ class TestSkipRebuildWhenReadmeExists:
         with patch("nmaipy.exporter.FeatureApi") as mock_api:
             exporter.run()
             mock_api.assert_not_called()
+
+
+class TestResumeRequiresSameConfig:
+    """A run skips every chunk that has a rollup and merges the chunk files it finds, so it must refuse chunks
+    written under different settings. Only _CONFIG_KEYS_SAFE_TO_CHANGE may differ."""
+
+    BASE = dict(aoi_file="data/examples/sydney_parcels.geojson", country="au", packs=["building", "vegetation"])
+
+    def _exporter(self, tmp_path, **overrides):
+        return AOIExporter(output_dir=str(tmp_path), **{**self.BASE, **overrides})
+
+    @staticmethod
+    def _write_rollup(tmp_path):
+        pd.DataFrame({AOI_ID_COLUMN_NAME: ["p1"]}).to_parquet(tmp_path / "chunks" / "rollup_0000.parquet")
+
+    @pytest.mark.parametrize(
+        "change",
+        [{"save_features": True}, {"class_level_files": False}, {"chunk_size": 250}, {"packs": ["building"]}],
+        ids=lambda change: next(iter(change)),
+    )
+    def test_changed_setting_refused_while_chunks_remain(self, tmp_path, change):
+        """save_features is the case that matters most: chunks completed without it have no features file, so
+        turning it on for a resume would merge a features.parquet missing those chunks without any error."""
+        self._exporter(tmp_path)
+        self._write_rollup(tmp_path)
+        key = next(iter(change))
+        with pytest.raises(ValueError, match=f"different settings: {key} "):
+            self._exporter(tmp_path, **change)
+        with pytest.raises(ValueError, match=f"different settings: {key} "):
+            # The refused run must not have saved its config, or this attempt would compare against itself.
+            self._exporter(tmp_path, **change)
+
+    @pytest.mark.parametrize(
+        "change",
+        [{}, {"processes": 2}, {"threads": 3}, {"max_retries": 5}, {"packs": ["vegetation", "building"]}],
+        ids=lambda change: next(iter(change), "unchanged"),
+    )
+    def test_safe_change_resumes(self, tmp_path, change):
+        self._exporter(tmp_path)
+        self._write_rollup(tmp_path)
+        assert self._exporter(tmp_path, **change)._config_diff() == []
+
+    def test_changed_setting_allowed_once_chunks_are_gone(self, tmp_path):
+        self._exporter(tmp_path)
+        exporter = self._exporter(tmp_path, packs=["building"])
+        assert exporter._config_diff() == [("packs", ["building", "vegetation"], ["building"])]
+
+    def test_chunks_without_previous_config_refused(self, tmp_path):
+        (tmp_path / "chunks").mkdir()
+        self._write_rollup(tmp_path)
+        with pytest.raises(ValueError, match="no readable export_config.json"):
+            self._exporter(tmp_path)
 
 
 def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
