@@ -377,7 +377,7 @@ Code implications (see PR #210 for the bug class this prevents):
 4. For each AOI, the Feature API (and optionally Roof Age API) fetches relevant AI features
 5. Features are filtered based on intersection with AOI boundaries
 6. For large AOIs (>1 sq km), the system automatically grids them and merges/deduplicates results
-7. Results are summarized into rollup statistics and/or saved as feature data per chunk. The chunk's rollup file is its completion marker for resume and the merge, so `process_chunk` writes it last and only when every other chunk file was written; a failed write is recorded, never raised, and leaves the chunk to be re-processed
+7. Results are summarized into rollup statistics and/or saved as feature data per chunk. The chunk's rollup file is its completion marker for resume and the merge, so `process_chunk` writes it last and only when every other chunk file was written; a failed write is recorded, never raised, and leaves the chunk to be re-processed. `NearmapAIExporter.__init__` refuses to start when `chunks/` holds rollups written under a different config (only `_CONFIG_KEYS_SAFE_TO_CHANGE` may differ), before it overwrites `export_config.json`
 8. Chunks are merged into final output files (rollup CSV/Parquet, per-class files, GeoParquet)
 9. For S3 output, per-process local staging is used for formats requiring local I/O before uploading
 10. A customer-readable `README.md` is auto-generated in `final/` by `ReadmeGenerator`, plus a `<filename>_data_dictionary.csv` next to each tabular AI-data output by `data_dictionary_generator`
