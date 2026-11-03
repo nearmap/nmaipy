@@ -10,12 +10,16 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
+import s3fs
+from shapely.geometry import Point
 
 from nmaipy import storage
+from nmaipy.constants import GEOPARQUET_SCHEMA_VERSION
 
 # ---------------------------------------------------------------------------
 # is_s3_path
@@ -507,6 +511,33 @@ class TestWriteParquet:
         storage.write_parquet(df, fpath, compression="snappy")
         md = pq.read_metadata(fpath)
         assert md.row_group(0).column(0).compression == "SNAPPY"
+
+    def test_geodataframe_written_as_pinned_geoparquet_version(self, tmp_path):
+        gdf = gpd.GeoDataFrame({"a": [1]}, geometry=[Point(151.2, -33.9)], crs="EPSG:4326")
+        fpath = str(tmp_path / "test.parquet")
+        storage.write_parquet(gdf, fpath)
+        geo = json.loads(pq.read_metadata(fpath).metadata[b"geo"])
+        assert geo["version"] == GEOPARQUET_SCHEMA_VERSION, "geopandas' own default must not leak into outputs"
+
+    def test_s3_dataframe_write_is_a_single_put_with_a_body(self, monkeypatch):
+        """A plain DataFrame must reach S3 in one PUT. A writer argument it rejects would raise inside the open
+        file, whose close then commits an empty object before any retry: two PUTs, the first with no body."""
+        calls = []
+
+        def call_s3(self, method, *args, **kwargs):
+            calls.append((method, len(kwargs["Body"]) if "Body" in kwargs else None))
+            return {"ETag": '"etag"'}
+
+        async def _call_s3(self, method, *args, **kwargs):
+            return call_s3(self, method, *args, **kwargs)
+
+        monkeypatch.setattr(s3fs.S3FileSystem, "call_s3", call_s3)
+        monkeypatch.setattr(s3fs.S3FileSystem, "_call_s3", _call_s3)
+        fs = s3fs.S3FileSystem(anon=True, skip_instance_cache=True)
+        with patch("nmaipy.storage._get_s3_filesystem", return_value=fs):
+            storage.write_parquet(pd.DataFrame({"a": [1, 2, 3]}), "s3://bucket/chunks/rollup_0000.parquet")
+        assert [method for method, _ in calls] == ["put_object"], calls
+        assert calls[0][1] > 0, "the one PUT must carry the file"
 
 
 # ---------------------------------------------------------------------------

@@ -363,7 +363,7 @@ The exporter writes results to `{output_dir}/final/`:
 | `export_config.json` | Full record of export parameters and `nmaipy` version, used by the fast-path re-invocation detector |
 | `README.md` | **Auto-generated, customer-readable README** — column tables grouped by section, class hierarchy diagram, primary-feature selection explainer, full data dictionary for the export |
 
-A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing and enables resume after interruption.
+A `{output_dir}/chunks/` directory holds intermediate per-chunk results during processing and enables resume after interruption. A chunk counts as done once its rollup file is written, which happens only after every other file for that chunk was written. If any chunk is left unfinished (a failed write, or an API that answered nothing), the export exits with an error naming those chunks instead of writing the merged outputs; re-running the same command re-processes only those chunks, reusing cached API responses. A run into an output directory that already holds chunks must use the settings that wrote them: only `processes`, `threads`, `merge_read_workers`, `max_retries` and the cache options (`cache_dir`, `compress_cache`, `no_cache`, `overwrite_cache`) may change, and the order of `packs`, `classes` and `include` doesn't matter. Any other change, `chunk_size` included, stops the exporter before it starts; use a new output directory, or delete `chunks/`, to export with new settings.
 
 For column-level documentation, open `final/README.md` from your export — it always reflects exactly what's in the files (including any 3D / prefer3d / pack-specific columns).
 
@@ -406,7 +406,7 @@ By default, gridded AOIs require **every cell to succeed** (`aoi_grid_min_pct=10
 2. **Tune chunk size**: `chunk_size` (default 500) groups AOIs per parallel work unit. Smaller = finer parallelism and cheaper resume; larger = lower overhead.
 3. **Cache API responses**: `cache_dir` persists API responses to a directory. Re-runs with the same parameters reuse the cache. Defaults to `{output_dir}/cache/`.
 4. **Filter by date**: `since` / `until` restrict to specific time periods and reduce data volume.
-5. **Fast-path re-invocation**: if `final/README.md` and `export_config.json` already exist and the config matches the current call, the exporter returns in ~1s instead of rebuilding. Pure perf knobs (`processes`, `threads`, `chunk_size`, `cache_dir`) are ignored when comparing configs.
+5. **Fast-path re-invocation**: if `final/README.md` and `export_config.json` already exist and the config matches the current call, the exporter returns in ~1s instead of rebuilding. The settings a resume may change (see [Output Data](#output-data-1)) are ignored when comparing configs.
 
 ## Command Line Interface
 
