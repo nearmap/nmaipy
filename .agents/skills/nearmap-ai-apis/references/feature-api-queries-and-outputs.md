@@ -39,7 +39,7 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
 - [nmaipy] **When an AOI is gridded** (`FeatureApi._attempt_gridding`):
   - proactively, when it exceeds 1 sq km in the country's equal-area CRS (`MAX_AOI_AREA_SQM_BEFORE_GRIDDING`);
   - reactively, on HTTP 413/504, on a 400 `AOI_EXCEEDS_MAX_SIZE`, on a 502 with an empty body once retries are used up, on a read timeout (after one retry), or on an unparseable 200 body;
-  - reactively, when the API returns any include as `{"skipped": true}` (`regrid_on_skip`, on by default; `--no-regrid-on-skip` turns it off). This can grid a small parcel.
+  - reactively, when the API still returns an include as `{"skipped": true}` after one retry and the AOI spans more than one grid cell (`regrid_on_skip`, on by default; `--no-regrid-on-skip` turns it off). See section 4.
 
   Address-only queries can't be gridded and fail instead. Why cells run without parcelMode, and what that changes in the output, is in the geometry reference, section 6.
 - [nmaipy] **Cell size** is 0.005° by default (about 550 m; `--aoi-grid-cell-size`). Each cell inherits the AOI's dates and survey pin.
@@ -80,7 +80,10 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
   - Per roof: `defensible_space_zone_<zoneId>_…` columns (zone area, defensible area, risk-object area, coverage ratio, per risk-object area/ratio).
   - Per parcel: the response-level aggregate becomes `aggregate_defensible_space_zone_*`. According to the `FeatureApi` docstring, gridded AOIs run without parcelMode, so their aggregate stays null.
 - [nmaipy] **`roofConditionConfidenceStats`** adds confidence histograms inside roof components. They become `<component>_confidence_stats_<binType>_bin_<i>`.
-- [API] An include can come back as `{"skipped": true}`, e.g. when a parcel exceeds the API's per-parcel compute budget. [nmaipy] By default nmaipy then grids the AOI (section 2), with the cells pinned to the response's survey, so the scores come from cells queried without parcelMode. If that grid fails, the AOI keeps its first response. `*_skipped` is True, with the score columns null, when that happens, when a cell itself skips, or when the export ran with `--no-regrid-on-skip`.
+- [API] An include can come back as `{"skipped": true}`: the API skips scores for very large parcels (the scorer gives up on very many roofs in one request) or under load.
+  - [nmaipy] nmaipy first requests the AOI once more, unchanged (parcelMode included) and past its cache, after `INCLUDE_SKIP_RETRY_DELAY_SECONDS` (30 s). That clears a skip caused by load. `--no-retry-on-skip` turns this off.
+  - [nmaipy] If the include is still skipped and the AOI spans more than one grid cell, nmaipy grids it (section 2), pinned to the response's survey, so each cell is a smaller request the API can score. The scores then come from cells queried without parcelMode, with what that means for the rest of the AOI's results (geometry reference, section 6). `--no-regrid-on-skip` turns this off.
+  - Otherwise, or if the grid fails, the AOI keeps its response: `*_skipped` is True and the score columns are null. That is also what a grid cell that itself skips reports.
 - [nmaipy] **Resolving the primary roof's scores.**
   - The rollup's `primary_roof_spotlight_index` and peril scores come from the primary roof.
   - If it lacks them, nmaipy follows Roof →(IoU ≥ 0.005)→ Building →(parent)→ Building lifecycle. Some scores live on the building lifecycle and need the `building_structures` pack.

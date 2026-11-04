@@ -44,7 +44,7 @@ Most classes are connected; only bounded objects (roof, building, pool, roof com
 
 nmaipy sends `parcelMode=true` by default. The exporter's `--no-parcel-mode` turns it off, and gridded AOIs always run with it off (section 6).
 
-parcelMode adds or removes no features: for the same AOI, both modes return exactly the same set (9,886 features over five residential blocks) [live]. It adds two things to them [live]:
+parcelMode adds or removes no features: for the same AOI, both modes return exactly the same set (9,886 features over five residential blocks, and all 7,435 features of 82 classes on the bundled parcels) [live]. It adds two things to them [live]:
 
 - **`belongsToParcel`**: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms.
   - A feature judged not to belong comes back `false`. Typically this is a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax.
@@ -134,7 +134,7 @@ Only the `components` lists are recomputed. Includes and pitch pass through unch
 [nmaipy] nmaipy splits an AOI into a grid of cells (0.005° by default, about 550 m), queries each cell and merges the results, when:
 - the AOI is over about 1 sq km;
 - the API rejects it as too large, or times out (see the queries-and-outputs reference, section 2);
-- the API returns an include as `{"skipped": true}` for it, e.g. a parcel over the API's per-parcel compute budget, unless the exporter runs with `--no-regrid-on-skip`. This can grid a parcel well under 1 sq km. The cells are pinned to the first response's survey, and if the grid fails the AOI keeps that first response.
+- the API still returns an include as `{"skipped": true}` after one retry (typically a large parcel with very many roofs, which the scorer gives up on in one request), and the AOI spans more than one grid cell, so that each cell is a smaller request it can score. `--no-regrid-on-skip` turns this off. The cells are pinned to the first response's survey, and if the grid fails the AOI keeps that response.
 
 **Grid cells are queried with parcelMode off, by design.** Gridding is meant for very large areas. There, a discrete object crossing the AOI's outer boundary matters little, whereas parcelMode would treat every cell as a parcel and cut features at the grid's internal lines. As a result, for a gridded AOI:
 
