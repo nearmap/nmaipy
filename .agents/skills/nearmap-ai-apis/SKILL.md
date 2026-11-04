@@ -48,7 +48,7 @@ Most users call these APIs directly; few use **nmaipy**, the open-source exporte
 | The question is about… | Read |
 |---|---|
 | parcelMode, `clippedGeometry`, `belongsToParcel`, multiparcel or overhanging features, `area` vs `clipped_area` vs `unclipped_area`, discrete vs connected classes, roof component ratios vs score includes, child features outside the parcel, how areas merge for gridded AOIs | `references/feature-api-geometry-and-areas.md` |
-| survey/date selection (`since`, `until`, `order`, prefer3d, system versions), when and how AOIs are gridded, packs/classes/deprecated classes, includes → columns, rollup counts, primary feature selection, null vs 0 vs N, errors, retries, resume and cache, `feature_id` identity | `references/feature-api-queries-and-outputs.md` |
+| survey/date selection (`since`, `until`, `order`, prefer3d, system versions), when and how AOIs are gridded, packs/classes/deprecated classes, includes → columns, rollup counts, primary feature selection, the API's own rollup endpoint, null vs 0 vs N, errors, retries, resume and cache, `feature_id` identity, confidence scores and cutoffs, comparing surveys over time (e.g. roof material changes) | `references/feature-api-queries-and-outputs.md` |
 | roof age, roof instances, `kind` = roof/parcel, trust score, evidence types, installation dates, linking instances to roofs | `references/roof-age-api.md` |
 | post-catastrophe damage ratings, event ids, pre-event vs event, `--parcel-mode` on the damage exporter, damage rollups, how this differs from Feature API damage classification | `references/damage-conflation-api.md` |
 | checking a claim yourself against the live API (needs an API key) | `references/verifying-with-live-data.md` |
@@ -93,6 +93,14 @@ The details are in the reference files named in brackets.
   - Score columns are null when the API skipped that include (`*_skipped`).
   - `belongs_to_parcel` is null on rows answered without parcelMode, gridded AOIs included.
   - [queries-and-outputs, geometry-and-areas]
+- **"Clipped area is bigger than the area."**
+  - For an object wholly inside the AOI, `clippedAreaSqm` can exceed `areaSqm` by a few tenths of a sqm (up to about 2% on small structures), on ordinary and gridded queries alike.
+  - It is measurement noise: the two are computed separately. It doesn't mean the object extends further.
+  - [geometry-and-areas]
+- **"What confidence cutoff should we use?"**
+  - Nearmap publishes no recommended cutoff; set one per class against the user's own outcomes.
+  - Scales differ: feature `confidence` 0–1, Roof Age `trustScore` 0–100. An nmaipy export's `<class>_confidence` combines all of a class's detections, so it runs higher than any one of them.
+  - [queries-and-outputs]
 - **"Which date is this result from?"**
   - The rollup `survey_date` is the AOI's response metadata.
   - Each feature row carries its own `survey_date`/`mesh_date`.

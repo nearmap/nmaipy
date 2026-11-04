@@ -15,6 +15,8 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
 5. Rollup semantics: counts, primary features, null vs 0 vs N
 6. Errors, retries, resume and cache
 7. Feature identity
+8. Confidence scores and cutoffs
+9. Comparing surveys over time
 
 ## 1. Survey and date selection
 
@@ -86,6 +88,8 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
 
 ## 5. Rollup semantics (`parcels.parcel_rollup`)
 
+[API] The Feature API has rollup endpoints of its own (`rollups.csv`, `.json`, `.geojson`; see the API reference via `https://developer.nearmap.com/llms.txt`), which summarise an AOI and pick a primary object, e.g. the largest roof. nmaipy doesn't call them: it builds its rollup from the features response (`parcels.parcel_rollup`). The columns, primary-feature rules and null handling below are nmaipy's, and the API rollup's needn't match them.
+
 - [nmaipy] **Per-class columns.** The prefix is the class description, lower-cased with spaces replaced by `_`. Areas are in sqft for the US and sqm elsewhere.
   - `<class>_present` (Y/N).
   - `<class>_count`: every feature row of that class. There is **no size filter**, so garages, sheds and carports count as roofs. On gridded AOIs, neighbours' roofs are included too.
@@ -122,3 +126,24 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
 - `feature_id` is stable for the same physical feature within one survey, whichever AOI or query returned it. That is what lets grid cells be merged.
 - It is **not** stable across survey dates, so never join on it across dates.
 - In parcelMode, a feature shared by two AOIs appears in both with the same `feature_id` but per-parcel clipped values. Row identity is `(aoi_id, feature_id)`.
+
+## 8. Confidence scores and cutoffs
+
+- **Scales differ by API.**
+  - [API] A Feature API feature's `confidence` is 0–1, per detection.
+  - [API] A Roof Age instance's `trustScore` is 0–100 (in the bundled samples).
+  - [API] A Damage Conflation rating's `confidence` is 0–1: the probability of the chosen rating, in the bundled sample.
+- **[API] The API filters before attributing.** Per Nearmap's public parcelMode guide, with parcelMode on the API applies a per-class minimum confidence (and, for some classes, minimum fidelity) before deciding `belongsToParcel`. The thresholds are not published. [live] On 12 bundled parcels with parcelMode on, every one of 267 returned features carried `belongsToParcel`, and the lowest confidence returned was 0.51.
+- **[nmaipy] An export's class-level confidence is a formula, not a detection's confidence.**
+  - `<class>_confidence` = 1 − Π(1 − cᵢ) over the AOI's features of that class: the chance that at least one detection is real. It runs higher than any single detection's confidence, so a cutoff tuned on feature confidence doesn't carry over to it.
+  - `primary_<class>_confidence` is the primary feature's own confidence.
+- **No recommended cutoff.** The public documentation gives no recommended confidence threshold. Set one per class against the user's own outcomes (a labelled sample of their properties), and use the public Gen 6 system report's property-level figures for the accuracy to expect. Don't invent a "typical" cutoff.
+
+## 9. Comparing surveys over time
+
+Questions like "when did this roof change from shingle to slate?" mean comparing results from several surveys of the same place.
+
+- **List the surveys first.** Use the Coverage API (see the public docs), then query each survey with `since` = `until` = its date.
+- **Don't join on `feature_id`.** It changes between surveys (section 7). Match features across dates by location, e.g. by overlap.
+- **Compare one system version.** Pin it, e.g. `systemVersionPrefix=gen6-` (nmaipy: `--system-version-prefix gen6-`; the exporter sends no prefix by default). Leave out any survey with no result at that version, rather than comparing across system versions, which compares different models.
+- **Roof material** comes from the roof's material components: the API's component `ratio`s, or nmaipy's `<material>_present`, `<material>_ratio` and `dominant_roof_material_*`. A material change between two surveys is stronger evidence when the Roof Age API also shows a roof change between those captures (evidence types 7 or 8, roof-age reference).

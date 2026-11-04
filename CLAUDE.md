@@ -290,7 +290,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
    - Bulk feature requests with auto-gridding on oversized AOIs
    - Feature geometry requests (`get_features_gdf()`, `get_features_gdf_bulk()`)
    - Date range and survey resource queries
-   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses; there is no HTTP rollup endpoint.
+   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses. nmaipy doesn't call the Feature API's own rollup endpoints (`rollups.csv|json|geojson`), whose primary-feature rules needn't match nmaipy's.
 
 6. **roof_age_api.py**: `RoofAgeApi(BaseApiClient)` — client for Nearmap Roof Age API
    - AOI-based queries (`get_roof_age_by_aoi()`) with pagination

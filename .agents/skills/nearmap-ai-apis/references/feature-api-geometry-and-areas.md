@@ -32,7 +32,11 @@ What `area` means depends on the kind of class [live]. The rule is exact, with n
 
 This holds with parcelMode on and with it off. `clippedAreaSqm` is computed in both modes; it is not a parcelMode feature [live].
 
-`clippedAreaSqm` is computed separately from `areaSqm`, and for a discrete object wholly inside the AOI it can exceed `areaSqm` by a few tenths of a sqm: 0.1–0.4 sqm on gridded AU and US AOIs, e.g. a roof or building at 28.1 sqm with a clipped area of 28.3 [live]. Treat differences that small as measurement noise, not as the object extending further.
+`clippedAreaSqm` is computed separately from `areaSqm`, and for a discrete object wholly inside the AOI it can exceed `areaSqm` by a few tenths of a sqm. This happens on ordinary queries, not just grid cells [live]:
+- on 56 single-parcel queries of the bundled parcels with parcelMode on, 33 of 214 roofs, buildings and pools (15%) had `clippedAreaSqm > areaSqm`, by 0.1–0.5 sqm, up to about 2% on small structures;
+- on gridded AU and US AOIs, by 0.1–0.4 sqm, e.g. a roof at 28.1 sqm with a clipped area of 28.3.
+
+Treat differences that small as measurement noise, not as the object extending further or as a gridding artefact.
 
 Most classes are connected; only bounded objects (roof, building, pool, roof components, …) are discrete. [nmaipy] nmaipy uses no list of either kind, because the API's classes change; code that needs the kind reads it from these areas. (`nmaipy.constants.CONNECTED_CLASS_IDS` is deprecated, incomplete and unused.)
 
