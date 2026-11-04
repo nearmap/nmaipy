@@ -185,6 +185,31 @@ def test_feature_api_bulk_sends_date_typed_per_row_dates_as_strings(tmp_path):
     assert aois["until"].dtype.kind == "M", "The caller's frame should not be modified"
 
 
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_feature_api_bulk_sends_no_blank_bulk_date(tmp_path, blank):
+    api = FeatureApi(api_key="test-key", cache_dir=tmp_path)
+    with patch.object(api, "_get_features_gdf_bulk_inner", return_value=(None, None, pd.DataFrame())) as inner:
+        api.get_features_gdf_bulk(
+            _bad_until_aois().drop(columns="until"), region="us", since_bulk=blank, until_bulk=blank
+        )
+    sent = inner.call_args.kwargs
+    assert sent["since_bulk"] is None and sent["until_bulk"] is None, "A blank bulk date means no date"
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_roof_age_api_sends_no_blank_cutoff(tmp_path, blank):
+    api = RoofAgeApi(api_key="test-key", cache_dir=tmp_path, until_as_of_date=blank, since_as_of_date=blank)
+    with (
+        patch.object(api, "_fetch_all_pages", return_value={"features": []}) as fetch,
+        patch.object(api, "_parse_response"),
+    ):
+        api.get_roof_age_by_aoi(box(-74.29, 40.63, -74.2895, 40.6305), "a")
+    sent = fetch.call_args.kwargs
+    assert sent["until_as_of_date"] is None and sent["since_as_of_date"] is None, "A blank cutoff means no cutoff"
+    (cached,) = tmp_path.rglob("*.json*")
+    assert (cached.parent.parent.name, cached.parent.name) == ("none", "none"), f"Cache path names a cutoff: {cached}"
+
+
 def test_roof_age_bulk_rejects_bad_per_row_dates_before_querying(tmp_path):
     api = RoofAgeApi(api_key="test-key", cache_dir=tmp_path)
     with patch.object(api, "_fetch_all_pages") as query, pytest.raises(ValueError, match=r"column 'until'.*'b'"):

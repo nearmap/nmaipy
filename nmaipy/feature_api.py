@@ -26,7 +26,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from nmaipy import geometry_utils, log, storage
-from nmaipy.aoi_io import prepare_date_cutoffs
+from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,
     AIFeatureAPIError,
@@ -1902,6 +1902,8 @@ class FeatureApi(GriddedApiClient):
         See :py:meth:`_get_features_gdf_bulk_inner` for the underlying single-pass
         implementation.
         """
+        # A blank bulk date means no date, so it must not reach a request as text.
+        since_bulk, until_bulk = blank_date_to_none(since_bulk), blank_date_to_none(until_bulk)
         if not in_gridding_mode:
             # Per-row dates that aren't YYYY-MM-DD strings would otherwise fall back to the bulk dates unseen.
             gdf = prepare_date_cutoffs(gdf, since=since_bulk, until=until_bulk)

@@ -61,6 +61,11 @@ def normalise_date_column(values: pd.Series) -> pd.Series:
     return values.map(normalise)
 
 
+def blank_date_to_none(value: Optional[str]) -> Optional[str]:
+    """A bulk date cutoff that is empty or blank text means no cutoff: return ``None`` for it, else ``value``."""
+    return None if isinstance(value, str) and not value.strip() else value
+
+
 def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, until: Optional[str] = None) -> None:
     """Raise ``ValueError`` unless every date cutoff is a ``YYYY-MM-DD`` date and no AOI's since is after its until.
 
@@ -74,8 +79,8 @@ def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, unt
         ValueError: If a bulk or per-AOI value is not a ``YYYY-MM-DD`` date string, or if an AOI's effective since
             is later than its effective until (the API rejects every such request).
     """
-    # A blank bulk date sends no date filter, as a blank per-AOI cell does.
-    since, until = (None if isinstance(value, str) and not value.strip() else value for value in (since, until))
+    # A blank bulk date sends no date filter, as a blank per-AOI cell does (FeatureApi and RoofAgeApi drop it).
+    since, until = blank_date_to_none(since), blank_date_to_none(until)
     for flag, value in (("--since", since), ("--until", until)):
         if value is not None and not _is_iso_date(value):
             raise ValueError(f"{flag} must be a YYYY-MM-DD date, got {value!r}")
