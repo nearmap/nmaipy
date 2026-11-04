@@ -68,8 +68,8 @@ class TestResolvePrefetchWorkers:
             (2, 3),  # round(3.0) -> 3
             (4, 6),  # nmaipy CLI default 4 -> 6
             (8, 12),
-            (12, 18),  # current operational default on a 23-CPU box -> 18
-            (16, 24),  # AI Exporter's 16 processes -> 24
+            (12, 18),
+            (16, 24),
         ],
     )
     def test_derivation(self, processes, expected):

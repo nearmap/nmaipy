@@ -47,8 +47,8 @@ def test_combine_features_preserves_include_columns():
             AOI_ID_COLUMN_NAME: ["aoi1", "aoi1", "aoi1", "aoi1"],
             "class_id": [13, 13, 13, 13],  # All roofs
             "area_sqm": [1.0, 1.0, 1.0, 1.0],
-            # Feature 1 is a connected patch (5 sqm overall) split across two cells
-            "unclipped_area_sqm": [5.0, 5.0, 1.0, 1.0],
+            # Feature 1 is a connected patch split across two cells: each cell's area is its clipped piece
+            "clipped_area_sqm": [1.0, 1.0, 1.0, 1.0],
             "confidence": [0.9, 0.9, 0.8, 0.85],
             # Include parameter columns (defensibleSpace)
             "defensible_space_zone_0_coverage_ratio": [0.75, 0.75, 0.82, 0.90],
@@ -111,7 +111,7 @@ def test_combine_features_preserves_custom_columns():
             AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
             "class_id": [13, 13],
             "area_sqm": [1.0, 1.0],
-            "unclipped_area_sqm": [1.0, 1.0],
+            "clipped_area_sqm": [1.0, 1.0],
             # Custom columns that weren't in the original hardcoded list
             "custom_field_1": ["value1", "value2"],
             "custom_field_2": [42, 43],
@@ -212,7 +212,6 @@ def test_larger_clipped_area_wins_conflict():
                 75.0,
             ],  # First chunk is larger for feature 1
             "area_sqm": [100.0, 50.0, 75.0],
-            "unclipped_area_sqm": [400.0, 400.0, 75.0],
             # Conflicting values for feature 1: different hurricane_score
             "hurricane_score": [8.5, 7.0, 6.5],
             "rsi_score": [90, 85, 80],
@@ -247,7 +246,6 @@ def test_conflict_warning_logged():
             "class_id": [13, 13],
             "clipped_area_sqm": [100.0, 50.0],
             "area_sqm": [100.0, 50.0],
-            "unclipped_area_sqm": [400.0, 400.0],
             "hurricane_score": [8.5, 7.0],  # Conflict!
         },
         crs=API_CRS,
@@ -260,40 +258,6 @@ def test_conflict_warning_logged():
         warning_msg = mock_logger.warning.call_args[0][0]
         assert "different attribute values" in warning_msg, "Warning should explain the conflict"
         assert "1" in warning_msg, "Warning should mention the feature_id with conflict"
-
-
-def test_fallback_to_area_sqm_when_clipped_area_missing():
-    """Test that sorting falls back to area_sqm when clipped_area_sqm is missing."""
-
-    # Feature 1 appears twice with different values, but no clipped_area_sqm column
-    # Should fall back to using area_sqm for sorting
-    test_features = gpd.GeoDataFrame(
-        {
-            "feature_id": [1, 1, 2],
-            "geometry": [
-                Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
-                Polygon([(1, 0), (2, 0), (2, 1), (1, 1)]),
-                Polygon([(0, 1), (1, 1), (1, 2), (0, 2)]),
-            ],
-            AOI_ID_COLUMN_NAME: ["aoi1", "aoi1", "aoi1"],
-            "class_id": [13, 13, 13],
-            # Only area_sqm, no clipped_area_sqm
-            "area_sqm": [100.0, 50.0, 75.0],  # First chunk is larger
-            "unclipped_area_sqm": [400.0, 400.0, 75.0],
-            "hurricane_score": [8.5, 7.0, 6.5],  # Conflict for feature 1
-        },
-        crs=API_CRS,
-    )
-
-    result = combine_features_from_grid(test_features)
-
-    # Feature 1 should have value from larger area_sqm chunk
-    result_reset = result.reset_index()
-    feature_1 = result_reset[result_reset["feature_id"] == 1].iloc[0]
-
-    assert (
-        feature_1["hurricane_score"] == 8.5
-    ), "Should use value from larger area_sqm chunk when clipped_area_sqm missing"
 
 
 def test_no_warning_when_values_identical():
@@ -310,7 +274,6 @@ def test_no_warning_when_values_identical():
             "class_id": [13, 13],
             "clipped_area_sqm": [100.0, 50.0],
             "area_sqm": [100.0, 50.0],
-            "unclipped_area_sqm": [400.0, 400.0],
             # Same values for both instances - no conflict
             "hurricane_score": [8.5, 8.5],
             "rsi_score": [90, 90],
@@ -358,8 +321,8 @@ def test_merged_grid_areas_match_ungridded_response():
         assert got["unclipped_area_sqm"] == row["unclipped_area_sqm"]
 
 
-def test_merge_requires_unclipped_area_alongside_area():
-    """Without unclipped_area_* the merge cannot tell discrete from connected features, so it refuses."""
+def test_merge_requires_clipped_area_alongside_area():
+    """Without clipped_area_* the merge cannot tell discrete from connected features, so it refuses."""
     features = gpd.GeoDataFrame(
         {
             "feature_id": [1, 1],
@@ -369,5 +332,51 @@ def test_merge_requires_unclipped_area_alongside_area():
         },
         crs=API_CRS,
     )
-    with pytest.raises(ValueError, match="unclipped_area_sqm"):
+    with pytest.raises(ValueError, match="clipped_area_sqm"):
+        combine_features_from_grid(features)
+
+
+def test_discrete_area_kept_once_whatever_unclipped_holds():
+    """A discrete object repeats its whole area in every cell it touches, so the merge keeps one copy.
+
+    The kind comes from area versus clipped area alone, so a null unclipped_area_* changes nothing, and sqft
+    follows the decision made on sqm.
+    """
+    whole_roof = Polygon([(0, 0), (2, 0), (2, 1), (0, 1)])
+    features = gpd.GeoDataFrame(
+        {
+            "feature_id": ["roof", "roof"],
+            "geometry": [whole_roof, whole_roof],
+            AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
+            "area_sqm": [100.0, 100.0],
+            "area_sqft": [1076.0, 1076.0],
+            "clipped_area_sqm": [60.0, 40.0],
+            "clipped_area_sqft": [646.0, 430.0],
+            "unclipped_area_sqm": [None, None],
+        },
+        crs=API_CRS,
+    )
+    merged = combine_features_from_grid(features).set_index("feature_id").loc["roof"]
+    assert merged["area_sqm"] == 100.0, "A discrete object's area is its whole area, kept once"
+    assert merged["area_sqft"] == 1076.0, "area_sqft should follow the decision made on sqm"
+    assert merged["clipped_area_sqm"] == 100.0, "Clipped pieces should be summed"
+
+
+def test_merge_refuses_piece_kept_as_whole_object():
+    """Pieces whose area differs from their clip in one cell would be treated as discrete and keep only the largest.
+
+    The merged area would then be below the summed clipped area, which no whole object can be, so the merge refuses
+    rather than undercount.
+    """
+    features = gpd.GeoDataFrame(
+        {
+            "feature_id": [1, 1],
+            "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), Polygon([(1, 0), (2, 0), (2, 1), (1, 1)])],
+            AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
+            "area_sqm": [3.0, 2.5],
+            "clipped_area_sqm": [3.0, 2.0],
+        },
+        crs=API_CRS,
+    )
+    with pytest.raises(ValueError, match="below their summed clipped_area_sqm"):
         combine_features_from_grid(features)

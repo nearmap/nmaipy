@@ -46,7 +46,6 @@ from nmaipy.constants import (
     AREA_CRS,
     BACKOFF_MAX,
     CHUNKED_ENCODING_RETRY_DELAY,
-    CONNECTED_CLASS_IDS,
     DUMMY_STATUS_CODE,
     GRID_SIZE_DEGREES,
     LAT_LONG_CRS,
