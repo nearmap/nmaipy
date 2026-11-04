@@ -12,6 +12,9 @@ from shapely.geometry import box
 from nmaipy.aoi_io import normalise_date_column, read_from_file, validate_date_cutoffs
 from nmaipy.constants import AOI_ID_COLUMN_NAME, BUILDING_NEW_ID
 from nmaipy.exporter import AOIExporter
+from nmaipy.feature_api import FeatureApi
+from nmaipy.roof_age_api import RoofAgeApi
+from nmaipy.roof_age_exporter import RoofAgeExporter
 
 
 def _aois(**columns):
@@ -153,3 +156,47 @@ def test_many_rows_with_few_dates_are_checked_by_distinct_value():
     aois = _aois(until=["2025-01-01", "2025-06-30"] * 50_000 + ["2025-13-01"])
     with pytest.raises(ValueError, match=r"1 row\(s\) don't, e.g. 'aoi100000': '2025-13-01'"):
         validate_date_cutoffs(aois)
+
+
+def _bad_until_aois():
+    return gpd.GeoDataFrame(
+        {AOI_ID_COLUMN_NAME: ["a", "b"], "until": ["2025-12-31", "2025/12/31"]},
+        geometry=[box(-74.29, 40.63, -74.2895, 40.6305), box(-74.28, 40.63, -74.2795, 40.6305)],
+        crs="EPSG:4326",
+    ).set_index(AOI_ID_COLUMN_NAME)
+
+
+def test_feature_api_bulk_rejects_bad_per_row_dates_before_querying(tmp_path):
+    api = FeatureApi(api_key="test-key", cache_dir=tmp_path)
+    with patch.object(api, "_get_features_gdf_bulk_inner") as inner:
+        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
+            api.get_features_gdf_bulk(_bad_until_aois(), region="us")
+    inner.assert_not_called()
+
+
+def test_feature_api_bulk_sends_date_typed_per_row_dates_as_strings(tmp_path):
+    """A date-typed per-row value used to fall back to the bulk date unseen; it is now sent as YYYY-MM-DD."""
+    aois = _bad_until_aois().assign(until=pd.to_datetime(["2025-12-31", "2025-06-30"]))
+    api = FeatureApi(api_key="test-key", cache_dir=tmp_path)
+    with patch.object(api, "_get_features_gdf_bulk_inner", return_value=(None, None, pd.DataFrame())) as inner:
+        api.get_features_gdf_bulk(aois, region="us", until_bulk="2026-01-01")
+    sent = inner.call_args.kwargs["gdf"]
+    assert list(sent["until"]) == ["2025-12-31", "2025-06-30"]
+    assert aois["until"].dtype.kind == "M", "The caller's frame should not be modified"
+
+
+def test_roof_age_bulk_rejects_bad_per_row_dates_before_querying(tmp_path):
+    api = RoofAgeApi(api_key="test-key", cache_dir=tmp_path)
+    with patch.object(api, "_fetch_all_pages") as query, pytest.raises(ValueError, match=r"column 'until'.*'b'"):
+        api.get_roof_age_bulk(_bad_until_aois())
+    query.assert_not_called()
+
+
+def test_standalone_roof_age_export_rejects_bad_dates_before_querying(tmp_path):
+    aoi_file = tmp_path / "aois.csv"
+    _bad_until_aois().reset_index().to_wkt().to_csv(aoi_file, index=False)
+    exporter = RoofAgeExporter(aoi_file=str(aoi_file), output_dir=str(tmp_path / "out"), country="us", api_key="test")
+    with patch.object(RoofAgeExporter, "split_into_chunks") as split_into_chunks:
+        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
+            exporter.run()
+    split_into_chunks.assert_not_called()

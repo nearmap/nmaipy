@@ -33,6 +33,7 @@ import pandas as pd
 
 from nmaipy import log, parcels, storage
 from nmaipy.__version__ import __version__
+from nmaipy.aoi_io import validate_date_cutoffs
 from nmaipy.api_common import (
     combine_chunk_latency_stats,
     compute_global_latency_stats,
@@ -455,21 +456,12 @@ class RoofAgeExporter(BaseExporter):
             self.logger.info(f"Reprojecting from {aoi_gdf.crs} to {API_CRS}")
             aoi_gdf = aoi_gdf.to_crs(API_CRS)
 
-        # Validate per-AOI cutoff columns. Two checks:
-        #   1) Strings only — pandas may infer datetime64 from CSV/parquet, after which the per-AOI
-        #      override is silently skipped at request time. We surface that loud here.
-        #   2) When the resolved dataset doesn't support cutoffs, reject any per-AOI cutoffs since
-        #      the API will return HTTP 500.
+        # Every cutoff must be a YYYY-MM-DD date, and no AOI's since may be after its until, before any request.
+        validate_date_cutoffs(aoi_gdf, since=self.since, until=self.until)
+        # A dataset that doesn't support cutoffs answers any with HTTP 500.
         for col, flag in ((UNTIL_COL_NAME, "until"), (SINCE_COL_NAME, "since")):
             if col not in aoi_gdf.columns:
                 continue
-            non_null = aoi_gdf[col].dropna()
-            if len(non_null) and not pd.api.types.is_string_dtype(non_null):
-                raise ValueError(
-                    f"AOI file column '{col}' must contain YYYY-MM-DD strings, got dtype "
-                    f"{non_null.dtype}. If your input file is parsing the column as a date, "
-                    f"cast to string before export, e.g. df[{col!r}] = df[{col!r}].dt.strftime('%Y-%m-%d')."
-                )
             if self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS and aoi_gdf[col].notna().any():
                 raise ValueError(
                     f"AOI file column '{col}' has values, but the targeted dataset does not support "

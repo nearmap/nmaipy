@@ -107,6 +107,34 @@ def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, unt
         raise ValueError(f"{int(inverted.sum())} AOI(s) have a since date after their until date, e.g. {sample}")
 
 
+def prepare_date_cutoffs(
+    aoi_df: pd.DataFrame, since: Optional[str] = None, until: Optional[str] = None
+) -> pd.DataFrame:
+    """Return ``aoi_df`` with its per-AOI ``since``/``until`` normalised, after validating every cutoff.
+
+    For frames handed straight to a bulk query rather than read with ``read_from_file``. The caller's frame is not
+    modified.
+
+    Args:
+        aoi_df: AOIs indexed by id, optionally with per-AOI ``since``/``until`` columns.
+        since: Bulk earliest date, used where an AOI has no ``since`` of its own.
+        until: Bulk latest date, used where an AOI has no ``until`` of its own.
+
+    Returns:
+        ``aoi_df``, with its date columns as ``YYYY-MM-DD`` strings or null (see ``normalise_date_column``).
+
+    Raises:
+        ValueError: As ``validate_date_cutoffs``.
+    """
+    columns = {
+        col: normalise_date_column(aoi_df[col]) for col in (SINCE_COL_NAME, UNTIL_COL_NAME) if col in aoi_df.columns
+    }
+    if columns:
+        aoi_df = aoi_df.assign(**columns)
+    validate_date_cutoffs(aoi_df, since=since, until=until)
+    return aoi_df
+
+
 def _path_suffix(path: Union[str, Path]) -> str:
     """Return the lowercased extension of ``path``.
 

@@ -43,6 +43,7 @@ import stringcase
 from shapely.geometry import Polygon, shape
 
 from nmaipy import log, storage
+from nmaipy.aoi_io import prepare_date_cutoffs
 from nmaipy.api_common import BaseApiClient, RoofAgeAPIError
 from nmaipy.constants import (
     ADDRESS_FIELDS,
@@ -711,6 +712,8 @@ class RoofAgeApi(BaseApiClient):
         """
         if not isinstance(aoi_gdf.index, pd.Index) or aoi_gdf.index.name != AOI_ID_COLUMN_NAME:
             raise ValueError(f"aoi_gdf must have '{AOI_ID_COLUMN_NAME}' as index")
+        # Per-row dates that aren't YYYY-MM-DD strings would otherwise fall back to the bulk dates unseen.
+        aoi_gdf = prepare_date_cutoffs(aoi_gdf, since=self.since_as_of_date, until=self.until_as_of_date)
 
         # Detect input mode - check for address fields and geometry
         has_address_fields = set(aoi_gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)

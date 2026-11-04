@@ -25,6 +25,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from nmaipy import geometry_utils, log, storage
+from nmaipy.aoi_io import prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,
     AIFeatureAPIError,
@@ -1819,6 +1820,9 @@ class FeatureApi(GriddedApiClient):
         See :py:meth:`_get_features_gdf_bulk_inner` for the underlying single-pass
         implementation.
         """
+        if not in_gridding_mode:
+            # Per-row dates that aren't YYYY-MM-DD strings would otherwise fall back to the bulk dates unseen.
+            gdf = prepare_date_cutoffs(gdf, since=since_bulk, until=until_bulk)
         if not self.prefer3d or in_gridding_mode:
             return self._get_features_gdf_bulk_inner(
                 gdf=gdf,
