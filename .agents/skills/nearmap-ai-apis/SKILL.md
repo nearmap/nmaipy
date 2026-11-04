@@ -25,13 +25,17 @@ A good answer keeps the two apart.
 2. **Read the matching reference file** from the map below before answering. The details are subtle: for example, `areaSqm` means different things for roofs and for vegetation. Answering from general intuition gets them wrong.
 3. **Say how well established each claim is.** The references tag claims as verified against the live API, read from nmaipy code, or inferred. Carry that through.
    - If the references don't cover something, say so. Don't fill the gap with plausible API behaviour; offer to check it (see `references/verifying-with-live-data.md`).
-4. **Confirm nmaipy-behaviour claims against the installed source when you can.**
+4. **Check Nearmap's official API documentation for what the API promises,** if you can fetch URLs.
+   - `https://developer.nearmap.com/llms.txt` indexes Markdown versions of the docs, e.g. `docs/ai-api.md`, `docs/parcel-mode-user-guide.md`, `docs/roof-age-api.md`, `docs/damage-conflation-api.md`, and a `reference/*.md` page per endpoint.
+   - Use it for parameters, fields, endpoints and anything the references don't cover, and cite the page.
+   - Where it differs from a reference file's `[live]` finding, give both: the docs state the intended contract, the `[live]` tag what responses actually showed.
+5. **Confirm nmaipy-behaviour claims against the installed source when you can.**
    - The references describe nmaipy 5.4.0, and only that. Function names are given, so you can grep for them.
    - Find the source with `python -c "import nmaipy, os; print(os.path.dirname(nmaipy.__file__))"`, or use a repo checkout.
    - If the code disagrees with the reference, trust the code and mention the difference.
    - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
-5. **Lead with the direct answer**, then the mechanism, then what to do about it: which column to use instead, which flag to set, or how to check. Use exact column and field names, because the asker will look them up.
-6. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references state.
+6. **Lead with the direct answer**, then the mechanism, then what to do about it: which column to use instead, which flag to set, or how to check. Use exact column and field names, because the asker will look them up.
+7. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references and the official documentation state.
 
 ## Reference map
 
@@ -42,6 +46,7 @@ A good answer keeps the two apart.
 | roof age, roof instances, `kind` = roof/parcel, trust score, evidence types, installation dates, linking instances to roofs | `references/roof-age-api.md` |
 | post-catastrophe damage ratings, event ids, pre-event vs event, `--parcel-mode` on the damage exporter, damage rollups, how this differs from Feature API damage classification | `references/damage-conflation-api.md` |
 | checking a claim yourself against the live API (needs an API key) | `references/verifying-with-live-data.md` |
+| the API's official, documented contract: parameters, fields, endpoints, other Nearmap APIs | `https://developer.nearmap.com/llms.txt` and the page it links |
 
 ## Frequent questions
 

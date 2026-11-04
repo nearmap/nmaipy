@@ -45,6 +45,7 @@ parcelMode adds two things [live]:
 - **`belongsToParcel`**: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms.
   - A feature judged not to belong comes back `false`. Typically this is a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax.
   - It is not a simple share-of-area threshold: in the worked example (section 8), a roof with 49% of its area inside the parcel belongs.
+  - Nearmap's public parcelMode guide (`https://developer.nearmap.com/docs/parcel-mode-user-guide.md`) outlines it: non-building objects belong when roughly half or more of their area is inside; building-like features belong when the parcel and the building–parcel intersection are both building-like; a child follows its parent.
   - Connected features are nearly all `true`; a few Lawn Grass patches came back `false` (under 1% of connected area).
   - [nmaipy] `FeatureApi.payload_gdf` drops `false` features. So every row answered with parcelMode on has `belongs_to_parcel` = true. The column is null for gridded AOIs' rows (section 6) and when parcelMode is off.
 - **`clippedGeometry`**: only for discrete features the API judges to be **multiparcel**, genuinely shared with another parcel. It is the feature cut at the parcel boundary.
@@ -56,6 +57,10 @@ So a belonging discrete feature that crosses the boundary comes back in one of t
 - **Slight overhang**: it is returned *whole*, with no `clippedGeometry`, and analysed whole. In testing the outside part was 0.1–13 sqm. Its `clippedAreaSqm` is still the in-parcel area.
 
 The API's geospatial assessment decides which. The sizes above are what testing happened to show, not a rule.
+
+Where the public parcelMode guide differs from what responses showed [live, November 2026]:
+- The guide says connected features are populated with a clipped geometry. Live, they carry no `clippedGeometry`; their `geometry` is already clipped.
+- The guide says connected features belong to every parcel they touch. Live, a few Lawn Grass patches came back `belongsToParcel=false`.
 
 parcelMode does **not** change `areaSqm`, `unclippedAreaSqm`, `geometry` or `attributes` [live]. Across both modes and every parcel returning the same feature, the only fields that differ are `clippedArea*`, `clippedGeometry`, `belongsToParcel` and the score includes. For the same AOI, the clipped areas agree between modes to within the 0.1 rounding step.
 
