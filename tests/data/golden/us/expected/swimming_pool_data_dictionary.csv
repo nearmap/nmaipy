@@ -1,0 +1,21 @@
+column_name,description,allowed_values,dtype,source,min,max,precision,example
+aoi_id,Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).,,string \| int,input data,,,,
+area_sqft,"Area of the swimming pool, in square feet.",,float,base ai model,0,,,12.8
+class_id,The unique ID for the class of this feature.,,UUID,model metadata,,,,5a5cb214-eee3-4fdd-bfce-d21e9793cf6a
+clipped_area_sqft,"Area of the swimming pool clipped to the parcel boundary, in square feet.",,float,base ai model,0,,,12.8
+confidence,"Confidence in detection of the swimming pool (single feature, not combined).",,float (quantised uint8),base ai model,0,1,,0.94140625
+covered_swimming_pool_area_sqft,"Total area of covered swimming pool detected on this swimming pool, in square feet.",,float,base ai model,0,,,
+covered_swimming_pool_confidence,"Confidence in covered swimming pool classification on this swimming pool. When multiple detections contribute: top-level feature classes on the parcel (e.g. all roofs, all vegetation segments) are combined so confidence rises with corroborating detections; sub-attributes within a parent feature (e.g. staining on a roof) take the maximum across detections. Null when the corresponding area is 0.",,float (quantised uint8),base ai model,0,1,uint8 quantised (0-255 → 0.0-1.0),
+covered_swimming_pool_present,Whether any covered swimming pool is detected on this swimming pool.,Y | N,binary,base ai model,N,Y,,
+covered_swimming_pool_ratio,Fraction of the parcel's total swimming pool area detected to be covered.,,float,base ai model,0,1,,
+description,A description of the class of this feature.,,string,model metadata,,,,Roof
+empty_swimming_pool_area_sqft,"Total area of empty swimming pool detected on this swimming pool, in square feet.",,float,base ai model,0,,,
+empty_swimming_pool_confidence,"Confidence in empty swimming pool classification on this swimming pool. When multiple detections contribute: top-level feature classes on the parcel (e.g. all roofs, all vegetation segments) are combined so confidence rises with corroborating detections; sub-attributes within a parent feature (e.g. staining on a roof) take the maximum across detections. Null when the corresponding area is 0.",,float (quantised uint8),base ai model,0,1,uint8 quantised (0-255 → 0.0-1.0),
+empty_swimming_pool_present,Whether any empty swimming pool is detected on this swimming pool.,Y | N,binary,base ai model,N,Y,,
+empty_swimming_pool_ratio,Fraction of the parcel's total swimming pool area detected to be empty.,,float,base ai model,0,1,,
+feature_id,Feature ID of the swimming pool.,,UUID,base ai model,,,,
+is_primary,Whether this feature is the parcel's primary feature for its class — selected by the largest-intersection strategy (see README → Primary Feature Selection).,Y | N,binary,base ai model,N,Y,,
+link,"URL to view this row in Nearmap MapBrowser. Per-class files (roof, building, etc.) frame the URL on each feature's centroid; the rollup frames it on the parcel.",,URL,image metadata,,,,
+mesh_date,"Date of the 3D mesh used for 3D attributes (height, pitch, etc.). The mesh is usually comprised of a number of overlapping surveys captured at a similar time of year, so this date represents that capture window rather than a single survey.",,date,image metadata,,,,2019-09-27
+survey_date,"Capture date of the 2D aerial imagery this feature was extracted from. Use as the canonical 'as-of' date for AI-derived attributes (counts, areas, materials, RSI, damage). May differ from mesh_date when 3D attributes draw on a different survey window.",,date,image metadata,,,,2019-09-27
+unclipped_area_sqft,"Total area of the swimming pool before parcel clipping, in square feet.",,float,base ai model,0,,,15.8
