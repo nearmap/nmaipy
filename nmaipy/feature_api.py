@@ -1156,11 +1156,10 @@ class FeatureApi(GriddedApiClient):
             df["geometry"] = gpd.GeoSeries([None] * len(df), crs=cls.SOURCE_CRS).values
             gdf = gpd.GeoDataFrame(df, geometry="geometry", crs=cls.SOURCE_CRS)
 
-        # Ensure belongs_to_parcel column exists - when parcel_mode is disabled during gridding,
-        # the API may not return this field, but downstream code expects it to exist
-        if "belongs_to_parcel" not in gdf.columns and len(gdf) > 0:
-            gdf["belongs_to_parcel"] = True
-
+        # belongs_to_parcel always exists here (it is in ``columns``, so a response
+        # without belongsToParcel gets it null-filled above). It is null when
+        # parcelMode is off, including for grid sub-requests, and True on every row
+        # that survives the parcel_mode filter.
         return gdf, metadata
 
     def _attempt_gridding(
