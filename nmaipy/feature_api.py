@@ -61,6 +61,7 @@ from nmaipy.constants import (
     TIMEOUT_SECONDS,
     UNTIL_COL_NAME,
 )
+from nmaipy.feature_attributes import INCLUDE_FIELD_MAPPINGS
 
 logger = log.get_logger()
 
@@ -140,15 +141,27 @@ def is_class_returnable_at_version(
     return False
 
 
+# Include columns as ``payload_gdf`` leaves them (snake-cased key, raw API dict), mapped to the
+# ``<snake_key>`` that flattening later uses for its ``<snake_key>_skipped`` column.
+_SKIPPABLE_INCLUDE_COLUMNS = {
+    **{stringcase.snakecase(camel_key): config["snake_key"] for camel_key, config in INCLUDE_FIELD_MAPPINGS.items()},
+    "defensible_space": "defensible_space",
+}
+
+
 def _response_has_include_skips(features_gdf) -> Tuple[bool, List[str]]:
-    """Return (any_skipped, names) for any per-roof ``*_skipped`` columns set True."""
+    """Return (any_skipped, names) for includes the API returned as ``{"skipped": true}`` on any feature.
+
+    Runs on ``payload_gdf`` output, where each include column still holds the API's raw dict; the
+    ``*_skipped`` columns only exist after flattening. Names are those ``<snake_key>_skipped`` columns.
+    """
     skipped: List[str] = []
     if features_gdf is not None and len(features_gdf) > 0:
-        for col in features_gdf.columns:
-            if not col.endswith("_skipped"):
+        for col, snake_key in _SKIPPABLE_INCLUDE_COLUMNS.items():
+            if col not in features_gdf.columns:
                 continue
-            if (features_gdf[col] == True).any():  # noqa: E712 - avoid pandas dtype coercion warning
-                skipped.append(col)
+            if features_gdf[col].map(lambda v: isinstance(v, dict) and v.get("skipped") is True).any():
+                skipped.append(f"{snake_key}_skipped")
     return (len(skipped) > 0, skipped)
 
 
