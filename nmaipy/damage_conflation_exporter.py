@@ -150,7 +150,7 @@ def parse_arguments():
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(
         "--event-id",
-        help="UUID of the catastrophe event to query (from the Coverage API eventId tag)",
+        help="UUID of the catastrophe event to query (the Coverage API postCatEventId survey tag)",
         type=str,
         required=True,
     )

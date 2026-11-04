@@ -138,7 +138,7 @@ class TestFeatureAPI:
                 "class_id": [100, 100, 200],
                 "area_sqm": [1.0, 1.0, 1.0],
                 # Feature 1 is a connected patch split across two cells
-                "unclipped_area_sqm": [4.0, 4.0, 1.0],
+                "clipped_area_sqm": [1.0, 1.0, 1.0],
                 "confidence": [0.9, 0.9, 0.8],
             },
             crs=API_CRS,

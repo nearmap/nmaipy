@@ -63,6 +63,7 @@ import psutil
 
 from nmaipy import log, parcels, storage
 from nmaipy.__version__ import __version__
+from nmaipy.aoi_io import validate_date_cutoffs
 from nmaipy.api_common import (
     collect_latency_stats_from_apis,
     combine_chunk_latency_stats,
@@ -2552,7 +2553,7 @@ def parse_arguments():
         "--roof-age-dataset",
         help=(
             "Roof Age dataset to query when --roof-age is set. Known aliases: 'latest' (default, "
-            "returns A.0), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
+            "the API's current default dataset), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
             "resource UUID."
         ),
         type=str,
@@ -2603,8 +2604,16 @@ def parse_arguments():
         default=GRID_SIZE_DEGREES,
     )
     parser.add_argument(
+        "--no-retry-on-realtime-skip",
+        help="Leave realtime scores (RSI, peril scores, defensible space) null when the API skips them. By default an "
+        "AOI with a skipped score is requested once more, unchanged, after a short delay, which clears a skip caused "
+        "by load; if it still skips and the AOI is large enough to split, it is gridded into small cells the scorer "
+        "can handle (cells run without parcelMode).",
+        action="store_true",
+    )
+    parser.add_argument(
         "--no-regrid-on-skip",
-        help="Disable reactive gridding when the API marks any include as skipped. Default is to regrid so the AOI is re-queried as sub-AOIs and populated scores come back.",
+        help="Deprecated alias of --no-retry-on-realtime-skip.",
         action="store_true",
     )
     parser.add_argument(
@@ -2729,7 +2738,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--until",
-        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'until' column in data takes precedent.",
+        help="Bulk limit on date for responses (latest inclusive date returned). Presence of 'until' column in data takes precedent.",
         required=False,
         type=str,
     )
@@ -2868,6 +2877,9 @@ _CONFIG_KEYS_SAFE_TO_CHANGE = frozenset(
         "compress_cache",
         "no_cache",
         "overwrite_cache",
+        # Like max_retries, these only govern how hard we try to recover scores the API didn't deliver.
+        "retry_on_realtime_skip",
+        "regrid_on_skip",
     }
 )
 # List-valued keys that select a set of things: their order carries no meaning.
@@ -2895,7 +2907,7 @@ class NearmapAIExporter(BaseExporter):
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         aoi_grid_cell_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
-        regrid_on_skip=True,
+        regrid_on_skip=None,
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
@@ -2929,6 +2941,7 @@ class NearmapAIExporter(BaseExporter):
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
         api_warmup_interval_seconds=API_WARMUP_INTERVAL_SECONDS,  # Seconds between worker ramp-up; 0 disables
+        retry_on_realtime_skip=True,  # Retry, then grid, an AOI whose realtime scores the API skips
     ):
         # Initialize base exporter first
         super().__init__(
@@ -2950,7 +2963,13 @@ class NearmapAIExporter(BaseExporter):
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.aoi_grid_cell_size = aoi_grid_cell_size
-        self.regrid_on_skip = regrid_on_skip
+        if regrid_on_skip is not None:
+            warnings.warn(
+                "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.retry_on_realtime_skip = retry_on_realtime_skip and regrid_on_skip is not False
         # Note: processes, chunk_size, log_level handled by BaseExporter
         self.merge_read_workers = merge_read_workers
         self.threads = threads
@@ -3023,6 +3042,7 @@ class NearmapAIExporter(BaseExporter):
             "aoi_grid_inexact": aoi_grid_inexact,
             "aoi_grid_cell_size": aoi_grid_cell_size,
             "regrid_on_skip": regrid_on_skip,
+            "retry_on_realtime_skip": self.retry_on_realtime_skip,
             "processes": processes,
             "threads": threads,
             "chunk_size": chunk_size,
@@ -3736,7 +3756,7 @@ class NearmapAIExporter(BaseExporter):
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
                 grid_size=self.aoi_grid_cell_size,
-                regrid_on_skip=self.regrid_on_skip,
+                retry_on_realtime_skip=self.retry_on_realtime_skip,
                 maxretry=self.max_retries,
                 rapid=self.rapid,
                 order=self.order,
@@ -3823,6 +3843,7 @@ class NearmapAIExporter(BaseExporter):
                         overwrite_cache=self.overwrite_cache,
                         compress_cache=self.compress_cache,
                         threads=self.threads,
+                        maxretry=self.max_retries,
                         country=self.country,
                         progress_counters=progress_counters,
                         resource_id=self.roof_age_resource_id,
@@ -4864,26 +4885,15 @@ class NearmapAIExporter(BaseExporter):
             else:
                 logger.debug("No latest date will used")
 
-            # Validate per-AOI cutoff columns. Two checks:
-            #   1) Strings only — pandas may infer datetime64 from CSV/parquet, after which the
-            #      per-AOI override is silently skipped at request time. We surface that loud here.
-            #   2) When --roof-age targets the A.0 dataset, reject any per-AOI cutoffs since the
-            #      Roof Age API will return HTTP 500.
+        # Every cutoff must be a YYYY-MM-DD date, and no AOI's since may be after its until, before any request
+        # goes out: a malformed or inverted date otherwise fails (or is dropped) per request, deep in the export.
+        # Rows pinned to a survey_resource_id are checked too: the Feature API ignores their dates, but the Roof Age
+        # API still sends them.
+        validate_date_cutoffs(aoi_gdf, since=self.since, until=self.until)
+        # The A.0 Roof Age dataset answers any cutoff with HTTP 500.
+        if self.roof_age and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
             for col, flag in ((UNTIL_COL_NAME, "--until"), (SINCE_COL_NAME, "--since")):
-                if col not in aoi_gdf.columns:
-                    continue
-                non_null = aoi_gdf[col].dropna()
-                if len(non_null) and not pd.api.types.is_string_dtype(non_null):
-                    raise ValueError(
-                        f"AOI file column '{col}' must contain YYYY-MM-DD strings, got dtype "
-                        f"{non_null.dtype}. If your input file is parsing the column as a date, "
-                        f"cast to string before export, e.g. df[{col!r}] = df[{col!r}].dt.strftime('%Y-%m-%d')."
-                    )
-                if (
-                    self.roof_age
-                    and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS
-                    and aoi_gdf[col].notna().any()
-                ):
+                if col in aoi_gdf.columns and aoi_gdf[col].notna().any():
                     raise ValueError(
                         f"AOI file column '{col}' has values, but --roof-age is targeting a dataset "
                         f"that does not support cutoffs. {format_no_cutoff_error(flag=flag)}"
@@ -5202,7 +5212,8 @@ def main():
         roof_age_dataset=args.roof_age_dataset,
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
-        regrid_on_skip=not args.no_regrid_on_skip,
+        regrid_on_skip=False if args.no_regrid_on_skip else None,
+        retry_on_realtime_skip=not args.no_retry_on_realtime_skip,
         max_retries=args.max_retries,
         api_warmup_interval_seconds=args.api_warmup_interval,
     )
