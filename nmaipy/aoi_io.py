@@ -44,16 +44,16 @@ def normalise_date_column(values: pd.Series) -> pd.Series:
     """Return a per-AOI ``since``/``until`` column as ``YYYY-MM-DD`` strings, with null for no override.
 
     GeoJSON and GeoPackage readers parse date-like values as ``datetime64``, and a typed parquet column holds
-    ``datetime.date`` objects; both become strings, discarding any time of day. An empty or blank string means no per-AOI override, as a
-    null does, so it becomes null (CSV readers already give NaN there). Anything else is left for
-    ``validate_date_cutoffs`` to accept or reject.
+    ``datetime.date`` objects; both become strings, discarding any time of day. An empty or blank string means no
+    per-AOI override, as a null does, so it becomes null (CSV readers already give NaN there). Anything else is left
+    for ``validate_date_cutoffs`` to accept or reject.
     """
     if pd.api.types.is_datetime64_any_dtype(values):
         return values.dt.strftime("%Y-%m-%d")
 
     def normalise(value):
-        if isinstance(value, datetime.date):  # also datetime.datetime and pd.Timestamp
-            return value.strftime("%Y-%m-%d")
+        if isinstance(value, datetime.date):  # also datetime.datetime, pd.Timestamp and pd.NaT
+            return None if pd.isna(value) else value.strftime("%Y-%m-%d")
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -67,13 +67,15 @@ def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, unt
     Args:
         aoi_df: AOIs indexed by id, optionally with per-AOI ``since``/``until`` columns already passed through
             ``normalise_date_column``. A null cell means the AOI uses the bulk value.
-        since: Bulk earliest date, used where an AOI has no ``since`` of its own.
-        until: Bulk latest date, used where an AOI has no ``until`` of its own.
+        since: Bulk earliest date, used where an AOI has no ``since`` of its own. Empty or blank means none.
+        until: Bulk latest date, used where an AOI has no ``until`` of its own. Empty or blank means none.
 
     Raises:
         ValueError: If a bulk or per-AOI value is not a ``YYYY-MM-DD`` date string, or if an AOI's effective since
             is later than its effective until (the API rejects every such request).
     """
+    # A blank bulk date sends no date filter, as a blank per-AOI cell does.
+    since, until = (None if isinstance(value, str) and not value.strip() else value for value in (since, until))
     for flag, value in (("--since", since), ("--until", until)):
         if value is not None and not _is_iso_date(value):
             raise ValueError(f"{flag} must be a YYYY-MM-DD date, got {value!r}")
@@ -84,7 +86,9 @@ def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, unt
             effective[col] = pd.Series(bulk, index=aoi_df.index, dtype=object)
             continue
         values = aoi_df[col]
-        invalid = values[values.notna() & ~values.map(_is_iso_date)]
+        # Check each distinct value once: an AOI file holds millions of rows but few distinct dates.
+        malformed = [value for value in values.dropna().unique() if not _is_iso_date(value)]
+        invalid = values[values.isin(malformed)]
         if len(invalid):
             sample = ", ".join(f"{aoi_id!r}: {value!r}" for aoi_id, value in invalid.head(5).items())
             raise ValueError(

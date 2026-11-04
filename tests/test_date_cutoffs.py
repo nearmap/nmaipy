@@ -135,3 +135,21 @@ def test_export_rejects_bad_dates_before_querying_even_with_survey_resource_ids(
         with pytest.raises(ValueError, match=rf"column 'until'.*'{bad_row}'"):
             exporter.run()
     split_into_chunks.assert_not_called()
+
+
+def test_nat_in_an_object_column_is_null():
+    out = normalise_date_column(pd.Series([pd.Timestamp("2025-03-06"), pd.NaT], dtype=object))
+    assert out.iloc[0] == "2025-03-06"
+    assert pd.isna(out.iloc[1]), "NaT means no per-AOI override"
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_blank_bulk_date_means_no_date(blank):
+    """A blank bulk date sends no date filter, as before, and as a blank per-AOI cell does."""
+    validate_date_cutoffs(_aois(since=["2025-01-01", None]), since=blank, until=blank)
+
+
+def test_many_rows_with_few_dates_are_checked_by_distinct_value():
+    aois = _aois(until=["2025-01-01", "2025-06-30"] * 50_000 + ["2025-13-01"])
+    with pytest.raises(ValueError, match=r"1 row\(s\) don't, e.g. 'aoi100000': '2025-13-01'"):
+        validate_date_cutoffs(aois)
