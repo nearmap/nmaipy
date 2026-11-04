@@ -9,7 +9,7 @@
       "description": "Raw API attributes payload for this feature (used during processing; preserved on raw feature outputs)."
     },
     "belongs_to_parcel": {
-      "description": "Whether this feature is contained within (rather than spanning beyond) the AOI parcel.",
+      "description": "Whether the Feature API's parcel mode assigns this feature to the AOI parcel. A feature can belong to the parcel while extending past its boundary (see multiparcel_feature). Features that do not belong are dropped, so every row of a parcel-mode export belongs; empty when parcel mode is off.",
       "allowed_values": "Y | N",
       "min": "N",
       "max": "Y"
