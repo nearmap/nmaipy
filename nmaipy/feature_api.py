@@ -1442,7 +1442,7 @@ class FeatureApi(GriddedApiClient):
                 any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
                 if any_skipped:
                     if self.regrid_on_skip and not fail_hard_regrid:
-                        logger.debug(
+                        logger.info(
                             f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
                             f"triggering reactive gridding"
                         )
