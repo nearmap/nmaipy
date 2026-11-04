@@ -9,6 +9,7 @@ import os
 import random
 import time
 import uuid
+import warnings
 from http import HTTPStatus
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -49,12 +50,13 @@ from nmaipy.constants import (
     CHUNKED_ENCODING_RETRY_DELAY,
     DUMMY_STATUS_CODE,
     GRID_SIZE_DEGREES,
-    INCLUDE_SKIP_RETRY_DELAY_SECONDS,
     LAT_LONG_CRS,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     MAX_RETRIES,
     POLYGON_TOO_COMPLEX,
     READ_TIMEOUT_SECONDS,
+    REALTIME_SKIP_GRID_SIZE_DEGREES,
+    REALTIME_SKIP_RETRY_DELAY_SECONDS,
     SINCE_COL_NAME,
     SLOW_REQUEST_THRESHOLD_SECONDS,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -221,9 +223,9 @@ class FeatureApi(GriddedApiClient):
         exclude_tiles_with_occlusion: Optional[bool] = False,
         progress_counters: Optional[dict] = None,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
-        regrid_on_skip: Optional[bool] = True,
+        regrid_on_skip: Optional[bool] = None,
         bearer_token: Optional[str] = None,
-        retry_on_skip: bool = True,
+        retry_on_realtime_skip: bool = True,
     ):
         """
         Initialize FeatureApi class
@@ -256,13 +258,13 @@ class FeatureApi(GriddedApiClient):
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
-            regrid_on_skip: When True (default), an AOI whose includes are still skipped after the retry (see
-                ``retry_on_skip``) and that spans more than one grid cell is gridded: each cell is a smaller request
-                the API can score, though cells run without parcelMode. Cells are pinned to the response's survey;
-                if the grid fails, the response is kept. An AOI within one cell keeps its response.
-            retry_on_skip: When True (default), an AOI whose response returns any include as
-                ``{"skipped": true}`` is first requested once more, unchanged and bypassing the cache, after
-                ``INCLUDE_SKIP_RETRY_DELAY_SECONDS``, which clears a skip caused by load.
+            regrid_on_skip: Deprecated, to be removed in nmaipy 6.0; ``False`` turns off ``retry_on_realtime_skip``.
+            retry_on_realtime_skip: When True (default), an AOI whose response returns a realtime score (an
+                include) as ``{"skipped": true}`` is requested once more, unchanged and bypassing the cache, after
+                ``REALTIME_SKIP_RETRY_DELAY_SECONDS``, which clears a skip caused by load. If the score is still
+                skipped and the AOI spans more than one ``REALTIME_SKIP_GRID_SIZE_DEGREES`` cell (a parcel with very
+                many roofs), it is gridded so each cell is a request the scorer can handle; cells run without
+                parcelMode, pinned to the response's survey, and if the grid fails the response is kept.
         """
         # Call parent class initialization
         # GriddedApiClient handles: thread-safety (_adapters, _thread_local, _lock),
@@ -317,8 +319,14 @@ class FeatureApi(GriddedApiClient):
         # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
 
-        self.regrid_on_skip = regrid_on_skip
-        self.retry_on_skip = retry_on_skip
+        if regrid_on_skip is not None:
+            warnings.warn(
+                "FeatureApi's regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use "
+                "retry_on_realtime_skip, which also covers the retry before regridding.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.retry_on_realtime_skip = retry_on_realtime_skip and regrid_on_skip is not False
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
@@ -1201,6 +1209,7 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = None,
         reason: Optional[str] = None,
+        grid_size: Optional[float] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
         """
         Helper method to attempt gridding large AOIs and handle the common pattern of gridding,
@@ -1252,7 +1261,7 @@ class FeatureApi(GriddedApiClient):
                 until=until,
                 survey_resource_id=survey_resource_id,
                 aoi_grid_inexact=allow_inexact_gridding,
-                grid_size=self.grid_size,
+                grid_size=grid_size or self.grid_size,
                 reason=reason,
                 disable_parcel_mode=True,  # Disable parcel_mode for grid sub-requests
             )
@@ -1446,18 +1455,18 @@ class FeatureApi(GriddedApiClient):
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
 
-            # The API skips includes for very large parcels or under load. First ask once more, unchanged and past
-            # the cache (which holds the skipped response), after a delay: that clears a load-related skip. If it
-            # still skips and the AOI spans several grid cells, grid it: each cell is a smaller request the API can
-            # score, though cells run without parcelMode. Otherwise keep the response, with those scores null.
+            # The API's realtime scorer skips scores for parcels with very many roofs, or under load. First ask once
+            # more, unchanged and past the cache (which holds the skipped response), after a delay: that clears a
+            # load-related skip. If it still skips and the AOI spans several small grid cells, grid it: each cell is a
+            # request the scorer can handle, though cells run without parcelMode. Otherwise keep the response.
             if not in_gridding_mode:
                 any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
-                if any_skipped and self.retry_on_skip:
+                if any_skipped and self.retry_on_realtime_skip:
                     logger.info(
                         f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
-                        f"retrying once in {INCLUDE_SKIP_RETRY_DELAY_SECONDS}s"
+                        f"retrying once in {REALTIME_SKIP_RETRY_DELAY_SECONDS}s"
                     )
-                    time.sleep(INCLUDE_SKIP_RETRY_DELAY_SECONDS)
+                    time.sleep(REALTIME_SKIP_RETRY_DELAY_SECONDS)
                     payload = self.get_features(
                         geometry=geometry,
                         region=region,
@@ -1476,8 +1485,12 @@ class FeatureApi(GriddedApiClient):
                     features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
                     any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
                 n_cells = (
-                    len(geometry_utils.split_geometry_into_grid(geometry=geometry, cell_size=self.grid_size))
-                    if any_skipped and self.regrid_on_skip and not fail_hard_regrid and geometry is not None
+                    len(
+                        geometry_utils.split_geometry_into_grid(
+                            geometry=geometry, cell_size=REALTIME_SKIP_GRID_SIZE_DEGREES
+                        )
+                    )
+                    if any_skipped and self.retry_on_realtime_skip and not fail_hard_regrid and geometry is not None
                     else 0
                 )
                 if n_cells > 1:
@@ -1499,6 +1512,7 @@ class FeatureApi(GriddedApiClient):
                         survey_resource_id=survey_resource_id or metadata["survey_resource_id"],
                         aoi_grid_inexact=self.aoi_grid_inexact,
                         reason="reactive - include skip",
+                        grid_size=REALTIME_SKIP_GRID_SIZE_DEGREES,
                     )
                     if grid_error is None:
                         # Cells run without parcelMode and return no parcel-level aggregate; keep this one's.

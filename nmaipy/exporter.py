@@ -2604,16 +2604,16 @@ def parse_arguments():
         default=GRID_SIZE_DEGREES,
     )
     parser.add_argument(
-        "--no-regrid-on-skip",
-        help="Don't grid an AOI whose includes the API still skips after the retry (see --no-retry-on-skip). By "
-        "default an AOI spanning more than one grid cell is gridded, so each cell is a smaller request the API can "
-        "score; cells run without parcelMode.",
+        "--no-retry-on-realtime-skip",
+        help="Leave realtime scores (RSI, peril scores, defensible space) null when the API skips them. By default an "
+        "AOI with a skipped score is requested once more, unchanged, after a short delay, which clears a skip caused "
+        "by load; if it still skips and the AOI is large enough to split, it is gridded into small cells the scorer "
+        "can handle (cells run without parcelMode).",
         action="store_true",
     )
     parser.add_argument(
-        "--no-retry-on-skip",
-        help="Don't request an AOI a second time when the API returns any of its includes as skipped. By default it "
-        "is requested once more, unchanged, after a short delay, which clears a skip caused by load.",
+        "--no-regrid-on-skip",
+        help="Deprecated alias of --no-retry-on-realtime-skip.",
         action="store_true",
     )
     parser.add_argument(
@@ -2877,8 +2877,9 @@ _CONFIG_KEYS_SAFE_TO_CHANGE = frozenset(
         "compress_cache",
         "no_cache",
         "overwrite_cache",
-        # Retrying a skipped include changes how hard we try, not what an AOI means.
-        "retry_on_skip",
+        # Like max_retries, these only govern how hard we try to recover scores the API didn't deliver.
+        "retry_on_realtime_skip",
+        "regrid_on_skip",
     }
 )
 # List-valued keys that select a set of things: their order carries no meaning.
@@ -2906,7 +2907,7 @@ class NearmapAIExporter(BaseExporter):
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         aoi_grid_cell_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
-        regrid_on_skip=True,
+        regrid_on_skip=None,
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
@@ -2940,7 +2941,7 @@ class NearmapAIExporter(BaseExporter):
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
         api_warmup_interval_seconds=API_WARMUP_INTERVAL_SECONDS,  # Seconds between worker ramp-up; 0 disables
-        retry_on_skip=True,  # Request an AOI once more when the API skips any of its includes
+        retry_on_realtime_skip=True,  # Retry, then grid, an AOI whose realtime scores the API skips
     ):
         # Initialize base exporter first
         super().__init__(
@@ -2962,8 +2963,13 @@ class NearmapAIExporter(BaseExporter):
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.aoi_grid_cell_size = aoi_grid_cell_size
-        self.regrid_on_skip = regrid_on_skip
-        self.retry_on_skip = retry_on_skip
+        if regrid_on_skip is not None:
+            warnings.warn(
+                "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.retry_on_realtime_skip = retry_on_realtime_skip and regrid_on_skip is not False
         # Note: processes, chunk_size, log_level handled by BaseExporter
         self.merge_read_workers = merge_read_workers
         self.threads = threads
@@ -3036,7 +3042,7 @@ class NearmapAIExporter(BaseExporter):
             "aoi_grid_inexact": aoi_grid_inexact,
             "aoi_grid_cell_size": aoi_grid_cell_size,
             "regrid_on_skip": regrid_on_skip,
-            "retry_on_skip": retry_on_skip,
+            "retry_on_realtime_skip": self.retry_on_realtime_skip,
             "processes": processes,
             "threads": threads,
             "chunk_size": chunk_size,
@@ -3750,8 +3756,7 @@ class NearmapAIExporter(BaseExporter):
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
                 grid_size=self.aoi_grid_cell_size,
-                regrid_on_skip=self.regrid_on_skip,
-                retry_on_skip=self.retry_on_skip,
+                retry_on_realtime_skip=self.retry_on_realtime_skip,
                 maxretry=self.max_retries,
                 rapid=self.rapid,
                 order=self.order,
@@ -5207,8 +5212,8 @@ def main():
         roof_age_dataset=args.roof_age_dataset,
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
-        regrid_on_skip=not args.no_regrid_on_skip,
-        retry_on_skip=not args.no_retry_on_skip,
+        regrid_on_skip=False if args.no_regrid_on_skip else None,
+        retry_on_realtime_skip=not args.no_retry_on_realtime_skip,
         max_retries=args.max_retries,
         api_warmup_interval_seconds=args.api_warmup_interval,
     )

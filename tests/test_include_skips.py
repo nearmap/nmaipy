@@ -1,9 +1,9 @@
-"""What happens when the Feature API returns an include as ``{"skipped": true}``.
+"""What happens when the Feature API returns a realtime score (an include) as ``{"skipped": true}``.
 
-The API skips includes for very large parcels (the scorer gives up on many roofs in one request) or under load.
-FeatureApi first requests the AOI once more, unchanged and past the cache, after a delay (``retry_on_skip``). If the
-include is still skipped and the AOI spans more than one grid cell, it grids the AOI (``regrid_on_skip``) so each
-cell is a smaller request the API can score. Otherwise the response is kept and the skipped scores stay null.
+The API's scorer gives up on parcels with very many roofs, or under load. With ``retry_on_realtime_skip`` (the
+default), FeatureApi first requests the AOI once more, unchanged and past the cache, after a delay. If the score is
+still skipped and the AOI spans more than one small grid cell, it grids the AOI so each cell is a request the scorer
+can handle. Otherwise the response is kept and the skipped scores stay null.
 """
 
 import geopandas as gpd
@@ -11,12 +11,12 @@ import pytest
 from shapely.geometry import Polygon, box, mapping
 
 import nmaipy.feature_api as feature_api_module
-from nmaipy.constants import INCLUDE_SKIP_RETRY_DELAY_SECONDS, ROOF_ID
+from nmaipy.constants import REALTIME_SKIP_GRID_SIZE_DEGREES, REALTIME_SKIP_RETRY_DELAY_SECONDS, ROOF_ID
 from nmaipy.feature_api import FeatureApi, _response_has_include_skips
 
-# Inside one 0.005 degree grid cell, so gridding it wouldn't split the request.
-SMALL_AOI = box(144.9, -37.8, 144.9045, -37.7955)
-# About 0.7 x 0.9 km (under the 1 sq km proactive gridding size) but spanning 2 x 2 grid cells.
+# Inside one realtime-skip grid cell, so gridding it wouldn't split the request.
+SMALL_AOI = box(144.9, -37.8, 144.9015, -37.7985)
+# About 0.7 x 0.9 km (under the 1 sq km proactive gridding size), spanning 4 x 4 realtime-skip grid cells.
 LARGE_AOI = box(144.9, -37.8, 144.908, -37.792)
 SKIPPED = {"skipped": True}
 SCORED = {"value": 50, "confidence": 0.9}
@@ -100,7 +100,7 @@ def calls(monkeypatch):
     record = {"sleeps": []}
 
     def sleep(seconds):
-        if seconds == INCLUDE_SKIP_RETRY_DELAY_SECONDS:
+        if seconds == REALTIME_SKIP_RETRY_DELAY_SECONDS:
             record["sleeps"].append(seconds)
 
     monkeypatch.setattr(feature_api_module.time, "sleep", sleep)
@@ -145,8 +145,7 @@ class TestIncludeSkipHandling:
 
     def test_defaults(self, tmp_path):
         api = self._api(tmp_path)
-        assert api.retry_on_skip is True
-        assert api.regrid_on_skip is True
+        assert api.retry_on_realtime_skip is True
 
     def test_no_skip_makes_one_request(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path)
@@ -162,7 +161,7 @@ class TestIncludeSkipHandling:
         first, retry = calls["requests"]
         assert retry.pop("refresh_cache") is True, "The retry must bypass the cached skipped response"
         assert retry == first, "The retry should repeat the request, parcelMode included"
-        assert calls["sleeps"] == [INCLUDE_SKIP_RETRY_DELAY_SECONDS]
+        assert calls["sleeps"] == [REALTIME_SKIP_RETRY_DELAY_SECONDS]
         assert calls["grids"] == [], "A retry that scores should not be followed by gridding"
         assert error is None and _skip_state(features) == SCORED
 
@@ -173,6 +172,7 @@ class TestIncludeSkipHandling:
         assert len(calls["requests"]) == 2
         assert len(calls["grids"]) == 1
         assert calls["grids"][0]["survey_resource_id"] == "resource", "Cells should be pinned to the response's survey"
+        assert calls["grids"][0]["grid_size"] == REALTIME_SKIP_GRID_SIZE_DEGREES, "Cells small enough to score"
         assert error is None
         assert list(features["feature_id"]) == ["cell-roof"], "The gridded features should replace the response's"
         assert metadata["aggregate"] == {"defensibleSpace": {"zones": []}}, "Cells return no aggregate; keep this one"
@@ -194,19 +194,17 @@ class TestIncludeSkipHandling:
         assert grid_errors is None
         assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
 
-    def test_retry_off_grids_straight_away(self, tmp_path, monkeypatch, calls):
-        api = self._api(tmp_path, retry_on_skip=False)
+    def test_off_leaves_skipped_scores_null(self, tmp_path, monkeypatch, calls):
+        api = self._api(tmp_path, retry_on_realtime_skip=False)
         _install_stubs(api, monkeypatch, calls, responses=[SKIPPED])
-        api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
-        assert len(calls["requests"]) == 1 and calls["sleeps"] == []
-        assert len(calls["grids"]) == 1
-
-    def test_regrid_off_only_retries(self, tmp_path, monkeypatch, calls):
-        api = self._api(tmp_path, regrid_on_skip=False)
-        _install_stubs(api, monkeypatch, calls, responses=[SKIPPED, SKIPPED])
         features, _, error, _ = api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
-        assert len(calls["requests"]) == 2 and calls["grids"] == []
+        assert len(calls["requests"]) == 1 and calls["sleeps"] == [] and calls["grids"] == []
         assert error is None and _skip_state(features) == SKIPPED
+
+    def test_deprecated_regrid_on_skip_false_turns_it_off(self, tmp_path):
+        with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+            api = self._api(tmp_path, regrid_on_skip=False)
+        assert api.retry_on_realtime_skip is False
 
     def test_grid_cells_are_not_retried_or_regridded(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path)

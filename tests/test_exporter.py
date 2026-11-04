@@ -2607,7 +2607,7 @@ class TestResumeRequiresSameConfig:
             {"processes": 2},
             {"threads": 3},
             {"max_retries": 5},
-            {"retry_on_skip": False},
+            {"retry_on_realtime_skip": False},
             {"packs": ["vegetation", "building"]},
         ],
         ids=lambda change: next(iter(change), "unchanged"),
@@ -2726,12 +2726,24 @@ def test_class_list_is_read_from_the_configured_url_root(tmp_path):
     assert api.call_args.kwargs["url_root"] == "api.example.test/ai/features/v4/bulk"
 
 
-def test_config_written_before_retry_on_skip_still_resumes(tmp_path):
-    """A 5.3.0 config has no retry_on_skip key; resuming it under this version must not count that as a change."""
+def test_config_written_before_retry_on_realtime_skip_still_resumes(tmp_path):
+    """A 5.3.0 config has no retry_on_realtime_skip key; resuming it here must not count that as a change."""
     exporter = AOIExporter(
         aoi_file="data/examples/sydney_parcels.geojson", output_dir=str(tmp_path), country="au", packs=["building"]
     )
     exporter._previous_config_params = {
-        k: v for k, v in exporter._current_config_params.items() if k != "retry_on_skip"
+        k: v for k, v in exporter._current_config_params.items() if k != "retry_on_realtime_skip"
     }
     assert exporter._config_diff() == []
+
+
+def test_regrid_on_skip_is_a_deprecated_alias(tmp_path):
+    with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            regrid_on_skip=False,
+        )
+    assert exporter.retry_on_realtime_skip is False
