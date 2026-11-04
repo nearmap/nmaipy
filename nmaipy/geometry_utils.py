@@ -221,6 +221,11 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
     Returns:
         GeoDataFrame with combined/deduplicated features, maintaining same structure
 
+    Raises:
+        ValueError: If ``area_*`` comes without ``area_sqm`` and ``clipped_area_*``, or if a
+            feature treated as discrete ends up with a whole area below its summed clipped
+            area, which means its cells did not follow either kind.
+
     Note:
         Returns empty GeoDataFrame with proper structure if input is None or empty.
         When the same feature_id has different values for a column across grid cells,
@@ -316,6 +321,20 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
         for area_col, clipped_col in existing_area_pairs.items():
             features_gdf_dissolved[area_col] = features_gdf_dissolved[clipped_col].where(
                 connected, by_feature[area_col].first()
+            )
+        # A whole object can't be smaller than its part inside the AOI. A discrete feature that is, was really a
+        # connected one whose area differed from its clipped area in some cell, and kept only its largest piece.
+        # Each cell rounds its clipped piece to 0.1 sqm, so allow that much per cell.
+        tolerance = 0.1 * by_feature.size()
+        undercounted = ~connected & (
+            features_gdf_dissolved["area_sqm"] < features_gdf_dissolved["clipped_area_sqm"] - tolerance
+        )
+        if undercounted.any():
+            sample = features_gdf_dissolved.loc[undercounted[undercounted].index[:3], ["area_sqm", "clipped_area_sqm"]]
+            raise ValueError(
+                f"combine_features_from_grid: {int(undercounted.sum())} feature(s) have a merged area_sqm below "
+                f"their summed clipped_area_sqm, so they were split into pieces whose area did not equal their "
+                f"clipped area in every cell: {sample.to_dict('index')}"
             )
 
     # Reset index to make feature_id a column, then set AOI_ID as index

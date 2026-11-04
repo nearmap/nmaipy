@@ -360,3 +360,23 @@ def test_discrete_area_kept_once_whatever_unclipped_holds():
     assert merged["area_sqm"] == 100.0, "A discrete object's area is its whole area, kept once"
     assert merged["area_sqft"] == 1076.0, "area_sqft should follow the decision made on sqm"
     assert merged["clipped_area_sqm"] == 100.0, "Clipped pieces should be summed"
+
+
+def test_merge_refuses_piece_kept_as_whole_object():
+    """Pieces whose area differs from their clip in one cell would be treated as discrete and keep only the largest.
+
+    The merged area would then be below the summed clipped area, which no whole object can be, so the merge refuses
+    rather than undercount.
+    """
+    features = gpd.GeoDataFrame(
+        {
+            "feature_id": [1, 1],
+            "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), Polygon([(1, 0), (2, 0), (2, 1), (1, 1)])],
+            AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
+            "area_sqm": [3.0, 2.5],
+            "clipped_area_sqm": [3.0, 2.0],
+        },
+        crs=API_CRS,
+    )
+    with pytest.raises(ValueError, match="below their summed clipped_area_sqm"):
+        combine_features_from_grid(features)
