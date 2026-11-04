@@ -8,6 +8,7 @@ This module provides common geometric operations used by multiple API clients:
 - Coordinate extraction for caching
 """
 
+import warnings
 from typing import Tuple, Union
 
 import geopandas as gpd
@@ -189,7 +190,7 @@ def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: 
     return df_gridded
 
 
-def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_ids: list = None) -> gpd.GeoDataFrame:
     """
     Combine features from multiple grid cells, removing duplicates and merging connected features.
 
@@ -218,6 +219,7 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
         features_gdf: GeoDataFrame with features from gridded queries
                      Must have 'feature_id' column and AOI_ID_COLUMN_NAME index. The cells of one AOI:
                      rows are merged by feature_id alone, so features shared by several AOIs would collapse.
+        connected_class_ids: Deprecated and ignored; to be removed in nmaipy 6.0. The kind is read per feature.
 
     Returns:
         GeoDataFrame with combined/deduplicated features, maintaining same structure
@@ -232,6 +234,14 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
         When the same feature_id has different values for a column across grid cells,
         the value from the larger area portion is used and a warning is logged.
     """
+    if connected_class_ids is not None:
+        warnings.warn(
+            "combine_features_from_grid's connected_class_ids is deprecated, ignored, and will be removed in nmaipy "
+            "6.0: a feature's kind is read from its areas.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Handle empty or None input
     if features_gdf is None or len(features_gdf) == 0:
         empty_gdf = gpd.GeoDataFrame(columns=["geometry"], crs=API_CRS)

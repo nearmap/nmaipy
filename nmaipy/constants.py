@@ -1,5 +1,6 @@
 import json
 import os
+import warnings
 from pathlib import Path
 
 # Default columns
@@ -570,3 +571,20 @@ ROOF_CHAR_IDS = [
     TURRET_ROOF_ID,
     TREE_OVERHANG_ID,
 ]
+
+
+# Deprecated in 5.4.0, to be removed in 6.0. The grid merge no longer uses a class list (a feature is connected when
+# its area equals its clipped area), and this one was incomplete. Kept, with a warning, for code that imports it.
+_DEPRECATED_CONNECTED_CLASS_IDS = SURFACES_IDS + VEG_IDS + [VEG_WOODY_COMPOSITE_ID, DRIVEABLE_ID, LEAF_OFF_VEG_ID]
+
+
+def __getattr__(name):
+    if name == "CONNECTED_CLASS_IDS":
+        warnings.warn(
+            "nmaipy.constants.CONNECTED_CLASS_IDS is deprecated and will be removed in nmaipy 6.0. It is incomplete "
+            "and nmaipy no longer uses it: a feature is connected when its areaSqm equals its clippedAreaSqm.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _DEPRECATED_CONNECTED_CLASS_IDS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
