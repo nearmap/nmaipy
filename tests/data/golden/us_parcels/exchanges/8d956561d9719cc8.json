@@ -1,0 +1,5396 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/features.json",
+  "query": [
+   [
+    "packs",
+    "building,building_char,pool,roof_char,roof_cond,solar,surfaces,vegetation"
+   ],
+   [
+    "parcelMode",
+    "true"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -74.27532478920389,
+       40.64571889873498
+      ],
+      [
+       -74.27546620887651,
+       40.64582834204386
+      ],
+      [
+       -74.27510595339592,
+       40.64609975919786
+      ],
+      [
+       -74.27496086497952,
+       40.64599525927589
+      ],
+      [
+       -74.27532257708374,
+       40.6457204675477
+      ],
+      [
+       -74.27532478920389,
+       40.64571889873498
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "credits": 0,
+   "resourceId": "336bbdc3-79d5-51d9-9a8c-2228ccd8cba5",
+   "surveyId": "69430ec0-ee27-5af1-9121-4ad6513d0d0e",
+   "surveyDate": "2026-10-08",
+   "3dDate": "",
+   "systemVersion": "gen6-glowing_moon-1.0",
+   "link": "https://apps.nearmap.com/maps/#/@40.6459102,-74.2752146,20.00z,0d/V/20261008?locationMarker",
+   "extentMinX": -74.27547807049697,
+   "extentMaxX": -74.27494900335905,
+   "extentMinY": 40.64570989873498,
+   "extentMaxY": 40.64610875919786,
+   "perspective": "Vert",
+   "postcat": false,
+   "features": [
+    {
+     "id": "04a6b214-45d6-5d3a-a9f6-55115e4a8fd7",
+     "classId": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalClassId": 1011,
+     "description": "Building (Deprecated)",
+     "confidence": 0.7871094,
+     "parentId": "37bef180-5668-522e-9028-a3e6291d8b7b",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27529148757458,
+         40.64579554931457
+        ],
+        [
+         -74.27536323666573,
+         40.64584998898072
+        ],
+        [
+         -74.27532233297825,
+         40.645880515876875
+        ],
+        [
+         -74.27522778511047,
+         40.645841339690925
+        ],
+        [
+         -74.27523247897625,
+         40.6458362518729
+        ],
+        [
+         -74.27521705627441,
+         40.64582556745373
+        ],
+        [
+         -74.27525863051414,
+         40.64579249662171
+        ],
+        [
+         -74.27527539432049,
+         40.64580572495649
+        ],
+        [
+         -74.27529148757458,
+         40.64579554931457
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.768155,
+     "areaSqm": 62.8,
+     "areaSqft": 676,
+     "clippedAreaSqm": 63,
+     "clippedAreaSqft": 679,
+     "unclippedAreaSqm": 62.8,
+     "unclippedAreaSqft": 676,
+     "attributes": [
+      {
+       "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+       "internalClassId": 8,
+       "description": "Building 3d attributes",
+       "has3dAttributes": false
+      },
+      {
+       "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
+       "internalClassId": 20,
+       "description": "Building pitch",
+       "available": false
+      },
+      {
+       "classId": "f7628feb-6d70-50ee-bbfd-053b4e685e8f",
+       "internalClassId": 28,
+       "description": "Ground height",
+       "available": false
+      }
+     ],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "0e22b4a2-ad76-5a35-a77c-7b27953f63a7",
+     "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+     "internalClassId": 1014,
+     "description": "Gable",
+     "confidence": 0.82492757,
+     "parentId": "4653a926-018a-5d0e-b291-d36231d70795",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27527338266373,
+          40.64584591872684
+         ],
+         [
+          -74.275276735425,
+          40.645851006544156
+         ],
+         [
+          -74.27527137100697,
+          40.64585558557939
+         ],
+         [
+          -74.27526533603668,
+          40.64585253288925
+         ],
+         [
+          -74.27525728940964,
+          40.64585253288925
+         ],
+         [
+          -74.27525259554386,
+          40.64584897141726
+         ],
+         [
+          -74.27524387836456,
+          40.645846427508594
+         ],
+         [
+          -74.27523851394653,
+          40.64583828700015
+         ],
+         [
+          -74.27524656057358,
+          40.64583523430923
+         ],
+         [
+          -74.27526399493217,
+          40.64583777821835
+         ],
+         [
+          -74.27527002990246,
+          40.64583726943652
+         ],
+         [
+          -74.27527271211147,
+          40.64583930456375
+         ],
+         [
+          -74.27527338266373,
+          40.64584591872684
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27526265382767,
+          40.6458133566869
+         ],
+         [
+          -74.27527002990246,
+          40.64580725130264
+         ],
+         [
+          -74.27527539432049,
+          40.64580572495649
+         ],
+         [
+          -74.27527606487274,
+          40.64580521617444
+         ],
+         [
+          -74.27528277039528,
+          40.64580318104615
+         ],
+         [
+          -74.2752867937088,
+          40.64580012835363
+         ],
+         [
+          -74.27529349923134,
+          40.64579911078941
+         ],
+         [
+          -74.27531361579895,
+          40.64581488303288
+         ],
+         [
+          -74.27532233297825,
+          40.64582556745373
+         ],
+         [
+          -74.2753303796053,
+          40.64583014649073
+         ],
+         [
+          -74.2753317207098,
+          40.64583421674557
+         ],
+         [
+          -74.27533574402332,
+          40.64583676065471
+         ],
+         [
+          -74.27533775568008,
+          40.64584184847272
+         ],
+         [
+          -74.27534244954586,
+          40.64584591872684
+         ],
+         [
+          -74.27534110844135,
+          40.64585609436106
+         ],
+         [
+          -74.27532903850079,
+          40.64586067339597
+         ],
+         [
+          -74.27532434463501,
+          40.64586067339597
+         ],
+         [
+          -74.27531898021698,
+          40.64585762070607
+         ],
+         [
+          -74.2753142863512,
+          40.64585965583267
+         ],
+         [
+          -74.27531093358994,
+          40.645859147051034
+         ],
+         [
+          -74.27530892193317,
+          40.64585456801603
+         ],
+         [
+          -74.27530288696289,
+          40.645849480199004
+         ],
+         [
+          -74.27530221641064,
+          40.64583828700015
+         ],
+         [
+          -74.27530623972416,
+          40.64583574309108
+         ],
+         [
+          -74.27530691027641,
+          40.645832690400034
+         ],
+         [
+          -74.27530221641064,
+          40.64582709379943
+         ],
+         [
+          -74.27529819309711,
+          40.64582556745373
+         ],
+         [
+          -74.27529282867908,
+          40.64582709379943
+         ],
+         [
+          -74.27528209984303,
+          40.645826585017545
+         ],
+         [
+          -74.27527472376823,
+          40.64583218161819
+         ],
+         [
+          -74.27527002990246,
+          40.64582963770884
+         ],
+         [
+          -74.2752680182457,
+          40.64582607623563
+         ],
+         [
+          -74.2752593010664,
+          40.64582505867183
+         ],
+         [
+          -74.27525661885738,
+          40.6458220059803
+         ],
+         [
+          -74.27526265382767,
+          40.6458133566869
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 25.4,
+     "areaSqft": 273,
+     "clippedAreaSqm": 25.4,
+     "clippedAreaSqft": 274,
+     "unclippedAreaSqm": 25.4,
+     "unclippedAreaSqft": 273,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "1cc654d6-5e5d-5aab-8d56-907c75cc148c",
+     "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+     "internalClassId": 1008,
+     "description": "Shingle",
+     "confidence": 0.82812595,
+     "parentId": "4653a926-018a-5d0e-b291-d36231d70795",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27526533603668,
+          40.64581386546889
+         ],
+         [
+          -74.27527405321598,
+          40.64580572495649
+         ],
+         [
+          -74.27527539432049,
+          40.64580572495649
+         ],
+         [
+          -74.27527606487274,
+          40.64580521617444
+         ],
+         [
+          -74.27528411149979,
+          40.64580419861029
+         ],
+         [
+          -74.27528746426105,
+          40.645802163482
+         ],
+         [
+          -74.27529282867908,
+          40.64580318104615
+         ],
+         [
+          -74.27530892193317,
+          40.6458128479049
+         ],
+         [
+          -74.27531093358994,
+          40.64581488303288
+         ],
+         [
+          -74.27531160414219,
+          40.645822514762244
+         ],
+         [
+          -74.27531965076923,
+          40.64582607623563
+         ],
+         [
+          -74.27532099187374,
+          40.64583574309108
+         ],
+         [
+          -74.27531898021698,
+          40.64584388359981
+         ],
+         [
+          -74.27532367408276,
+          40.64585049776243
+         ],
+         [
+          -74.27532434463501,
+          40.64585507679772
+         ],
+         [
+          -74.27531898021698,
+          40.645858638269395
+         ],
+         [
+          -74.27530489861965,
+          40.645858638269395
+         ],
+         [
+          -74.27529886364937,
+          40.64586270852249
+         ],
+         [
+          -74.27529148757458,
+          40.64586474364895
+         ],
+         [
+          -74.27528209984303,
+          40.645863726085715
+         ],
+         [
+          -74.27527740597725,
+          40.645862199740854
+         ],
+         [
+          -74.27527070045471,
+          40.64585507679772
+         ],
+         [
+          -74.27527338266373,
+          40.64585304167097
+         ],
+         [
+          -74.27528880536556,
+          40.645851006544156
+         ],
+         [
+          -74.27528947591782,
+          40.645841339690925
+         ],
+         [
+          -74.2752955108881,
+          40.6458306552726
+         ],
+         [
+          -74.27528209984303,
+          40.64581997085254
+         ],
+         [
+          -74.27527002990246,
+          40.64581997085254
+         ],
+         [
+          -74.27526533603668,
+          40.64581386546889
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27525863051414,
+          40.64582505867183
+         ],
+         [
+          -74.27526198327541,
+          40.64582302354417
+         ],
+         [
+          -74.27526466548443,
+          40.64582556745373
+         ],
+         [
+          -74.27526131272316,
+          40.64582760258133
+         ],
+         [
+          -74.27525863051414,
+          40.64582505867183
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27524320781231,
+          40.6458169181608
+         ],
+         [
+          -74.27524857223034,
+          40.6458133566869
+         ],
+         [
+          -74.27525192499161,
+          40.645817935724715
+         ],
+         [
+          -74.27524589002132,
+          40.64582098841644
+         ],
+         [
+          -74.27524320781231,
+          40.6458169181608
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 18.9,
+     "areaSqft": 204,
+     "clippedAreaSqm": 19,
+     "clippedAreaSqft": 205,
+     "unclippedAreaSqm": 18.9,
+     "unclippedAreaSqft": 204,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "3a5e8a8b-db09-5bfc-b26d-c8bfe6f75431",
+     "classId": "68dc5061-5842-4a17-8073-e278a91b607d",
+     "internalClassId": 1028,
+     "description": "Lawn Grass",
+     "confidence": 0.5292969,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.2750608175993,
+         40.64600771112727
+        ],
+        [
+         -74.27505679428577,
+         40.6460097462493
+        ],
+        [
+         -74.27505142986774,
+         40.6460097462493
+        ],
+        [
+         -74.27504740655422,
+         40.646002623321905
+        ],
+        [
+         -74.27505008876324,
+         40.64599957063849
+        ],
+        [
+         -74.27505478262901,
+         40.64599957063849
+        ],
+        [
+         -74.2750608175993,
+         40.64600414966355
+        ],
+        [
+         -74.2750608175993,
+         40.64600771112727
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 0.9,
+     "areaSqft": 10,
+     "clippedAreaSqm": 0.9,
+     "clippedAreaSqft": 10,
+     "unclippedAreaSqm": 0.9,
+     "unclippedAreaSqft": 10,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "3d7e4ce5-cf32-5ef6-a8bd-b33ffa775644",
+     "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+     "internalClassId": 1008,
+     "description": "Shingle",
+     "confidence": 0.6464844,
+     "parentId": "4314ff3d-c0f9-5a24-ab34-98f9a65c0289",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27518084645271,
+         40.646034676489194
+        ],
+        [
+         -74.27519224584103,
+         40.646023483321414
+        ],
+        [
+         -74.27520029246807,
+         40.646016869175924
+        ],
+        [
+         -74.27521236240864,
+         40.64600872868828
+        ],
+        [
+         -74.2752157151699,
+         40.64600821990778
+        ],
+        [
+         -74.27522242069244,
+         40.64600160576077
+        ],
+        [
+         -74.27523382008076,
+         40.64599448283252
+        ],
+        [
+         -74.27523784339428,
+         40.64599397405188
+        ],
+        [
+         -74.2752418667078,
+         40.645996517954956
+        ],
+        [
+         -74.27524320781231,
+         40.64600211454135
+        ],
+        [
+         -74.27525125443935,
+         40.64601178137128
+        ],
+        [
+         -74.27525997161865,
+         40.64601534283457
+        ],
+        [
+         -74.27526667714119,
+         40.64602195698021
+        ],
+        [
+         -74.27526533603668,
+         40.64602958868589
+        ],
+        [
+         -74.27526131272316,
+         40.64603416770889
+        ],
+        [
+         -74.27526131272316,
+         40.64603925551184
+        ],
+        [
+         -74.27526600658894,
+         40.64604536087487
+        ],
+        [
+         -74.27526533603668,
+         40.64604688721554
+        ],
+        [
+         -74.27524589002132,
+         40.64606113306014
+        ],
+        [
+         -74.27521906793118,
+         40.64608657206075
+        ],
+        [
+         -74.27520766854286,
+         40.64609318619932
+        ],
+        [
+         -74.27519492805004,
+         40.64608606328084
+        ],
+        [
+         -74.275186881423,
+         40.64607639646167
+        ],
+        [
+         -74.27517347037792,
+         40.64606571208095
+        ],
+        [
+         -74.27515737712383,
+         40.64605757159927
+        ],
+        [
+         -74.27515670657158,
+         40.64605299257787
+        ],
+        [
+         -74.27518084645271,
+         40.646034676489194
+        ]
+       ],
+       [
+        [
+         -74.27521906793118,
+         40.64605706281914
+        ],
+        [
+         -74.27523247897625,
+         40.6460580803794
+        ],
+        [
+         -74.27523516118526,
+         40.64605706281914
+        ],
+        [
+         -74.27523650228977,
+         40.646051975017535
+        ],
+        [
+         -74.27523382008076,
+         40.646048922336384
+        ],
+        [
+         -74.27523046731949,
+         40.64604841355618
+        ],
+        [
+         -74.27521906793118,
+         40.646051975017535
+        ],
+        [
+         -74.27521906793118,
+         40.64605706281914
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 53.5,
+     "areaSqft": 576,
+     "clippedAreaSqm": 7.5,
+     "clippedAreaSqft": 80,
+     "unclippedAreaSqm": 53.5,
+     "unclippedAreaSqft": 576,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "4314ff3d-c0f9-5a24-ab34-98f9a65c0289",
+     "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalClassId": 1002,
+     "description": "Roof",
+     "confidence": 0.8248291,
+     "parentId": "d18b0e3f-4003-560a-870d-0feb714e9cb7",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27523717284203,
+         40.64598786868416
+        ],
+        [
+         -74.27526734769344,
+         40.64601076381029
+        ],
+        [
+         -74.27528008818626,
+         40.64602551844296
+        ],
+        [
+         -74.27526332437992,
+         40.6460397642921
+        ],
+        [
+         -74.2752693593502,
+         40.64604536087487
+        ],
+        [
+         -74.27520766854286,
+         40.64609623887845
+        ],
+        [
+         -74.27515335381031,
+         40.64605451891837
+        ],
+        [
+         -74.27523717284203,
+         40.64598786868416
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.93591,
+     "areaSqm": 63.6,
+     "areaSqft": 684,
+     "clippedAreaSqm": 9.1,
+     "clippedAreaSqft": 98,
+     "unclippedAreaSqm": 63.6,
+     "unclippedAreaSqft": 684,
+     "attributes": [
+      {
+       "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
+       "internalClassId": 3,
+       "description": "Roof material",
+       "components": [
+        {
+         "classId": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+         "internalClassId": 1007,
+         "description": "Tile",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+         "internalClassId": 1008,
+         "description": "Shingle",
+         "confidence": 0.6464844,
+         "areaSqm": 53.5,
+         "areaSqft": 576,
+         "ratio": 0.84161705,
+         "dominant": true
+        },
+        {
+         "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+         "internalClassId": 1009,
+         "description": "Metal",
+         "confidence": 0.5486277,
+         "areaSqm": 25.6,
+         "areaSqft": 276,
+         "ratio": 0.40287444,
+         "dominant": false
+        },
+        {
+         "classId": "4558c4fb-3ddf-549d-b2d2-471384be23d1",
+         "internalClassId": 1100,
+         "description": "Ballasted",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "87437e20-d9f5-57e1-8b87-4a9c81ec3b65",
+         "internalClassId": 1101,
+         "description": "Mod-Bit",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "383930f1-d866-5aa3-9f97-553311f3162d",
+         "internalClassId": 1103,
+         "description": "PVC/TPO",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "64db6ea0-7248-53f5-b6a6-6ed733c5f9b8",
+         "internalClassId": 1104,
+         "description": "EPDM",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "9fc4c92e-4405-573e-bce6-102b74ab89a3",
+         "internalClassId": 1105,
+         "description": "Wood Shake",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "09ed6bf9-182a-5c79-ae59-f5531181d298",
+         "internalClassId": 1160,
+         "description": "Clay Tile",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "cdc50dcc-e522-5361-8f02-4e30673311bb",
+         "internalClassId": 1163,
+         "description": "Slate",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "3563c8f1-e81e-52c7-bd56-eaa937010403",
+         "internalClassId": 1165,
+         "description": "Built Up",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "b2573072-b3a5-5f7c-973f-06b7649665ff",
+         "internalClassId": 1168,
+         "description": "Roof Coating",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        }
+       ]
+      },
+      {
+       "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+       "internalClassId": 4,
+       "description": "Roof types",
+       "components": [
+        {
+         "classId": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+         "internalClassId": 1013,
+         "description": "Hip",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+         "internalClassId": 1014,
+         "description": "Gable",
+         "confidence": 0.6053618,
+         "areaSqm": 44.2,
+         "areaSqft": 475,
+         "ratio": 0.6947365
+        },
+        {
+         "classId": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+         "internalClassId": 1015,
+         "description": "Dutch Gable",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+         "internalClassId": 1016,
+         "description": "Flat (Deprecated)",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7ac62320-52f3-5301-94c5-7adf6b93a3b8",
+         "internalClassId": 1018,
+         "description": "Shed",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "4bb630b9-f9eb-5f95-85b8-f0c6caf16e9b",
+         "internalClassId": 1019,
+         "description": "Gambrel",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "89582082-e5b8-5853-bc94-3a0392cab98a",
+         "internalClassId": 1020,
+         "description": "Turret",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "cd15ea0b-a0f6-58b6-9a63-480654ff506c",
+         "internalClassId": 1071,
+         "description": "Dormer Window",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1234ea84-e334-5c58-88a9-6554be3dfc05",
+         "internalClassId": 1173,
+         "description": "Parapet",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7eb3b1b6-0d75-5b1f-b41c-b14146ff0c54",
+         "internalClassId": 1174,
+         "description": "Mansard",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "924afbab-aae6-5c26-92e8-9173e4320495",
+         "internalClassId": 1176,
+         "description": "Jerkinhead",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "e92bc8a2-9fa3-5094-b3b6-2881d94642ab",
+         "internalClassId": 1178,
+         "description": "Quonset",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "09b925d2-df1d-599b-89f1-3ffd39df791e",
+         "internalClassId": 1180,
+         "description": "Bowstring Truss",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+         "internalClassId": 1191,
+         "description": "Flat",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      },
+      {
+       "classId": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+       "internalClassId": 5,
+       "description": "Roof overhang attributes",
+       "components": [
+        {
+         "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+         "internalClassId": 1045,
+         "description": "Tree Overhang",
+         "confidence": 0.9785156,
+         "areaSqm": 31.3,
+         "areaSqft": 337,
+         "ratio": 0.49304715
+        },
+        {
+         "classId": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+         "internalClassId": 1084,
+         "description": "Leaf-off Tree Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "38c4dd92-868c-582a-a4d5-537c88dcec75",
+         "internalClassId": 1085,
+         "description": "Low Vegetation (0.5m-2m) Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "fcbb15ea-93e5-587c-8941-246353817741",
+         "internalClassId": 1086,
+         "description": "Very Low Vegetation (<0.5m) Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1ef797a5-8057-5e8b-a24d-dc7cd8f1fa7b",
+         "internalClassId": 1087,
+         "description": "Power Line Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      },
+      {
+       "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
+       "internalClassId": 7,
+       "description": "Roof 3d attributes",
+       "has3dAttributes": false
+      },
+      {
+       "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+       "internalClassId": 10,
+       "description": "Roof Condition",
+       "components": [
+        {
+         "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+         "internalClassId": 1049,
+         "description": "Structural Damage",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+         "internalClassId": 1050,
+         "description": "Roof with Temporary Repair",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+         "internalClassId": 1051,
+         "description": "Roof Ponding",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+         "internalClassId": 1052,
+         "description": "Roof Rusting",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+         "internalClassId": 1053,
+         "description": "Tile or Shingle Staining",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+         "internalClassId": 1079,
+         "description": "Missing Roof Tile or Shingle",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+         "internalClassId": 1080,
+         "description": "Roof with Permanent Repair",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+         "internalClassId": 1081,
+         "description": "Zinc Staining",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+         "internalClassId": 1139,
+         "description": "Roof Debris",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+         "internalClassId": 1140,
+         "description": "Exposed Roof Deck",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+         "internalClassId": 1141,
+         "description": "Missing Asphalt shingles",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "94944057-968c-5df3-828b-285091b7e266",
+         "internalClassId": 1142,
+         "description": "Active Ponding",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+         "internalClassId": 1144,
+         "description": "Roof Staining",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+         "internalClassId": 1146,
+         "description": "Worn Shingles",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+         "internalClassId": 1147,
+         "description": "Exposed Underlayment",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+         "internalClassId": 1149,
+         "description": "Roof Patching",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      }
+     ],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "isFootprint": true,
+     "belongsToParcel": false
+    },
+    {
+     "id": "4653a926-018a-5d0e-b291-d36231d70795",
+     "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalClassId": 1002,
+     "description": "Roof",
+     "confidence": 0.7871094,
+     "parentId": "04a6b214-45d6-5d3a-a9f6-55115e4a8fd7",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27529148757458,
+         40.64579554931457
+        ],
+        [
+         -74.27536323666573,
+         40.64584998898072
+        ],
+        [
+         -74.27532233297825,
+         40.645880515876875
+        ],
+        [
+         -74.27522778511047,
+         40.645841339690925
+        ],
+        [
+         -74.27523247897625,
+         40.6458362518729
+        ],
+        [
+         -74.27521705627441,
+         40.64582556745373
+        ],
+        [
+         -74.27525863051414,
+         40.64579249662171
+        ],
+        [
+         -74.27527539432049,
+         40.64580572495649
+        ],
+        [
+         -74.27529148757458,
+         40.64579554931457
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.768155,
+     "areaSqm": 62.8,
+     "areaSqft": 676,
+     "clippedAreaSqm": 63,
+     "clippedAreaSqft": 679,
+     "unclippedAreaSqm": 62.8,
+     "unclippedAreaSqft": 676,
+     "attributes": [
+      {
+       "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
+       "internalClassId": 3,
+       "description": "Roof material",
+       "components": [
+        {
+         "classId": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+         "internalClassId": 1007,
+         "description": "Tile",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+         "internalClassId": 1008,
+         "description": "Shingle",
+         "confidence": 0.828126,
+         "areaSqm": 18.9,
+         "areaSqft": 204,
+         "ratio": 0.30162877,
+         "dominant": false
+        },
+        {
+         "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+         "internalClassId": 1009,
+         "description": "Metal",
+         "confidence": 0.5488281,
+         "areaSqm": 7.8,
+         "areaSqft": 84,
+         "ratio": 0.124514505,
+         "dominant": false
+        },
+        {
+         "classId": "4558c4fb-3ddf-549d-b2d2-471384be23d1",
+         "internalClassId": 1100,
+         "description": "Ballasted",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "87437e20-d9f5-57e1-8b87-4a9c81ec3b65",
+         "internalClassId": 1101,
+         "description": "Mod-Bit",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "383930f1-d866-5aa3-9f97-553311f3162d",
+         "internalClassId": 1103,
+         "description": "PVC/TPO",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "64db6ea0-7248-53f5-b6a6-6ed733c5f9b8",
+         "internalClassId": 1104,
+         "description": "EPDM",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "9fc4c92e-4405-573e-bce6-102b74ab89a3",
+         "internalClassId": 1105,
+         "description": "Wood Shake",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "09ed6bf9-182a-5c79-ae59-f5531181d298",
+         "internalClassId": 1160,
+         "description": "Clay Tile",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "cdc50dcc-e522-5361-8f02-4e30673311bb",
+         "internalClassId": 1163,
+         "description": "Slate",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "3563c8f1-e81e-52c7-bd56-eaa937010403",
+         "internalClassId": 1165,
+         "description": "Built Up",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "b2573072-b3a5-5f7c-973f-06b7649665ff",
+         "internalClassId": 1168,
+         "description": "Roof Coating",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        }
+       ]
+      },
+      {
+       "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+       "internalClassId": 4,
+       "description": "Roof types",
+       "components": [
+        {
+         "classId": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+         "internalClassId": 1013,
+         "description": "Hip",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+         "internalClassId": 1014,
+         "description": "Gable",
+         "confidence": 0.8249275,
+         "areaSqm": 25.4,
+         "areaSqft": 273,
+         "ratio": 0.40371704
+        },
+        {
+         "classId": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+         "internalClassId": 1015,
+         "description": "Dutch Gable",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+         "internalClassId": 1016,
+         "description": "Flat (Deprecated)",
+         "confidence": 0.5097656,
+         "areaSqm": 0.3,
+         "areaSqft": 4,
+         "ratio": 0.0055593634
+        },
+        {
+         "classId": "7ac62320-52f3-5301-94c5-7adf6b93a3b8",
+         "internalClassId": 1018,
+         "description": "Shed",
+         "confidence": 0.5097656,
+         "areaSqm": 0.2,
+         "areaSqft": 2,
+         "ratio": 0.0029700708
+        },
+        {
+         "classId": "4bb630b9-f9eb-5f95-85b8-f0c6caf16e9b",
+         "internalClassId": 1019,
+         "description": "Gambrel",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "89582082-e5b8-5853-bc94-3a0392cab98a",
+         "internalClassId": 1020,
+         "description": "Turret",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "cd15ea0b-a0f6-58b6-9a63-480654ff506c",
+         "internalClassId": 1071,
+         "description": "Dormer Window",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1234ea84-e334-5c58-88a9-6554be3dfc05",
+         "internalClassId": 1173,
+         "description": "Parapet",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7eb3b1b6-0d75-5b1f-b41c-b14146ff0c54",
+         "internalClassId": 1174,
+         "description": "Mansard",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "924afbab-aae6-5c26-92e8-9173e4320495",
+         "internalClassId": 1176,
+         "description": "Jerkinhead",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "e92bc8a2-9fa3-5094-b3b6-2881d94642ab",
+         "internalClassId": 1178,
+         "description": "Quonset",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "09b925d2-df1d-599b-89f1-3ffd39df791e",
+         "internalClassId": 1180,
+         "description": "Bowstring Truss",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+         "internalClassId": 1191,
+         "description": "Flat",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      },
+      {
+       "classId": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+       "internalClassId": 5,
+       "description": "Roof overhang attributes",
+       "components": [
+        {
+         "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+         "internalClassId": 1045,
+         "description": "Tree Overhang",
+         "confidence": 0.9785156,
+         "areaSqm": 47.4,
+         "areaSqft": 510,
+         "ratio": 0.7539633
+        },
+        {
+         "classId": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+         "internalClassId": 1084,
+         "description": "Leaf-off Tree Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "38c4dd92-868c-582a-a4d5-537c88dcec75",
+         "internalClassId": 1085,
+         "description": "Low Vegetation (0.5m-2m) Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "fcbb15ea-93e5-587c-8941-246353817741",
+         "internalClassId": 1086,
+         "description": "Very Low Vegetation (<0.5m) Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1ef797a5-8057-5e8b-a24d-dc7cd8f1fa7b",
+         "internalClassId": 1087,
+         "description": "Power Line Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      },
+      {
+       "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
+       "internalClassId": 7,
+       "description": "Roof 3d attributes",
+       "has3dAttributes": false
+      },
+      {
+       "classId": "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+       "internalClassId": 10,
+       "description": "Roof Condition",
+       "components": [
+        {
+         "classId": "f907e625-26b3-59db-a806-d41f62ce1f1b",
+         "internalClassId": 1049,
+         "description": "Structural Damage",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "abb1f304-ce01-527b-b799-cbfd07551b2c",
+         "internalClassId": 1050,
+         "description": "Roof with Temporary Repair",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+         "internalClassId": 1051,
+         "description": "Roof Ponding",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "526496bf-7344-5024-82d7-77ceb671feb4",
+         "internalClassId": 1052,
+         "description": "Roof Rusting",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+         "internalClassId": 1053,
+         "description": "Tile or Shingle Staining",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+         "internalClassId": 1079,
+         "description": "Missing Roof Tile or Shingle",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+         "internalClassId": 1080,
+         "description": "Roof with Permanent Repair",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+         "internalClassId": 1081,
+         "description": "Zinc Staining",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "8ab218a7-8173-5f1e-a5cb-bb2cd386a73e",
+         "internalClassId": 1139,
+         "description": "Roof Debris",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "2905ba1c-6d96-58bc-9b1b-5911b3ead023",
+         "internalClassId": 1140,
+         "description": "Exposed Roof Deck",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "82b4547b-b8c0-5e9a-84c2-5c7564b4586c",
+         "internalClassId": 1141,
+         "description": "Missing Asphalt shingles",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "94944057-968c-5df3-828b-285091b7e266",
+         "internalClassId": 1142,
+         "description": "Active Ponding",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "319f552f-f4b7-520d-9b16-c8abb394b043",
+         "internalClassId": 1144,
+         "description": "Roof Staining",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "97a6f930-82ae-55f2-b856-635e2250af29",
+         "internalClassId": 1146,
+         "description": "Worn Shingles",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "2322ca41-5d3d-5782-b2b7-1a2ffd0c4b78",
+         "internalClassId": 1147,
+         "description": "Exposed Underlayment",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "8b30838b-af41-5d1d-bdbd-29e682fe3b00",
+         "internalClassId": 1149,
+         "description": "Roof Patching",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      }
+     ],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "isFootprint": true,
+     "belongsToParcel": true
+    },
+    {
+     "id": "53668ae4-3041-55ce-8577-b2b6da173e83",
+     "classId": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+     "internalClassId": 1106,
+     "description": "Building",
+     "confidence": 0.91674805,
+     "parentId": "1013d658-089d-5de5-8e93-b308a2fc0b4a",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27520766854286,
+         40.64609623887845
+        ],
+        [
+         -74.27515134215355,
+         40.64605451891837
+        ],
+        [
+         -74.27523717284203,
+         40.64598786868416
+        ],
+        [
+         -74.27528411149979,
+         40.646022974541026
+        ],
+        [
+         -74.27526332437992,
+         40.6460397642921
+        ],
+        [
+         -74.27527070045471,
+         40.64604637843533
+        ],
+        [
+         -74.27520766854286,
+         40.64609623887845
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.912735,
+     "areaSqm": 66,
+     "areaSqft": 710,
+     "clippedAreaSqm": 9.8,
+     "clippedAreaSqft": 106,
+     "unclippedAreaSqm": 66,
+     "unclippedAreaSqft": 710,
+     "attributes": [
+      {
+       "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+       "internalClassId": 8,
+       "description": "Building 3d attributes",
+       "has3dAttributes": false
+      },
+      {
+       "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
+       "internalClassId": 20,
+       "description": "Building pitch",
+       "available": false
+      },
+      {
+       "classId": "f7628feb-6d70-50ee-bbfd-053b4e685e8f",
+       "internalClassId": 28,
+       "description": "Ground height",
+       "available": false
+      }
+     ],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "5ad70e8d-8171-5aac-b8ad-e50d95bd9505",
+     "classId": "30fc0c55-2b61-569f-b424-44082987ecb9",
+     "internalClassId": 1193,
+     "description": "Medium and High Vegetation with Woody Vegetation",
+     "confidence": 0.9795999,
+     "parentId": "",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27524991333485,
+          40.64598888624549
+         ],
+         [
+          -74.27523650228977,
+          40.645987359903486
+         ],
+         [
+          -74.27522845566273,
+          40.645990921368096
+         ],
+         [
+          -74.27522040903568,
+          40.64599193892938
+         ],
+         [
+          -74.27521772682667,
+          40.64599600917436
+         ],
+         [
+          -74.2752043157816,
+          40.646006693566214
+         ],
+         [
+          -74.27520364522934,
+          40.64600923746879
+         ],
+         [
+          -74.27521102130413,
+          40.64601432527364
+         ],
+         [
+          -74.27521997265846,
+          40.646013856871846
+         ],
+         [
+          -74.27510595339592,
+          40.64609975919786
+         ],
+         [
+          -74.27505923005148,
+          40.64606610671223
+         ],
+         [
+          -74.27506349980831,
+          40.64606367696063
+         ],
+         [
+          -74.27507154643536,
+          40.64606316818055
+         ],
+         [
+          -74.27507422864437,
+          40.64606011549989
+         ],
+         [
+          -74.27507355809212,
+          40.6460580803794
+         ],
+         [
+          -74.27507020533085,
+          40.64605502769853
+         ],
+         [
+          -74.27506886422634,
+          40.64604993989679
+         ],
+         [
+          -74.27506282925606,
+          40.64604586965511
+         ],
+         [
+          -74.27506282925606,
+          40.64604230819343
+         ],
+         [
+          -74.27505947649479,
+          40.64603823795128
+         ],
+         [
+          -74.27506282925606,
+          40.64603315014825
+         ],
+         [
+          -74.27506282925606,
+          40.646021448199804
+         ],
+         [
+          -74.27507221698761,
+          40.64601636039548
+         ],
+         [
+          -74.2750782519579,
+          40.64601534283457
+         ],
+         [
+          -74.27508361637592,
+          40.64601534283457
+         ],
+         [
+          -74.27509434521198,
+          40.6460189042977
+         ],
+         [
+          -74.27510172128677,
+          40.6460189042977
+         ],
+         [
+          -74.2751144617796,
+          40.646013307712714
+         ],
+         [
+          -74.27512250840664,
+          40.64601178137128
+         ],
+         [
+          -74.27512519061565,
+          40.64600872868828
+         ],
+         [
+          -74.27512250840664,
+          40.64600160576077
+         ],
+         [
+          -74.27511714398861,
+          40.645998553077334
+         ],
+         [
+          -74.2751158028841,
+          40.64599346527126
+         ],
+         [
+          -74.27510306239128,
+          40.64598990380679
+         ],
+         [
+          -74.27509903907776,
+          40.64598532478077
+         ],
+         [
+          -74.27510239183903,
+          40.64597718428928
+         ],
+         [
+          -74.27511714398861,
+          40.64596955257761
+         ],
+         [
+          -74.27512250840664,
+          40.64595072768507
+         ],
+         [
+          -74.27511781454086,
+          40.64594716621831
+         ],
+         [
+          -74.275097027421,
+          40.645946148656336
+         ],
+         [
+          -74.27509300410748,
+          40.645944113532366
+         ],
+         [
+          -74.27509166300297,
+          40.645934446692635
+         ],
+         [
+          -74.27509367465973,
+          40.64592783253834
+         ],
+         [
+          -74.27509166300297,
+          40.64592020082102
+         ],
+         [
+          -74.27509568631649,
+          40.64591460422776
+         ],
+         [
+          -74.27509769797325,
+          40.64590493738376
+         ],
+         [
+          -74.27509367465973,
+          40.645902902258534
+         ],
+         [
+          -74.2750896513462,
+          40.645903919821144
+         ],
+         [
+          -74.27507758140564,
+          40.64591816569626
+         ],
+         [
+          -74.27506349980831,
+          40.64592020082102
+         ],
+         [
+          -74.27505210042,
+          40.645928341319454
+         ],
+         [
+          -74.2750481636223,
+          40.64592893872804
+         ],
+         [
+          -74.2751705108166,
+          40.64583599188836
+         ],
+         [
+          -74.27518889307976,
+          40.64583421674557
+         ],
+         [
+          -74.27520096302032,
+          40.64583574309108
+         ],
+         [
+          -74.2752143740654,
+          40.64582862014511
+         ],
+         [
+          -74.27522577345371,
+          40.64582607623563
+         ],
+         [
+          -74.27523784339428,
+          40.64581539181486
+         ],
+         [
+          -74.2752418667078,
+          40.64581437425088
+         ],
+         [
+          -74.27525326609612,
+          40.64581539181486
+         ],
+         [
+          -74.2752593010664,
+          40.64581895328865
+         ],
+         [
+          -74.2752680182457,
+          40.64582098841644
+         ],
+         [
+          -74.27527941763401,
+          40.64582862014511
+         ],
+         [
+          -74.27529148757458,
+          40.645823532326084
+         ],
+         [
+          -74.27530892193317,
+          40.645823532326084
+         ],
+         [
+          -74.27531696856022,
+          40.64581590059684
+         ],
+         [
+          -74.27532970905304,
+          40.64581539181486
+         ],
+         [
+          -74.27533976733685,
+          40.645803689828234
+         ],
+         [
+          -74.27533976733685,
+          40.645796566878836
+         ],
+         [
+          -74.27533574402332,
+          40.645794531750305
+         ],
+         [
+          -74.27532970905304,
+          40.645796566878836
+         ],
+         [
+          -74.27531763911247,
+          40.64579554931457
+         ],
+         [
+          -74.27530825138092,
+          40.645788426364334
+         ],
+         [
+          -74.27529014647007,
+          40.645788935146506
+         ],
+         [
+          -74.27528075873852,
+          40.64579198783956
+         ],
+         [
+          -74.27525393664837,
+          40.64579300540386
+         ],
+         [
+          -74.27523247897625,
+          40.645803689828234
+         ],
+         [
+          -74.27522510290146,
+          40.64581539181486
+         ],
+         [
+          -74.27520163357258,
+          40.64581895328865
+         ],
+         [
+          -74.275186881423,
+          40.645824041108
+         ],
+         [
+          -74.27518636160133,
+          40.64582395008915
+         ],
+         [
+          -74.27532257708374,
+          40.6457204675477
+         ],
+         [
+          -74.27532478920389,
+          40.64571889873498
+         ],
+         [
+          -74.27536729561977,
+          40.64575179403672
+         ],
+         [
+          -74.27536390721798,
+          40.64575179403672
+         ],
+         [
+          -74.27536122500896,
+          40.64575840820845
+         ],
+         [
+          -74.27536524832249,
+          40.645762478467674
+         ],
+         [
+          -74.27536927163601,
+          40.645762987250045
+         ],
+         [
+          -74.27537396550179,
+          40.64576044333809
+         ],
+         [
+          -74.27537396550179,
+          40.64575695579352
+         ],
+         [
+          -74.27546620887651,
+          40.64582834204386
+         ],
+         [
+          -74.27543307084827,
+          40.645853308296424
+         ],
+         [
+          -74.27543096244335,
+          40.64585304167097
+         ],
+         [
+          -74.27542626857758,
+          40.64584490116333
+         ],
+         [
+          -74.27542224526405,
+          40.64584286603627
+         ],
+         [
+          -74.27541419863701,
+          40.6458454099451
+         ],
+         [
+          -74.27539877593517,
+          40.645846936290326
+         ],
+         [
+          -74.27539609372616,
+          40.64585202410756
+         ],
+         [
+          -74.2754027992487,
+          40.645864234867325
+         ],
+         [
+          -74.2754027992487,
+          40.6458713578095
+         ],
+         [
+          -74.27539949231354,
+          40.645878606427395
+         ],
+         [
+          -74.27531079670375,
+          40.64594542986598
+         ],
+         [
+          -74.27530221641064,
+          40.64594563987535
+         ],
+         [
+          -74.27529349923134,
+          40.64595276280884
+         ],
+         [
+          -74.27529349923134,
+          40.6459584618141
+         ],
+         [
+          -74.27528676342887,
+          40.645963536580304
+         ],
+         [
+          -74.27527606487274,
+          40.64596242964591
+         ],
+         [
+          -74.27526734769344,
+          40.64596649989269
+         ],
+         [
+          -74.27526265382767,
+          40.64597514916625
+         ],
+         [
+          -74.27526265382767,
+          40.64598170079901
+         ],
+         [
+          -74.275253924398,
+          40.64598827756768
+         ],
+         [
+          -74.27524991333485,
+          40.64598888624549
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27501052618027,
+          40.64595937696067
+         ],
+         [
+          -74.27500527139138,
+          40.64596152384234
+         ],
+         [
+          -74.27503285589069,
+          40.64594056797122
+         ],
+         [
+          -74.27503131330013,
+          40.64594563987535
+         ],
+         [
+          -74.27501052618027,
+          40.64595937696067
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27499711513519,
+          40.64597718428928
+         ],
+         [
+          -74.2750085145235,
+          40.64598176331586
+         ],
+         [
+          -74.27501991391182,
+          40.64598278087729
+         ],
+         [
+          -74.27502863109112,
+          40.645990921368096
+         ],
+         [
+          -74.27503265440464,
+          40.64600414966355
+         ],
+         [
+          -74.27504740655422,
+          40.64600923746879
+         ],
+         [
+          -74.27504807710648,
+          40.646017377956376
+         ],
+         [
+          -74.27505142986774,
+          40.646023483321414
+         ],
+         [
+          -74.27504673600197,
+          40.64603416770889
+         ],
+         [
+          -74.27504874765873,
+          40.64604586965511
+         ],
+         [
+          -74.27504606544971,
+          40.646050448676974
+         ],
+         [
+          -74.27504874765873,
+          40.64605502769853
+         ],
+         [
+          -74.27504729383017,
+          40.646057509649644
+         ],
+         [
+          -74.27496086497952,
+          40.64599525927589
+         ],
+         [
+          -74.27499770914085,
+          40.64596726886405
+         ],
+         [
+          -74.27499711513519,
+          40.64597718428928
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 600.6,
+     "areaSqft": 6465,
+     "clippedAreaSqm": 600.6,
+     "clippedAreaSqft": 6465,
+     "unclippedAreaSqm": 4042.6,
+     "unclippedAreaSqft": 43514,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "769fcf9f-3fca-50a6-86f0-15c3d885688e",
+     "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+     "internalClassId": 1009,
+     "description": "Metal",
+     "confidence": 0.5488281,
+     "parentId": "4653a926-018a-5d0e-b291-d36231d70795",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27525326609612,
+         40.64584286603627
+        ],
+        [
+         -74.27524857223034,
+         40.64583828700015
+        ],
+        [
+         -74.27524991333485,
+         40.64583218161819
+        ],
+        [
+         -74.27524723112583,
+         40.64583014649073
+        ],
+        [
+         -74.27523784339428,
+         40.64582912892698
+        ],
+        [
+         -74.27523449063301,
+         40.64582607623563
+        ],
+        [
+         -74.27523449063301,
+         40.6458220059803
+        ],
+        [
+         -74.27523985505104,
+         40.64581590059684
+        ],
+        [
+         -74.27524857223034,
+         40.645817935724715
+        ],
+        [
+         -74.27526734769344,
+         40.64581437425088
+        ],
+        [
+         -74.27527472376823,
+         40.64582098841644
+        ],
+        [
+         -74.275276735425,
+         40.64582963770884
+        ],
+        [
+         -74.27527405321598,
+         40.64583370796372
+        ],
+        [
+         -74.27527338266373,
+         40.64584286603627
+        ],
+        [
+         -74.27525326609612,
+         40.64584286603627
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 7.8,
+     "areaSqft": 84,
+     "clippedAreaSqm": 7.8,
+     "clippedAreaSqft": 84,
+     "unclippedAreaSqm": 7.8,
+     "unclippedAreaSqft": 84,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "77d88227-9998-5a2a-acdc-303422018f9e",
+     "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+     "internalClassId": 1016,
+     "description": "Flat (Deprecated)",
+     "confidence": 0.5097656,
+     "parentId": "4653a926-018a-5d0e-b291-d36231d70795",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27523516118526,
+         40.645823532326084
+        ],
+        [
+         -74.27523382008076,
+         40.64582149719836
+        ],
+        [
+         -74.27523918449879,
+         40.645817935724715
+        ],
+        [
+         -74.27524454891682,
+         40.64582098841644
+        ],
+        [
+         -74.27523985505104,
+         40.645824041108
+        ],
+        [
+         -74.27523516118526,
+         40.645823532326084
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 0.3,
+     "areaSqft": 4,
+     "clippedAreaSqm": 0.4,
+     "clippedAreaSqft": 4,
+     "unclippedAreaSqm": 0.3,
+     "unclippedAreaSqft": 4,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "78faf6ab-b50c-5e88-9266-490a8ec3a6aa",
+     "classId": "290897be-078b-4948-97aa-755289a67a29",
+     "internalClassId": 1031,
+     "description": "Concrete Slab",
+     "confidence": 0.7386805,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27538335323334,
+         40.645796566878836
+        ],
+        [
+         -74.27537597715855,
+         40.645797584443095
+        ],
+        [
+         -74.27536927163601,
+         40.64579554931457
+        ],
+        [
+         -74.2753679305315,
+         40.645793514186
+        ],
+        [
+         -74.2753766477108,
+         40.645782320977794
+        ],
+        [
+         -74.27537731826305,
+         40.64577621559067
+        ],
+        [
+         -74.27538268268108,
+         40.64577265411461
+        ],
+        [
+         -74.2753919732421,
+         40.64577089180857
+        ],
+        [
+         -74.27540429598325,
+         40.64578042825807
+        ],
+        [
+         -74.27538335323334,
+         40.645796566878836
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 4.9,
+     "areaSqft": 53,
+     "clippedAreaSqm": 4.9,
+     "clippedAreaSqft": 53,
+     "unclippedAreaSqm": 249,
+     "unclippedAreaSqft": 2680,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "8f801b23-9e7a-56cd-9620-493536444204",
+     "classId": "290897be-078b-4948-97aa-755289a67a29",
+     "internalClassId": 1031,
+     "description": "Concrete Slab",
+     "confidence": 0.5683594,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.2751144617796,
+         40.64595428915163
+        ],
+        [
+         -74.27508898079395,
+         40.64597311404316
+        ],
+        [
+         -74.27508428692818,
+         40.645974640385475
+        ],
+        [
+         -74.27508160471916,
+         40.64597209648159
+        ],
+        [
+         -74.27508763968945,
+         40.645963955988485
+        ],
+        [
+         -74.27510842680931,
+         40.64595123646601
+        ],
+        [
+         -74.27511982619762,
+         40.64594716621831
+        ],
+        [
+         -74.27512384951115,
+         40.645948183780256
+        ],
+        [
+         -74.27512317895889,
+         40.64595276280884
+        ],
+        [
+         -74.2751144617796,
+         40.64595428915163
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 2.9,
+     "areaSqft": 31,
+     "clippedAreaSqm": 2.9,
+     "clippedAreaSqft": 31,
+     "unclippedAreaSqm": 2.9,
+     "unclippedAreaSqft": 31,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "9193f1c8-1944-55b6-a644-eb63c1ca6913",
+     "classId": "68dc5061-5842-4a17-8073-e278a91b607d",
+     "internalClassId": 1028,
+     "description": "Lawn Grass",
+     "confidence": 0.5488281,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27500583231449,
+         40.645973622823945
+        ],
+        [
+         -74.27500180900097,
+         40.6459705701392
+        ],
+        [
+         -74.27500113844872,
+         40.64596548233102
+        ],
+        [
+         -74.27500402544975,
+         40.645962470380894
+        ],
+        [
+         -74.27500821847798,
+         40.64595928494845
+        ],
+        [
+         -74.27501522004604,
+         40.645956833056196
+        ],
+        [
+         -74.27501991391182,
+         40.64595225402791
+        ],
+        [
+         -74.27502728998661,
+         40.64595072768507
+        ],
+        [
+         -74.27503131330013,
+         40.64594767499928
+        ],
+        [
+         -74.27503801882267,
+         40.645936990597974
+        ],
+        [
+         -74.27504539489746,
+         40.645931394006126
+        ],
+        [
+         -74.27505545318127,
+         40.645930376443914
+        ],
+        [
+         -74.2750621587038,
+         40.64592274472688
+        ],
+        [
+         -74.27507221698761,
+         40.64591663935264
+        ],
+        [
+         -74.27507624030113,
+         40.64591613057143
+        ],
+        [
+         -74.27508495748043,
+         40.64590697250893
+        ],
+        [
+         -74.27509166300297,
+         40.64590493738376
+        ],
+        [
+         -74.27509501576424,
+         40.64590544616505
+        ],
+        [
+         -74.27509769797325,
+         40.64590849885277
+        ],
+        [
+         -74.27509635686874,
+         40.64591206032159
+        ],
+        [
+         -74.27508696913719,
+         40.645920709602194
+        ],
+        [
+         -74.27508696913719,
+         40.64592427107037
+        ],
+        [
+         -74.27509032189846,
+         40.64592732375721
+        ],
+        [
+         -74.27509233355522,
+         40.645933429130494
+        ],
+        [
+         -74.275097027421,
+         40.64593546425479
+        ],
+        [
+         -74.27510909736156,
+         40.64593292034939
+        ],
+        [
+         -74.27511915564537,
+         40.64593292034939
+        ],
+        [
+         -74.27512384951115,
+         40.6459364818169
+        ],
+        [
+         -74.27512250840664,
+         40.64594055206526
+        ],
+        [
+         -74.2751158028841,
+         40.645946657437335
+        ],
+        [
+         -74.27510909736156,
+         40.64594920134219
+        ],
+        [
+         -74.27509903907776,
+         40.645957850618004
+        ],
+        [
+         -74.27509166300297,
+         40.645960903303305
+        ],
+        [
+         -74.27508629858494,
+         40.6459573418371
+        ],
+        [
+         -74.27509099245071,
+         40.64594920134219
+        ],
+        [
+         -74.27509032189846,
+         40.645944113532366
+        ],
+        [
+         -74.27508696913719,
+         40.64594156962732
+        ],
+        [
+         -74.27507422864437,
+         40.64593902572217
+        ],
+        [
+         -74.27506819367409,
+         40.645940043284234
+        ],
+        [
+         -74.27505545318127,
+         40.64595123646601
+        ],
+        [
+         -74.27504673600197,
+         40.64595530671346
+        ],
+        [
+         -74.27503868937492,
+         40.64595632427529
+        ],
+        [
+         -74.27503399550915,
+         40.645961412084176
+        ],
+        [
+         -74.27502863109112,
+         40.64596293842676
+        ],
+        [
+         -74.27502259612083,
+         40.64596802623516
+        ],
+        [
+         -74.2750172317028,
+         40.64596904379678
+        ],
+        [
+         -74.27501119673252,
+         40.645973622823945
+        ],
+        [
+         -74.27500583231449,
+         40.645973622823945
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 23.2,
+     "areaSqft": 249,
+     "clippedAreaSqm": 23.2,
+     "clippedAreaSqft": 249,
+     "unclippedAreaSqm": 23.2,
+     "unclippedAreaSqft": 250,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "9f1a9fcd-2a94-5547-b30b-3cc2a56fd628",
+     "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+     "internalClassId": 1009,
+     "description": "Metal",
+     "confidence": 0.5486277,
+     "parentId": "4314ff3d-c0f9-5a24-ab34-98f9a65c0289",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27521638572216,
+          40.64608250182131
+         ],
+         [
+          -74.27520632743835,
+          40.6460855545009
+         ],
+         [
+          -74.2751969397068,
+          40.646079957921536
+         ],
+         [
+          -74.27519090473652,
+          40.646079957921536
+         ],
+         [
+          -74.27518554031849,
+          40.646076905241664
+         ],
+         [
+          -74.27517145872116,
+          40.64606469452081
+         ],
+         [
+          -74.27516341209412,
+          40.64606011549989
+         ],
+         [
+          -74.27515871822834,
+          40.64605451891837
+         ],
+         [
+          -74.27516341209412,
+          40.646049431116595
+         ],
+         [
+          -74.27517481148243,
+          40.646043325753915
+         ],
+         [
+          -74.2751795053482,
+          40.646049431116595
+         ],
+         [
+          -74.27517481148243,
+          40.64605502769853
+         ],
+         [
+          -74.27518084645271,
+          40.64605858915952
+         ],
+         [
+          -74.27518151700497,
+          40.64606316818055
+         ],
+         [
+          -74.27518889307976,
+          40.646065203300886
+         ],
+         [
+          -74.27519895136356,
+          40.64606316818055
+         ],
+         [
+          -74.27520096302032,
+          40.646062150620345
+         ],
+         [
+          -74.27520230412483,
+          40.64605655403898
+         ],
+         [
+          -74.27519828081131,
+          40.646050448676974
+         ],
+         [
+          -74.2752043157816,
+          40.64604739599575
+         ],
+         [
+          -74.2752043157816,
+          40.6460397642921
+         ],
+         [
+          -74.27520766854286,
+          40.64603315014825
+         ],
+         [
+          -74.27521236240864,
+          40.646032641367924
+         ],
+         [
+          -74.27522175014019,
+          40.646036711610414
+         ],
+         [
+          -74.2752244323492,
+          40.64604179941318
+         ],
+         [
+          -74.27522711455822,
+          40.64604281697367
+         ],
+         [
+          -74.27523382008076,
+          40.64603823795128
+         ],
+         [
+          -74.27524589002132,
+          40.64604027307239
+         ],
+         [
+          -74.27524924278259,
+          40.646037220390696
+         ],
+         [
+          -74.27524521946907,
+          40.64603365892856
+         ],
+         [
+          -74.27524656057358,
+          40.64602958868589
+         ],
+         [
+          -74.27524253726006,
+          40.64602551844296
+         ],
+         [
+          -74.27524387836456,
+          40.646021448199804
+         ],
+         [
+          -74.27525259554386,
+          40.64602195698021
+         ],
+         [
+          -74.27525997161865,
+          40.646017886736814
+         ],
+         [
+          -74.27526399493217,
+          40.64601992185854
+         ],
+         [
+          -74.27527002990246,
+          40.64601992185854
+         ],
+         [
+          -74.27527405321598,
+          40.646022974541026
+         ],
+         [
+          -74.27527338266373,
+          40.646026027223336
+         ],
+         [
+          -74.27527070045471,
+          40.64602755356445
+         ],
+         [
+          -74.2752593010664,
+          40.64603009746622
+         ],
+         [
+          -74.27525460720062,
+          40.64603823795128
+         ],
+         [
+          -74.27525460720062,
+          40.64604230819343
+         ],
+         [
+          -74.27524924278259,
+          40.64604434331441
+         ],
+         [
+          -74.27524991333485,
+          40.64604993989679
+         ],
+         [
+          -74.27524656057358,
+          40.646054010138215
+         ],
+         [
+          -74.27524656057358,
+          40.6460580803794
+         ],
+         [
+          -74.27524119615555,
+          40.64606164184024
+         ],
+         [
+          -74.27523918449879,
+          40.646066729641106
+         ],
+         [
+          -74.27523046731949,
+          40.64607130866153
+         ],
+         [
+          -74.27522778511047,
+          40.64607588768166
+         ],
+         [
+          -74.27521906793118,
+          40.64607792280162
+         ],
+         [
+          -74.27521638572216,
+          40.64608250182131
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27523382008076,
+          40.64603162380726
+         ],
+         [
+          -74.27523650228977,
+          40.64603416770889
+         ],
+         [
+          -74.2752331495285,
+          40.64603620283011
+         ],
+         [
+          -74.27523046731949,
+          40.64603365892856
+         ],
+         [
+          -74.27523382008076,
+          40.64603162380726
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 25.6,
+     "areaSqft": 276,
+     "clippedAreaSqm": 0.9,
+     "clippedAreaSqft": 9,
+     "unclippedAreaSqm": 25.6,
+     "unclippedAreaSqft": 276,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "a580f760-6016-59e9-8213-0ecfd2e85a4c",
+     "classId": "eaa83113-44b3-505e-9515-ba8a8d403dd4",
+     "internalClassId": 1107,
+     "description": "Woody Vegetation",
+     "confidence": 0.9795723,
+     "parentId": "",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27524857223034,
+          40.64598888624549
+         ],
+         [
+          -74.27523784339428,
+          40.64598634234213
+         ],
+         [
+          -74.27522107958794,
+          40.64599143014874
+         ],
+         [
+          -74.2752043157816,
+          40.646006693566214
+         ],
+         [
+          -74.27520364522934,
+          40.64600923746879
+         ],
+         [
+          -74.27521102130413,
+          40.64601432527364
+         ],
+         [
+          -74.27521997265846,
+          40.646013856871846
+         ],
+         [
+          -74.27510595339592,
+          40.64609975919786
+         ],
+         [
+          -74.27505923005148,
+          40.64606610671223
+         ],
+         [
+          -74.27506349980831,
+          40.64606367696063
+         ],
+         [
+          -74.27507154643536,
+          40.64606316818055
+         ],
+         [
+          -74.27507422864437,
+          40.64606011549989
+         ],
+         [
+          -74.27507355809212,
+          40.6460580803794
+         ],
+         [
+          -74.27507020533085,
+          40.64605502769853
+         ],
+         [
+          -74.27506886422634,
+          40.64604993989679
+         ],
+         [
+          -74.27506282925606,
+          40.64604586965511
+         ],
+         [
+          -74.27506282925606,
+          40.64604230819343
+         ],
+         [
+          -74.27505947649479,
+          40.64603823795128
+         ],
+         [
+          -74.27506282925606,
+          40.64603315014825
+         ],
+         [
+          -74.27506282925606,
+          40.646021448199804
+         ],
+         [
+          -74.27507221698761,
+          40.64601636039548
+         ],
+         [
+          -74.2750782519579,
+          40.64601534283457
+         ],
+         [
+          -74.27508361637592,
+          40.64601534283457
+         ],
+         [
+          -74.27509434521198,
+          40.6460189042977
+         ],
+         [
+          -74.27510172128677,
+          40.6460189042977
+         ],
+         [
+          -74.2751144617796,
+          40.646013307712714
+         ],
+         [
+          -74.27512250840664,
+          40.64601178137128
+         ],
+         [
+          -74.27512519061565,
+          40.64600872868828
+         ],
+         [
+          -74.27512250840664,
+          40.64600160576077
+         ],
+         [
+          -74.27511714398861,
+          40.645998553077334
+         ],
+         [
+          -74.2751158028841,
+          40.64599346527126
+         ],
+         [
+          -74.27510306239128,
+          40.64598990380679
+         ],
+         [
+          -74.27509903907776,
+          40.64598532478077
+         ],
+         [
+          -74.27510239183903,
+          40.64597718428928
+         ],
+         [
+          -74.27511848509312,
+          40.64596955257761
+         ],
+         [
+          -74.27512519061565,
+          40.645949710123155
+         ],
+         [
+          -74.27512049674988,
+          40.645946148656336
+         ],
+         [
+          -74.275097027421,
+          40.645946148656336
+         ],
+         [
+          -74.27509300410748,
+          40.645944113532366
+         ],
+         [
+          -74.27509166300297,
+          40.645934446692635
+         ],
+         [
+          -74.27509367465973,
+          40.64592783253834
+         ],
+         [
+          -74.27509166300297,
+          40.64592020082102
+         ],
+         [
+          -74.27509501576424,
+          40.64591613057143
+         ],
+         [
+          -74.2750983685255,
+          40.64590493738376
+         ],
+         [
+          -74.27509434521198,
+          40.645902902258534
+         ],
+         [
+          -74.2750896513462,
+          40.645903919821144
+         ],
+         [
+          -74.27507758140564,
+          40.64591816569626
+         ],
+         [
+          -74.27506349980831,
+          40.64592020082102
+         ],
+         [
+          -74.27505210042,
+          40.645928341319454
+         ],
+         [
+          -74.2750481636223,
+          40.64592893872804
+         ],
+         [
+          -74.27517144140263,
+          40.64583528492461
+         ],
+         [
+          -74.27520163357258,
+          40.64583574309108
+         ],
+         [
+          -74.27521370351315,
+          40.64582912892698
+         ],
+         [
+          -74.27522778511047,
+          40.64582556745373
+         ],
+         [
+          -74.27523583173752,
+          40.645817426942756
+         ],
+         [
+          -74.2752418667078,
+          40.64581488303288
+         ],
+         [
+          -74.27524991333485,
+          40.64581488303288
+         ],
+         [
+          -74.27525661885738,
+          40.6458169181608
+         ],
+         [
+          -74.2752593010664,
+          40.64581946207059
+         ],
+         [
+          -74.2752680182457,
+          40.64582149719836
+         ],
+         [
+          -74.27527941763401,
+          40.64582963770884
+         ],
+         [
+          -74.27529416978359,
+          40.645823532326084
+         ],
+         [
+          -74.27530959248543,
+          40.645824041108
+         ],
+         [
+          -74.27531830966473,
+          40.64581590059684
+         ],
+         [
+          -74.27532970905304,
+          40.64581590059684
+         ],
+         [
+          -74.27533976733685,
+          40.645803689828234
+         ],
+         [
+          -74.2753404378891,
+          40.645796058096714
+         ],
+         [
+          -74.27533574402332,
+          40.64579402296817
+         ],
+         [
+          -74.27532970905304,
+          40.645796566878836
+         ],
+         [
+          -74.275321662426,
+          40.645796566878836
+         ],
+         [
+          -74.27531763911247,
+          40.64579554931457
+         ],
+         [
+          -74.27530825138092,
+          40.645788426364334
+         ],
+         [
+          -74.27529014647007,
+          40.645788935146506
+         ],
+         [
+          -74.27528075873852,
+          40.64579198783956
+         ],
+         [
+          -74.27526131272316,
+          40.64579198783956
+         ],
+         [
+          -74.27525192499161,
+          40.645793514186
+         ],
+         [
+          -74.27524723112583,
+          40.64579707566096
+         ],
+         [
+          -74.27523247897625,
+          40.64580318104615
+         ],
+         [
+          -74.2752244323492,
+          40.64581539181486
+         ],
+         [
+          -74.27520163357258,
+          40.64581895328865
+         ],
+         [
+          -74.275186881423,
+          40.645824041108
+         ],
+         [
+          -74.27518636160133,
+          40.64582395008915
+         ],
+         [
+          -74.27532257708374,
+          40.6457204675477
+         ],
+         [
+          -74.27532478920389,
+          40.64571889873498
+         ],
+         [
+          -74.275364318175,
+          40.64574948982117
+         ],
+         [
+          -74.27536122500896,
+          40.64575840820845
+         ],
+         [
+          -74.27536524832249,
+          40.645762478467674
+         ],
+         [
+          -74.27537597715855,
+          40.645762987250045
+         ],
+         [
+          -74.27537947373538,
+          40.645761218561915
+         ],
+         [
+          -74.27546620887651,
+          40.64582834204386
+         ],
+         [
+          -74.27543307084827,
+          40.645853308296424
+         ],
+         [
+          -74.27543096244335,
+          40.64585304167097
+         ],
+         [
+          -74.27542626857758,
+          40.64584490116333
+         ],
+         [
+          -74.27542224526405,
+          40.64584286603627
+         ],
+         [
+          -74.27541419863701,
+          40.6458454099451
+         ],
+         [
+          -74.27539877593517,
+          40.645846936290326
+         ],
+         [
+          -74.27539609372616,
+          40.64585202410756
+         ],
+         [
+          -74.2754027992487,
+          40.645864234867325
+         ],
+         [
+          -74.2754027992487,
+          40.6458713578095
+         ],
+         [
+          -74.27539949231354,
+          40.645878606427395
+         ],
+         [
+          -74.27531104071662,
+          40.64594524602622
+         ],
+         [
+          -74.27530221641064,
+          40.64594563987535
+         ],
+         [
+          -74.27529349923134,
+          40.64595276280884
+         ],
+         [
+          -74.27529349923134,
+          40.6459584618141
+         ],
+         [
+          -74.27528676342887,
+          40.645963536580304
+         ],
+         [
+          -74.27527606487274,
+          40.64596242964591
+         ],
+         [
+          -74.27526734769344,
+          40.64596649989269
+         ],
+         [
+          -74.27526265382767,
+          40.64597514916625
+         ],
+         [
+          -74.27526265382767,
+          40.64598170079901
+         ],
+         [
+          -74.27525409866695,
+          40.645988146273126
+         ],
+         [
+          -74.27524857223034,
+          40.64598888624549
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27501052618027,
+          40.64595937696067
+         ],
+         [
+          -74.27500527139138,
+          40.64596152384234
+         ],
+         [
+          -74.27503285589069,
+          40.64594056797122
+         ],
+         [
+          -74.27503131330013,
+          40.64594563987535
+         ],
+         [
+          -74.27501052618027,
+          40.64595937696067
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27499711513519,
+          40.64597718428928
+         ],
+         [
+          -74.27500784397125,
+          40.64598176331586
+         ],
+         [
+          -74.27501991391182,
+          40.64598278087729
+         ],
+         [
+          -74.27502863109112,
+          40.645990921368096
+         ],
+         [
+          -74.27503265440464,
+          40.64600414966355
+         ],
+         [
+          -74.27504740655422,
+          40.64600923746879
+         ],
+         [
+          -74.27505008876324,
+          40.646029079905546
+         ],
+         [
+          -74.27504673600197,
+          40.64603416770889
+         ],
+         [
+          -74.27504874765873,
+          40.64604586965511
+         ],
+         [
+          -74.27504606544971,
+          40.646050448676974
+         ],
+         [
+          -74.27504874765873,
+          40.64605502769853
+         ],
+         [
+          -74.27504729383017,
+          40.646057509649644
+         ],
+         [
+          -74.27496086497952,
+          40.64599525927589
+         ],
+         [
+          -74.27499770914085,
+          40.64596726886405
+         ],
+         [
+          -74.27499711513519,
+          40.64597718428928
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 598.3,
+     "areaSqft": 6440,
+     "clippedAreaSqm": 598.3,
+     "clippedAreaSqft": 6440,
+     "unclippedAreaSqm": 4011,
+     "unclippedAreaSqft": 43174,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "a96247a8-10c4-5c9b-9f50-d8ce3207eb32",
+     "classId": "dfd8181b-80c9-4234-9d05-0eef927e3aca",
+     "internalClassId": 1025,
+     "description": "Medium and High Vegetation (>2m)",
+     "confidence": 0.9775801,
+     "parentId": "",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27516676485538,
+          40.646053501358054
+         ],
+         [
+          -74.27516274154186,
+          40.6460555364787
+         ],
+         [
+          -74.2751593102576,
+          40.64605956003831
+         ],
+         [
+          -74.27510595339592,
+          40.64609975919786
+         ],
+         [
+          -74.27505859195557,
+          40.64606564712369
+         ],
+         [
+          -74.27506282925606,
+          40.64606418574071
+         ],
+         [
+          -74.27507422864437,
+          40.64606367696063
+         ],
+         [
+          -74.27507691085339,
+          40.64605757159927
+         ],
+         [
+          -74.27507422864437,
+          40.646050448676974
+         ],
+         [
+          -74.27506886422634,
+          40.64604739599575
+         ],
+         [
+          -74.27506752312183,
+          40.64604179941318
+         ],
+         [
+          -74.27506282925606,
+          40.646038746731556
+         ],
+         [
+          -74.27506349980831,
+          40.646029079905546
+         ],
+         [
+          -74.27507422864437,
+          40.646020430638956
+         ],
+         [
+          -74.27509568631649,
+          40.646020430638956
+         ],
+         [
+          -74.27510507404804,
+          40.6460189042977
+         ],
+         [
+          -74.27511513233185,
+          40.64601381649318
+         ],
+         [
+          -74.27512317895889,
+          40.64601229015175
+         ],
+         [
+          -74.27512586116791,
+          40.64600923746879
+         ],
+         [
+          -74.27512250840664,
+          40.64600160576077
+         ],
+         [
+          -74.27511714398861,
+          40.645998044296746
+         ],
+         [
+          -74.2751158028841,
+          40.645992956490645
+         ],
+         [
+          -74.27511312067509,
+          40.645990921368096
+         ],
+         [
+          -74.27510641515255,
+          40.64598990380679
+         ],
+         [
+          -74.27510172128677,
+          40.64598481600009
+         ],
+         [
+          -74.27510507404804,
+          40.64597667550852
+         ],
+         [
+          -74.27511714398861,
+          40.64596955257761
+         ],
+         [
+          -74.27512250840664,
+          40.64595072768507
+         ],
+         [
+          -74.27511982619762,
+          40.64594767499928
+         ],
+         [
+          -74.2750983685255,
+          40.645943604751366
+         ],
+         [
+          -74.27509300410748,
+          40.64593851694111
+         ],
+         [
+          -74.27509367465973,
+          40.64592732375721
+         ],
+         [
+          -74.27509166300297,
+          40.645922235945726
+         ],
+         [
+          -74.2750983685255,
+          40.64590748129021
+         ],
+         [
+          -74.27509769797325,
+          40.64590493738376
+         ],
+         [
+          -74.27509367465973,
+          40.645902902258534
+         ],
+         [
+          -74.27508898079395,
+          40.645903919821144
+         ],
+         [
+          -74.27507758140564,
+          40.64591714813384
+         ],
+         [
+          -74.27506053001765,
+          40.64591954401022
+         ],
+         [
+          -74.2751705108166,
+          40.64583599188836
+         ],
+         [
+          -74.27518889307976,
+          40.64583421674557
+         ],
+         [
+          -74.27520096302032,
+          40.64583574309108
+         ],
+         [
+          -74.2752143740654,
+          40.64582862014511
+         ],
+         [
+          -74.27522577345371,
+          40.64582607623563
+         ],
+         [
+          -74.27523784339428,
+          40.64581539181486
+         ],
+         [
+          -74.2752418667078,
+          40.64581437425088
+         ],
+         [
+          -74.27525326609612,
+          40.64581539181486
+         ],
+         [
+          -74.2752593010664,
+          40.64581895328865
+         ],
+         [
+          -74.2752680182457,
+          40.64582098841644
+         ],
+         [
+          -74.27527941763401,
+          40.64582862014511
+         ],
+         [
+          -74.27529148757458,
+          40.645823532326084
+         ],
+         [
+          -74.27530892193317,
+          40.645823532326084
+         ],
+         [
+          -74.27531696856022,
+          40.64581590059684
+         ],
+         [
+          -74.27532970905304,
+          40.64581539181486
+         ],
+         [
+          -74.27533976733685,
+          40.64580419861029
+         ],
+         [
+          -74.27533976733685,
+          40.64579554931457
+         ],
+         [
+          -74.27533574402332,
+          40.645793514186
+         ],
+         [
+          -74.2753303796053,
+          40.64579504053244
+         ],
+         [
+          -74.27532099187374,
+          40.645794531750305
+         ],
+         [
+          -74.27530892193317,
+          40.64578639123554
+         ],
+         [
+          -74.27528813481331,
+          40.645788426364334
+         ],
+         [
+          -74.27527941763401,
+          40.64579147905737
+         ],
+         [
+          -74.27525393664837,
+          40.64579300540386
+         ],
+         [
+          -74.27523247897625,
+          40.645803689828234
+         ],
+         [
+          -74.27522510290146,
+          40.64581539181486
+         ],
+         [
+          -74.27520096302032,
+          40.64581895328865
+         ],
+         [
+          -74.27518956363201,
+          40.645823532326084
+         ],
+         [
+          -74.27518728997856,
+          40.64582324480343
+         ],
+         [
+          -74.27532257708374,
+          40.6457204675477
+         ],
+         [
+          -74.27532478920389,
+          40.64571889873498
+         ],
+         [
+          -74.27536729561977,
+          40.64575179403672
+         ],
+         [
+          -74.27536390721798,
+          40.64575179403672
+         ],
+         [
+          -74.27536122500896,
+          40.64575993455569
+         ],
+         [
+          -74.27536457777023,
+          40.645762478467674
+         ],
+         [
+          -74.27536927163601,
+          40.645762987250045
+         ],
+         [
+          -74.27537396550179,
+          40.64576044333809
+         ],
+         [
+          -74.27537396550179,
+          40.64575695579352
+         ],
+         [
+          -74.27546620887651,
+          40.64582834204386
+         ],
+         [
+          -74.27543379538542,
+          40.645852762428774
+         ],
+         [
+          -74.2754316329956,
+          40.64585202410756
+         ],
+         [
+          -74.27542693912983,
+          40.64584490116333
+         ],
+         [
+          -74.2754229158163,
+          40.64584286603627
+         ],
+         [
+          -74.2754128575325,
+          40.6458454099451
+         ],
+         [
+          -74.27539877593517,
+          40.645846427508594
+         ],
+         [
+          -74.2753954231739,
+          40.645851006544156
+         ],
+         [
+          -74.2754027992487,
+          40.64586779633851
+         ],
+         [
+          -74.27539944648743,
+          40.64587746318789
+         ],
+         [
+          -74.27539638515542,
+          40.645880947366145
+         ],
+         [
+          -74.275311037313,
+          40.645945248590515
+         ],
+         [
+          -74.27530355751514,
+          40.645944113532366
+         ],
+         [
+          -74.27529484033585,
+          40.64594767499928
+         ],
+         [
+          -74.27528411149979,
+          40.645957850618004
+         ],
+         [
+          -74.27527539432049,
+          40.645958868179775
+         ],
+         [
+          -74.27526466548443,
+          40.645964973550164
+         ],
+         [
+          -74.27526198327541,
+          40.64596904379678
+         ],
+         [
+          -74.27526256165257,
+          40.64598177024391
+         ],
+         [
+          -74.27525424478972,
+          40.64598803618396
+         ],
+         [
+          -74.27525259554386,
+          40.64598837746483
+         ],
+         [
+          -74.27523650228977,
+          40.645987359903486
+         ],
+         [
+          -74.27522845566273,
+          40.645990921368096
+         ],
+         [
+          -74.27522040903568,
+          40.64599193892938
+         ],
+         [
+          -74.27520297467709,
+          40.64600872868828
+         ],
+         [
+          -74.27520498633385,
+          40.64601229015175
+         ],
+         [
+          -74.27521102130413,
+          40.64601585161503
+         ],
+         [
+          -74.2752179397976,
+          40.646015388433035
+         ],
+         [
+          -74.27516730980518,
+          40.64605353316417
+         ],
+         [
+          -74.27516676485538,
+          40.646053501358054
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27502930164337,
+          40.64594462231337
+         ],
+         [
+          -74.27502514929651,
+          40.645946422650425
+         ],
+         [
+          -74.27503037330641,
+          40.64594245398393
+         ],
+         [
+          -74.27502930164337,
+          40.64594462231337
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27499711513519,
+          40.64597718428928
+         ],
+         [
+          -74.2750085145235,
+          40.64598176331586
+         ],
+         [
+          -74.27501991391182,
+          40.64598278087729
+         ],
+         [
+          -74.27502863109112,
+          40.645990921368096
+         ],
+         [
+          -74.27503265440464,
+          40.64600414966355
+         ],
+         [
+          -74.27504673600197,
+          40.6460097462493
+         ],
+         [
+          -74.27505075931549,
+          40.646026027223336
+         ],
+         [
+          -74.27504673600197,
+          40.64603416770889
+         ],
+         [
+          -74.27504807710648,
+          40.64604637843533
+         ],
+         [
+          -74.27504539489746,
+          40.64604993989679
+         ],
+         [
+          -74.27504673600197,
+          40.64605706281914
+         ],
+         [
+          -74.27504671679816,
+          40.64605709404238
+         ],
+         [
+          -74.27496086497952,
+          40.64599525927589
+         ],
+         [
+          -74.27499765748537,
+          40.64596730810658
+         ],
+         [
+          -74.27499711513519,
+          40.64597718428928
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 591.3,
+     "areaSqft": 6365,
+     "clippedAreaSqm": 591.3,
+     "clippedAreaSqft": 6365,
+     "unclippedAreaSqm": 3470.3,
+     "unclippedAreaSqft": 37354,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "aba3605d-75f8-5a43-af1d-57bdd524b24a",
+     "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+     "internalClassId": 1014,
+     "description": "Gable",
+     "confidence": 0.6053618,
+     "parentId": "4314ff3d-c0f9-5a24-ab34-98f9a65c0289",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27519761025906,
+          40.64608097548145
+         ],
+         [
+          -74.27520632743835,
+          40.64608097548145
+         ],
+         [
+          -74.2752143740654,
+          40.646084028161134
+         ],
+         [
+          -74.2752157151699,
+          40.64608657206075
+         ],
+         [
+          -74.27521102130413,
+          40.646091659859714
+         ],
+         [
+          -74.27520632743835,
+          40.64609267741945
+         ],
+         [
+          -74.2751955986023,
+          40.64608657206075
+         ],
+         [
+          -74.27519492805004,
+          40.646083010601245
+         ],
+         [
+          -74.27519761025906,
+          40.64608097548145
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27526399493217,
+          40.646036711610414
+         ],
+         [
+          -74.27526399493217,
+          40.646038746731556
+         ],
+         [
+          -74.27526332437992,
+          40.6460397642921
+         ],
+         [
+          -74.27526466548443,
+          40.646040781852655
+         ],
+         [
+          -74.27526533603668,
+          40.64604688721554
+         ],
+         [
+          -74.27525192499161,
+          40.64605655403898
+         ],
+         [
+          -74.27524387836456,
+          40.64606571208095
+         ],
+         [
+          -74.27523650228977,
+          40.64606876476134
+         ],
+         [
+          -74.27523247897625,
+          40.646069273541386
+         ],
+         [
+          -74.27522979676723,
+          40.64606774720122
+         ],
+         [
+          -74.27522979676723,
+          40.646062150620345
+         ],
+         [
+          -74.27523247897625,
+          40.64605858915952
+         ],
+         [
+          -74.27524723112583,
+          40.6460555364787
+         ],
+         [
+          -74.2752505838871,
+          40.64604739599575
+         ],
+         [
+          -74.27524991333485,
+          40.64604434331441
+         ],
+         [
+          -74.27524387836456,
+          40.64604281697367
+         ],
+         [
+          -74.27523784339428,
+          40.646036711610414
+         ],
+         [
+          -74.2752331495285,
+          40.646038746731556
+         ],
+         [
+          -74.27522644400597,
+          40.64603823795128
+         ],
+         [
+          -74.27522107958794,
+          40.646043325753915
+         ],
+         [
+          -74.27521236240864,
+          40.64604536087487
+         ],
+         [
+          -74.27521236240864,
+          40.646049431116595
+         ],
+         [
+          -74.27520632743835,
+          40.646054010138215
+         ],
+         [
+          -74.27520297467709,
+          40.64606062428001
+         ],
+         [
+          -74.27520364522934,
+          40.64606622086102
+         ],
+         [
+          -74.27519962191582,
+          40.646069782321426
+         ],
+         [
+          -74.27519962191582,
+          40.646074361341675
+         ],
+         [
+          -74.2751955986023,
+          40.64607741402164
+         ],
+         [
+          -74.27519224584103,
+          40.646075378901664
+         ],
+         [
+          -74.27519224584103,
+          40.64607029110146
+         ],
+         [
+          -74.27518755197525,
+          40.64607029110146
+         ],
+         [
+          -74.27518486976624,
+          40.64607232622161
+         ],
+         [
+          -74.2751781642437,
+          40.646070799881514
+         ],
+         [
+          -74.27515804767609,
+          40.6460580803794
+         ],
+         [
+          -74.27515737712383,
+          40.64605451891837
+         ],
+         [
+          -74.27516743540764,
+          40.646047904775976
+         ],
+         [
+          -74.27518956363201,
+          40.64602704478409
+         ],
+         [
+          -74.27520632743835,
+          40.646016869175924
+         ],
+         [
+          -74.27521169185638,
+          40.64601025502979
+         ],
+         [
+          -74.27522107958794,
+          40.64600465844409
+         ],
+         [
+          -74.27522242069244,
+          40.64600109698021
+         ],
+         [
+          -74.27523382008076,
+          40.64599193892938
+         ],
+         [
+          -74.27524253726006,
+          40.645992956490645
+         ],
+         [
+          -74.27524521946907,
+          40.645996517954956
+         ],
+         [
+          -74.27526533603668,
+          40.6460097462493
+         ],
+         [
+          -74.27526600658894,
+          40.64601229015175
+         ],
+         [
+          -74.27527606487274,
+          40.646020430638956
+         ],
+         [
+          -74.27527740597725,
+          40.6460224657606
+         ],
+         [
+          -74.275276735425,
+          40.64602653600373
+         ],
+         [
+          -74.27527204155922,
+          40.64602958868589
+         ],
+         [
+          -74.27527070045471,
+          40.64603315014825
+         ],
+         [
+          -74.27526399493217,
+          40.646036711610414
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 44.2,
+     "areaSqft": 475,
+     "clippedAreaSqm": 6.7,
+     "clippedAreaSqft": 72,
+     "unclippedAreaSqm": 44.2,
+     "unclippedAreaSqft": 475,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "ce66363a-4c68-5bb8-9a77-c1fb0fd0905e",
+     "classId": "68dc5061-5842-4a17-8073-e278a91b607d",
+     "internalClassId": 1028,
+     "description": "Lawn Grass",
+     "confidence": 0.7246094,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27538871765137,
+         40.645770110203024
+        ],
+        [
+         -74.27538067102432,
+         40.645770110203024
+        ],
+        [
+         -74.27537195384502,
+         40.64577367167922
+        ],
+        [
+         -74.275366589427,
+         40.64577265411461
+        ],
+        [
+         -74.27536323666573,
+         40.64576756629135
+        ],
+        [
+         -74.27535451948643,
+         40.64576095212049
+        ],
+        [
+         -74.2753504961729,
+         40.645751285254235
+        ],
+        [
+         -74.27534312009811,
+         40.64574416229926
+        ],
+        [
+         -74.2753417789936,
+         40.64573653056094
+        ],
+        [
+         -74.27533909678459,
+         40.645733477865356
+        ],
+        [
+         -74.27532769739628,
+         40.645728898821744
+        ],
+        [
+         -74.27531495690346,
+         40.64573093395229
+        ],
+        [
+         -74.27530923928201,
+         40.64573060024037
+        ],
+        [
+         -74.27532257708374,
+         40.6457204675477
+        ],
+        [
+         -74.27532478920389,
+         40.64571889873498
+        ],
+        [
+         -74.27539028917914,
+         40.64576958852863
+        ],
+        [
+         -74.27538871765137,
+         40.645770110203024
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 7.9,
+     "areaSqft": 85,
+     "clippedAreaSqm": 7.9,
+     "clippedAreaSqft": 85,
+     "unclippedAreaSqm": 136.3,
+     "unclippedAreaSqft": 1467,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "d18b0e3f-4003-560a-870d-0feb714e9cb7",
+     "classId": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalClassId": 1011,
+     "description": "Building (Deprecated)",
+     "confidence": 0.8248291,
+     "parentId": "1013d658-089d-5de5-8e93-b308a2fc0b4a",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27523717284203,
+         40.64598786868416
+        ],
+        [
+         -74.27526734769344,
+         40.64601076381029
+        ],
+        [
+         -74.27528008818626,
+         40.64602551844296
+        ],
+        [
+         -74.27526332437992,
+         40.6460397642921
+        ],
+        [
+         -74.2752693593502,
+         40.64604536087487
+        ],
+        [
+         -74.27520766854286,
+         40.64609623887845
+        ],
+        [
+         -74.27515335381031,
+         40.64605451891837
+        ],
+        [
+         -74.27523717284203,
+         40.64598786868416
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.93591,
+     "areaSqm": 63.6,
+     "areaSqft": 684,
+     "clippedAreaSqm": 9.1,
+     "clippedAreaSqft": 98,
+     "unclippedAreaSqm": 63.6,
+     "unclippedAreaSqft": 684,
+     "attributes": [
+      {
+       "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+       "internalClassId": 8,
+       "description": "Building 3d attributes",
+       "has3dAttributes": false
+      },
+      {
+       "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
+       "internalClassId": 20,
+       "description": "Building pitch",
+       "available": false
+      },
+      {
+       "classId": "f7628feb-6d70-50ee-bbfd-053b4e685e8f",
+       "internalClassId": 28,
+       "description": "Ground height",
+       "available": false
+      }
+     ],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "e6bf1a26-7086-5ef8-a53b-85acf95d8f9a",
+     "classId": "68dc5061-5842-4a17-8073-e278a91b607d",
+     "internalClassId": 1028,
+     "description": "Lawn Grass",
+     "confidence": 0.5097656,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27507221698761,
+         40.64598939502615
+        ],
+        [
+         -74.27507691085339,
+         40.64599346527126
+        ],
+        [
+         -74.27507154643536,
+         40.64599702673555
+        ],
+        [
+         -74.27506685256958,
+         40.645992956490645
+        ],
+        [
+         -74.27507221698761,
+         40.64598939502615
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 0.4,
+     "areaSqft": 4,
+     "clippedAreaSqm": 0.4,
+     "clippedAreaSqft": 4,
+     "unclippedAreaSqm": 0.4,
+     "unclippedAreaSqft": 4,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "e84ab011-74c8-5ccf-ae93-2a0db16b9f7c",
+     "classId": "290897be-078b-4948-97aa-755289a67a29",
+     "internalClassId": 1031,
+     "description": "Concrete Slab",
+     "confidence": 0.5488281,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27507288753986,
+         40.64600516722462
+        ],
+        [
+         -74.27506685256958,
+         40.646005676005174
+        ],
+        [
+         -74.27505478262901,
+         40.645996517954956
+        ],
+        [
+         -74.2750534415245,
+         40.645992447710015
+        ],
+        [
+         -74.2750608175993,
+         40.645986851122814
+        ],
+        [
+         -74.27506417036057,
+         40.645986851122814
+        ],
+        [
+         -74.27506551146507,
+         40.64598888624549
+        ],
+        [
+         -74.27506282925606,
+         40.645992447710015
+        ],
+        [
+         -74.27506349980831,
+         40.64599499161312
+        ],
+        [
+         -74.27506752312183,
+         40.64599957063849
+        ],
+        [
+         -74.27507221698761,
+         40.64600160576077
+        ],
+        [
+         -74.27507288753986,
+         40.64600516722462
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 1.5,
+     "areaSqft": 16,
+     "clippedAreaSqm": 1.5,
+     "clippedAreaSqft": 16,
+     "unclippedAreaSqm": 1.5,
+     "unclippedAreaSqft": 16,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "e997d6e1-7ff1-5ee5-ad8c-df9b2b1eaf20",
+     "classId": "68dc5061-5842-4a17-8073-e278a91b607d",
+     "internalClassId": 1028,
+     "description": "Lawn Grass",
+     "confidence": 0.8448462,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27540682256222,
+         40.645867287556925
+        ],
+        [
+         -74.2754041403532,
+         40.645861182177605
+        ],
+        [
+         -74.27541352808475,
+         40.64585253288925
+        ],
+        [
+         -74.27541553974152,
+         40.645843374818064
+        ],
+        [
+         -74.27541889250278,
+         40.64584083090914
+        ],
+        [
+         -74.27542760968208,
+         40.645840322127356
+        ],
+        [
+         -74.27543297410011,
+         40.64583472552741
+        ],
+        [
+         -74.27543431520462,
+         40.64582963770884
+        ],
+        [
+         -74.2754316329956,
+         40.6458204796345
+        ],
+        [
+         -74.27542693912983,
+         40.6458169181608
+        ],
+        [
+         -74.27542358636856,
+         40.64580877764874
+        ],
+        [
+         -74.27541889250278,
+         40.64580623373854
+        ],
+        [
+         -74.2754128575325,
+         40.64580623373854
+        ],
+        [
+         -74.27540883421898,
+         40.64580267226407
+        ],
+        [
+         -74.27540548145771,
+         40.645802163482
+        ],
+        [
+         -74.27540011703968,
+         40.6457980932252
+        ],
+        [
+         -74.27539944648743,
+         40.64579300540386
+        ],
+        [
+         -74.2754041403532,
+         40.64578639123554
+        ],
+        [
+         -74.27540841167165,
+         40.64578361334929
+        ],
+        [
+         -74.27546620887651,
+         40.64582834204386
+        ],
+        [
+         -74.2754024748138,
+         40.6458763594061
+        ],
+        [
+         -74.27540682256222,
+         40.645867287556925
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 17.7,
+     "areaSqft": 191,
+     "clippedAreaSqm": 17.7,
+     "clippedAreaSqft": 191,
+     "unclippedAreaSqm": 1062.2,
+     "unclippedAreaSqft": 11434,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "f100455d-14dc-5029-b091-bd07c6308385",
+     "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+     "internalClassId": 1045,
+     "description": "Tree Overhang",
+     "confidence": 0.9785156,
+     "parentId": "4653a926-018a-5d0e-b291-d36231d70795",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27532233297825,
+         40.645880515876875
+        ],
+        [
+         -74.27522778511047,
+         40.645841339690925
+        ],
+        [
+         -74.27523247897625,
+         40.6458362518729
+        ],
+        [
+         -74.27521973848343,
+         40.64582760258133
+        ],
+        [
+         -74.27522577345371,
+         40.64582607623563
+        ],
+        [
+         -74.27523784339428,
+         40.64581539181486
+        ],
+        [
+         -74.2752418667078,
+         40.64581437425088
+        ],
+        [
+         -74.27525326609612,
+         40.64581539181486
+        ],
+        [
+         -74.2752593010664,
+         40.64581895328865
+        ],
+        [
+         -74.2752680182457,
+         40.64582098841644
+        ],
+        [
+         -74.27527941763401,
+         40.64582862014511
+        ],
+        [
+         -74.27529148757458,
+         40.645823532326084
+        ],
+        [
+         -74.27530892193317,
+         40.645823532326084
+        ],
+        [
+         -74.27531696856022,
+         40.64581590059684
+        ],
+        [
+         -74.27531830966473,
+         40.64581590059684
+        ],
+        [
+         -74.27536323666573,
+         40.64584998898072
+        ],
+        [
+         -74.27532233297825,
+         40.645880515876875
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 47.4,
+     "areaSqft": 510,
+     "clippedAreaSqm": 47.5,
+     "clippedAreaSqft": 512,
+     "unclippedAreaSqm": 47.4,
+     "unclippedAreaSqft": 510,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "fd2347bd-a7b0-5e71-88f4-2be550899dbb",
+     "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+     "internalClassId": 1045,
+     "description": "Tree Overhang",
+     "confidence": 0.9785156,
+     "parentId": "4314ff3d-c0f9-5a24-ab34-98f9a65c0289",
+     "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+       [
+        [
+         [
+          -74.27523583173752,
+          40.646066729641106
+         ],
+         [
+          -74.27523784339428,
+          40.64607130866153
+         ],
+         [
+          -74.27520766854286,
+          40.64609623887845
+         ],
+         [
+          -74.27519492805004,
+          40.64608657206075
+         ],
+         [
+          -74.27519895136356,
+          40.64608657206075
+         ],
+         [
+          -74.2752056568861,
+          40.64608809840049
+         ],
+         [
+          -74.27521035075188,
+          40.64608606328084
+         ],
+         [
+          -74.27521102130413,
+          40.646070799881514
+         ],
+         [
+          -74.27521906793118,
+          40.64606113306014
+         ],
+         [
+          -74.2752244323492,
+          40.64606113306014
+         ],
+         [
+          -74.27523583173752,
+          40.646066729641106
+         ]
+        ]
+       ],
+       [
+        [
+         [
+          -74.27516676485538,
+          40.646053501358054
+         ],
+         [
+          -74.27516274154186,
+          40.6460555364787
+         ],
+         [
+          -74.2751593887806,
+          40.64605909793967
+         ],
+         [
+          -74.27515335381031,
+          40.64605451891837
+         ],
+         [
+          -74.2752056568861,
+          40.64601279893223
+         ],
+         [
+          -74.27521102130413,
+          40.64601585161503
+         ],
+         [
+          -74.27523382008076,
+          40.64601432527364
+         ],
+         [
+          -74.27524589002132,
+          40.64601941307812
+         ],
+         [
+          -74.27525393664837,
+          40.64602653600373
+         ],
+         [
+          -74.27525661885738,
+          40.646032641367924
+         ],
+         [
+          -74.27525594830513,
+          40.646037729170985
+         ],
+         [
+          -74.27523918449879,
+          40.64604739599575
+         ],
+         [
+          -74.27522912621498,
+          40.64604993989679
+         ],
+         [
+          -74.27522040903568,
+          40.64605502769853
+         ],
+         [
+          -74.27519828081131,
+          40.64605451891837
+         ],
+         [
+          -74.27519157528877,
+          40.64605757159927
+         ],
+         [
+          -74.27518486976624,
+          40.6460580803794
+         ],
+         [
+          -74.2751781642437,
+          40.64605655403898
+         ],
+         [
+          -74.27517548203468,
+          40.646054010138215
+         ],
+         [
+          -74.27516676485538,
+          40.646053501358054
+         ]
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 31.3,
+     "areaSqft": 337,
+     "clippedAreaSqm": 5.5,
+     "clippedAreaSqft": 59,
+     "unclippedAreaSqm": 31.3,
+     "unclippedAreaSqft": 337,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": false
+    },
+    {
+     "id": "fd789694-8716-5f54-a870-859f2eb77fbe",
+     "classId": "68dc5061-5842-4a17-8073-e278a91b607d",
+     "internalClassId": 1028,
+     "description": "Lawn Grass",
+     "confidence": 0.8613281,
+     "parentId": "",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27517883479595,
+         40.64583116405446
+        ],
+        [
+         -74.27517615258694,
+         40.64583319918188
+        ],
+        [
+         -74.27517418689426,
+         40.64583319918188
+        ],
+        [
+         -74.2751785883978,
+         40.6458298553713
+        ],
+        [
+         -74.27517883479595,
+         40.64583116405446
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 0,
+     "areaSqft": 1,
+     "clippedAreaSqm": 0,
+     "clippedAreaSqft": 1,
+     "unclippedAreaSqm": 526.9,
+     "unclippedAreaSqft": 5671,
+     "attributes": [],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "fef3de13-c809-53e8-9179-6d9359dc220f",
+     "classId": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+     "internalClassId": 1106,
+     "description": "Building",
+     "confidence": 0.7871094,
+     "parentId": "37bef180-5668-522e-9028-a3e6291d8b7b",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.27530154585838,
+         40.64588967394301
+        ],
+        [
+         -74.27522778511047,
+         40.645841339690925
+        ],
+        [
+         -74.27523247897625,
+         40.6458362518729
+        ],
+        [
+         -74.27521772682667,
+         40.64582607623563
+        ],
+        [
+         -74.27525863051414,
+         40.64579249662171
+        ],
+        [
+         -74.27527539432049,
+         40.64580521617444
+        ],
+        [
+         -74.27529148757458,
+         40.64579554931457
+        ],
+        [
+         -74.2753578722477,
+         40.6458454099451
+        ],
+        [
+         -74.27535451948643,
+         40.64584795385381
+        ],
+        [
+         -74.27535854279995,
+         40.645851006544156
+        ],
+        [
+         -74.27530154585838,
+         40.64588967394301
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.74707,
+     "areaSqm": 68.9,
+     "areaSqft": 742,
+     "clippedAreaSqm": 69,
+     "clippedAreaSqft": 742,
+     "unclippedAreaSqm": 68.9,
+     "unclippedAreaSqft": 742,
+     "attributes": [
+      {
+       "classId": "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+       "internalClassId": 8,
+       "description": "Building 3d attributes",
+       "has3dAttributes": false
+      },
+      {
+       "classId": "f5efb75e-22bb-5b53-93f1-892501868627",
+       "internalClassId": 20,
+       "description": "Building pitch",
+       "available": false
+      },
+      {
+       "classId": "f7628feb-6d70-50ee-bbfd-053b4e685e8f",
+       "internalClassId": 28,
+       "description": "Ground height",
+       "available": false
+      }
+     ],
+     "surveyDate": "2026-10-08",
+     "meshDate": "",
+     "belongsToParcel": true
+    }
+   ],
+   "taskId": "65391556-73c1-5357-a11c-28aaf928f69d",
+   "internalSystemVersion": "LedZeppelin:F.2",
+   "surveyTags": {},
+   "partialResource": false
+  },
+  "body_text": false
+ }
+}

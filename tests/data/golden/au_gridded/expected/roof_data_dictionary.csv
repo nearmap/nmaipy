@@ -1,0 +1,14 @@
+allowed_values,column_name,description,dtype,example,max,min,precision,source
+,aoi_id,Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).,string \| int,,,,,input data
+,area_sqm,"Area of the roof, in square metres.",float,12.8,,0,,base ai model
+,class_id,The unique ID for the class of this feature.,UUID,5a5cb214-eee3-4fdd-bfce-d21e9793cf6a,,,,model metadata
+,clipped_area_sqm,"Area of the roof clipped to the parcel boundary, in square metres.",float,12.8,,0,,base ai model
+,confidence,"Confidence in detection of the roof (single feature, not combined).",float (quantised uint8),0.94140625,1.0,0.0,,base ai model
+,description,A description of the class of this feature.,string,Roof,,,,model metadata
+,feature_id,Feature ID of the roof.,UUID,,,,,base ai model
+,fidelity,Quality of the shape of the vectorized footprint polygon (and implicitly the accuracy of the area measurement).,float,,1.0,0.0,,base ai model
+,link,"URL to view this row in Nearmap MapBrowser. Per-class files (roof, building, etc.) frame the URL on each feature's centroid; the rollup frames it on the parcel.",URL,,,,,image metadata
+,mesh_date,"Date of the 3D mesh used for 3D attributes (height, pitch, etc.). The mesh is usually comprised of a number of overlapping surveys captured at a similar time of year, so this date represents that capture window rather than a single survey.",date,2019-09-27,,,,image metadata
+,survey_date,"Capture date of the 2D aerial imagery this feature was extracted from. Use as the canonical 'as-of' date for AI-derived attributes (counts, areas, materials, RSI, damage). May differ from mesh_date when 3D attributes draw on a different survey window.",date,2019-09-27,,,,image metadata
+,unclipped_area_sqm,"Total area of the roof before parcel clipping, in square metres.",float,15.8,,0,,base ai model
+Y | N,is_primary,Whether this feature is the parcel's primary feature for its class — selected by the largest-intersection strategy (see README → Primary Feature Selection).,binary,,Y,N,,base ai model

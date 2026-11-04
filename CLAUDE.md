@@ -71,6 +71,10 @@ Output directly to a subfolder under `data/` so files can be reviewed in the IDE
 
 Deselect markers with `-m`, e.g.: `pytest -m "not live_api and not slow"`
 
+#### Golden fixtures
+
+`tests/test_golden_exports.py` runs the full exporter offline on recorded API responses and compares every file in `final/` by value against stored outputs, and pins the `export_config.json` keys and the API cache layout. When an output change is intended, re-baseline offline with `test_regenerate_golden_expected`; for a new case or an API change, re-record live with `test_record_golden_exchanges`. `python -m tests.golden.compare LEFT RIGHT` diffs any two export folders the same way (old versus new code on the same input). See `tests/data/golden/README.md`.
+
 ### Code Formatting
 
 Format code with black:

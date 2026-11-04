@@ -1,0 +1,590 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/features.json",
+  "query": [
+   [
+    "packs",
+    "building,roof_char"
+   ],
+   [
+    "parcelMode",
+    "true"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       151.2770527676921,
+       -33.79076755642528
+      ],
+      [
+       151.2774527676922,
+       -33.79076755642528
+      ],
+      [
+       151.2774527676922,
+       -33.79036755642528
+      ],
+      [
+       151.2770527676921,
+       -33.79036755642528
+      ],
+      [
+       151.2770527676921,
+       -33.79076755642528
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "credits": 0,
+   "resourceId": "efd6dfa3-b9eb-5524-bc95-1a0ffde35b5c",
+   "surveyId": "d5771a52-7c82-5dec-b42f-68dccbae7023",
+   "surveyDate": "2026-10-01",
+   "3dDate": "",
+   "systemVersion": "gen6-glowing_moon-1.0",
+   "link": "https://apps.nearmap.com/maps/#/@-33.7905676,151.2772528,20.00z,0d/V/20261001?locationMarker",
+   "extentMinX": 151.2770419383581,
+   "extentMaxX": 151.2774635970262,
+   "extentMinY": -33.79077655642528,
+   "extentMaxY": -33.79035855642528,
+   "perspective": "Vert",
+   "postcat": false,
+   "features": [
+    {
+     "id": "3a7a877c-54bb-5dc8-9d21-5ec467666504",
+     "classId": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalClassId": 1011,
+     "description": "Building (Deprecated)",
+     "confidence": 0.5996094,
+     "parentId": "4d52057e-f0c1-5e84-949b-220591ba87c9",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         151.2773682922125,
+         -33.79074118660932
+        ],
+        [
+         151.27739913761616,
+         -33.790726140080906
+        ],
+        [
+         151.27741992473602,
+         -33.790754561299
+        ],
+        [
+         151.27739042043686,
+         -33.79077183693679
+        ],
+        [
+         151.2773682922125,
+         -33.79074118660932
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.816195,
+     "areaSqm": 12.8,
+     "areaSqft": 138,
+     "clippedAreaSqm": 12.5,
+     "clippedAreaSqft": 134,
+     "unclippedAreaSqm": 12.8,
+     "unclippedAreaSqft": 138,
+     "attributes": [],
+     "surveyDate": "2026-10-01",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "49add157-919e-538c-9e9f-54ac37a722c2",
+     "classId": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+     "internalClassId": 1106,
+     "description": "Building",
+     "confidence": 0.66973877,
+     "parentId": "4d52057e-f0c1-5e84-949b-220591ba87c9",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         151.27736762166023,
+         -33.790740629330536
+        ],
+        [
+         151.27739913761616,
+         -33.790726140080906
+        ],
+        [
+         151.27742059528828,
+         -33.790754004020314
+        ],
+        [
+         151.27739042043686,
+         -33.79077183693679
+        ],
+        [
+         151.27736762166023,
+         -33.790740629330536
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.85093,
+     "areaSqm": 13,
+     "areaSqft": 140,
+     "clippedAreaSqm": 12.8,
+     "clippedAreaSqft": 138,
+     "unclippedAreaSqm": 13,
+     "unclippedAreaSqft": 140,
+     "attributes": [],
+     "surveyDate": "2026-10-01",
+     "meshDate": "",
+     "belongsToParcel": true
+    },
+    {
+     "id": "51f64bcb-fc25-536f-b787-24daa1467a4a",
+     "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalClassId": 1002,
+     "description": "Roof",
+     "confidence": 0.5996094,
+     "parentId": "3a7a877c-54bb-5dc8-9d21-5ec467666504",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         151.2773682922125,
+         -33.79074118660932
+        ],
+        [
+         151.27739913761616,
+         -33.790726140080906
+        ],
+        [
+         151.27741992473602,
+         -33.790754561299
+        ],
+        [
+         151.27739042043686,
+         -33.79077183693679
+        ],
+        [
+         151.2773682922125,
+         -33.79074118660932
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.816195,
+     "areaSqm": 12.8,
+     "areaSqft": 138,
+     "clippedAreaSqm": 12.5,
+     "clippedAreaSqft": 134,
+     "unclippedAreaSqm": 12.8,
+     "unclippedAreaSqft": 138,
+     "attributes": [
+      {
+       "classId": "89c7d478-58de-56bd-96d2-e71e27a36905",
+       "internalClassId": 3,
+       "description": "Roof material",
+       "components": [
+        {
+         "classId": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+         "internalClassId": 1007,
+         "description": "Tile",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "4bbf8dbd-cc81-5773-961f-0121101422be",
+         "internalClassId": 1008,
+         "description": "Shingle",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "4424186a-0b42-5608-a5a0-d4432695c260",
+         "internalClassId": 1009,
+         "description": "Metal",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "4558c4fb-3ddf-549d-b2d2-471384be23d1",
+         "internalClassId": 1100,
+         "description": "Ballasted",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "87437e20-d9f5-57e1-8b87-4a9c81ec3b65",
+         "internalClassId": 1101,
+         "description": "Mod-Bit",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "383930f1-d866-5aa3-9f97-553311f3162d",
+         "internalClassId": 1103,
+         "description": "PVC/TPO",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "64db6ea0-7248-53f5-b6a6-6ed733c5f9b8",
+         "internalClassId": 1104,
+         "description": "EPDM",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "9fc4c92e-4405-573e-bce6-102b74ab89a3",
+         "internalClassId": 1105,
+         "description": "Wood Shake",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "09ed6bf9-182a-5c79-ae59-f5531181d298",
+         "internalClassId": 1160,
+         "description": "Clay Tile",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "cdc50dcc-e522-5361-8f02-4e30673311bb",
+         "internalClassId": 1163,
+         "description": "Slate",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "3563c8f1-e81e-52c7-bd56-eaa937010403",
+         "internalClassId": 1165,
+         "description": "Built Up",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        },
+        {
+         "classId": "b2573072-b3a5-5f7c-973f-06b7649665ff",
+         "internalClassId": 1168,
+         "description": "Roof Coating",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0,
+         "dominant": false
+        }
+       ]
+      },
+      {
+       "classId": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+       "internalClassId": 4,
+       "description": "Roof types",
+       "components": [
+        {
+         "classId": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+         "internalClassId": 1013,
+         "description": "Hip",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+         "internalClassId": 1014,
+         "description": "Gable",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+         "internalClassId": 1015,
+         "description": "Dutch Gable",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+         "internalClassId": 1016,
+         "description": "Flat (Deprecated)",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7ac62320-52f3-5301-94c5-7adf6b93a3b8",
+         "internalClassId": 1018,
+         "description": "Shed",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "4bb630b9-f9eb-5f95-85b8-f0c6caf16e9b",
+         "internalClassId": 1019,
+         "description": "Gambrel",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "89582082-e5b8-5853-bc94-3a0392cab98a",
+         "internalClassId": 1020,
+         "description": "Turret",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "cd15ea0b-a0f6-58b6-9a63-480654ff506c",
+         "internalClassId": 1071,
+         "description": "Dormer Window",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1234ea84-e334-5c58-88a9-6554be3dfc05",
+         "internalClassId": 1173,
+         "description": "Parapet",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "7eb3b1b6-0d75-5b1f-b41c-b14146ff0c54",
+         "internalClassId": 1174,
+         "description": "Mansard",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "924afbab-aae6-5c26-92e8-9173e4320495",
+         "internalClassId": 1176,
+         "description": "Jerkinhead",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "e92bc8a2-9fa3-5094-b3b6-2881d94642ab",
+         "internalClassId": 1178,
+         "description": "Quonset",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "09b925d2-df1d-599b-89f1-3ffd39df791e",
+         "internalClassId": 1180,
+         "description": "Bowstring Truss",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+         "internalClassId": 1191,
+         "description": "Flat",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      },
+      {
+       "classId": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+       "internalClassId": 5,
+       "description": "Roof overhang attributes",
+       "components": [
+        {
+         "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+         "internalClassId": 1045,
+         "description": "Tree Overhang",
+         "confidence": 0.9199218,
+         "areaSqm": 9.1,
+         "areaSqft": 98,
+         "ratio": 0.7111945
+        },
+        {
+         "classId": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+         "internalClassId": 1084,
+         "description": "Leaf-off Tree Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "38c4dd92-868c-582a-a4d5-537c88dcec75",
+         "internalClassId": 1085,
+         "description": "Low Vegetation (0.5m-2m) Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "fcbb15ea-93e5-587c-8941-246353817741",
+         "internalClassId": 1086,
+         "description": "Very Low Vegetation (<0.5m) Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        },
+        {
+         "classId": "1ef797a5-8057-5e8b-a24d-dc7cd8f1fa7b",
+         "internalClassId": 1087,
+         "description": "Power Line Overhang",
+         "confidence": null,
+         "areaSqm": 0,
+         "areaSqft": 0,
+         "ratio": 0
+        }
+       ]
+      },
+      {
+       "classId": "39072960-5582-52af-9051-4bc8625ff9ba",
+       "internalClassId": 7,
+       "description": "Roof 3d attributes",
+       "has3dAttributes": false
+      }
+     ],
+     "surveyDate": "2026-10-01",
+     "meshDate": "",
+     "isFootprint": true,
+     "belongsToParcel": true
+    },
+    {
+     "id": "b17a00ee-816e-5b9c-8ea2-d296905b20cc",
+     "classId": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+     "internalClassId": 1045,
+     "description": "Tree Overhang",
+     "confidence": 0.9199219,
+     "parentId": "51f64bcb-fc25-536f-b787-24daa1467a4a",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         151.27739913761616,
+         -33.790726140080906
+        ],
+        [
+         151.27741992473602,
+         -33.790754561299
+        ],
+        [
+         151.27739042043686,
+         -33.79077183693679
+        ],
+        [
+         151.27738505601883,
+         -33.790764592314915
+        ],
+        [
+         151.27738438546658,
+         -33.790755675856396
+        ],
+        [
+         151.2773884087801,
+         -33.79073895749416
+        ],
+        [
+         151.2773971259594,
+         -33.79073115559066
+        ],
+        [
+         151.27739779651165,
+         -33.79072669735977
+        ],
+        [
+         151.27739913761616,
+         -33.790726140080906
+        ]
+       ]
+      ]
+     },
+     "areaSqm": 9.1,
+     "areaSqft": 98,
+     "clippedAreaSqm": 8.8,
+     "clippedAreaSqft": 95,
+     "unclippedAreaSqm": 9.1,
+     "unclippedAreaSqft": 98,
+     "attributes": [],
+     "surveyDate": "2026-10-01",
+     "meshDate": "",
+     "belongsToParcel": true
+    }
+   ],
+   "taskId": "f6986e8d-78d2-5e9b-aca7-f6fe00e58727",
+   "internalSystemVersion": "LedZeppelin:F.2",
+   "surveyTags": {},
+   "partialResource": false
+  },
+  "body_text": false
+ }
+}

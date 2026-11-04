@@ -1,0 +1,49 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/roofage/v1/resources/latest.json",
+  "query": [
+   [
+    "bulk",
+    "true"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -72.5,
+       39.5
+      ],
+      [
+       -72.4996,
+       39.5
+      ],
+      [
+       -72.4996,
+       39.5004
+      ],
+      [
+       -72.5,
+       39.5004
+      ],
+      [
+       -72.5,
+       39.5
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 404,
+  "content_type": "application/json",
+  "body": {
+   "error": "no resources found"
+  },
+  "body_text": false
+ }
+}

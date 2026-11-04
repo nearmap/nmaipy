@@ -1,0 +1,363 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/roofage/v1/resources/latest.json",
+  "query": [
+   [
+    "bulk",
+    "true"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -74.28706415380246,
+       40.63083375191182
+      ],
+      [
+       -74.28707637664948,
+       40.63101343005192
+      ],
+      [
+       -74.28662893069824,
+       40.63110698648892
+      ],
+      [
+       -74.28661609707589,
+       40.63105586886175
+      ],
+      [
+       -74.28660536032895,
+       40.63100569508816
+      ],
+      [
+       -74.28659814816626,
+       40.63095459564565
+      ],
+      [
+       -74.28659515460114,
+       40.63089316915794
+      ],
+      [
+       -74.28661386265483,
+       40.63087354861026
+      ],
+      [
+       -74.28662636374656,
+       40.63084649948562
+      ],
+      [
+       -74.28677604809292,
+       40.63084103857412
+      ],
+      [
+       -74.28706017658209,
+       40.63083498692202
+      ],
+      [
+       -74.28706415380246,
+       40.63083375191182
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "resourceId": "cfc6c572-b51f-520f-8631-1fd2f1ffed20",
+   "type": "FeatureCollection",
+   "features": [
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         -74.28681895136833,
+         40.63100717614324
+        ],
+        [
+         -74.28682163357735,
+         40.631026514144885
+        ],
+        [
+         -74.28687863051891,
+         40.63102346077659
+        ],
+        [
+         -74.2868759483099,
+         40.63096341117146
+        ],
+        [
+         -74.28687460720539,
+         40.630942546465526
+        ],
+        [
+         -74.28686119616032,
+         40.630942546465526
+        ],
+        [
+         -74.28685449063778,
+         40.630859596472554
+        ],
+        [
+         -74.28680419921875,
+         40.6308621409524
+        ],
+        [
+         -74.28675189614296,
+         40.63086519432808
+        ],
+        [
+         -74.28675256669521,
+         40.630870283287244
+        ],
+        [
+         -74.28674854338169,
+         40.630870792183146
+        ],
+        [
+         -74.2867512255907,
+         40.63096341117146
+        ],
+        [
+         -74.28675659000874,
+         40.63100972061747
+        ],
+        [
+         -74.28680419921875,
+         40.6310076850381
+        ],
+        [
+         -74.28681895136833,
+         40.63100717614324
+        ]
+       ]
+      ]
+     },
+     "id": 3343279920962160457,
+     "properties": {
+      "afterInstallationCaptureDate": "2014-09-15",
+      "area": 166.85965,
+      "asOfDate": "2026-08-15",
+      "assessorData": false,
+      "evidenceType": 5,
+      "evidenceTypeDescription": "multiple_images",
+      "hilbertId": "3343279920962160457",
+      "installationDate": "2006-09-11",
+      "kind": "roof",
+      "mapBrowserUrl": "https://apps.nearmap.com/maps/#/@40.630942,-74.286811,20z,0d/V/20140915]20260629",
+      "maxCaptureDate": "2026-06-29",
+      "minCaptureDate": "2014-09-15",
+      "numberOfCaptures": 38,
+      "relevantPermits": false,
+      "timeline": [
+       {
+        "sdSurveyId": 1805,
+        "captureDate": "2014-09-15",
+        "primaryResourceWebtileUid": "00093abe-0133-56e9-00a7-4843f236910a"
+       },
+       {
+        "sdSurveyId": 2235,
+        "captureDate": "2015-04-12",
+        "primaryResourceWebtileUid": "0003e873-5b61-56e7-0087-4843f236910a"
+       },
+       {
+        "sdSurveyId": 2574,
+        "captureDate": "2015-09-06",
+        "primaryResourceWebtileUid": "0001f2f0-b470-56e6-00d7-4843f236910a"
+       },
+       {
+        "sdSurveyId": 2721,
+        "captureDate": "2015-10-26",
+        "primaryResourceWebtileUid": "0005b2b1-122d-56ee-00b7-3209c647fe0a"
+       },
+       {
+        "sdSurveyId": 3210,
+        "captureDate": "2016-04-05",
+        "primaryResourceWebtileUid": "00025059-ee33-5720-00e7-4c0e5c38910a"
+       },
+       {
+        "sdSurveyId": 3967,
+        "captureDate": "2016-11-01",
+        "primaryResourceWebtileUid": "00080511-a93e-582b-0097-ff224a81ea0a"
+       },
+       {
+        "sdSurveyId": 4619,
+        "captureDate": "2017-04-03",
+        "primaryResourceWebtileUid": "000bf08b-5ad2-58f4-00e7-0878f62b910a"
+       },
+       {
+        "sdSurveyId": 5237,
+        "captureDate": "2017-07-30",
+        "primaryResourceWebtileUid": "00b805b4-72e8-5a0f-00e7-b545b4271fac"
+       },
+       {
+        "sdSurveyId": 5874,
+        "captureDate": "2017-10-31",
+        "primaryResourceWebtileUid": "0061f141-9a0e-5a02-00e7-3049a71bb60a"
+       },
+       {
+        "sdSurveyId": 7536,
+        "captureDate": "2018-04-21",
+        "primaryResourceWebtileUid": "00b1c55f-3eb9-5b10-00f7-5d5a5f291fac"
+       },
+       {
+        "sdSurveyId": 7925,
+        "captureDate": "2018-06-21",
+        "primaryResourceWebtileUid": "0052e403-a5d4-5b58-00d7-2e318800eb0a"
+       },
+       {
+        "sdSurveyId": 9166,
+        "captureDate": "2018-11-22",
+        "primaryResourceWebtileUid": "00146b32-0f83-5c0a-0087-e85a0d01640a"
+       },
+       {
+        "sdSurveyId": 10092,
+        "captureDate": "2019-03-26",
+        "primaryResourceWebtileUid": "00c3d705-9eae-5cf3-00f7-7762e7141fac"
+       },
+       {
+        "sdSurveyId": 10924,
+        "captureDate": "2019-07-13",
+        "primaryResourceWebtileUid": "0028666e-2fad-5d30-00d7-0f09cd01640a"
+       },
+       {
+        "sdSurveyId": 11568,
+        "captureDate": "2019-09-27",
+        "primaryResourceWebtileUid": "00abe4af-a291-5dd8-0067-153fe7141fac"
+       },
+       {
+        "sdSurveyId": 12736,
+        "captureDate": "2020-02-23",
+        "primaryResourceWebtileUid": "00502f2c-9dbe-5e86-00f7-8461991d1fac"
+       },
+       {
+        "sdSurveyId": 13674,
+        "captureDate": "2020-07-05",
+        "primaryResourceWebtileUid": "0008a412-6213-5f08-0007-c677b501640a"
+       },
+       {
+        "sdSurveyId": 14070,
+        "captureDate": "2020-09-21",
+        "primaryResourceWebtileUid": "0001ad70-9000-5f6c-0017-4873b501640a"
+       },
+       {
+        "sdSurveyId": 15445,
+        "captureDate": "2021-03-21",
+        "primaryResourceWebtileUid": "00cb0df4-724a-60a5-0087-6d0e08511fac"
+       },
+       {
+        "sdSurveyId": 16633,
+        "captureDate": "2021-07-22",
+        "primaryResourceWebtileUid": "00139864-bb32-6124-00f7-bf20e801640a"
+       },
+       {
+        "sdSurveyId": 17749,
+        "captureDate": "2021-10-19",
+        "primaryResourceWebtileUid": "00347ad1-95fa-6174-0017-2840e801640a"
+       },
+       {
+        "sdSurveyId": 18971,
+        "captureDate": "2022-02-27",
+        "primaryResourceWebtileUid": "00838a10-5382-6284-00f7-6e3002511fac"
+       },
+       {
+        "sdSurveyId": 20569,
+        "captureDate": "2022-06-29",
+        "primaryResourceWebtileUid": "0000b7a2-633d-62c7-00d7-1205e801640a"
+       },
+       {
+        "sdSurveyId": 21713,
+        "captureDate": "2022-10-06",
+        "primaryResourceWebtileUid": "00048869-f3e4-634e-0007-fa58e801640a"
+       },
+       {
+        "sdSurveyId": 23103,
+        "captureDate": "2023-03-05",
+        "primaryResourceWebtileUid": "00b92a87-034d-6434-00f7-911d02511fac"
+       },
+       {
+        "sdSurveyId": 24045,
+        "captureDate": "2023-05-10",
+        "primaryResourceWebtileUid": "60f6d560-cf7d-4b33-acb4-e69b5909d028"
+       },
+       {
+        "sdSurveyId": 24120,
+        "captureDate": "2023-05-15",
+        "primaryResourceWebtileUid": "008e1ef3-278a-6479-0067-ae43e801640a"
+       },
+       {
+        "sdSurveyId": 25520,
+        "captureDate": "2023-09-14",
+        "primaryResourceWebtileUid": "ce271fc1-528d-462c-bcb3-43e03ffeffb6"
+       },
+       {
+        "sdSurveyId": 27119,
+        "captureDate": "2024-03-08",
+        "primaryResourceWebtileUid": "9f43fbe1-36d0-423a-b774-0bfeef910513"
+       },
+       {
+        "sdSurveyId": 28406,
+        "captureDate": "2024-06-20",
+        "primaryResourceWebtileUid": "d0e498a0-f32a-4348-8a79-5b43af7748b3"
+       },
+       {
+        "sdSurveyId": 29817,
+        "captureDate": "2024-10-05",
+        "primaryResourceWebtileUid": "9a52f924-1154-40dd-a400-282a3c8c99bf"
+       },
+       {
+        "sdSurveyId": 31648,
+        "captureDate": "2025-03-11",
+        "primaryResourceWebtileUid": "b3a41d39-dca9-4ee5-8976-dbd988d781c8"
+       },
+       {
+        "sdSurveyId": 31742,
+        "captureDate": "2025-03-18",
+        "primaryResourceWebtileUid": "11d917fa-8b64-4950-a7ae-f0bf575f38f7"
+       },
+       {
+        "sdSurveyId": 32700,
+        "captureDate": "2025-07-04",
+        "primaryResourceWebtileUid": "9d5d2f02-ba27-4223-84a6-dc712dbad058"
+       },
+       {
+        "sdSurveyId": 33655,
+        "captureDate": "2025-10-04",
+        "primaryResourceWebtileUid": "3a147e1c-d8dd-48d5-9b0a-d115f34f0369"
+       },
+       {
+        "sdSurveyId": 35305,
+        "captureDate": "2026-04-07",
+        "primaryResourceWebtileUid": "ddbbf260-2456-4f07-bbd3-271c09baef4b"
+       },
+       {
+        "sdSurveyId": 35356,
+        "captureDate": "2026-04-09",
+        "primaryResourceWebtileUid": "950a0a90-4cd4-441c-91f6-6b9f5c95f132"
+       },
+       {
+        "sdSurveyId": 36251,
+        "captureDate": "2026-06-29",
+        "primaryResourceWebtileUid": "9b562d27-12d2-4c0a-b9b2-7206f3b7eb66"
+       }
+      ],
+      "trustScore": 49.5
+     }
+    }
+   ],
+   "modelVersion": "A.1",
+   "presentationVersion": "1",
+   "nextCursor": null
+  },
+  "body_text": false
+ }
+}

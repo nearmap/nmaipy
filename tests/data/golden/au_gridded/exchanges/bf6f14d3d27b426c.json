@@ -1,0 +1,554 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/features.json",
+  "query": [
+   [
+    "packs",
+    "building"
+   ],
+   [
+    "parcelMode",
+    "false"
+   ],
+   [
+    "since",
+    "2025-03-06"
+   ],
+   [
+    "until",
+    "2025-03-06"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       138.5763872968811,
+       -35.099259018778874
+      ],
+      [
+       138.57863122822098,
+       -35.099146304484606
+      ],
+      [
+       138.57863122822098,
+       -35.102426228478976
+      ],
+      [
+       138.573631228221,
+       -35.10270239748976
+      ],
+      [
+       138.573631228221,
+       -35.097826688557504
+      ],
+      [
+       138.57626335796155,
+       -35.097826688557504
+      ],
+      [
+       138.5763872968811,
+       -35.099259018778874
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "credits": 0,
+   "resourceId": "bf69cce9-55fc-539e-9f40-b680233ec2ec",
+   "surveyId": "1fe26118-051a-11f0-a54a-bfd4ee8ed569",
+   "surveyDate": "2025-03-06",
+   "3dDate": "",
+   "systemVersion": "gen6-glowing_moon-1.0",
+   "link": "https://apps.nearmap.com/maps/#/@-35.1004574,138.5758971,20.00z,0d/V/20250306?locationMarker",
+   "extentMinX": 138.5736202277537,
+   "extentMaxX": 138.57864222868827,
+   "extentMinY": -35.102711397489756,
+   "extentMaxY": -35.097817688557505,
+   "perspective": "Vert",
+   "postcat": false,
+   "features": [
+    {
+     "id": "08bdf3c0-067d-5b63-a498-69921f196b4b",
+     "classId": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+     "internalClassId": 1106,
+     "description": "Building",
+     "confidence": 0.7402344,
+     "parentId": "3723b2b9-163c-5422-ba72-e9fc1ecd4f47",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.5757963359356,
+         -35.101858350532154
+        ],
+        [
+         138.57585065066814,
+         -35.101859447731414
+        ],
+        [
+         138.57584863901138,
+         -35.10190553008676
+        ],
+        [
+         138.5757802426815,
+         -35.10190443288811
+        ],
+        [
+         138.57578091323376,
+         -35.101882488912345
+        ],
+        [
+         138.57579566538334,
+         -35.101882488912345
+        ],
+        [
+         138.5757963359356,
+         -35.101858350532154
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.79018,
+     "areaSqm": 28.5,
+     "areaSqft": 306,
+     "clippedAreaSqm": 28.5,
+     "clippedAreaSqft": 307,
+     "unclippedAreaSqm": 28.5,
+     "unclippedAreaSqft": 306,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": ""
+    },
+    {
+     "id": "0d6f91d7-6696-5691-bb8c-2aff4e190057",
+     "classId": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalClassId": 1011,
+     "description": "Building (Deprecated)",
+     "confidence": 0.9277343,
+     "parentId": "16207d6a-82e1-5d70-a667-102f25371e3c",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.57354663312435,
+         -35.100770470205234
+        ],
+        [
+         138.57354663312435,
+         -35.10076772717043
+        ],
+        [
+         138.57341788709164,
+         -35.10077156741914
+        ],
+        [
+         138.57341453433037,
+         -35.10071451227693
+        ],
+        [
+         138.5734809190035,
+         -35.10071231784758
+        ],
+        [
+         138.57347957789898,
+         -35.1006739153245
+        ],
+        [
+         138.57354663312435,
+         -35.1006733667169
+        ],
+        [
+         138.57354663312435,
+         -35.10070792898872
+        ],
+        [
+         138.57354998588562,
+         -35.10070902620345
+        ],
+        [
+         138.57366532087326,
+         -35.10070792898872
+        ],
+        [
+         138.57366867363453,
+         -35.10076278970755
+        ],
+        [
+         138.573617041111,
+         -35.100764984135544
+        ],
+        [
+         138.573617041111,
+         -35.10076992159828
+        ],
+        [
+         138.57354663312435,
+         -35.100770470205234
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.93019,
+     "areaSqm": 172.9,
+     "areaSqft": 1861,
+     "clippedAreaSqm": 20.1,
+     "clippedAreaSqft": 216,
+     "unclippedAreaSqm": 172.9,
+     "unclippedAreaSqft": 1861,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": ""
+    },
+    {
+     "id": "1ab1eb94-1942-5c6f-ae55-c47019e71185",
+     "classId": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalClassId": 1011,
+     "description": "Building (Deprecated)",
+     "confidence": 0.5878906,
+     "parentId": "3723b2b9-163c-5422-ba72-e9fc1ecd4f47",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.57578091323376,
+         -35.101882488912345
+        ],
+        [
+         138.57584930956364,
+         -35.10188358611126
+        ],
+        [
+         138.57584796845913,
+         -35.10190553008676
+        ],
+        [
+         138.57578091323376,
+         -35.10190443288811
+        ],
+        [
+         138.57578091323376,
+         -35.101882488912345
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.67912,
+     "areaSqm": 15,
+     "areaSqft": 162,
+     "clippedAreaSqm": 15,
+     "clippedAreaSqft": 162,
+     "unclippedAreaSqm": 15,
+     "unclippedAreaSqft": 162,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": ""
+    },
+    {
+     "id": "32ed8ac7-6dd9-5c2b-bd2e-61d20a1c33a9",
+     "classId": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalClassId": 1011,
+     "description": "Building (Deprecated)",
+     "confidence": 0.5644531,
+     "parentId": "cb2562ce-59ae-5399-bd2d-79200046423a",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.57386782765388,
+         -35.10088128873421
+        ],
+        [
+         138.5738691687584,
+         -35.10092188558337
+        ],
+        [
+         138.5737980902195,
+         -35.1009224341893
+        ],
+        [
+         138.57379741966724,
+         -35.100884031765204
+        ],
+        [
+         138.57386782765388,
+         -35.10088128873421
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.881315,
+     "areaSqm": 28.1,
+     "areaSqft": 303,
+     "clippedAreaSqm": 28.3,
+     "clippedAreaSqft": 304,
+     "unclippedAreaSqm": 28.1,
+     "unclippedAreaSqft": 303,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": ""
+    },
+    {
+     "id": "3cafd48b-3119-59f3-8ae2-5be07abed46e",
+     "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalClassId": 1002,
+     "description": "Roof",
+     "confidence": 0.5644531,
+     "parentId": "32ed8ac7-6dd9-5c2b-bd2e-61d20a1c33a9",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.57386782765388,
+         -35.10088128873421
+        ],
+        [
+         138.5738691687584,
+         -35.10092188558337
+        ],
+        [
+         138.5737980902195,
+         -35.1009224341893
+        ],
+        [
+         138.57379741966724,
+         -35.100884031765204
+        ],
+        [
+         138.57386782765388,
+         -35.10088128873421
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.881315,
+     "areaSqm": 28.1,
+     "areaSqft": 303,
+     "clippedAreaSqm": 28.3,
+     "clippedAreaSqft": 304,
+     "unclippedAreaSqm": 28.1,
+     "unclippedAreaSqft": 303,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": "",
+     "isFootprint": true
+    },
+    {
+     "id": "4900adca-28d8-57e1-b532-a4f2023f3a87",
+     "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalClassId": 1002,
+     "description": "Roof",
+     "confidence": 0.5878906,
+     "parentId": "1ab1eb94-1942-5c6f-ae55-c47019e71185",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.57578091323376,
+         -35.101882488912345
+        ],
+        [
+         138.57584930956364,
+         -35.10188358611126
+        ],
+        [
+         138.57584796845913,
+         -35.10190553008676
+        ],
+        [
+         138.57578091323376,
+         -35.10190443288811
+        ],
+        [
+         138.57578091323376,
+         -35.101882488912345
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.67912,
+     "areaSqm": 15,
+     "areaSqft": 162,
+     "clippedAreaSqm": 15,
+     "clippedAreaSqft": 162,
+     "unclippedAreaSqm": 15,
+     "unclippedAreaSqft": 162,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": "",
+     "isFootprint": true
+    },
+    {
+     "id": "561907ae-a62a-577d-94cf-b8a67295fab1",
+     "classId": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+     "internalClassId": 1106,
+     "description": "Building",
+     "confidence": 0.9785156,
+     "parentId": "16207d6a-82e1-5d70-a667-102f25371e3c",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.573617041111,
+         -35.1007660813495
+        ],
+        [
+         138.573617041111,
+         -35.10076992159828
+        ],
+        [
+         138.57341654598713,
+         -35.10077156741914
+        ],
+        [
+         138.57341453433037,
+         -35.10071451227693
+        ],
+        [
+         138.5734809190035,
+         -35.10071231784758
+        ],
+        [
+         138.57347957789898,
+         -35.1006739153245
+        ],
+        [
+         138.57354663312435,
+         -35.100672269501686
+        ],
+        [
+         138.5735486447811,
+         -35.10070902620345
+        ],
+        [
+         138.57366666197777,
+         -35.10070628316657
+        ],
+        [
+         138.57366867363453,
+         -35.100764435528525
+        ],
+        [
+         138.573617041111,
+         -35.1007660813495
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.939685,
+     "areaSqm": 178.1,
+     "areaSqft": 1917,
+     "clippedAreaSqm": 21.5,
+     "clippedAreaSqft": 232,
+     "unclippedAreaSqm": 178.1,
+     "unclippedAreaSqft": 1917,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": ""
+    },
+    {
+     "id": "b3eb65e4-50b6-516b-ba31-697cc083dee4",
+     "classId": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalClassId": 1002,
+     "description": "Roof",
+     "confidence": 0.9277343,
+     "parentId": "0d6f91d7-6696-5691-bb8c-2aff4e190057",
+     "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+       [
+        [
+         138.57354663312435,
+         -35.100770470205234
+        ],
+        [
+         138.57354663312435,
+         -35.10076772717043
+        ],
+        [
+         138.57341788709164,
+         -35.10077156741914
+        ],
+        [
+         138.57341453433037,
+         -35.10071451227693
+        ],
+        [
+         138.5734809190035,
+         -35.10071231784758
+        ],
+        [
+         138.57347957789898,
+         -35.1006739153245
+        ],
+        [
+         138.57354663312435,
+         -35.1006733667169
+        ],
+        [
+         138.57354663312435,
+         -35.10070792898872
+        ],
+        [
+         138.57354998588562,
+         -35.10070902620345
+        ],
+        [
+         138.57366532087326,
+         -35.10070792898872
+        ],
+        [
+         138.57366867363453,
+         -35.10076278970755
+        ],
+        [
+         138.573617041111,
+         -35.100764984135544
+        ],
+        [
+         138.573617041111,
+         -35.10076992159828
+        ],
+        [
+         138.57354663312435,
+         -35.100770470205234
+        ]
+       ]
+      ]
+     },
+     "fidelity": 0.93019,
+     "areaSqm": 172.9,
+     "areaSqft": 1861,
+     "clippedAreaSqm": 20.1,
+     "clippedAreaSqft": 216,
+     "unclippedAreaSqm": 172.9,
+     "unclippedAreaSqft": 1861,
+     "attributes": [],
+     "surveyDate": "2025-03-06",
+     "meshDate": "",
+     "isFootprint": true
+    }
+   ],
+   "taskId": "c4ed6074-4233-5592-8f11-5d86f9ef1692",
+   "internalSystemVersion": "LedZeppelin:F.2",
+   "surveyTags": {},
+   "partialResource": false
+  },
+  "body_text": false
+ }
+}

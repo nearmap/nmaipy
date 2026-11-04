@@ -1,0 +1,82 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/features.json",
+  "query": [
+   [
+    "packs",
+    "building"
+   ],
+   [
+    "parcelMode",
+    "false"
+   ],
+   [
+    "since",
+    "2025-03-06"
+   ],
+   [
+    "until",
+    "2025-03-06"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       138.58494023597956,
+       -35.091517469086654
+      ],
+      [
+       138.584947825973,
+       -35.091603769087534
+      ],
+      [
+       138.58504509340892,
+       -35.09282668855751
+      ],
+      [
+       138.58363122822098,
+       -35.09282668855751
+      ],
+      [
+       138.58363122822098,
+       -35.09158984155299
+      ],
+      [
+       138.58494023597956,
+       -35.091517469086654
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "credits": 0,
+   "resourceId": "bf69cce9-55fc-539e-9f40-b680233ec2ec",
+   "surveyId": "1fe26118-051a-11f0-a54a-bfd4ee8ed569",
+   "surveyDate": "2025-03-06",
+   "3dDate": "",
+   "systemVersion": "gen6-glowing_moon-1.0",
+   "link": "https://apps.nearmap.com/maps/#/@-35.0921979,138.5843191,20.00z,0d/V/20250306?locationMarker",
+   "extentMinX": 138.58362022884543,
+   "extentMaxX": 138.58505609278447,
+   "extentMinY": -35.09283568855751,
+   "extentMaxY": -35.091508469086655,
+   "perspective": "Vert",
+   "postcat": false,
+   "features": [],
+   "taskId": "c4ed6074-4233-5592-8f11-5d86f9ef1692",
+   "internalSystemVersion": "LedZeppelin:F.2",
+   "surveyTags": {},
+   "partialResource": false
+  },
+  "body_text": false
+ }
+}

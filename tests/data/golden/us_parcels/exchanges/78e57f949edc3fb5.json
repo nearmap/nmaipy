@@ -1,0 +1,53 @@
+{
+ "request": {
+  "method": "POST",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/features.json",
+  "query": [
+   [
+    "packs",
+    "building,building_char,pool,roof_char,roof_cond,solar,surfaces,vegetation"
+   ],
+   [
+    "parcelMode",
+    "true"
+   ]
+  ],
+  "body": {
+   "aoi": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -72.5,
+       39.5
+      ],
+      [
+       -72.4996,
+       39.5
+      ],
+      [
+       -72.4996,
+       39.5004
+      ],
+      [
+       -72.5,
+       39.5004
+      ],
+      [
+       -72.5,
+       39.5
+      ]
+     ]
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 403,
+  "content_type": "application/json",
+  "body": {
+   "message": "User is not authorized to access this area"
+  },
+  "body_text": false
+ }
+}

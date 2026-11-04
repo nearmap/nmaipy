@@ -1,0 +1,537 @@
+{
+ "request": {
+  "method": "GET",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/classes.json",
+  "query": [],
+  "body": null
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "classes": [
+    {
+     "type": "Feature",
+     "id": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+     "internalId": 1084,
+     "description": "Leaf-off Tree Overhang",
+     "availability": [
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "beta"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "beta"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "beta"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+     "internalId": 1106,
+     "description": "Building",
+     "availability": [
+      {
+       "systemVersion": "gen6-glowing_lantern-1.0",
+       "perspective": "TrueOrtho",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+     "internalId": 1191,
+     "description": "Flat",
+     "availability": [
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+     "internalId": 1016,
+     "description": "Flat (Deprecated)",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+     "internalId": 1015,
+     "description": "Dutch Gable",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "4424186a-0b42-5608-a5a0-d4432695c260",
+     "internalId": 1009,
+     "description": "Metal",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "4bbf8dbd-cc81-5773-961f-0121101422be",
+     "internalId": 1008,
+     "description": "Shingle",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+     "internalId": 1007,
+     "description": "Tile",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+     "internalId": 1014,
+     "description": "Gable",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "89582082-e5b8-5853-bc94-3a0392cab98a",
+     "internalId": 1020,
+     "description": "Turret",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+     "internalId": 1045,
+     "description": "Tree Overhang",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+     "internalId": 1011,
+     "description": "Building (Deprecated)",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+     "internalId": 1013,
+     "description": "Hip",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+     "internalId": 1002,
+     "description": "Roof",
+     "availability": [
+      {
+       "systemVersion": "gen4-building_storm-2.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen4-lightning_bolt-1.3",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    },
+    {
+     "type": "Feature",
+     "id": "cd15ea0b-a0f6-58b6-9a63-480654ff506c",
+     "internalId": 1071,
+     "description": "Dormer Window",
+     "availability": [
+      {
+       "systemVersion": "gen5-tranquil_pool-1.0",
+       "perspective": "Vert",
+       "status": "beta"
+      },
+      {
+       "systemVersion": "gen5-tranquil_sea-1.0",
+       "perspective": "Vert",
+       "status": "beta"
+      },
+      {
+       "systemVersion": "gen5-urban_atlas-1.0",
+       "perspective": "Vert",
+       "status": "beta"
+      },
+      {
+       "systemVersion": "gen6-glowing_moon-1.0",
+       "perspective": "Vert",
+       "status": "prod"
+      }
+     ],
+     "schema": null
+    }
+   ]
+  },
+  "body_text": false
+ }
+}

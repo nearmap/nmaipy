@@ -1,0 +1,79 @@
+{
+ "request": {
+  "method": "GET",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/packs.json",
+  "query": [],
+  "body": null
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "packs": [
+    {
+     "code": "building",
+     "featureClasses": [
+      {
+       "id": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+       "internalId": 1106,
+       "description": "Building",
+       "supportedVersionsInternal": [
+        "DavidBowie:A.1",
+        "LedZeppelin:F.2"
+       ],
+       "supportedVersions": [
+        "gen6-glowing_lantern-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+       "internalId": 1011,
+       "description": "Building (Deprecated)",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+       "internalId": 1002,
+       "description": "Roof",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      }
+     ],
+     "attributeClasses": [],
+     "postcat": false
+    }
+   ]
+  },
+  "body_text": false
+ }
+}

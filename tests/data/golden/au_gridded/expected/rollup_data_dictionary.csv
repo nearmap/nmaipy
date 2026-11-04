@@ -1,0 +1,45 @@
+allowed_values,column_name,description,dtype,example,max,min,precision,source
+,answered_area_fraction,"Share of the AOI's area covered by the Feature API result: the answered grid cells' area over the AOI's area for a gridded AOI, 1.0 for an AOI answered in one request. Null when the Feature API did not answer for the AOI.",float,,1.0,0.0,,model metadata
+,answered_area_sqm,"Area of the AOI covered by the Feature API result (answered_area_fraction times the AOI's area). Use it as the denominator for a share-of-AOI figure such as percent cover, so failed grid cells don't count as observed. Null when the Feature API did not answer for the AOI, or the AOI was given as an address.",float,,,0,,model metadata
+,aoi_id,Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).,string \| int,,,,,input data
+,building_confidence,Combined confidence that at least one building was detected on the parcel — higher when multiple high-confidence detections agree. Null when none are detected.,float (quantised uint8),,1.0,0.0,,base ai model
+,building_count,Count of building detections across the entire parcel.,int,,,0,,base ai model
+,building_multiparcel_feature_count,Count of building features on this parcel that are also detected on at least one other parcel (e.g. row-home features whose footprint spans multiple parcels).,int,,,0,,base ai model
+,building_total_area_sqm,"Total area of building detected across the entire parcel, in square metres.",float,,,0,,base ai model
+,building_total_clipped_area_sqm,"Total area of building (clipped to parcel boundary) detected across the entire parcel, in square metres.",float,,,0,,base ai model
+,building_total_unclipped_area_sqm,"Total area of building (before parcel clipping) detected across the entire parcel, in square metres.",float,,,0,,base ai model
+,grid_cells,"Number of grid cells the AOI was split into because it was too large for a single Feature API request. Cells are the grid clipped to the AOI, so edge cells are smaller. Null when the AOI was queried in one request, or when the Feature API did not answer for it (a grid that failed as a whole has its counts on its row in feature_api_errors).",int,,,1,,model metadata
+,grid_cells_answered,"Number of the AOI's grid cells the Feature API answered (see grid_cells). The rest failed, with or without coverage, and are listed in feature_api_errors with their cell geometry. Null when the AOI was not gridded or not answered.",int,,,1,,model metadata
+,link,"URL to view this row in Nearmap MapBrowser. Per-class files (roof, building, etc.) frame the URL on each feature's centroid; the rollup frames it on the parcel.",URL,,,,,image metadata
+,mesh_date,"Date of the 3D mesh used for 3D attributes (height, pitch, etc.). The mesh is usually comprised of a number of overlapping surveys captured at a similar time of year, so this date represents that capture window rather than a single survey.",date,2019-09-27,,,,image metadata
+,perspective,Imagery perspective (e.g. 'Vert' for vertical/orthographic).,string,,,,,image metadata
+,primary_building_area_sqm,"Area of the primary building on the parcel, in square metres.",float,12.8,,0,,base ai model
+,primary_building_clipped_area_sqm,"Area of the primary building on the parcel clipped to the parcel boundary, in square metres.",float,12.8,,0,,base ai model
+,primary_building_confidence,"Confidence in detection of the primary building on the parcel (single feature, not combined).",float (quantised uint8),0.94140625,1.0,0.0,,base ai model
+,primary_building_feature_id,Feature ID of the primary building on the parcel.,UUID,,,,,base ai model
+,primary_building_fidelity,Quality of the shape of the vectorized footprint polygon (and implicitly the accuracy of the area measurement) (primary building).,float,,1.0,0.0,,base ai model
+,primary_building_unclipped_area_sqm,"Total area of the primary building on the parcel before parcel clipping, in square metres.",float,15.8,,0,,base ai model
+,primary_roof_area_sqm,"Area of the primary roof on the parcel, in square metres.",float,12.8,,0,,base ai model
+,primary_roof_clipped_area_sqm,"Area of the primary roof on the parcel clipped to the parcel boundary, in square metres.",float,12.8,,0,,base ai model
+,primary_roof_confidence,"Confidence in detection of the primary roof on the parcel (single feature, not combined).",float (quantised uint8),0.94140625,1.0,0.0,,base ai model
+,primary_roof_feature_id,Feature ID of the primary roof on the parcel.,UUID,,,,,base ai model
+,primary_roof_fidelity,Quality of the shape of the vectorized footprint polygon (and implicitly the accuracy of the area measurement) (primary roof).,float,,1.0,0.0,,base ai model
+,primary_roof_unclipped_area_sqm,"Total area of the primary roof on the parcel before parcel clipping, in square metres.",float,15.8,,0,,base ai model
+,query_aoi_lat,Representative latitude of the query AOI geometry.,float,,90.0,-90.0,,input data
+,query_aoi_lon,Representative longitude of the query AOI geometry.,float,,180.0,-180.0,,input data
+,roof_confidence,Combined confidence that at least one roof was detected on the parcel — higher when multiple high-confidence detections agree. Null when none are detected.,float (quantised uint8),,1.0,0.0,,base ai model
+,roof_count,Count of roof detections across the entire parcel.,int,,,0,,base ai model
+,roof_multiparcel_feature_count,Count of roof features on this parcel that are also detected on at least one other parcel (e.g. row-home features whose footprint spans multiple parcels).,int,,,0,,base ai model
+,roof_total_area_sqm,"Total area of roof detected across the entire parcel, in square metres.",float,,,0,,base ai model
+,roof_total_clipped_area_sqm,"Total area of roof (clipped to parcel boundary) detected across the entire parcel, in square metres.",float,,,0,,base ai model
+,roof_total_unclipped_area_sqm,"Total area of roof (before parcel clipping) detected across the entire parcel, in square metres.",float,,,0,,base ai model
+,survey_date,"Capture date of the 2D aerial imagery this feature was extracted from. Use as the canonical 'as-of' date for AI-derived attributes (counts, areas, materials, RSI, damage). May differ from mesh_date when 3D attributes draw on a different survey window.",date,2019-09-27,,,,image metadata
+,survey_id,UUID of the logical survey from which AI features were drawn. Pairs with survey_date. Multiple resource versions can share one survey_id; use survey_resource_id for an exact reproducible reference to the model output.,UUID,,,,,image metadata
+,survey_resource_id,UUID of the specific imagery resource (the model dataset within a survey) that produced this row. Use this when reproducibility matters; survey_id can resolve to different resources over time as the API team publishes corrections.,UUID,,,,,image metadata
+,system_version,Base AI model version used for detection (applies to all columns with source = 'base ai model'). Example: `gen6-glowing_moon-1.0`. See https://help.nearmap.com/kb/articles/1629-generation-6-ai-content for details.,string,,,,,model metadata
+Y | N,building_present,Whether any building is detected across the entire parcel.,binary,,Y,N,,base ai model
+Y | N,feature_api_success,Whether the Feature API answered for this AOI. A gridded AOI whose failed grid cells stayed within the accepted threshold is Y; its failed cells are listed in the errors file.,binary,,Y,N,,model metadata
+Y | N,postcat,Whether the resource was tagged as a post catastrophe survey.,binary,,Y,N,,image metadata
+Y | N,primary_building_multiparcel_feature,Whether the primary building on the parcel is also detected on at least one other parcel (e.g. a roof or building spanning a row of townhomes). 'Y' indicates this feature is shared across multiple parcels.,binary,,Y,N,,base ai model
+Y | N,primary_roof_multiparcel_feature,Whether the primary roof on the parcel is also detected on at least one other parcel (e.g. a roof or building spanning a row of townhomes). 'Y' indicates this feature is shared across multiple parcels.,binary,,Y,N,,base ai model
+Y | N,roof_present,Whether any roof is detected across the entire parcel.,binary,,Y,N,,base ai model

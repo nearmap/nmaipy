@@ -1,0 +1,426 @@
+{
+ "request": {
+  "method": "GET",
+  "url": "https://api.nearmap.com/ai/features/v4/bulk/packs.json",
+  "query": [],
+  "body": null
+ },
+ "response": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+   "packs": [
+    {
+     "code": "building",
+     "featureClasses": [
+      {
+       "id": "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+       "internalId": 1106,
+       "description": "Building",
+       "supportedVersionsInternal": [
+        "DavidBowie:A.1",
+        "LedZeppelin:F.2"
+       ],
+       "supportedVersions": [
+        "gen6-glowing_lantern-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+       "internalId": 1011,
+       "description": "Building (Deprecated)",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+       "internalId": 1002,
+       "description": "Roof",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      }
+     ],
+     "attributeClasses": [],
+     "postcat": false
+    },
+    {
+     "code": "roof_char",
+     "featureClasses": [
+      {
+       "id": "042a1d14-4a23-50dc-aabb-befc9645af3b",
+       "internalId": 1084,
+       "description": "Leaf-off Tree Overhang",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "1ab60ef7-e770-5ab6-995e-124676b2be11",
+       "internalId": 1191,
+       "description": "Flat",
+       "supportedVersionsInternal": [
+        "LedZeppelin:F.2"
+       ],
+       "supportedVersions": [
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "224f98d3-b853-542a-8b18-e1e46e3a8200",
+       "internalId": 1016,
+       "description": "Flat (Deprecated)",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+       "internalId": 1015,
+       "description": "Dutch Gable",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "4424186a-0b42-5608-a5a0-d4432695c260",
+       "internalId": 1009,
+       "description": "Metal",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "4bbf8dbd-cc81-5773-961f-0121101422be",
+       "internalId": 1008,
+       "description": "Shingle",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+       "internalId": 1007,
+       "description": "Tile",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+       "internalId": 1014,
+       "description": "Gable",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "89582082-e5b8-5853-bc94-3a0392cab98a",
+       "internalId": 1020,
+       "description": "Turret",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+       "internalId": 1045,
+       "description": "Tree Overhang",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+       "internalId": 1013,
+       "description": "Hip",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+       "internalId": 1002,
+       "description": "Roof",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "cd15ea0b-a0f6-58b6-9a63-480654ff506c",
+       "internalId": 1071,
+       "description": "Dormer Window",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      }
+     ],
+     "attributeClasses": [
+      {
+       "id": "20a58db2-bc02-531d-98f5-451f88ce1fed",
+       "internalId": 4,
+       "description": "Roof types",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "39072960-5582-52af-9051-4bc8625ff9ba",
+       "internalId": 7,
+       "description": "Roof 3d attributes",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+       "internalId": 5,
+       "description": "Roof overhang attributes",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      },
+      {
+       "id": "89c7d478-58de-56bd-96d2-e71e27a36905",
+       "internalId": 3,
+       "description": "Roof material",
+       "supportedVersionsInternal": [
+        "LedZeppelin:E.2",
+        "LedZeppelin:F.2",
+        "battle_for_evermore",
+        "black_mountain_side",
+        "boogie_with_stu",
+        "brandy_and_coke"
+       ],
+       "supportedVersions": [
+        "gen4-building_storm-2.3",
+        "gen4-lightning_bolt-1.3",
+        "gen5-tranquil_pool-1.0",
+        "gen5-tranquil_sea-1.0",
+        "gen5-urban_atlas-1.0",
+        "gen6-glowing_moon-1.0"
+       ]
+      }
+     ],
+     "postcat": false
+    }
+   ]
+  },
+  "body_text": false
+ }
+}
