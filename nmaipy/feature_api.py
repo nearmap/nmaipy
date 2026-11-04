@@ -1461,36 +1461,51 @@ class FeatureApi(GriddedApiClient):
             # request the scorer can handle, though cells run without parcelMode. Otherwise keep the response.
             if not in_gridding_mode:
                 any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
+                retry_failed = False
                 if any_skipped and self.retry_on_realtime_skip:
                     logger.info(
                         f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
                         f"retrying once in {REALTIME_SKIP_RETRY_DELAY_SECONDS}s"
                     )
                     time.sleep(REALTIME_SKIP_RETRY_DELAY_SECONDS)
-                    payload = self.get_features(
-                        geometry=geometry,
-                        region=region,
-                        packs=packs,
-                        classes=classes,
-                        include=include,
-                        since=since,
-                        until=until,
-                        address_fields=address_fields,
-                        survey_resource_id=survey_resource_id,
-                        in_gridding_mode=in_gridding_mode,
-                        param_dic=param_dic,
-                        disable_parcel_mode=disable_parcel_mode,
-                        refresh_cache=True,
-                    )
-                    features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
-                    any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
+                    try:
+                        payload = self.get_features(
+                            geometry=geometry,
+                            region=region,
+                            packs=packs,
+                            classes=classes,
+                            include=include,
+                            since=since,
+                            until=until,
+                            address_fields=address_fields,
+                            survey_resource_id=survey_resource_id,
+                            in_gridding_mode=in_gridding_mode,
+                            param_dic=param_dic,
+                            disable_parcel_mode=disable_parcel_mode,
+                            refresh_cache=True,
+                        )
+                        features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
+                        any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
+                    except (AIFeatureAPIError, requests.exceptions.RetryError, requests.exceptions.Timeout) as e:
+                        # The first response answered, so a retry that fails (likely under the load that caused the
+                        # skip) must not turn the AOI into an error. Gridding would send more requests into the
+                        # same failures, so keep the first response as it is.
+                        logger.warning(
+                            f"AOI (id {aoi_id}): retry after an include skip failed ({type(e).__name__}); "
+                            f"keeping the first response, whose skipped scores stay null"
+                        )
+                        retry_failed = True
                 n_cells = (
                     len(
                         geometry_utils.split_geometry_into_grid(
                             geometry=geometry, cell_size=REALTIME_SKIP_GRID_SIZE_DEGREES
                         )
                     )
-                    if any_skipped and self.retry_on_realtime_skip and not fail_hard_regrid and geometry is not None
+                    if any_skipped
+                    and self.retry_on_realtime_skip
+                    and not retry_failed
+                    and not fail_hard_regrid
+                    and geometry is not None
                     else 0
                 )
                 if n_cells > 1:

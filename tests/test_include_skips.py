@@ -8,9 +8,11 @@ can handle. Otherwise the response is kept and the skipped scores stay null.
 
 import geopandas as gpd
 import pytest
+import requests
 from shapely.geometry import Polygon, box, mapping
 
 import nmaipy.feature_api as feature_api_module
+from nmaipy.api_common import AIFeatureAPIError
 from nmaipy.constants import REALTIME_SKIP_GRID_SIZE_DEGREES, REALTIME_SKIP_RETRY_DELAY_SECONDS, ROOF_ID
 from nmaipy.feature_api import FeatureApi, _response_has_include_skips
 
@@ -110,15 +112,19 @@ def calls(monkeypatch):
 def _install_stubs(api, monkeypatch, calls, *, responses, grid_fails=False):
     """Stub `get_features` to return `responses` in turn, and `_attempt_gridding`; the real `payload_gdf` parses.
 
-    Each response is the roofSpotlightIndex include for the AOI's one roof. `calls` collects the get_features
-    keyword arguments under "requests" and the gridding keyword arguments under "grids".
+    Each response is the roofSpotlightIndex include for the AOI's one roof, or an exception for the request to raise.
+    `calls` collects the get_features keyword arguments under "requests" and the gridding keyword arguments under
+    "grids".
     """
     calls.update(requests=[], grids=[])
     queue = list(responses)
 
     def stub_get_features(**kwargs):
         calls["requests"].append(kwargs)
-        return _payload(_roof("roof", geometry=kwargs["geometry"], roofSpotlightIndex=queue.pop(0)))
+        response = queue.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return _payload(_roof("roof", geometry=kwargs["geometry"], roofSpotlightIndex=response))
 
     def stub_attempt_gridding(**kwargs):
         calls["grids"].append(kwargs)
@@ -164,6 +170,26 @@ class TestIncludeSkipHandling:
         assert calls["sleeps"] == [REALTIME_SKIP_RETRY_DELAY_SECONDS]
         assert calls["grids"] == [], "A retry that scores should not be followed by gridding"
         assert error is None and _skip_state(features) == SCORED
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            AIFeatureAPIError(None, "request", message="Service unavailable"),
+            requests.exceptions.RetryError("gave up"),
+            requests.exceptions.Timeout("timed out"),
+        ],
+        ids=["api-error", "retry-error", "timeout"],
+    )
+    def test_failed_retry_keeps_the_first_response(self, tmp_path, monkeypatch, calls, failure):
+        """The retry only tries to fill the skipped scores; a failing API must not cost the AOI its features."""
+        api = self._api(tmp_path)
+        _install_stubs(api, monkeypatch, calls, responses=[SKIPPED, failure])
+        features, metadata, error, _ = api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
+        assert len(calls["requests"]) == 2
+        assert error is None, f"A failed retry should not fail the AOI, got {error}"
+        assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
+        assert _skip_state(features) == SKIPPED
+        assert calls["grids"] == [], "Gridding after a failed retry would send more requests into the same failures"
 
     def test_persisting_skip_on_a_multi_cell_aoi_is_gridded_on_the_same_survey(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path)
