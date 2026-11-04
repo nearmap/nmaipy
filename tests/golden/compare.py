@@ -117,7 +117,9 @@ def _read_table(path: Path) -> pd.DataFrame:
 def _schema(table: pd.DataFrame) -> dict:
     schema = {"dtypes": {c: _dtype_name(table[c]) for c in table.columns}}
     if isinstance(table, gpd.GeoDataFrame):
-        schema["geo"] = {"primary_column": table.geometry.name, "crs": table.crs.to_string() if table.crs else None}
+        geometry_columns = table.columns[table.dtypes == "geometry"]
+        crs = {c: table[c].crs.to_string() if table[c].crs else None for c in geometry_columns}
+        schema["geo"] = {"primary_column": table.geometry.name, "crs": crs}
     return schema
 
 

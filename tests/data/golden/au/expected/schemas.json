@@ -57,7 +57,9 @@
    "unclipped_area_sqm": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -100,7 +102,9 @@
    "unclipped_area_sqm": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -158,7 +162,9 @@
    "unclipped_area_sqm": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  }

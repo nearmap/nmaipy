@@ -197,8 +197,10 @@ class FakeResponse:
 class FakeApi:
     """Answers Feature API and Roof Age API requests from a `World`, following the live API's rules."""
 
-    def __init__(self, world: World) -> None:
+    def __init__(self, world: World, since: str | None = None, until: str | None = None) -> None:
         self.world = world
+        self.since = since
+        self.until = until
         self._aois = world.aoi_geometries
         for region in world.errors:
             assert (region.endpoint, region.status, frozenset(region.body)) in ERROR_KEYS, region
@@ -358,6 +360,8 @@ class FakeApi:
         return record
 
     def _roof_age(self, body: dict) -> FakeResponse:
+        if (cutoffs := (body.get("sinceAsOfDate"), body.get("untilAsOfDate"))) != (self.since, self.until):
+            raise UnknownRequest(f"roof age cutoffs (since, until) {cutoffs} != {(self.since, self.until)}")
         request = shape(body["aoi"])
         if error := self._error("roofage", request):
             return error
@@ -441,7 +445,8 @@ def case_answers(fake: FakeApi, case: str, kwargs: dict) -> Iterator[tuple[str, 
             body = json.dumps({"aoi": mapping(request)})
             yield _answer(fake.handle("POST", f"{root}/features.json?apikey=&{query}", body), request, grid)
         if kwargs.get("roof_age"):
-            body = json.dumps({"aoi": mapping(aoi)})
+            cutoffs = {f"{k}AsOfDate": v for k, v in dates.items()}
+            body = json.dumps({"aoi": mapping(aoi), **cutoffs})
             yield _answer(fake.handle("POST", f"https://{HOST}{ROOF_AGE_PATH}?bulk=true", body), aoi)
 
 

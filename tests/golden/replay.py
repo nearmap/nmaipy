@@ -119,7 +119,7 @@ def emitted_paths(marker_dir: Path) -> dict[str, set[str]]:
 
 
 def _start_fake(case: str, marker_dir: Path) -> responses.RequestsMock:
-    fake = FakeApi(world.build(case))
+    fake = FakeApi(world.build(case), CASES[case].get("since"), CASES[case].get("until"))
     pid = os.getpid()
 
     def respond(request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:

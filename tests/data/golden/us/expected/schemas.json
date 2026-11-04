@@ -110,7 +110,9 @@
    "unclipped_area_sqft": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -126,7 +128,10 @@
    "text": "string"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "aoi_geometry": "EPSG:4326",
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -210,7 +215,9 @@
    "unclipped_area_sqft": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -222,7 +229,9 @@
    "status_code": "int64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -330,7 +339,9 @@
    "unclipped_area_sqft": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -364,7 +375,9 @@
    "roof_age_years_as_of_date": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  },
@@ -393,7 +406,9 @@
    "unclipped_area_sqft": "float64"
   },
   "geo": {
-   "crs": "EPSG:4326",
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
    "primary_column": "geometry"
   }
  }

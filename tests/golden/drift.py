@@ -149,7 +149,7 @@ def fake_exchanges() -> list[Exchange]:
     """The fake's answers to the requests each case's golden run makes, without running the exporter."""
     exchanges = []
     for case in CASES:
-        fake = FakeApi(world.build(case))
+        fake = FakeApi(world.build(case), CASES[case].get("since"), CASES[case].get("until"))
         exchanges += [Exchange(e, case, r, s, b, g) for e, r, s, b, g in fake_api.case_answers(fake, case, CASES[case])]
     return exchanges
 
