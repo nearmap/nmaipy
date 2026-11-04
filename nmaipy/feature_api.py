@@ -26,7 +26,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from nmaipy import geometry_utils, log, storage
-from nmaipy.aoi_io import prepare_date_cutoffs
+from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,
     AIFeatureAPIError,
@@ -1549,6 +1549,12 @@ class FeatureApi(GriddedApiClient):
                         grid_size=REALTIME_SKIP_GRID_SIZE_DEGREES,
                     )
                     if grid_error is None:
+                        answered, cells = gridded_metadata["grid_cells_answered"], gridded_metadata["grid_cells"]
+                        if answered < cells:
+                            # Below aoi_grid_min_pct=100 a grid passes with cells missing, and their features with
+                            # them, so it would replace a response that has every feature with one that lacks some.
+                            grid_error = {"message": f"only {answered} of {cells} grid cells answered"}
+                    if grid_error is None:
                         # Cells run without parcelMode and return no parcel-level aggregate; keep this one's.
                         gridded_metadata["aggregate"] = metadata.get("aggregate")
                         features_gdf, metadata, grid_errors_df = gridded_features, gridded_metadata, gridded_errors_df
@@ -1902,6 +1908,8 @@ class FeatureApi(GriddedApiClient):
         See :py:meth:`_get_features_gdf_bulk_inner` for the underlying single-pass
         implementation.
         """
+        # A blank bulk date means no date, so it must not reach a request as text.
+        since_bulk, until_bulk = blank_date_to_none(since_bulk), blank_date_to_none(until_bulk)
         if not in_gridding_mode:
             # Per-row dates that aren't YYYY-MM-DD strings would otherwise fall back to the bulk dates unseen.
             gdf = prepare_date_cutoffs(gdf, since=since_bulk, until=until_bulk)

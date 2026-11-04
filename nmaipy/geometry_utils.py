@@ -331,7 +331,7 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
         # taken for discrete and keep only its largest piece, so refuse any row that is neither. The check is exact:
         # the API's clippedAreaSqm for a discrete object wholly inside one cell can exceed its areaSqm by a few
         # tenths of a sqm, so comparing summed clipped areas with the kept area cannot tell that noise from a
-        # misread piece. A row without an area or unclipped area can't be checked and is left to the kind rule.
+        # misread piece. A row without an area or unclipped area can't be checked here (see the area-less check below).
         if "unclipped_area_sqm" in all_columns:
             area, unclipped = features_gdf["area_sqm"], features_gdf["unclipped_area_sqm"]
             follows_neither = ~in_cell_area & (area != unclipped) & area.notna() & unclipped.notna()
@@ -344,6 +344,15 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
                     f"to neither their clipped_area_sqm (a connected piece) nor their unclipped_area_sqm (a whole "
                     f"object): {sample.head(3).to_dict('records')}"
                 )
+        # An area-less feature has no area in any cell. One with an area in some cells only can't be read: a NaN cell
+        # fails the area == clipped test, so a connected feature would be taken for discrete and keep one piece.
+        has_area = features_gdf["area_sqm"].notna().groupby(features_gdf["feature_id"])
+        partly_area_less = has_area.any() & ~has_area.all()
+        if partly_area_less.any():
+            raise ValueError(
+                f"combine_features_from_grid: {int(partly_area_less.sum())} feature(s) report an area_sqm in some grid "
+                f"cells but not others, e.g. {partly_area_less[partly_area_less].index[:3].tolist()}"
+            )
         # Connected: each cell's area is its clipped piece, so the area is the summed clipped area.
         # Discrete: every cell repeats the whole-object area, so keep one copy.
         connected = in_cell_area.groupby(features_gdf["feature_id"]).all()

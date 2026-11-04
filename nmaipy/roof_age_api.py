@@ -43,7 +43,7 @@ import stringcase
 from shapely.geometry import Polygon, shape
 
 from nmaipy import log, storage
-from nmaipy.aoi_io import prepare_date_cutoffs
+from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import BaseApiClient, RoofAgeAPIError
 from nmaipy.constants import (
     ADDRESS_FIELDS,
@@ -146,8 +146,9 @@ class RoofAgeApi(BaseApiClient):
 
         # Store dataset selection
         self.resource_id = resource_id
-        self.until_as_of_date = until_as_of_date
-        self.since_as_of_date = since_as_of_date
+        # A blank cutoff means none, so it is neither sent nor used in the cache path.
+        self.until_as_of_date = blank_date_to_none(until_as_of_date)
+        self.since_as_of_date = blank_date_to_none(since_as_of_date)
 
         # Configure API endpoints
         if url_root is None:
