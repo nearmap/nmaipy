@@ -226,6 +226,7 @@ Verified against the live Feature API by querying the bundled `tests/data/test_p
   - For both kinds, `clippedAreaSqm` is the area inside the query AOI.
   - nmaipy uses no list of either kind, since the API's classes change. Code that needs the kind reads it from these areas. (`CONNECTED_CLASS_IDS` is deprecated until 6.0, served by `constants.__getattr__` with a warning.)
   - For gridded AOIs, every cell repeats a discrete object's whole area but reports only its own piece of a connected one. `combine_features_from_grid` therefore keeps one copy of the former and sums the latter. It tells them apart by whether a feature's `areaSqm` equals its `clippedAreaSqm` in every cell, never by `unclippedAreaSqm` (a connected patch's is the whole forest or lawn, however little of it is in the AOI).
+- **parcelMode adds or removes no features.** For the same AOI both modes return exactly the same set (9,886 features over five residential blocks); it only flags and clips them. `belongsToParcel` reflects position, not confidence.
 - **What parcelMode adds**:
   - `belongsToParcel`: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms. A feature judged not to belong, typically a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax, comes back `false`. It is not a simple share-of-area threshold: a roof split down the middle belongs to both halves. Connected features are nearly all `true`; a few Lawn Grass patches came back `false` (under 1% of connected area). `payload_gdf` drops `false` features, so `belongs_to_parcel` is true on every row answered with parcelMode on, and null for gridded AOIs' rows (grid cells run with parcelMode off) and when parcelMode is off.
   - `clippedGeometry`, only for discrete features the API judges to be **multiparcel** (genuinely shared with another parcel). Connected features never get one, because their geometry is already clipped. `payload_gdf` swaps it into `geometry` and sets `multiparcel_feature`.
@@ -290,7 +291,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
    - Bulk feature requests with auto-gridding on oversized AOIs
    - Feature geometry requests (`get_features_gdf()`, `get_features_gdf_bulk()`)
    - Date range and survey resource queries
-   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses. nmaipy doesn't call the Feature API's own rollup endpoints (`rollups.csv|json|geojson`), whose primary-feature rules needn't match nmaipy's.
+   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses. The Feature API's former rollup endpoints are deprecated and unused.
 
 6. **roof_age_api.py**: `RoofAgeApi(BaseApiClient)` — client for Nearmap Roof Age API
    - AOI-based queries (`get_roof_age_by_aoi()`) with pagination

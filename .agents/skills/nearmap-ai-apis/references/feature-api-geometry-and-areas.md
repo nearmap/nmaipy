@@ -44,7 +44,7 @@ Most classes are connected; only bounded objects (roof, building, pool, roof com
 
 nmaipy sends `parcelMode=true` by default. The exporter's `--no-parcel-mode` turns it off, and gridded AOIs always run with it off (section 6).
 
-parcelMode adds two things [live]:
+parcelMode adds or removes no features: for the same AOI, both modes return exactly the same set (9,886 features over five residential blocks) [live]. It adds two things to them [live]:
 
 - **`belongsToParcel`**: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms.
   - A feature judged not to belong comes back `false`. Typically this is a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax.
@@ -65,6 +65,7 @@ The API's geospatial assessment decides which. The sizes above are what testing 
 Where the public parcelMode guide differs from what responses showed [live, November 2026]:
 - The guide says connected features are populated with a clipped geometry. Live, they carry no `clippedGeometry`; their `geometry` is already clipped.
 - The guide says connected features belong to every parcel they touch. Live, a few Lawn Grass patches came back `belongsToParcel=false`.
+- The guide describes features below a per-class minimum confidence being skipped by parcel processing, without a `belongsToParcel` flag. Live, every feature returned with parcelMode on carried the flag, low-confidence roofs wholly inside a parcel came back `true`, and parcelMode on and off returned the same features.
 
 parcelMode does **not** change `areaSqm`, `unclippedAreaSqm`, `geometry` or `attributes` [live]. Across both modes and every parcel returning the same feature, the only fields that differ are `clippedArea*`, `clippedGeometry`, `belongsToParcel` and the score includes. For the same AOI, the clipped areas agree between modes to within the 0.1 rounding step.
 

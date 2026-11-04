@@ -88,7 +88,7 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
 
 ## 5. Rollup semantics (`parcels.parcel_rollup`)
 
-[API] The Feature API has rollup endpoints of its own (`rollups.csv`, `.json`, `.geojson`; see the API reference via `https://developer.nearmap.com/llms.txt`), which summarise an AOI and pick a primary object, e.g. the largest roof. nmaipy doesn't call them: it builds its rollup from the features response (`parcels.parcel_rollup`). The columns, primary-feature rules and null handling below are nmaipy's, and the API rollup's needn't match them.
+The Feature API's former rollup endpoints are deprecated; leave them aside. nmaipy builds its rollup from the features response (`parcels.parcel_rollup`), and everything below describes that.
 
 - [nmaipy] **Per-class columns.** The prefix is the class description, lower-cased with spaces replaced by `_`. Areas are in sqft for the US and sqm elsewhere.
   - `<class>_present` (Y/N).
@@ -133,7 +133,10 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
   - [API] A Feature API feature's `confidence` is 0–1, per detection.
   - [API] A Roof Age instance's `trustScore` is 0–100 (in the bundled samples).
   - [API] A Damage Conflation rating's `confidence` is 0–1: the probability of the chosen rating, in the bundled sample.
-- **[API] The API filters before attributing.** Per Nearmap's public parcelMode guide, with parcelMode on the API applies a per-class minimum confidence (and, for some classes, minimum fidelity) before deciding `belongsToParcel`. The thresholds are not published. [live] On 12 bundled parcels with parcelMode on, every one of 267 returned features carried `belongsToParcel`, and the lowest confidence returned was 0.51.
+- **A per-class minimum confidence applies.**
+  - [API] Nearmap applies a minimum confidence per class (and, for some classes, a minimum fidelity). The values are not published; don't guess them.
+  - [live] parcelMode doesn't change which features come back. For the same AOI, parcelMode on and off returned exactly the same features (9,886 over five residential blocks), so whatever minimum applies, applies to both.
+  - [live] `belongsToParcel` reflects position, not confidence: roofs at the low end of the returned confidence range that sit wholly inside a parcel came back `true`.
 - **[nmaipy] An export's class-level confidence is a formula, not a detection's confidence.**
   - `<class>_confidence` = 1 − Π(1 − cᵢ) over the AOI's features of that class: the chance that at least one detection is real. It runs higher than any single detection's confidence, so a cutoff tuned on feature confidence doesn't carry over to it.
   - `primary_<class>_confidence` is the primary feature's own confidence.
