@@ -44,14 +44,16 @@ Most classes are connected; only bounded objects (roof, building, pool, roof com
 
 nmaipy sends `parcelMode=true` by default. The exporter's `--no-parcel-mode` turns it off, and gridded AOIs always run with it off (section 6).
 
-parcelMode adds or removes no features: for the same AOI, both modes return exactly the same set (9,886 features over five residential blocks, and all 7,435 features of 82 classes on the bundled parcels) [live]. It adds two things to them [live]:
+parcelMode adds or removes no features: for the same AOI, both modes return exactly the same set (43,885 features of 120 classes, on 485 random lots across 12 US and AU metros) [live]. It adds two things to them [live]:
 
 - **`belongsToParcel`**: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms.
   - A feature judged not to belong comes back `false`. Typically this is a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax.
   - It is not a simple share-of-area threshold: in the worked example (section 8), a roof with 49% of its area inside the parcel belongs.
   - Nearmap's public parcelMode guide (`https://developer.nearmap.com/docs/parcel-mode-user-guide.md`) outlines it: non-building objects belong when roughly half or more of their area is inside; building-like features belong when the parcel and the building–parcel intersection are both building-like; a child follows its parent.
-  - Connected features are nearly all `true`; a few Lawn Grass patches came back `false` (under 1% of connected area).
-  - [nmaipy] `FeatureApi.payload_gdf` drops `false` features. So every row answered with parcelMode on has `belongs_to_parcel` = true. The column is null for gridded AOIs' rows (section 6) and when parcelMode is off.
+  - For some classes, a feature below the class's minimum confidence comes back `false` even when it lies wholly inside the parcel [live]. The API still returns it; parcelMode just doesn't attribute it. For many classes, roofs among them, no such cut showed. The minimums are not published.
+  - Connected features are nearly all `true`; the few Lawn Grass patches that came back `false` were low-confidence ones.
+  - A few classes come back with no `belongsToParcel` at all, e.g. Pole [live].
+  - [nmaipy] `FeatureApi.payload_gdf` drops `false` features. So every row answered with parcelMode on has `belongs_to_parcel` = true, except rows of classes the API doesn't flag (e.g. Pole), which are kept with it null. The column is null for gridded AOIs' rows (section 6) and when parcelMode is off. A parcelMode export therefore leaves out low-confidence features of the classes with a minimum, which an export without parcelMode, or a gridded AOI, keeps.
 - **`clippedGeometry`**: only for discrete features the API judges to be **multiparcel**, genuinely shared with another parcel. It is the feature cut at the parcel boundary.
   - [nmaipy] nmaipy swaps it into `geometry` and sets `multiparcel_feature = True`.
   - Connected features never get it, because their geometry is already clipped.
@@ -65,7 +67,7 @@ The API's geospatial assessment decides which. The sizes above are what testing 
 Where the public parcelMode guide differs from what responses showed [live, November 2026]:
 - The guide says connected features are populated with a clipped geometry. Live, they carry no `clippedGeometry`; their `geometry` is already clipped.
 - The guide says connected features belong to every parcel they touch. Live, a few Lawn Grass patches came back `belongsToParcel=false`.
-- The guide describes features below a per-class minimum confidence being skipped by parcel processing, without a `belongsToParcel` flag. Live, every feature returned with parcelMode on carried the flag, low-confidence roofs wholly inside a parcel came back `true`, and parcelMode on and off returned the same features.
+- The guide describes features below a per-class minimum confidence being skipped by parcel processing, without a `belongsToParcel` flag. Live, they are still returned, flagged `false`, and parcelMode on and off return the same features. The features that came back without a flag were of particular classes (e.g. Pole), at any confidence.
 
 parcelMode does **not** change `areaSqm`, `unclippedAreaSqm`, `geometry` or `attributes` [live]. Across both modes and every parcel returning the same feature, the only fields that differ are `clippedArea*`, `clippedGeometry`, `belongsToParcel` and the score includes. For the same AOI, the clipped areas agree between modes to within the 0.1 rounding step.
 
@@ -134,11 +136,11 @@ Only the `components` lists are recomputed. Includes and pitch pass through unch
 [nmaipy] nmaipy splits an AOI into a grid of cells (0.005° by default, about 550 m), queries each cell and merges the results, when:
 - the AOI is over about 1 sq km;
 - the API rejects it as too large, or times out (see the queries-and-outputs reference, section 2);
-- the API still returns an include as `{"skipped": true}` after one retry (typically a large parcel with very many roofs, which the scorer gives up on in one request), and the AOI spans more than one grid cell, so that each cell is a smaller request it can score. `--no-regrid-on-skip` turns this off. The cells are pinned to the first response's survey, and if the grid fails the AOI keeps that response.
+- the API still skips a realtime score (`{"skipped": true}`) after one retry, typically for a parcel with very many roofs, which the scorer gives up on in one request. The AOI is then gridded into small cells (`REALTIME_SKIP_GRID_SIZE_DEGREES`, about 0.04 sq km), if it spans more than one, so each cell is a request the scorer can handle. The cells are pinned to the first response's survey, and if the grid fails the AOI keeps that response. `--no-retry-on-realtime-skip` turns off both the retry and this.
 
 **Grid cells are queried with parcelMode off, by design.** Gridding is meant for very large areas. There, a discrete object crossing the AOI's outer boundary matters little, whereas parcelMode would treat every cell as a parcel and cut features at the grid's internal lines. As a result, for a gridded AOI:
 
-- **Nothing is filtered by `belongsToParcel`.** Features crossing the AOI's outer boundary are kept, neighbours' roofs included. They count in `<class>_count` and `<class>_total_area_*` (whole object), but only their in-AOI part counts in `<class>_total_clipped_area_*`.
+- **Nothing is filtered by `belongsToParcel`.** Features crossing the AOI's outer boundary are kept, neighbours' roofs included, and so are low-confidence features a parcelMode query would flag `false` (section 2). They count in `<class>_count` and `<class>_total_area_*` (whole object), but only their in-AOI part counts in `<class>_total_clipped_area_*`.
 - **`belongs_to_parcel` is null on every row** (the API sends no such field without parcelMode), and **`multiparcel_feature` is always N** (no feature gets `clippedGeometry`). Discrete features keep their whole outlines.
 - **Includes describe whole roofs.** RSI, the peril scores and per-roof defensible space are the parcelMode-off, whole-roof values. The parcel-level `aggregate_defensible_space_*` columns are null, except on an AOI gridded after an include skip, which keeps the aggregate from its first, parcelMode response.
 - **Roof components are recomputed on the in-AOI part.** nmaipy clips each roof's outline to the AOI before recomputing its components: in the rollup's `primary_roof_*` columns (`parcels.parcel_rollup`, `clip_roof_to_parcel`) and in the per-class files (`exporter._clip_roof_geoms_to_aoi`). So `tree_overhang_ratio` describes the roof's in-AOI part while the includes describe the whole roof, and on a gridded AOI the two no longer match as they do for a parcelMode roof (section 5).
@@ -160,7 +162,7 @@ On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (
 - `<class>_total_clipped_area_*` is the in-parcel total for every class. Use it for "how much X is on this lot". It covers features attributed to the parcel. A feature judged not to belong, typically a neighbour's roof that appears to overhang because of parallax or parcel/imagery offset, is left out entirely, by design (gridded AOIs keep such features, section 6).
 - `<class>_total_unclipped_area_*` is whole objects, or whole patches for connected classes. It is rarely what someone wants for connected classes.
 - `multiparcel_feature` / `<class>_multiparcel_feature_count`: whether the API returned the feature clipped to this parcel because it is shared with another. A slight-overhang roof is `N` here, even though it crosses the boundary.
-- `belongs_to_parcel` is true on every row answered with parcelMode on, because non-belonging features were dropped, and null for gridded AOIs. It is not a "fully inside" flag.
+- `belongs_to_parcel` is true on every row answered with parcelMode on, because non-belonging features were dropped, except classes the API doesn't flag (e.g. Pole), which are null. It is null for gridded AOIs. It is not a "fully inside" flag.
 - The same `feature_id` can appear in several AOIs' rows with different clipped values. Row identity is `(aoi_id, feature_id)`. `feature_id` is stable within a survey but not across survey dates.
 
 ## 8. Worked example: one roof shared by two parcels

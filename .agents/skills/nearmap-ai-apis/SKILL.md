@@ -95,7 +95,7 @@ The details are in the reference files named in brackets.
   - Queried and nothing found gives `_present=N` and zero counts and totals, but `<class>_confidence` is null.
   - Primary-feature attribute columns are null when there is no primary feature.
   - Score columns are null when the API skipped that include (`*_skipped`).
-  - `belongs_to_parcel` is null on rows answered without parcelMode, gridded AOIs included.
+  - `belongs_to_parcel` is null on rows answered without parcelMode, gridded AOIs included, and for classes the API doesn't flag (e.g. Pole).
   - [queries-and-outputs, geometry-and-areas]
 - **"Clipped area is bigger than the area."**
   - For an object wholly inside the AOI, `clippedAreaSqm` can exceed `areaSqm` by a few tenths of a sqm (up to about 2% on small structures), on ordinary and gridded queries alike.
