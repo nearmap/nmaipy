@@ -173,6 +173,7 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
 
 def test_rollup_with_roof_condition_confidence_stats(
     roof_condition_confidence_stats_payload,
+    tmp_path: Path,
 ):
     """Test parcel rollup with roofConditionConfidenceStats to generate CSV output."""
     # Use payload from fixture
@@ -231,7 +232,7 @@ def test_rollup_with_roof_condition_confidence_stats(
     )
 
     # Save to CSV
-    outfile = data_directory / "test_parcels_rollup_roof_condition_confidence_stats.csv"
+    outfile = tmp_path / "test_parcels_rollup_roof_condition_confidence_stats.csv"
     rollup_df.to_csv(outfile)
 
     # Verify histogram bin columns are present
