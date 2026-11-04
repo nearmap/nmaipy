@@ -34,7 +34,7 @@ This holds with parcelMode on and with it off. `clippedAreaSqm` is computed in b
 
 `clippedAreaSqm` is computed separately from `areaSqm`, and for a discrete object wholly inside the AOI it can exceed `areaSqm` by a few tenths of a sqm: 0.1–0.4 sqm on gridded AU and US AOIs, e.g. a roof or building at 28.1 sqm with a clipped area of 28.3 [live]. Treat differences that small as measurement noise, not as the object extending further.
 
-Most classes are connected; only bounded objects (roof, building, pool, roof components, …) are discrete. [nmaipy] nmaipy keeps no list of either kind, because the API's classes change. Code that needs the kind reads it from these areas.
+Most classes are connected; only bounded objects (roof, building, pool, roof components, …) are discrete. [nmaipy] nmaipy uses no list of either kind, because the API's classes change; code that needs the kind reads it from these areas. (`nmaipy.constants.CONNECTED_CLASS_IDS` is deprecated, incomplete and unused.)
 
 ## 2. What parcelMode changes
 

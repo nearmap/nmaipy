@@ -9,7 +9,7 @@ Evidence tags:
 
 - [nmaipy] **Endpoint and body.** Requests are POSTs to `…/ai/roofage/v1/resources/{resource_id}.json`. The body holds either `aoi` (GeoJSON) or `address` (street, city, state, zip, country), plus optional `cursor`, `limit`, `sinceAsOfDate` and `untilAsOfDate`.
 - [nmaipy] **Pagination** follows `nextCursor` until it is absent, merging pages. Top-level metadata comes from page 1.
-- [nmaipy] **Retries.** Failed requests are retried up to the exporter's `--max-retries`, as for the Feature API.
+- [nmaipy] **Retries.** With `exporter.py --roof-age`, failed requests are retried up to `--max-retries`, as for the Feature API. The standalone `roof_age_exporter` has no such option and uses the default of 10.
 - [nmaipy] **Datasets.**
   - The dataset is `latest` (the default) or a named version (`A.0`, `A.1`, …) or UUID.
   - `latest` follows the API's current default dataset. Date cutoffs against it are a normal request ("what was this roof as of a date?").

@@ -30,10 +30,10 @@ A good answer keeps the two apart.
    - Use it for parameters, fields, endpoints and anything the references don't cover, and cite the page.
    - Where it differs from a reference file's `[live]` finding, give both: the docs state the intended contract, the `[live]` tag what responses actually showed.
 5. **Confirm nmaipy-behaviour claims against the installed source when you can.**
-   - The references describe nmaipy 5.4.0, and only that. Function names are given, so you can grep for them.
+   - The references describe the nmaipy in the same repository checkout (its version is in `nmaipy/__version__.py`), and only that. Function names are given, so you can grep for them.
    - Find the source with `python -c "import nmaipy, os; print(os.path.dirname(nmaipy.__file__))"`, or use a repo checkout.
    - If the code disagrees with the reference, trust the code and mention the difference.
-   - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
+   - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older than the checkout's, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
 6. **Lead with the direct answer**, then the mechanism, then what to do about it: which column to use instead, which flag to set, or how to check. Use exact column and field names, because the asker will look them up.
 7. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references and the official documentation state.
 
