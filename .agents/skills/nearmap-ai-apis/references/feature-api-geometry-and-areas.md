@@ -32,6 +32,8 @@ What `area` means depends on the kind of class [live]. The rule is exact, with n
 
 This holds with parcelMode on and with it off. `clippedAreaSqm` is computed in both modes; it is not a parcelMode feature [live].
 
+`clippedAreaSqm` is computed separately from `areaSqm`, and for a discrete object wholly inside the AOI it can exceed `areaSqm` by a few tenths of a sqm: 0.1–0.4 sqm on gridded AU and US AOIs, e.g. a roof or building at 28.1 sqm with a clipped area of 28.3 [live]. Treat differences that small as measurement noise, not as the object extending further.
+
 Most classes are connected; only bounded objects (roof, building, pool, roof components, …) are discrete. [nmaipy] nmaipy keeps no list of either kind, because the API's classes change. Code that needs the kind reads it from these areas.
 
 ## 2. What parcelMode changes
@@ -138,7 +140,7 @@ Only the `components` lists are recomputed. Includes and pitch pass through unch
 - Every other feature is discrete: each cell repeated the whole-object area, so `area` is kept once.
 - `unclipped_area` plays no part in that decision (for a connected feature it is the whole patch), and is taken from one cell, never summed. So `<class>_total_unclipped_area_*` counts each object once per AOI.
 - Other columns come from the piece with the largest clipped area.
-- A whole object can't be smaller than its part inside the AOI. If a feature treated as discrete ends up with `area` below its summed `clipped_area` (beyond 0.1 sqm of rounding per cell), the merge raises and that AOI fails as a grid error.
+- Every cell must report either its clipped piece or the whole object: `area` equal to `clipped_area`, or to `unclipped_area`. If a cell reports neither, the merge raises and that AOI fails as a grid error.
 
 On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (191 spanning 2–21 cells) matched the same parcels queried whole, per feature and in every per-class total [live].
 
