@@ -6,6 +6,7 @@ refresh the fake when the live API changes (`python -m tests.golden.drift`).
 
 import csv
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -172,6 +173,8 @@ def test_compare_detects_changes(tmp_path: Path) -> None:
     rollup = _rows(actual / "rollup.csv")
     line = next(i for i, row in enumerate(rollup) if row[0] == "building_count")
     rollup[line][1] = str(int(rollup[line][1]) + 1)
+    as_float = next(i for i, row in enumerate(rollup) if row[0] == "roof_count")
+    rollup[as_float][1] = f"{int(rollup[as_float][1])}.0"
     _write_rows(actual / "rollup.csv", rollup)
     building = _rows(actual / "building.csv")
     dropped_row = building[0][1]
@@ -181,6 +184,7 @@ def test_compare_detects_changes(tmp_path: Path) -> None:
 
     differences = compare_exports(expected, actual)
     assert any(d.startswith("rollup.csv: column building_count: 1 mismatches") for d in differences), differences
+    assert any(d.startswith("rollup.csv: column roof_count: 1 mismatches") for d in differences), differences
     assert f"building.csv: missing rows [{dropped_row!r}]" in differences, differences
     assert "roof.csv: missing columns ['area_sqft']" in differences, differences
 
@@ -190,7 +194,10 @@ def test_drift() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "tests.golden.drift"], cwd=REPO, capture_output=True, text=True, check=False
     )
-    assert result.returncode == 0, f"the live API drifted from the golden fake:\n{result.stdout}\n{result.stderr}"
+    output = f"{result.stdout}\n{result.stderr}"
+    if key := os.environ.get("API_KEY"):
+        output = output.replace(key, "APIKEYREMOVED")
+    assert result.returncode == 0, f"the live API drifted from the golden fake:\n{output}"
 
 
 def _rows(path: Path) -> list[list[str]]:

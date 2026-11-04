@@ -3,8 +3,9 @@
 Usage: python -m tests.golden.drift [--probe] [--write-vocabulary]
 
 Needs API_KEY, and never prints it. Exits 1 when the live responses differ from the fake's field allowlist
-(`FIELD_PATHS`, `IGNORED_LIVE_FIELDS`), from `vocabulary.json`, or from the rules the fake follows. `--probe` prints
-the error bodies' key structure and the live survey dates; `--write-vocabulary` rewrites `vocabulary.json`.
+(`FIELD_PATHS`, `IGNORED_LIVE_FIELDS`), from `vocabulary.json`, from the fake's enumerated values (`ENUM_PATHS`) and
+class descriptions, or from the rules the fake follows. `--probe` prints the error bodies' key structure and the live
+survey dates; `--write-vocabulary` rewrites `vocabulary.json`.
 """
 
 import argparse
@@ -14,9 +15,11 @@ import os
 import re
 import sys
 import tempfile
+import traceback
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -59,6 +62,19 @@ AREA_TOLERANCE_SQM = 0.5
 AREA_TOLERANCE_FRACTION = 0.01
 RATIO_TOLERANCE = 0.005
 SQFT_TOLERANCE = 0.5 + 0.05 * SQUARED_METERS_TO_SQUARED_FEET
+ENUM_PATHS: dict[str, frozenset[str]] = {
+    "classes": frozenset({"classes[].type", "classes[].availability[].status", "classes[].availability[].perspective"}),
+    "features": frozenset({"perspective"}),
+    "roofage": frozenset(
+        {
+            "features[].type",
+            "features[].properties.kind",
+            "features[].properties.evidenceType",
+            "features[].properties.evidenceTypeDescription",
+        }
+    ),
+}
+assert all(paths <= FIELD_PATHS[endpoint] for endpoint, paths in ENUM_PATHS.items()), "ENUM_PATHS not in FIELD_PATHS"
 LINK = re.compile(r"^https://apps\.nearmap\.com/maps/#/@(-?[\d.]+),(-?[\d.]+),20\.00z,0d/V/(\d{8})\?locationMarker$")
 
 
@@ -82,21 +98,10 @@ def main() -> None:
     args = parser.parse_args()
     api_key = os.environ.get("API_KEY")
     assert api_key, "the drift check needs API_KEY"
-
-    with tempfile.TemporaryDirectory() as cache_dir:
-        live = collect_live(api_key, Path(cache_dir))
-    if args.probe:
-        print("\n".join(probe(live)))
-        return
-    if args.write_vocabulary:
-        world.VOCABULARY_PATH.write_text(json.dumps(vocabulary(live), indent=1, sort_keys=True) + "\n")
-        print(f"wrote {world.VOCABULARY_PATH}")
-        return
-    fake = fake_exchanges()
-    differences = check_fields(live, fake) + check_vocabulary(live) + check_rules(live)
-    print("\n".join(value_ranges(live, fake)))
-    print("\n".join(differences) if differences else "No drift")
-    sys.exit(1 if differences else 0)
+    try:
+        _run(args, api_key)
+    except Exception:
+        raise SystemExit(traceback.format_exc().replace(api_key, "APIKEYREMOVED")) from None
 
 
 def collect_live(api_key: str, cache_dir: Path) -> list[Exchange]:
@@ -212,6 +217,29 @@ def check_vocabulary(live: list[Exchange]) -> list[str]:
     return [f"vocabulary: {d}" for d in _dict_differences(expected, actual)]
 
 
+def check_values(live: list[Exchange], fake: list[Exchange]) -> list[str]:
+    """Every value the fake emits at an `ENUM_PATHS` path must occur live, and live class descriptions must equal
+    `nmaipy/class_descriptions.json` for every class the fake serves."""
+    differences = []
+    live_values, fake_values = _values_by_path(live), _values_by_path(fake)
+    for endpoint, paths in sorted(ENUM_PATHS.items()):
+        for path in sorted(paths):
+            unseen = fake_values[endpoint][path] - live_values[endpoint][path]
+            differences += [f"{endpoint}: {path} fake value {v!r} never seen live" for v in sorted(unseen, key=repr)]
+    served = {cid for e in fake for cid, _ in _class_descriptions(e)}
+    renamed = {
+        (e.endpoint, cid, description)
+        for e in live
+        for cid, description in _class_descriptions(e)
+        if cid in served and description != world.CLASS_DESCRIPTIONS[cid]
+    }
+    differences += [
+        f"{endpoint}: class {cid} is {description!r} live, {world.CLASS_DESCRIPTIONS[cid]!r} in the fake"
+        for endpoint, cid, description in sorted(renamed)
+    ]
+    return differences
+
+
 def check_rules(live: list[Exchange]) -> list[str]:
     """The rules `fake_api` follows must hold on live responses."""
     differences = []
@@ -239,6 +267,23 @@ def value_ranges(live: list[Exchange], fake: list[Exchange]) -> list[str]:
     return lines
 
 
+def _run(args: argparse.Namespace, api_key: str) -> None:
+    with tempfile.TemporaryDirectory() as cache_dir:
+        live = collect_live(api_key, Path(cache_dir))
+    if args.probe:
+        print("\n".join(probe(live)))
+        return
+    if args.write_vocabulary:
+        world.VOCABULARY_PATH.write_text(json.dumps(vocabulary(live), indent=1, sort_keys=True) + "\n")
+        print(f"wrote {world.VOCABULARY_PATH}")
+        return
+    fake = fake_exchanges()
+    differences = check_fields(live, fake) + check_vocabulary(live) + check_values(live, fake) + check_rules(live)
+    print("\n".join(value_ranges(live, fake)))
+    print("\n".join(differences) if differences else "No drift")
+    sys.exit(1 if differences else 0)
+
+
 def _grid_cells(features: FeatureApi, case: str, aoi: BaseGeometry, query: dict) -> list[Exchange]:
     region = CASES[case]["country"]
     gdf, metadata, error, _ = features.get_features_gdf(aoi, region, aoi_id="drift", **query)
@@ -263,7 +308,9 @@ def _roof_age(api_key: str, cache_dir: Path, case: str, aois: list[BaseGeometry]
     return exchanges
 
 
-def _error(call, endpoint: str, case: str, aoi: BaseGeometry, *args, **kwargs) -> Exchange:
+def _error(
+    call: Callable[..., object], endpoint: str, case: str, aoi: BaseGeometry, *args: Any, **kwargs: Any
+) -> Exchange:
     try:
         call(aoi, *args, **kwargs)
     except APIError as error:
@@ -277,6 +324,26 @@ def _types_by_path(exchanges: Iterable[Exchange]) -> dict[str, dict[str, set[str
         for path, json_type in key_paths(e.body).items():
             types[e.endpoint][path] |= json_type
     return types
+
+
+def _values_by_path(exchanges: Iterable[Exchange]) -> dict[str, dict[str, set[object]]]:
+    values = defaultdict(lambda: defaultdict(set))
+    for e in exchanges:
+        for path, value in fake_api._walk(e.body, ""):
+            if path in ENUM_PATHS.get(e.endpoint, ()):
+                values[e.endpoint][path].add(value)
+    return values
+
+
+def _class_descriptions(e: Exchange) -> Iterator[tuple[str, str]]:
+    if e.endpoint == "packs":
+        for pack in e.body["packs"]:
+            for c in pack["featureClasses"] + pack.get("attributeClasses", []):
+                yield c["id"], c["description"]
+    elif e.endpoint == "classes":
+        yield from ((c["id"], c["description"]) for c in e.body["classes"])
+    elif e.endpoint == "features" and e.status == 200:
+        yield from ((f["classId"], f["description"]) for f in e.body["features"])
 
 
 def _under(path: str, prefix: str) -> bool:

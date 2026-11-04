@@ -114,10 +114,17 @@ def _read_table(path: Path) -> pd.DataFrame:
 
 
 def _schema(table: pd.DataFrame) -> dict:
-    schema = {"dtypes": {c: str(t) for c, t in table.dtypes.items()}}
+    schema = {"dtypes": {c: _dtype_name(table[c]) for c in table.columns}}
     if isinstance(table, gpd.GeoDataFrame):
         schema["geo"] = {"primary_column": table.geometry.name, "crs": table.crs.to_string() if table.crs else None}
     return schema
+
+
+def _dtype_name(column: pd.Series) -> str:
+    """The dtype, with object and string columns named by their values' type (pandas versions name these apart)."""
+    if column.dtype == object or isinstance(column.dtype, pd.StringDtype):
+        return pd.api.types.infer_dtype(column.astype(object), skipna=True)
+    return str(column.dtype)
 
 
 def _key_columns(table: pd.DataFrame) -> list[str]:
@@ -164,7 +171,7 @@ def _cell(value: object, column: str) -> str:
     if isinstance(value, (bool, np.bool_)):
         return str(bool(value))
     if isinstance(value, (float, np.floating)):
-        return f"{float(value):.{SIGNIFICANT_DIGITS}g}"
+        return _float_text(float(value))
     if isinstance(value, (int, np.integer)):
         return str(int(value))
     if isinstance(value, np.ndarray):
@@ -173,8 +180,14 @@ def _cell(value: object, column: str) -> str:
     if str(column).endswith("geometry") and text:
         return shapely.to_wkt(shapely.from_wkt(text), rounding_precision=SIGNIFICANT_DIGITS)
     if _DECIMAL.match(text) and not _INTEGER.match(text):
-        return f"{float(text):.{SIGNIFICANT_DIGITS}g}"
+        return _float_text(float(text))
     return text
+
+
+def _float_text(value: float) -> str:
+    """Rounded to `SIGNIFICANT_DIGITS`, keeping a decimal marker so a float never reads as an integer."""
+    text = f"{value:.{SIGNIFICANT_DIGITS}g}"
+    return text if any(c in text for c in ".en") else f"{text}.0"
 
 
 def _readme_text(path: Path) -> str:
@@ -187,8 +200,24 @@ def _compare_file(expected: Path, actual: Path) -> list[str]:
         return _compare_tables(expected, actual)
     if expected.suffix == ".json":
         left, right = (json.loads(p.read_text(encoding="utf-8")) for p in (expected, actual))
-        return [] if left == right else ["JSON differs"]
+        return _json_differences(left, right)
     return [] if expected.read_bytes() == actual.read_bytes() else ["text differs"]
+
+
+def _json_differences(expected: object, actual: object, where: str = "") -> list[str]:
+    """One line per differing leaf path (`a/b/0/c`), or per key or list item only one side has."""
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        left, right = expected, actual
+    elif isinstance(expected, list) and isinstance(actual, list):
+        left, right = dict(enumerate(expected)), dict(enumerate(actual))
+    else:
+        return [] if expected == actual else [f"{where or '/'}: {expected!r} expected, {actual!r} actual"]
+    child = {k: f"{where}/{k}" if where else str(k) for k in left.keys() | right.keys()}
+    differences = [f"{child[k]}: missing" for k in left if k not in right]
+    differences += [f"{child[k]}: extra" for k in right if k not in left]
+    for k in left.keys() & right.keys():
+        differences += _json_differences(left[k], right[k], child[k])
+    return sorted(differences)
 
 
 def _compare_tables(expected: Path, actual: Path) -> list[str]:
@@ -231,7 +260,7 @@ def _parse_table(path: Path) -> dict[str, dict[str, str]]:
 def _cells_match(expected: str, actual: str, column: str) -> bool:
     if expected == actual:
         return True
-    if not expected or not actual:
+    if not expected or not actual or bool(_INTEGER.match(expected)) != bool(_INTEGER.match(actual)):
         return False
     if column.endswith("geometry"):
         try:

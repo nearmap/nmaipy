@@ -20,7 +20,7 @@ Each case folder holds `aois.csv`, `expected/` and `cache_paths.txt`, all writte
 
 ## Field allowlist
 
-`FIELD_PATHS` in `fake_api.py` lists every JSON key path the fake may emit, per endpoint. `test_fake_fields_are_allowlisted` requires the fake to emit exactly that set during the golden runs. `IGNORED_LIVE_FIELDS` is the reviewed list of live paths the fake leaves out on purpose; the drift check fails on any live path in neither list, on any allowlisted path the live API no longer sends, and on any JSON type the fake emits that the live API does not. `test_golden_data_is_small_text` keeps the committed golden data to UTF-8 text under 1 MiB and free of credentials and fields from the ignored list.
+`FIELD_PATHS` in `fake_api.py` lists every JSON key path the fake may emit, per endpoint. `test_fake_fields_are_allowlisted` requires the fake to emit exactly that set during the golden runs. `IGNORED_LIVE_FIELDS` is the reviewed list of live paths the fake leaves out on purpose; the drift check fails on any live path in neither list, on any allowlisted path the live API no longer sends, and on any JSON type, enumerated value (`ENUM_PATHS` in `drift.py`) or class description the fake emits that the live API does not. `test_golden_data_is_small_text` keeps the committed golden data to UTF-8 text under 1 MiB and free of the credential and identifier patterns in `FORBIDDEN`.
 
 ## Comparing two exports
 

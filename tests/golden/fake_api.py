@@ -8,7 +8,7 @@ takes a method, URL and body and returns a `FakeResponse`. The fake emits exactl
 import dataclasses
 import json
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import cache
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -29,7 +29,7 @@ from nmaipy.constants import (
 )
 from nmaipy.geometry_utils import split_geometry_into_grid
 
-from .world import CLASS_DESCRIPTIONS, Feature, RoofInstance, Survey, World, class_id, synthetic_id, vocabulary
+from .world import CLASS_DESCRIPTIONS, Block, Feature, RoofInstance, Survey, World, class_id, synthetic_id, vocabulary
 
 HOST = "api.nearmap.com"
 FEATURES_ROOT = "/ai/features/v4/bulk"
@@ -152,8 +152,6 @@ FIELD_PATHS: dict[str, frozenset[str]] = {
         }
     ),
 }
-# Reviewed live paths the fake leaves out (each entry covers everything under it): internal identifiers, imagery
-# extents, credits and tags that nmaipy never reads, and catalogue schema/versions the exporter does not use.
 IGNORED_LIVE_FIELDS: frozenset[str] = frozenset(
     {
         "packs:packs[].featureClasses[].internalId",
@@ -486,7 +484,7 @@ def _catalogue_class(cid: str) -> dict:
     return {"id": cid, "description": CLASS_DESCRIPTIONS[cid]}
 
 
-def _block(block, whole_area: float) -> dict:
+def _block(block: Block, whole_area: float) -> dict:
     record = {"classId": class_id(block.description), "description": block.description, **dict(block.fields)}
     if block.components is not None:
         record["components"] = []
@@ -522,6 +520,6 @@ def _area(geometry: BaseGeometry, country: str) -> float:
 
 
 @cache
-def _projector(country: str):
+def _projector(country: str) -> Callable[[np.ndarray], np.ndarray]:
     transformer = pyproj.Transformer.from_crs(API_CRS, AREA_CRS[country], always_xy=True)
     return lambda coords: np.column_stack(transformer.transform(coords[:, 0], coords[:, 1]))
