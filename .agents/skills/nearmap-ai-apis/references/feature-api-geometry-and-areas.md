@@ -1,7 +1,7 @@
 # Feature API: geometry, areas, parcelMode and child features
 
 Evidence tags:
-- **[live]**: verified against the live Feature API in November 2026, on ~100 New Jersey parcels bundled with nmaipy (`tests/data/test_parcels_2.csv`) plus synthetic halves of some of them, queried with parcelMode on and off. `tests/test_parcel_mode_semantics.py` keeps the key facts pinned.
+- **[live]**: verified against the live Feature API in November 2026, on ~100 New Jersey parcels bundled with nmaipy (`tests/data/test_parcels_2.csv`) plus synthetic halves of some of them, queried with parcelMode on and off. `tests/test_parcel_mode_semantics.py` pins the shared-roof facts and what parcelMode does and doesn't change, on one split parcel; it is a live test, so it runs only with an API key.
 - **[nmaipy]**: what nmaipy's code does.
 - **[inferred]**: reasoned from the above, not observed directly.
 
@@ -40,11 +40,12 @@ nmaipy sends `parcelMode=true` by default. The exporter's `--no-parcel-mode` tur
 
 parcelMode adds two things [live]:
 
-- **`belongsToParcel`**: whether the API attributes the feature to this parcel.
-  - Roofs with about half or less of their area inside came back `false`. These are neighbours' roofs.
+- **`belongsToParcel`**: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms.
+  - A feature judged not to belong comes back `false`. Typically this is a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax.
+  - It is not a simple share-of-area threshold: in the worked example (section 8), a roof with 49% of its area inside the parcel belongs.
   - Connected features are nearly all `true`; a few Lawn Grass patches came back `false` (under 1% of connected area).
   - [nmaipy] `FeatureApi.payload_gdf` drops `false` features. So every row answered with parcelMode on has `belongs_to_parcel` = true. The column is null for gridded AOIs' rows (section 6) and when parcelMode is off.
-- **`clippedGeometry`**: only for **multiparcel** discrete features, those with a substantial part in another parcel. It is the feature cut at the parcel boundary.
+- **`clippedGeometry`**: only for discrete features the API judges to be **multiparcel**, genuinely shared with another parcel. It is the feature cut at the parcel boundary.
   - [nmaipy] nmaipy swaps it into `geometry` and sets `multiparcel_feature = True`.
   - Connected features never get it, because their geometry is already clipped.
 
@@ -52,9 +53,9 @@ So a belonging discrete feature that crosses the boundary comes back in one of t
 - **Multiparcel**: it gets `clippedGeometry`. In testing the outside part was 24–128 sqm.
 - **Slight overhang**: it is returned *whole*, with no `clippedGeometry`, and analysed whole. In testing the outside part was 0.1–13 sqm. Its `clippedAreaSqm` is still the in-parcel area.
 
-The exact threshold the API uses is not documented here.
+The API's geospatial assessment decides which. The sizes above are what testing happened to show, not a rule.
 
-parcelMode does **not** change `areaSqm`, `unclippedAreaSqm`, `geometry` or `attributes` [live]. Across both modes and every parcel returning the same feature, the only fields that differ are `clippedArea*`, `clippedGeometry`, `belongsToParcel` and the score includes.
+parcelMode does **not** change `areaSqm`, `unclippedAreaSqm`, `geometry` or `attributes` [live]. Across both modes and every parcel returning the same feature, the only fields that differ are `clippedArea*`, `clippedGeometry`, `belongsToParcel` and the score includes. For the same AOI, the clipped areas agree between modes to within the 0.1 rounding step.
 
 ## 3. Roof attributes vs score includes
 
@@ -109,33 +110,42 @@ The names come from the API description, lower-cased with spaces replaced by `_`
   - What "roof geometry" is depends on the roof:
     - **Multiparcel roof**: the stored geometry is the clip, so the result is the **per-parcel** value. It equals the API's own per-parcel `hurricaneScore.modelInputFeatures.treeOverhangRatio` to 3 decimal places on every multiparcel roof tested [live].
     - **Slight-overhang roof**: the stored geometry is the whole outline, so the result reproduces the **whole-roof** value, matching the API's component ratio to about 0.002 [live].
+    - **Roof on a gridded AOI**: nmaipy first clips the outline to the AOI (section 6), so the result is the **in-AOI** value, even for a slight overhang.
   - Children dropped for `belongsToParcel=false` lie outside the clipped roof, so dropping them doesn't change the result.
 
 So `tree_overhang_ratio` in nmaipy output is the share of *this parcel's part* of the roof that is under tree overhang. The raw API component `ratio` is the share of the whole roof.
 
-Only the `components` lists are recomputed. Includes and pitch pass through unchanged.
+Only the `components` lists are recomputed. Includes and pitch pass through unchanged. Within the components, `<component>_dominant` and `<component>_confidence_stats_*` also stay whole-roof, while `dominant_roof_material_*` and `dominant_roof_types_*` are rebuilt from the recomputed values. On a clipped roof the two can therefore disagree, e.g. `metal_dominant` vs `dominant_roof_material_description`.
 
 ## 6. Gridded AOIs
 
-[nmaipy] AOIs over about 1 sq km, or that hit size errors, are split into a grid of cells (0.005° by default) and the results merged (see the queries-and-outputs reference). **Grid sub-queries run with parcelMode off.** As a result:
+[nmaipy] nmaipy splits an AOI into a grid of cells (0.005° by default, about 550 m), queries each cell and merges the results, when:
+- the AOI is over about 1 sq km;
+- the API rejects it as too large, or times out (see the queries-and-outputs reference, section 2);
+- the API returns an include as `{"skipped": true}` for it, e.g. a parcel over the API's per-parcel compute budget, unless the exporter runs with `--no-regrid-on-skip`. This can grid a parcel well under 1 sq km.
 
-- There's no `belongsToParcel` filtering, so neighbours' features that intersect the AOI are kept.
-- No feature gets `clippedGeometry`. Discrete features keep their whole outlines while `clipped_area` is summed per cell. For clipped roofs, nmaipy clips the stored outline to the AOI before recomputing components (`_clip_roof_geoms_to_aoi`), so component areas aren't inflated to whole-roof size.
-- `geometry_utils.combine_features_from_grid` merges cells per `feature_id`:
-  - `clipped_area` is summed.
-  - A feature whose `area` equals its `clipped_area` in every cell is connected: each cell reported only its piece, so its `area` becomes the summed `clipped_area`.
-  - Every other feature is discrete: each cell repeated the whole-object area, so `area` is kept once.
-  - `unclipped_area` plays no part in that decision (for a connected feature it is the whole patch), and is taken from one cell, never summed. So `<class>_total_unclipped_area_*` counts each object once per AOI.
-  - A whole object can't be smaller than its part inside the AOI. If a feature treated as discrete ends up with `area` below its summed `clipped_area` (beyond 0.1 sqm of rounding per cell), the merge raises and that AOI fails as a grid error.
+**Grid cells are queried with parcelMode off, by design.** Gridding is meant for very large areas. There, a discrete object crossing the AOI's outer boundary matters little, whereas parcelMode would treat every cell as a parcel and cut features at the grid's internal lines. As a result, for a gridded AOI:
 
-  On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (191 spanning 2–21 cells) matched the same parcels queried whole, per feature and in every per-class total [live].
+- **Nothing is filtered by `belongsToParcel`.** Features crossing the AOI's outer boundary are kept, neighbours' roofs included. They count in `<class>_count` and `<class>_total_area_*` (whole object), but only their in-AOI part counts in `<class>_total_clipped_area_*`.
+- **`belongs_to_parcel` is null on every row** (the API sends no such field without parcelMode), and **`multiparcel_feature` is always N** (no feature gets `clippedGeometry`). Discrete features keep their whole outlines.
+- **Includes describe whole roofs.** RSI, the peril scores and per-roof defensible space are the parcelMode-off, whole-roof values, and the parcel-level `aggregate_defensible_space_*` columns are null.
+- **Roof components are recomputed on the in-AOI part.** nmaipy clips each roof's outline to the AOI before recomputing its components: in the rollup's `primary_roof_*` columns (`parcels.parcel_rollup`, `clip_roof_to_parcel`) and in the per-class files (`exporter._clip_roof_geoms_to_aoi`). So `tree_overhang_ratio` describes the roof's in-AOI part while the includes describe the whole roof, and on a gridded AOI the two no longer match as they do for a parcelMode roof (section 5).
+- **The primary feature is still the largest by `clipped_area`,** so a neighbour's roof wins only if most of the in-AOI roof area is its.
 
-  Releases before this rule (nmaipy ≤ 5.3.0) summed `area` for every class, multiplying a discrete feature's `area` by the number of cells it touched.
+`geometry_utils.combine_features_from_grid` merges the cells per `feature_id`:
+- `clipped_area` is summed.
+- A feature whose `area` equals its `clipped_area` in every cell is connected: each cell reported only its piece, so its `area` becomes the summed `clipped_area`.
+- Every other feature is discrete: each cell repeated the whole-object area, so `area` is kept once.
+- `unclipped_area` plays no part in that decision (for a connected feature it is the whole patch), and is taken from one cell, never summed. So `<class>_total_unclipped_area_*` counts each object once per AOI.
+- Other columns come from the piece with the largest clipped area.
+- A whole object can't be smaller than its part inside the AOI. If a feature treated as discrete ends up with `area` below its summed `clipped_area` (beyond 0.1 sqm of rounding per cell), the merge raises and that AOI fails as a grid error.
+
+On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (191 spanning 2–21 cells) matched the same parcels queried whole, per feature and in every per-class total [live].
 
 ## 7. Reading the rollup and per-class files
 
 - `<class>_total_area_*` sums `area`: whole objects for discrete classes, in-AOI area for connected classes.
-- `<class>_total_clipped_area_*` is the in-parcel total for every class. Use it for "how much X is on this lot".
+- `<class>_total_clipped_area_*` is the in-parcel total for every class. Use it for "how much X is on this lot". It covers features attributed to the parcel. A feature judged not to belong, typically a neighbour's roof that appears to overhang because of parallax or parcel/imagery offset, is left out entirely, by design (gridded AOIs keep such features, section 6).
 - `<class>_total_unclipped_area_*` is whole objects, or whole patches for connected classes. It is rarely what someone wants for connected classes.
 - `multiparcel_feature` / `<class>_multiparcel_feature_count`: whether the API returned the feature clipped to this parcel because it is shared with another. A slight-overhang roof is `N` here, even though it crosses the boundary.
 - `belongs_to_parcel` is true on every row answered with parcelMode on, because non-belonging features were dropped, and null for gridded AOIs. It is not a "fully inside" flag.

@@ -15,7 +15,7 @@ Evidence tags:
 - [nmaipy] **Finding an event id** (`coverage_utils.discover_event(lat, lon)`).
   - It queries the Coverage API at a point, collects the `postCatEventId` survey tags, and picks the event with the newest `postCatEventDate`, warning if others also cover the point.
   - `event_boundary` unions the event's survey footprints, so the boundary can then be split into AOIs.
-  - The tag in use is `postCatEventId`, despite older help text saying "eventId".
+  - The event id is on the Coverage API's `postCatEventId` survey tag (not `eventId`, as some older documentation says).
 - [API, per README] An AOI outside the event footprint returns zero buildings; that is not an error.
 
 ## Response
@@ -43,7 +43,7 @@ Evidence tags:
 
 - [nmaipy] **Fixed column set.** Every row gets:
   - `damage_{event|pre_event}_{rating, confidence, raw_<class>, class_ratios (JSON), latest_capture_date}`;
-  - `area_sqm`/`area_sqft`, `confidence` and `hilbert_id`.
+  - the area in the country's unit (`area_sqft` for the US, `area_sqm` elsewhere), `confidence` and `hilbert_id`.
 
   A missing block gives nulls.
   - [inferred] `damage_event_latest_capture_date` is normally empty, because only the pre-event block carries a capture date.
@@ -68,13 +68,13 @@ Evidence tags:
 ## Outputs, cache, resume
 
 - [nmaipy] **Files:**
-  - `damage_buildings.parquet` (all columns) and `damage_buildings.csv` (curated, without `class_ratios`);
-  - `damage_rollup.*` with `--rollup`;
+  - `damage_buildings.parquet` (all columns) by default; `damage_buildings.csv` (curated, without `class_ratios`) only with `--output-format csv` or `both`;
+  - `damage_rollup.parquet` / `.csv` with `--rollup`, following the same format choice;
   - `damage_metadata.csv` (per-AOI query metadata; event fields only for AOIs with at least one building);
   - `damage_errors.csv` (status code and message, written only when errors occur).
 - [nmaipy] **Cache.** The cache lives under `damageconflation/<event_id>/`, keyed by AOI or address, with no time component.
   - [inferred] Later runs replay the earlier `latest` conflation until `--overwrite-cache`.
-- [nmaipy] **Resume.** A chunk is skipped on resume once its metadata file exists.
+- [nmaipy] **Resume.** A chunk is skipped on resume once its metadata file exists, and that file is written as soon as any AOI in the chunk succeeds. AOIs that failed in a partly successful chunk are therefore not retried on resume; re-run them with a fresh output directory or after clearing `chunks/`.
 
 ## How this differs from Feature API damage classification
 

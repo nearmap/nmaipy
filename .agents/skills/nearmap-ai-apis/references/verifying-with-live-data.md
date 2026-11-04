@@ -1,6 +1,6 @@
 # Verifying a claim against the live API
 
-Use this when the references don't settle a question, or when someone needs proof on their own data. It requires a Nearmap API key with the relevant entitlements, read from the `API_KEY` environment variable or a local `.env`. Never paste or echo the key.
+Use this when the references don't settle a question, or when someone needs proof on their own data. It requires a Nearmap API key with the relevant entitlements, in the `API_KEY` environment variable. nmaipy also loads a `.env` file, but which one depends on how it is run (from a repo checkout it finds the repo's), so set the variable. Never paste or echo the key.
 
 ## Principles
 
@@ -11,6 +11,7 @@ Use this when the references don't settle a question, or when someone needs proo
 - **Measure areas in an equal-area CRS:** `nmaipy.constants.AREA_CRS[country]`, e.g. `esri:102003` for the US.
 - **`FeatureApi.payload_gdf` mutates the payload it is given.** It swaps `clippedGeometry` into `geometry`. Pass it a `copy.deepcopy(payload)` if you still need the raw geometry afterwards.
 - **Use a cache directory** (`FeatureApi(cache_dir=...)`), so repeated analysis doesn't re-query.
+- **Match the exporter's system version.** `FeatureApi` defaults to `system_version_prefix="gen6-"`, while the exporter sends no prefix. Pass `system_version_prefix=None` to reproduce an export's rows.
 
 ## Skeleton
 

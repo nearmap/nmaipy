@@ -26,9 +26,10 @@ A good answer keeps the two apart.
 3. **Say how well established each claim is.** The references tag claims as verified against the live API, read from nmaipy code, or inferred. Carry that through.
    - If the references don't cover something, say so. Don't fill the gap with plausible API behaviour; offer to check it (see `references/verifying-with-live-data.md`).
 4. **Confirm nmaipy-behaviour claims against the installed source when you can.**
-   - The references describe nmaipy 5.3.x. Function names are given, so you can grep for them.
+   - The references describe nmaipy 5.4.0, and only that. Function names are given, so you can grep for them.
    - Find the source with `python -c "import nmaipy, os; print(os.path.dirname(nmaipy.__file__))"`, or use a repo checkout.
    - If the code disagrees with the reference, trust the code and mention the difference.
+   - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
 5. **Lead with the direct answer**, then the mechanism, then what to do about it: which column to use instead, which flag to set, or how to check. Use exact column and field names, because the asker will look them up.
 6. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references state.
 
@@ -57,31 +58,36 @@ The details are in the reference files named in brackets.
 - **"Tree overhang ratio on a shared (multiparcel) roof."**
   - The API's component `ratio` is always relative to the whole roof.
   - nmaipy recalculates it on the parcel's clipped roof from the tree overhang polygons. That matches the API's own per-parcel `hurricaneScore.modelInputFeatures.treeOverhangRatio`.
+  - Not on gridded AOIs: there the scores are whole-roof while nmaipy's ratio is for the in-AOI part.
   - [geometry-and-areas]
 - **"A roof that slightly overhangs the boundary isn't clipped."**
-  - That is by design: parcelMode gives clipped geometry only to features with a substantial part in another parcel.
+  - That is by design: the API's geospatial assessment decides whether a crossing feature is genuinely shared (multiparcel, clipped) or just overhangs.
   - Small overhangs come back whole and are analysed whole.
   - [geometry-and-areas]
 - **"Two rows have the same `feature_id`."**
-  - The same physical feature can appear once per parcel it touches, with per-parcel values.
+  - The same physical feature can appear once per parcel it belongs to, with per-parcel values.
   - A row's identity is `(aoi_id, feature_id)`.
   - `feature_id`s are only stable within one survey.
   - [geometry-and-areas, queries-and-outputs]
 - **"Roof count is 2 for one house."**
   - `roof_count` counts every roof feature (garages, sheds), with no size filter.
-  - Gridded AOIs also include neighbours' roofs.
+  - Without parcelMode (`--no-parcel-mode`, or a gridded AOI) it also includes neighbours' roofs that cross the boundary.
   - [queries-and-outputs]
 - **"Why is this column null rather than N or 0?"**
-  - Null means no data: the API call failed for that AOI, or the class can't be returned at that AOI's system version.
-  - N or 0 means it was queried and nothing was found.
-  - [queries-and-outputs]
+  - A whole class's columns, `_present` and `_count` included, are null when the API call failed for that AOI (`feature_api_success=N`) or the class can't be returned at that AOI's system version.
+  - Queried and nothing found gives `_present=N` and zero counts and totals, but `<class>_confidence` is null.
+  - Primary-feature attribute columns are null when there is no primary feature.
+  - Score columns are null when the API skipped that include (`*_skipped`).
+  - `belongs_to_parcel` is null on rows answered without parcelMode, gridded AOIs included.
+  - [queries-and-outputs, geometry-and-areas]
 - **"Which date is this result from?"**
   - The rollup `survey_date` is the AOI's response metadata.
   - Each feature row carries its own `survey_date`/`mesh_date`.
   - [queries-and-outputs]
 - **"This roof has several roof age instances."**
   - `child_roof_instances` lists every overlapping instance of both kinds.
-  - Only the best-matching one becomes the primary.
+  - Only one becomes the primary: roof-level instances first, then the best overlap.
+  - A parcel-level estimate becomes the primary when no roof-level instance overlaps the roof.
   - [roof-age]
 - **"A building is missing from my damage rollup."**
   - The damage exporter's `--parcel-mode` may have dropped it.

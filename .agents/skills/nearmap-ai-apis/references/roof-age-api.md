@@ -9,12 +9,14 @@ Evidence tags:
 
 - [nmaipy] **Endpoint and body.** Requests are POSTs to `…/ai/roofage/v1/resources/{resource_id}.json`. The body holds either `aoi` (GeoJSON) or `address` (street, city, state, zip, country), plus optional `cursor`, `limit`, `sinceAsOfDate` and `untilAsOfDate`.
 - [nmaipy] **Pagination** follows `nextCursor` until it is absent, merging pages. Top-level metadata comes from page 1.
+- [nmaipy] **Retries.** Failed requests are retried up to the exporter's `--max-retries`, as for the Feature API.
 - [nmaipy] **Datasets.**
   - The dataset is `latest` (the default) or a named version (`A.0`, `A.1`, …) or UUID.
-  - Date cutoffs are rejected client-side for A.0, the version `latest` currently resolves to according to nmaipy's constants.
+  - `latest` follows the API's current default dataset. Date cutoffs against it are a normal request ("what was this roof as of a date?").
+  - Only an explicit `A.0`, which doesn't support cutoffs, has them refused client-side.
 - [nmaipy] **Unified export** (`exporter.py --roof-age`):
   - The same `until`/`since` go to both the Feature API and the Roof Age API.
-  - Roof Age queries are made by AOI geometry.
+  - Roof Age queries are made by AOI geometry, or by address when the input has address fields and no geometry.
   - `--roof-age` with a non-US country is disabled with a warning.
 
 ## Response
@@ -41,6 +43,7 @@ Evidence tags:
   | 5 / 6 | Multiple images, no change seen; the age is ML-predicted |
   | 3 / 4 | Single image |
   | 2 | Permit or assessor data only |
+  | 1 | (Future release) No usable imagery or records; nearby roofs' evidence suggests the age |
   | 0 | No evidence |
 
   Codes 4, 6 and 8 also have permit or assessor corroboration.
@@ -66,6 +69,7 @@ Matching happens within each AOI only, by IoU (intersection area / union area).
   - `child_roof_instances` lists **every** overlapping instance (IoU > 0), sorted `roof`-kind first, then by IoU.
   - `primary_child_roof_age_feature_id` is the first entry, if its IoU ≥ 0.005.
   - This is why one roof can show several instances: all overlaps are listed, but only one is primary.
+  - Because `roof`-kind entries sort first whatever their IoU, a `parcel`-kind estimate is the primary only when no `roof`-kind instance overlaps the roof at all. A `roof`-kind sliver with IoU below 0.005 sorts first and blocks a qualifying `parcel`-kind match, leaving the roof with no primary instance.
 - [inferred] **Consequences of matching each way independently:**
   - An instance's parent can be roof A while roof B lists it as primary.
   - Several instances can attach to one roof.
@@ -82,15 +86,15 @@ Matching happens within each AOI only, by IoU (intersection area / union area).
   - It is the instance linked to the primary Feature API roof.
   - If there's no link, nmaipy selects among `roof`-kind instances, or among all instances if there are none of that kind.
   - Its columns are `primary_roof_instance_roof_age_*` and `primary_roof_instance_feature_id` (the hilbertId).
-  - [inferred] So `roof_instance_count = 0` can appear alongside a filled `primary_roof_instance_*` that came from a `parcel` estimate.
+  - [inferred] So a filled `primary_roof_instance_*` can come from a `parcel` estimate: when `roof_instance_count = 0`, or when the primary roof itself overlaps no `roof`-kind instance.
 - [nmaipy] **Failures.** If the Roof Age call failed for an AOI, its roof-instance columns are null and `roof_age_api_success=N`. A successful call with no results gives zero counts.
 
 ## Errors, cache, resume
 
-- [nmaipy] **Errors.** Per-AOI failures (status code and message) go to `roof_age_errors.csv`.
+- [nmaipy] **Errors.** Per-AOI failures (status code and message) go to `roof_age_errors.csv` in the unified export, and `errors.csv` from the standalone exporter.
 - [nmaipy] **Resume.**
   - A chunk is final if any AOI answered, or every failure was a 404 (no coverage) or 403 (no access).
   - Completed chunks are not re-queried on resume.
 - [nmaipy] **Cache.** The cache is keyed by resource, date cutoffs and AOI/address.
   - [inferred] Results cached under `latest` keep being served after `latest` moves, until `--overwrite-cache`.
-- [nmaipy] **Standalone exporter** (`python -m nmaipy.roof_age_exporter`): it writes `roofs.parquet` (all columns) and `roofs.csv` (a curated subset without permit and assessor details). It does no Feature API linking.
+- [nmaipy] **Standalone exporter** (`python -m nmaipy.roof_age_exporter`): it writes `roofs.parquet` (all columns) by default, and `roofs.csv` (a curated subset without permit and assessor details) only with `--output-format csv` or `both`, plus `metadata.csv` and `errors.csv`. It does no Feature API linking. Its resume skips any chunk in which at least one AOI answered, so AOIs that failed in such a chunk are only retried with a fresh output directory.
