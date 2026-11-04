@@ -63,6 +63,7 @@ import psutil
 
 from nmaipy import log, parcels, storage
 from nmaipy.__version__ import __version__
+from nmaipy.aoi_io import validate_date_cutoffs
 from nmaipy.api_common import (
     collect_latency_stats_from_apis,
     combine_chunk_latency_stats,
@@ -2729,7 +2730,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--until",
-        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'until' column in data takes precedent.",
+        help="Bulk limit on date for responses (latest inclusive date returned). Presence of 'until' column in data takes precedent.",
         required=False,
         type=str,
     )
@@ -4865,26 +4866,13 @@ class NearmapAIExporter(BaseExporter):
             else:
                 logger.debug("No latest date will used")
 
-            # Validate per-AOI cutoff columns. Two checks:
-            #   1) Strings only — pandas may infer datetime64 from CSV/parquet, after which the
-            #      per-AOI override is silently skipped at request time. We surface that loud here.
-            #   2) When --roof-age targets the A.0 dataset, reject any per-AOI cutoffs since the
-            #      Roof Age API will return HTTP 500.
+        # Every cutoff must be a YYYY-MM-DD date, and no AOI's since may be after its until, before any request
+        # goes out: a malformed or inverted date otherwise fails (or is dropped) per request, deep in the export.
+        validate_date_cutoffs(aoi_gdf, since=self.since, until=self.until)
+        # The A.0 Roof Age dataset answers any cutoff with HTTP 500.
+        if self.roof_age and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
             for col, flag in ((UNTIL_COL_NAME, "--until"), (SINCE_COL_NAME, "--since")):
-                if col not in aoi_gdf.columns:
-                    continue
-                non_null = aoi_gdf[col].dropna()
-                if len(non_null) and not pd.api.types.is_string_dtype(non_null):
-                    raise ValueError(
-                        f"AOI file column '{col}' must contain YYYY-MM-DD strings, got dtype "
-                        f"{non_null.dtype}. If your input file is parsing the column as a date, "
-                        f"cast to string before export, e.g. df[{col!r}] = df[{col!r}].dt.strftime('%Y-%m-%d')."
-                    )
-                if (
-                    self.roof_age
-                    and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS
-                    and aoi_gdf[col].notna().any()
-                ):
+                if col in aoi_gdf.columns and aoi_gdf[col].notna().any():
                     raise ValueError(
                         f"AOI file column '{col}' has values, but --roof-age is targeting a dataset "
                         f"that does not support cutoffs. {format_no_cutoff_error(flag=flag)}"

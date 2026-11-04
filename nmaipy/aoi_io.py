@@ -11,6 +11,8 @@ Supported formats include:
 These functions handle CRS transformations, geometry validation, and unique identifier management.
 """
 
+import datetime
+import re
 import warnings
 from pathlib import Path
 from typing import Optional, Union
@@ -23,6 +25,82 @@ from nmaipy import log
 from nmaipy.constants import ADDRESS_FIELDS, AOI_ID_COLUMN_NAME, LAT_LONG_CRS, SINCE_COL_NAME, UNTIL_COL_NAME
 
 logger = log.get_logger()
+
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _is_iso_date(value) -> bool:
+    """True for a ``YYYY-MM-DD`` string naming a real calendar date."""
+    if not isinstance(value, str) or not _ISO_DATE.fullmatch(value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def normalise_date_column(values: pd.Series) -> pd.Series:
+    """Return a per-AOI ``since``/``until`` column as ``YYYY-MM-DD`` strings, with null for no override.
+
+    GeoJSON and GeoPackage readers parse date-like values as ``datetime64``, and a typed parquet column holds
+    ``datetime.date`` objects; both become strings. An empty or blank string means no per-AOI override, as a
+    null does, so it becomes null (CSV readers already give NaN there). Anything else is left for
+    ``validate_date_cutoffs`` to accept or reject.
+    """
+    if pd.api.types.is_datetime64_any_dtype(values):
+        return values.dt.strftime("%Y-%m-%d")
+
+    def normalise(value):
+        if isinstance(value, datetime.date):  # also datetime.datetime and pd.Timestamp
+            return value.strftime("%Y-%m-%d")
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    return values.map(normalise)
+
+
+def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, until: Optional[str] = None) -> None:
+    """Raise ``ValueError`` unless every date cutoff is a ``YYYY-MM-DD`` date and no AOI's since is after its until.
+
+    Args:
+        aoi_df: AOIs indexed by id, optionally with per-AOI ``since``/``until`` columns already passed through
+            ``normalise_date_column``. A null cell means the AOI uses the bulk value.
+        since: Bulk earliest date, used where an AOI has no ``since`` of its own.
+        until: Bulk latest date, used where an AOI has no ``until`` of its own.
+
+    Raises:
+        ValueError: If a bulk or per-AOI value is not a ``YYYY-MM-DD`` date string, or if an AOI's effective since
+            is later than its effective until (the API rejects every such request).
+    """
+    for flag, value in (("--since", since), ("--until", until)):
+        if value is not None and not _is_iso_date(value):
+            raise ValueError(f"{flag} must be a YYYY-MM-DD date, got {value!r}")
+
+    effective = {}
+    for col, bulk in ((SINCE_COL_NAME, since), (UNTIL_COL_NAME, until)):
+        if col not in aoi_df.columns:
+            effective[col] = pd.Series(bulk, index=aoi_df.index, dtype=object)
+            continue
+        values = aoi_df[col]
+        invalid = values[values.notna() & ~values.map(_is_iso_date)]
+        if len(invalid):
+            sample = ", ".join(f"{aoi_id!r}: {value!r}" for aoi_id, value in invalid.head(5).items())
+            raise ValueError(
+                f"AOI file column '{col}' must hold YYYY-MM-DD date strings (or be empty for the bulk value); "
+                f"{len(invalid)} row(s) don't, e.g. {sample}"
+            )
+        effective[col] = values.astype(object).where(values.notna(), bulk)
+
+    both = effective[SINCE_COL_NAME].notna() & effective[UNTIL_COL_NAME].notna()
+    inverted = both & (effective[SINCE_COL_NAME].where(both, "") > effective[UNTIL_COL_NAME].where(both, ""))
+    if inverted.any():
+        sample = ", ".join(
+            f"{aoi_id!r}: since {effective[SINCE_COL_NAME][aoi_id]} > until {effective[UNTIL_COL_NAME][aoi_id]}"
+            for aoi_id in inverted[inverted].index[:5]
+        )
+        raise ValueError(f"{int(inverted.sum())} AOI(s) have a since date after their until date, e.g. {sample}")
 
 
 def _path_suffix(path: Union[str, Path]) -> str:
@@ -91,13 +169,10 @@ def read_from_file(
         ValueError: If duplicate IDs are found
 
     Note on date columns:
-        Optional ``until`` and ``since`` columns are returned as ``YYYY-MM-DD`` strings. GeoJSON and
-        GeoPackage have no column types, so the reader parses date-like values as ``datetime64``
-        (as can a typed parquet column); those are converted back here, with nulls left null.
-        Callers downstream check ``isinstance(value, str)`` and would silently skip per-AOI
-        overrides on a ``Timestamp`` value. The exporters validate dtype at AOI-load time and raise
-        a clear error for in-memory frames that still carry datetimes — cast with
-        ``df[col] = df[col].dt.strftime('%Y-%m-%d')`` before passing.
+        Optional ``until`` and ``since`` columns go through ``normalise_date_column``: datetimes and
+        dates become ``YYYY-MM-DD`` strings, and empty or blank cells become null (no per-AOI
+        override). The exporter then rejects any value that is not a ``YYYY-MM-DD`` date
+        (``validate_date_cutoffs``).
 
     Example:
         >>> from nmaipy.aoi_io import read_from_file
@@ -181,11 +256,10 @@ def read_from_file(
                 crs=source_crs,
             )
 
-    # The API takes per-AOI cutoffs as YYYY-MM-DD strings, but GeoJSON/GeoPackage readers parse
-    # date-like values as datetimes. Convert them back; NaT becomes null (no per-AOI override).
+    # The API takes per-AOI cutoffs as YYYY-MM-DD strings; see normalise_date_column.
     for col in (SINCE_COL_NAME, UNTIL_COL_NAME):
-        if col in parcels_gdf.columns and pd.api.types.is_datetime64_any_dtype(parcels_gdf[col]):
-            parcels_gdf[col] = parcels_gdf[col].dt.strftime("%Y-%m-%d")
+        if col in parcels_gdf.columns:
+            parcels_gdf[col] = normalise_date_column(parcels_gdf[col])
 
     # Check if both geometry and address fields are present - geometry will take priority
     has_geometry = "geometry" in parcels_gdf.columns
