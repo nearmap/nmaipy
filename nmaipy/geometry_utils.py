@@ -222,9 +222,9 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
         GeoDataFrame with combined/deduplicated features, maintaining same structure
 
     Raises:
-        ValueError: If ``area_*`` comes without ``area_sqm`` and ``clipped_area_*``, or if a
-            feature treated as discrete ends up with a whole area below its summed clipped
-            area, which means its cells did not follow either kind.
+        ValueError: If ``area_*`` comes without ``area_sqm`` and ``clipped_area_*``, or if a cell's
+            ``area_sqm`` equals neither its ``clipped_area_sqm`` nor its ``unclipped_area_sqm``,
+            so the response follows neither kind.
 
     Note:
         Returns empty GeoDataFrame with proper structure if input is None or empty.
@@ -314,27 +314,31 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
     for col in existing_agg_cols_sum:
         features_gdf_dissolved[col] = by_feature[col].sum()
     if existing_area_pairs:
+        in_cell_area = features_gdf["area_sqm"] == features_gdf["clipped_area_sqm"]
+        # The kind rule below relies on every cell reporting either its clipped piece (connected) or the whole
+        # object (discrete, area == unclipped area). A connected piece whose area differed from its clip would be
+        # taken for discrete and keep only its largest piece, so refuse any row that is neither. The check is exact:
+        # the API's clippedAreaSqm for a discrete object wholly inside one cell can exceed its areaSqm by a few
+        # tenths of a sqm, so comparing summed clipped areas with the kept area cannot tell that noise from a
+        # misread piece. A row without an unclipped area can't be checked and is left to the kind rule.
+        if "unclipped_area_sqm" in all_columns:
+            unclipped = features_gdf["unclipped_area_sqm"]
+            follows_neither = ~in_cell_area & (features_gdf["area_sqm"] != unclipped) & unclipped.notna()
+            if follows_neither.any():
+                sample = features_gdf.loc[
+                    follows_neither, ["feature_id", "area_sqm", "clipped_area_sqm", unclipped.name]
+                ]
+                raise ValueError(
+                    f"combine_features_from_grid: {int(follows_neither.sum())} cell row(s) report an area_sqm equal "
+                    f"to neither their clipped_area_sqm (a connected piece) nor their unclipped_area_sqm (a whole "
+                    f"object): {sample.head(3).to_dict('records')}"
+                )
         # Connected: each cell's area is its clipped piece, so the area is the summed clipped area.
         # Discrete: every cell repeats the whole-object area, so keep one copy.
-        in_cell_area = features_gdf["area_sqm"] == features_gdf["clipped_area_sqm"]
         connected = in_cell_area.groupby(features_gdf["feature_id"]).all()
         for area_col, clipped_col in existing_area_pairs.items():
             features_gdf_dissolved[area_col] = features_gdf_dissolved[clipped_col].where(
                 connected, by_feature[area_col].first()
-            )
-        # A whole object can't be smaller than its part inside the AOI. A discrete feature that is, was really a
-        # connected one whose area differed from its clipped area in some cell, and kept only its largest piece.
-        # Each cell rounds its clipped piece to 0.1 sqm, so allow that much per cell.
-        tolerance = 0.1 * by_feature.size()
-        undercounted = ~connected & (
-            features_gdf_dissolved["area_sqm"] < features_gdf_dissolved["clipped_area_sqm"] - tolerance
-        )
-        if undercounted.any():
-            sample = features_gdf_dissolved.loc[undercounted[undercounted].index[:3], ["area_sqm", "clipped_area_sqm"]]
-            raise ValueError(
-                f"combine_features_from_grid: {int(undercounted.sum())} feature(s) have a merged area_sqm below "
-                f"their summed clipped_area_sqm, so they were split into pieces whose area did not equal their "
-                f"clipped area in every cell: {sample.to_dict('index')}"
             )
 
     # Reset index to make feature_id a column, then set AOI_ID as index
