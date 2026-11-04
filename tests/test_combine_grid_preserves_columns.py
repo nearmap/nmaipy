@@ -403,3 +403,20 @@ def test_whole_object_with_clipped_area_above_its_area_merges():
     merged = combine_features_from_grid(features).set_index("feature_id").loc["roof"]
     assert merged["area_sqm"] == 28.1, "The whole area the API reported should be kept"
     assert merged["clipped_area_sqm"] == 28.3, "The clipped area is passed through as reported"
+
+
+def test_row_without_an_area_is_not_refused():
+    """A feature reported without an area (e.g. a point class) can't be checked against the contract."""
+    features = gpd.GeoDataFrame(
+        {
+            "feature_id": ["pole", "pole"],
+            "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])] * 2,
+            AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
+            "area_sqm": [None, None],
+            "clipped_area_sqm": [0.0, 0.0],
+            "unclipped_area_sqm": [0.0, 0.0],
+        },
+        crs=API_CRS,
+    )
+    merged = combine_features_from_grid(features)
+    assert len(merged) == 1

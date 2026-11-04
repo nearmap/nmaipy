@@ -86,7 +86,6 @@ class RoofAgeApi(BaseApiClient):
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
         threads: Optional[int] = 10,
-        maxretry: int = MAX_RETRIES,
         url_root: Optional[str] = None,
         country: str = "us",
         progress_counters: Optional[dict] = None,
@@ -95,6 +94,7 @@ class RoofAgeApi(BaseApiClient):
         until_as_of_date: Optional[str] = None,
         since_as_of_date: Optional[str] = None,
         bearer_token: Optional[str] = None,
+        maxretry: int = MAX_RETRIES,
     ):
         """
         Initialize Roof Age API client.
@@ -105,7 +105,6 @@ class RoofAgeApi(BaseApiClient):
             overwrite_cache: Whether to overwrite cached values
             compress_cache: Whether to use gzip compression for cache files
             threads: Number of threads for concurrent execution
-            maxretry: Number of retries for failed requests
             url_root: Override the default API root URL (for testing)
             country: Country code for address queries (e.g., 'us', 'au')
             progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
@@ -120,6 +119,7 @@ class RoofAgeApi(BaseApiClient):
                 response to roof state from that date onwards.
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
+            maxretry: Number of retries for failed requests
 
             Note: cutoff parameters are not supported on the A.0 dataset. Callers are expected to validate
             the combination upstream — sending a cutoff against A.0 returns HTTP 500.

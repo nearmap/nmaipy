@@ -216,7 +216,8 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
 
     Args:
         features_gdf: GeoDataFrame with features from gridded queries
-                     Must have 'feature_id' column and AOI_ID_COLUMN_NAME index
+                     Must have 'feature_id' column and AOI_ID_COLUMN_NAME index. The cells of one AOI:
+                     rows are merged by feature_id alone, so features shared by several AOIs would collapse.
 
     Returns:
         GeoDataFrame with combined/deduplicated features, maintaining same structure
@@ -320,10 +321,10 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFra
         # taken for discrete and keep only its largest piece, so refuse any row that is neither. The check is exact:
         # the API's clippedAreaSqm for a discrete object wholly inside one cell can exceed its areaSqm by a few
         # tenths of a sqm, so comparing summed clipped areas with the kept area cannot tell that noise from a
-        # misread piece. A row without an unclipped area can't be checked and is left to the kind rule.
+        # misread piece. A row without an area or unclipped area can't be checked and is left to the kind rule.
         if "unclipped_area_sqm" in all_columns:
-            unclipped = features_gdf["unclipped_area_sqm"]
-            follows_neither = ~in_cell_area & (features_gdf["area_sqm"] != unclipped) & unclipped.notna()
+            area, unclipped = features_gdf["area_sqm"], features_gdf["unclipped_area_sqm"]
+            follows_neither = ~in_cell_area & (area != unclipped) & area.notna() & unclipped.notna()
             if follows_neither.any():
                 sample = features_gdf.loc[
                     follows_neither, ["feature_id", "area_sqm", "clipped_area_sqm", unclipped.name]
