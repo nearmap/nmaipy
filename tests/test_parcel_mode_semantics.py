@@ -40,12 +40,13 @@ def _hurricane_tree_overhang_ratio(feature: dict) -> float:
 
 @pytest.fixture(scope="module")
 def split(parcels_2_gdf, tmp_path_factory):
-    """Raw parcelMode payloads for the parcel and its two halves, plus the shared roof's id."""
+    """Raw payloads for the two halves with parcelMode on and off, plus the shared roof's id."""
     api = FeatureApi(cache_dir=tmp_path_factory.mktemp("parcel_mode_cache"), parcel_mode=True)
+    api_off = FeatureApi(cache_dir=tmp_path_factory.mktemp("no_parcel_mode_cache"), parcel_mode=False)
     parcel = parcels_2_gdf.loc[PARCEL_ID].geometry
 
-    def fetch(geom):
-        return api.get_features(geom, COUNTRY, packs=PACKS, include=INCLUDE, since=SURVEY_DATE, until=SURVEY_DATE)
+    def fetch(geom, client=api):
+        return client.get_features(geom, COUNTRY, packs=PACKS, include=INCLUDE, since=SURVEY_DATE, until=SURVEY_DATE)
 
     whole = fetch(parcel)
     roofs = [f for f in whole["features"] if f["classId"] == ROOF_ID and f.get("belongsToParcel", True)]
@@ -58,11 +59,14 @@ def split(parcels_2_gdf, tmp_path_factory):
         "E": parcel.intersection(box(cx, miny - 1, maxx + 1, maxy + 1)),
     }
     payloads = {side: fetch(geom) for side, geom in halves.items()}
-    return dict(roof_id=roof["id"], halves=halves, payloads=payloads)
+    payloads_off = {side: fetch(geom, api_off) for side, geom in halves.items()}
+    for side in halves:
+        assert payloads_off[side]["surveyId"] == payloads[side]["surveyId"], f"Half {side}: both modes' survey"
+    return dict(roof_id=roof["id"], halves=halves, payloads=payloads, payloads_off=payloads_off)
 
 
-def _roof(split, side) -> dict:
-    matches = [f for f in split["payloads"][side]["features"] if f["id"] == split["roof_id"]]
+def _roof(split, side, payloads="payloads") -> dict:
+    matches = [f for f in split[payloads][side]["features"] if f["id"] == split["roof_id"]]
     assert len(matches) == 1, f"Roof {split['roof_id']} should be returned once in half {side}"
     return matches[0]
 
@@ -139,8 +143,9 @@ def test_nmaipy_tree_overhang_ratio_is_the_per_parcel_value(split):
 
 
 @pytest.mark.live_api
-def test_area_semantics_discrete_vs_connected(split):
-    """Every feature reports either its whole area (discrete) or its in-AOI area (connected).
+@pytest.mark.parametrize("payloads", ["payloads", "payloads_off"])
+def test_area_semantics_discrete_vs_connected(split, payloads):
+    """Every feature reports either its whole area (discrete) or its in-AOI area (connected), in either mode.
 
     nmaipy keeps no list of connected classes and reads the kind from these areas, so this checks the response
     contract rather than a class list: a feature whose area is its clip but not its whole comes back clipped to
@@ -149,7 +154,7 @@ def test_area_semantics_discrete_vs_connected(split):
     n_connected_extending_past = 0
     for side in ("W", "E"):
         half = split["halves"][side]
-        for f in split["payloads"][side]["features"]:
+        for f in split[payloads][side]["features"]:
             area, clipped, whole = f["areaSqm"], f["clippedAreaSqm"], f["unclippedAreaSqm"]
             assert area in (clipped, whole), f"{f['description']}: areaSqm {area} is neither {clipped} nor {whole}"
             if f["classId"] in (ROOF_ID, BUILDING_NEW_ID):
@@ -160,3 +165,51 @@ def test_area_semantics_discrete_vs_connected(split):
                 assert _area_sqm(outside) < max(0.5, 0.01 * area), f"Connected {f['description']} should lie in the AOI"
                 n_connected_extending_past += 1
     assert n_connected_extending_past > 0, "Fixture should include vegetation that extends past a half"
+
+
+# Fields parcelMode adds or computes per parcel; everything else about a feature is the same in both modes.
+PARCEL_MODE_FIELDS = {"belongsToParcel", "clippedGeometry", *INCLUDE}
+# The in-AOI area of the same AOI, computed separately in each mode, which can differ by the 0.1 rounding step.
+CLIPPED_AREA_TOLERANCE = {"clippedAreaSqm": 0.15, "clippedAreaSqft": 1.5}
+
+
+@pytest.mark.live_api
+def test_parcel_mode_off_omits_parcel_fields(split):
+    """Without parcelMode no feature is attributed or clipped, which is why gridded rows have null belongs_to_parcel."""
+    for side in ("W", "E"):
+        for f in split["payloads_off"][side]["features"]:
+            assert "belongsToParcel" not in f, f"Half {side}: {f['description']} has belongsToParcel without parcelMode"
+            assert not f.get(
+                "clippedGeometry"
+            ), f"Half {side}: {f['description']} has clippedGeometry without parcelMode"
+
+
+@pytest.mark.live_api
+def test_parcel_mode_changes_only_parcel_fields(split):
+    """For the same AOI, parcelMode returns the same features with the same areas, geometry and attributes.
+
+    Only the fields parcelMode adds and the per-parcel includes differ; clipped areas agree within rounding.
+    """
+    for side in ("W", "E"):
+        on = {f["id"]: f for f in split["payloads"][side]["features"]}
+        off = {f["id"]: f for f in split["payloads_off"][side]["features"]}
+        assert on.keys() == off.keys(), f"Half {side}: both modes should return the same features"
+        for fid, f_on in on.items():
+            f_off = off[fid]
+            for key in (set(f_on) | set(f_off)) - PARCEL_MODE_FIELDS - set(CLIPPED_AREA_TOLERANCE):
+                assert f_on.get(key) == f_off.get(key), f"Half {side}, {f_on['description']} {fid}: {key} differs"
+            for key, tolerance in CLIPPED_AREA_TOLERANCE.items():
+                assert f_on[key] == pytest.approx(
+                    f_off[key], abs=tolerance
+                ), f"Half {side}, {f_on['description']} {fid}: {key} should agree within rounding"
+
+
+@pytest.mark.live_api
+def test_includes_are_whole_roof_without_parcel_mode(split):
+    """Without parcelMode a shared roof's includes describe the whole roof, so both halves get the same value."""
+    west, east = _roof(split, "W", "payloads_off"), _roof(split, "E", "payloads_off")
+    assert _hurricane_tree_overhang_ratio(west) == pytest.approx(_hurricane_tree_overhang_ratio(east), abs=0.001)
+    for side, roof_off in (("W", west), ("E", east)):
+        assert _hurricane_tree_overhang_ratio(roof_off) != pytest.approx(
+            _hurricane_tree_overhang_ratio(_roof(split, side)), abs=0.01
+        ), f"Half {side}: the parcelMode value should be the clip's, not the whole roof's"
