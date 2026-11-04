@@ -3087,6 +3087,25 @@ class NearmapAIExporter(BaseExporter):
         # Save export configuration at start (before processing begins)
         self._save_config(config_params)
 
+    @property
+    def regrid_on_skip(self) -> bool:
+        """Deprecated alias of `retry_on_realtime_skip`, to be removed in nmaipy 6.0."""
+        warnings.warn(
+            "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.retry_on_realtime_skip
+
+    @regrid_on_skip.setter
+    def regrid_on_skip(self, value: bool) -> None:
+        warnings.warn(
+            "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.retry_on_realtime_skip = value
+
     def _read_existing_config_params(self):
         """Read the parameters block of any previously-saved export_config.json.
 

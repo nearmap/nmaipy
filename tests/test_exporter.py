@@ -2747,3 +2747,8 @@ def test_regrid_on_skip_is_a_deprecated_alias(tmp_path):
             regrid_on_skip=False,
         )
     assert exporter.retry_on_realtime_skip is False
+    with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+        assert exporter.regrid_on_skip is False
+    with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+        exporter.regrid_on_skip = True
+    assert exporter.retry_on_realtime_skip is True
