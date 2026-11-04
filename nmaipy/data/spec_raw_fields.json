@@ -1,5 +1,5 @@
 {
-  "_doc": "GENERATED — do not edit by hand. Produced by ai_offline_export_pipelines.spec_drift.generator from the vendored Nearmap Feature API OpenAPI spec. To customise a description, add an entry to column_metadata_overrides.json with the same key; overrides win at lookup time.",
+  "_doc": "GENERATED — do not edit by hand. Produced by a spec-drift generator from the Nearmap Feature API OpenAPI spec. To customise a description, add an entry to column_metadata_overrides.json with the same key; overrides win at lookup time.",
   "_source": {
     "file": "api-v4.yml",
     "spec_title": "AI Feature API.",
