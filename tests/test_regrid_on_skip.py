@@ -54,6 +54,7 @@ def _payload(*features):
         "resourceId": "resource",
         "perspective": "Vert",
         "postcat": False,
+        "aggregate": {"defensibleSpace": {"zones": []}},
         "features": list(features),
     }
 
@@ -100,12 +101,12 @@ class TestResponseHasIncludeSkips:
         assert any_skipped is False
 
 
-def _install_stubs(api, monkeypatch, *, skipped: bool):
+def _install_stubs(api, monkeypatch, *, skipped: bool, grid_fails: bool = False):
     """Stub `get_features` and `_attempt_gridding` on `api`; the real `payload_gdf` parses the response.
 
     The response's roof carries `roofSpotlightIndex = {"skipped": true}` when `skipped`, else a score.
-    Returns a dict that the test can inspect; `dict["count"]` is the number
-    of times `_attempt_gridding` was invoked.
+    Returns a dict that the test can inspect: `count` is the number of times `_attempt_gridding` was invoked,
+    and `kwargs` the arguments of the last call.
     """
     gridding_called = {"count": 0}
     include = {"skipped": True} if skipped else {"value": 50, "confidence": 0.9}
@@ -115,9 +116,12 @@ def _install_stubs(api, monkeypatch, *, skipped: bool):
 
     def stub_attempt_gridding(*args, **kwargs):
         gridding_called["count"] += 1
+        gridding_called["kwargs"] = kwargs
+        if grid_fails:
+            return None, None, {"aoi_id": kwargs["aoi_id"], "message": "Multiple dates", "failure_type": "grid"}, None
         return (
-            gpd.GeoDataFrame({"geometry": [SMALL_AOI]}, geometry="geometry"),
-            {"aoi_id": kwargs.get("aoi_id", "x"), "system_version": "v"},
+            gpd.GeoDataFrame({"feature_id": ["cell-roof"], "geometry": [SMALL_AOI]}, geometry="geometry"),
+            {"aoi_id": kwargs.get("aoi_id", "x"), "system_version": "v", "gridded": True},
             None,
             None,
         )
@@ -169,3 +173,34 @@ class TestRegridOnSkip:
             in_gridding_mode=True,
         )
         assert gridding_called["count"] == 0
+
+    def test_regrid_is_pinned_to_the_responses_survey(self, tmp_path, monkeypatch):
+        """Cells pinned to the response's survey resource can't land on different survey dates."""
+        api = self._build_api(tmp_path, regrid_on_skip=True)
+        gridding_called = _install_stubs(api, monkeypatch, skipped=True)
+
+        api.get_features_gdf(geometry=SMALL_AOI, region="au", aoi_id="skip-aoi")
+        assert gridding_called["kwargs"]["survey_resource_id"] == "resource"
+
+    def test_regrid_keeps_the_responses_parcel_aggregate(self, tmp_path, monkeypatch):
+        api = self._build_api(tmp_path, regrid_on_skip=True)
+        _install_stubs(api, monkeypatch, skipped=True)
+
+        features, metadata, error, _ = api.get_features_gdf(geometry=SMALL_AOI, region="au", aoi_id="skip-aoi")
+        assert error is None
+        assert list(features["feature_id"]) == ["cell-roof"], "The regridded features should replace the response's"
+        assert metadata["aggregate"] == {"defensibleSpace": {"zones": []}}, "Cells return no aggregate; keep this one"
+
+    def test_failed_regrid_keeps_the_ungridded_response(self, tmp_path, monkeypatch):
+        """The regrid only tries to fill skipped scores: if it fails, the AOI keeps the answer it already had."""
+        api = self._build_api(tmp_path, regrid_on_skip=True)
+        gridding_called = _install_stubs(api, monkeypatch, skipped=True, grid_fails=True)
+
+        features, metadata, error, grid_errors = api.get_features_gdf(
+            geometry=SMALL_AOI, region="au", aoi_id="skip-aoi"
+        )
+        assert gridding_called["count"] == 1
+        assert error is None, f"A failed regrid should not fail the AOI, got {error}"
+        assert grid_errors is None
+        assert list(features["feature_id"]) == ["roof"], "The ungridded response's features should be kept"
+        assert metadata["survey_resource_id"] == "resource"

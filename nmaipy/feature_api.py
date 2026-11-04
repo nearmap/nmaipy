@@ -1445,7 +1445,9 @@ class FeatureApi(GriddedApiClient):
                             f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
                             f"triggering reactive gridding"
                         )
-                        features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
+                        # Pin the cells to the survey this response came from, so they can't land on different
+                        # survey dates (which fails the grid) or move the AOI to another survey.
+                        gridded_features, gridded_metadata, grid_error, gridded_errors_df = self._attempt_gridding(
                             geometry=geometry,
                             region=region,
                             packs=packs,
@@ -1454,10 +1456,25 @@ class FeatureApi(GriddedApiClient):
                             aoi_id=aoi_id,
                             since=since,
                             until=until,
-                            survey_resource_id=survey_resource_id,
+                            survey_resource_id=survey_resource_id or metadata["survey_resource_id"],
                             aoi_grid_inexact=self.aoi_grid_inexact,
                             reason="reactive - include skip",
                         )
+                        if grid_error is None:
+                            # Cells run without parcelMode and return no parcel-level aggregate; keep this one's.
+                            gridded_metadata["aggregate"] = metadata.get("aggregate")
+                            features_gdf, metadata, grid_errors_df = (
+                                gridded_features,
+                                gridded_metadata,
+                                gridded_errors_df,
+                            )
+                        else:
+                            # The regrid only tries to fill the skipped scores; the response already answered.
+                            logger.warning(
+                                f"AOI (id {aoi_id}): reactive gridding after an include skip failed "
+                                f"({grid_error.get('message')}); keeping the ungridded response, whose skipped "
+                                f"scores stay null"
+                            )
                     else:
                         logger.info(
                             f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
