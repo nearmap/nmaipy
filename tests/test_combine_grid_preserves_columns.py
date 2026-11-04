@@ -383,6 +383,25 @@ def test_merge_refuses_a_cell_that_follows_neither_kind():
         combine_features_from_grid(features)
 
 
+def test_merge_refuses_a_feature_with_an_area_in_only_some_cells():
+    """A connected feature whose area is missing in one cell would be read as discrete and keep one piece (40, not
+    90), so the merge refuses rather than undercount."""
+    cells = [Polygon([(x, 0), (x + 1, 0), (x + 1, 1), (x, 1)]) for x in range(3)]
+    features = gpd.GeoDataFrame(
+        {
+            "feature_id": ["veg"] * 3,
+            "geometry": cells,
+            AOI_ID_COLUMN_NAME: ["aoi1"] * 3,
+            "area_sqm": [40.0, None, 30.0],
+            "clipped_area_sqm": [40.0, 20.0, 30.0],
+            "unclipped_area_sqm": [40.0, 20.0, 30.0],
+        },
+        crs=API_CRS,
+    )
+    with pytest.raises(ValueError, match=r"area_sqm in some grid cells but not others, e.g. \['veg'\]"):
+        combine_features_from_grid(features)
+
+
 def test_whole_object_with_clipped_area_above_its_area_merges():
     """The API's clipped area for an object wholly inside one cell can exceed its whole area by a few tenths.
 
