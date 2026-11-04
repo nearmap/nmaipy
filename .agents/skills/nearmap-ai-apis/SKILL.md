@@ -26,7 +26,7 @@ Most users call these APIs directly; few use **nmaipy**, the open-source exporte
 2. **Read the matching reference file** from the map below before answering. The details are subtle: for example, `areaSqm` means different things for roofs and for vegetation. Answering from general intuition gets them wrong.
 3. **Say how well established each claim is.** The references tag claims as verified against the live API, read from nmaipy code, or inferred. Carry that through.
    - If the references don't cover something, say so. Don't fill the gap with plausible API behaviour; offer to check it (see `references/verifying-with-live-data.md`).
-   - If you don't know and can't find out, say "I don't know". Keep inferred claims out of the text written for the user.
+   - Before saying something isn't documented, search Nearmap's public documentation: developer.nearmap.com (through `llms.txt`, step 4) and help.nearmap.com, Nearmap's knowledge hub. If neither covers it, say "I don't know" or that it isn't publicly documented, and suggest the user ask Nearmap support. Assume the asker is usually an external customer, so don't name internal teams. Keep inferred claims out of the text written for the user.
 4. **Check Nearmap's official API documentation for what the API promises,** if you can fetch URLs.
    - `https://developer.nearmap.com/llms.txt` indexes Markdown versions of the docs, e.g. `docs/ai-api.md`, `docs/parcel-mode-user-guide.md`, `docs/roof-age-api.md`, `docs/damage-conflation-api.md`, and a `reference/*.md` page per endpoint.
    - Use it for parameters, fields, endpoints and anything the references don't cover, and cite the page.
@@ -39,6 +39,7 @@ Most users call these APIs directly; few use **nmaipy**, the open-source exporte
    - If the code disagrees with the reference, trust the code and mention the difference.
    - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older than the checkout's, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
 6. **Lead with the direct answer**, then the mechanism, then what to do about it: which field to use instead, which parameter to set, or how to check. Use exact field and column names, because the asker will look them up.
+   - **Show spatial behaviour in a picture.** Area, clipping and parcel questions are about geometry, and are much easier to reason about drawn than described. When something is counterintuitive, find one real example (step 1) and draw it: the query AOI, the feature's outline and its in-AOI part, labelled with the values in question. Use what your environment can show: an interactive map page, an image (`references/verifying-with-live-data.md` has a plotting snippet), or a GeoJSON file the user can open at geojson.io or in QGIS.
    - Always end with a **What to tell the user** section: plain-language text the asker can paste straight into an email or Slack message. Write it for the user, not the asker. Leave out internal references (source files, function names, reference-file tags, test details) and mention nmaipy only if the user received an nmaipy export.
 7. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references and the official documentation state.
 8. **Leave commercial questions to the account manager.** For credits, pricing, licensing or where a user may display the data, say what the official docs state and refer the rest to their account manager.
@@ -48,7 +49,7 @@ Most users call these APIs directly; few use **nmaipy**, the open-source exporte
 | The question is about… | Read |
 |---|---|
 | parcelMode, `clippedGeometry`, `belongsToParcel`, multiparcel or overhanging features, `area` vs `clipped_area` vs `unclipped_area`, discrete vs connected classes, roof component ratios vs score includes, child features outside the parcel, how areas merge for gridded AOIs | `references/feature-api-geometry-and-areas.md` |
-| survey/date selection (`since`, `until`, `order`, prefer3d, system versions), when and how AOIs are gridded, packs/classes/deprecated classes, includes → columns, rollup counts, primary feature selection, the API's own rollup endpoint, null vs 0 vs N, errors, retries, resume and cache, `feature_id` identity, confidence scores and cutoffs, comparing surveys over time (e.g. roof material changes) | `references/feature-api-queries-and-outputs.md` |
+| survey/date selection (`since`, `until`, `order`, prefer3d, system versions), when and how AOIs are gridded, packs/classes/deprecated classes, includes → columns, rollup counts, primary feature selection, null vs 0 vs N, errors, retries, resume and cache, `feature_id` identity, confidence scores and cutoffs, comparing surveys over time (e.g. roof material changes) | `references/feature-api-queries-and-outputs.md` |
 | roof age, roof instances, `kind` = roof/parcel, trust score, evidence types, installation dates, linking instances to roofs | `references/roof-age-api.md` |
 | post-catastrophe damage ratings, event ids, pre-event vs event, `--parcel-mode` on the damage exporter, damage rollups, how this differs from Feature API damage classification | `references/damage-conflation-api.md` |
 | checking a claim yourself against the live API (needs an API key) | `references/verifying-with-live-data.md` |
@@ -96,6 +97,7 @@ The details are in the reference files named in brackets.
 - **"Clipped area is bigger than the area."**
   - For an object wholly inside the AOI, `clippedAreaSqm` can exceed `areaSqm` by a few tenths of a sqm (up to about 2% on small structures), on ordinary and gridded queries alike.
   - It is measurement noise: the two are computed separately. It doesn't mean the object extends further.
+  - Show one example: the outline sits wholly inside the parcel, yet the numbers differ.
   - [geometry-and-areas]
 - **"What confidence cutoff should we use?"**
   - Nearmap publishes no recommended cutoff; set one per class against the user's own outcomes.

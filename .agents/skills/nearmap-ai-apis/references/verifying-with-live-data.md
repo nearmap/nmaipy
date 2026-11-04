@@ -56,6 +56,36 @@ Typical comparisons:
 
 nmaipy's own `tests/test_parcel_mode_semantics.py` is a complete worked version of this recipe.
 
+## Showing it
+
+Spatial behaviour is easier to see than to read. Draw one example: the AOI, the feature's whole outline and its in-AOI part, with the API's area fields in the title.
+
+```python
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from shapely.geometry import shape
+
+from nmaipy.constants import API_CRS, AREA_CRS
+
+
+def show(aoi, feature, country="us", path="example.png"):
+    """Draw a query AOI and one raw API feature, in metres, and save it as an image."""
+    outline = shape(feature["geometry"])
+    layers = gpd.GeoSeries([aoi, outline, outline.intersection(aoi)], crs=API_CRS).to_crs(AREA_CRS[country])
+    ax = layers.iloc[[0]].boundary.plot(color="black", linewidth=1)
+    layers.iloc[[1]].plot(ax=ax, color="tab:orange", alpha=0.35)
+    layers.iloc[[2]].plot(ax=ax, color="tab:blue", alpha=0.6)
+    ax.set_title(
+        f"{feature['description']}: areaSqm {feature['areaSqm']}, clippedAreaSqm {feature['clippedAreaSqm']}, "
+        f"unclippedAreaSqm {feature['unclippedAreaSqm']}",
+        fontsize=9,
+    )
+    ax.set_axis_off()
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+```
+
+Black is the AOI, orange the feature's whole outline, blue its part inside the AOI. To give the user something interactive instead, write the same layers to GeoJSON (`layers.to_crs(API_CRS).to_file("example.geojson")`) for geojson.io or QGIS.
+
 ## Reporting what you found
 
 State the sample: how many features or parcels, which packs, and which survey date. Say what was compared. Separate what you observed from what you infer. A single parcel is an example, not proof of a general rule. Patterns only become convincing across tens of parcels.
