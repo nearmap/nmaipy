@@ -78,7 +78,7 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
   - Per roof: `defensible_space_zone_<zoneId>_…` columns (zone area, defensible area, risk-object area, coverage ratio, per risk-object area/ratio).
   - Per parcel: the response-level aggregate becomes `aggregate_defensible_space_zone_*`. According to the `FeatureApi` docstring, gridded AOIs run without parcelMode, so their aggregate stays null.
 - [nmaipy] **`roofConditionConfidenceStats`** adds confidence histograms inside roof components. They become `<component>_confidence_stats_<binType>_bin_<i>`.
-- [API] An include can come back as `{"skipped": true}`, e.g. when a parcel exceeds the API's per-parcel compute budget. [nmaipy] By default nmaipy then grids the AOI (section 2), so the scores come from cells queried without parcelMode. `*_skipped` is True, with the score columns null, only when a cell itself skips or the export ran with `--no-regrid-on-skip`.
+- [API] An include can come back as `{"skipped": true}`, e.g. when a parcel exceeds the API's per-parcel compute budget. [nmaipy] By default nmaipy then grids the AOI (section 2), with the cells pinned to the response's survey, so the scores come from cells queried without parcelMode. If that grid fails, the AOI keeps its first response. `*_skipped` is True, with the score columns null, when that happens, when a cell itself skips, or when the export ran with `--no-regrid-on-skip`.
 - [nmaipy] **Resolving the primary roof's scores.**
   - The rollup's `primary_roof_spotlight_index` and peril scores come from the primary roof.
   - If it lacks them, nmaipy follows Roof →(IoU ≥ 0.005)→ Building →(parent)→ Building lifecycle. Some scores live on the building lifecycle and need the `building_structures` pack.

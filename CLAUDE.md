@@ -243,7 +243,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 - For a multiparcel roof the stored geometry is the clip, so the result is the per-parcel value. It matches the API's own per-parcel `treeOverhangRatio` in `hurricaneScore` exactly.
 - For a slight-overhang roof the stored geometry is the whole outline, so the result reproduces the whole-roof value.
 - Gridded AOIs run with parcelMode off, so the stored outline is clipped to the AOI first: by `_clip_roof_geoms_to_aoi` for the per-class files and inline in `parcel_rollup` (`clip_roof_to_parcel`) for the rollup. The includes stay whole-roof there, so the recomputed ratio no longer matches them.
-- Grid cells run with parcelMode off by design. Gridding is meant for very large areas, where discrete objects crossing the outer boundary matter little, while parcelMode would treat each cell as a parcel and cut features at the internal grid lines. Note that `regrid_on_skip` (on by default) also grids an AOI whose includes the API skipped, which can be a small parcel.
+- Grid cells run with parcelMode off by design. Gridding is meant for very large areas, where discrete objects crossing the outer boundary matter little, while parcelMode would treat each cell as a parcel and cut features at the internal grid lines. Note that `regrid_on_skip` (on by default) also grids an AOI whose includes the API skipped, which can be a small parcel. Those cells are pinned to the first response's survey; if the grid fails, the AOI keeps the first response (skipped scores null), and a successful grid keeps its parcel-level aggregate.
 - Includes are passed through unchanged.
 
 ## Customer-facing knowledge skill

@@ -124,13 +124,13 @@ Only the `components` lists are recomputed. Includes and pitch pass through unch
 [nmaipy] nmaipy splits an AOI into a grid of cells (0.005° by default, about 550 m), queries each cell and merges the results, when:
 - the AOI is over about 1 sq km;
 - the API rejects it as too large, or times out (see the queries-and-outputs reference, section 2);
-- the API returns an include as `{"skipped": true}` for it, e.g. a parcel over the API's per-parcel compute budget, unless the exporter runs with `--no-regrid-on-skip`. This can grid a parcel well under 1 sq km.
+- the API returns an include as `{"skipped": true}` for it, e.g. a parcel over the API's per-parcel compute budget, unless the exporter runs with `--no-regrid-on-skip`. This can grid a parcel well under 1 sq km. The cells are pinned to the first response's survey, and if the grid fails the AOI keeps that first response.
 
 **Grid cells are queried with parcelMode off, by design.** Gridding is meant for very large areas. There, a discrete object crossing the AOI's outer boundary matters little, whereas parcelMode would treat every cell as a parcel and cut features at the grid's internal lines. As a result, for a gridded AOI:
 
 - **Nothing is filtered by `belongsToParcel`.** Features crossing the AOI's outer boundary are kept, neighbours' roofs included. They count in `<class>_count` and `<class>_total_area_*` (whole object), but only their in-AOI part counts in `<class>_total_clipped_area_*`.
 - **`belongs_to_parcel` is null on every row** (the API sends no such field without parcelMode), and **`multiparcel_feature` is always N** (no feature gets `clippedGeometry`). Discrete features keep their whole outlines.
-- **Includes describe whole roofs.** RSI, the peril scores and per-roof defensible space are the parcelMode-off, whole-roof values, and the parcel-level `aggregate_defensible_space_*` columns are null.
+- **Includes describe whole roofs.** RSI, the peril scores and per-roof defensible space are the parcelMode-off, whole-roof values. The parcel-level `aggregate_defensible_space_*` columns are null, except on an AOI gridded after an include skip, which keeps the aggregate from its first, parcelMode response.
 - **Roof components are recomputed on the in-AOI part.** nmaipy clips each roof's outline to the AOI before recomputing its components: in the rollup's `primary_roof_*` columns (`parcels.parcel_rollup`, `clip_roof_to_parcel`) and in the per-class files (`exporter._clip_roof_geoms_to_aoi`). So `tree_overhang_ratio` describes the roof's in-AOI part while the includes describe the whole roof, and on a gridded AOI the two no longer match as they do for a parcelMode roof (section 5).
 - **The primary feature is still the largest by `clipped_area`,** so a neighbour's roof wins only if most of the in-AOI roof area is its.
 
