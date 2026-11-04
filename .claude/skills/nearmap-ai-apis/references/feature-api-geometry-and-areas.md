@@ -23,7 +23,7 @@ What `area` means depends on the kind of class [live]. The rule is exact, with n
 
 | | Discrete classes | Connected classes |
 |---|---|---|
-| Examples (as tested) | Roof, Building, roof components (materials, shapes, Tree Overhang), Driveway | Vegetation (low, medium/high, woody), Lawn Grass, Asphalt, Concrete, Road (Driveable Surface), Natural (soft); nmaipy lists them in `CONNECTED_CLASS_IDS` |
+| Examples (as tested) | Roof, Building, roof components (materials, shapes, Tree Overhang), Driveway | Vegetation (low, medium/high, woody), Lawn Grass, Asphalt, Concrete, Road (Driveable Surface), Natural (soft) |
 | Nature | Whole objects that can extend past the AOI | No whole-object extent |
 | `geometry` | Whole outline, even where it lies outside the AOI | Already clipped to the query AOI |
 | `area` | = `unclipped_area` (whole object) | = `clipped_area` (inside the AOI) |
@@ -31,6 +31,8 @@ What `area` means depends on the kind of class [live]. The rule is exact, with n
 | `unclipped_area` | Whole object | The whole connected patch, which can be far larger than the AOI (hundreds of thousands of sqm for a woodland) |
 
 This holds with parcelMode on and with it off. `clippedAreaSqm` is computed in both modes; it is not a parcelMode feature [live].
+
+Most classes are connected; only bounded objects (roof, building, pool, roof components, …) are discrete. [nmaipy] nmaipy keeps no list of either kind, because the API's classes change. Code that needs the kind reads it from these areas.
 
 ## 2. What parcelMode changes
 
@@ -121,9 +123,12 @@ Only the `components` lists are recomputed. Includes and pitch pass through unch
 - No feature gets `clippedGeometry`. Discrete features keep their whole outlines while `clipped_area` is summed per cell. For clipped roofs, nmaipy clips the stored outline to the AOI before recomputing components (`_clip_roof_geoms_to_aoi`), so component areas aren't inflated to whole-roof size.
 - `geometry_utils.combine_features_from_grid` merges cells per `feature_id`:
   - `clipped_area` is summed.
-  - `area` is kept once for discrete features, because every cell repeats the whole-object area.
-  - `area` is summed for connected features, because each cell reports only its piece.
-  - The merge identifies discrete features by `area == unclipped_area` in every cell.
+  - A feature whose `area` equals its `clipped_area` in every cell is connected: each cell reported only its piece, so its `area` becomes the summed `clipped_area`.
+  - Every other feature is discrete: each cell repeated the whole-object area, so `area` is kept once.
+  - `unclipped_area` plays no part in that decision (for a connected feature it is the whole patch), and is taken from one cell, never summed. So `<class>_total_unclipped_area_*` counts each object once per AOI.
+  - A whole object can't be smaller than its part inside the AOI. If a feature treated as discrete ends up with `area` below its summed `clipped_area` (beyond 0.1 sqm of rounding per cell), the merge raises and that AOI fails as a grid error.
+
+  On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (191 spanning 2–21 cells) matched the same parcels queried whole, per feature and in every per-class total [live].
 
   Releases before this rule (nmaipy ≤ 5.3.0) summed `area` for every class, multiplying a discrete feature's `area` by the number of cells it touched.
 
