@@ -10,32 +10,38 @@ This skill answers questions from customers and solution engineers about the sub
 - the **Roof Age API**: roof installation-date estimates;
 - the **Damage Conflation API**: per-building post-catastrophe damage ratings.
 
-It also covers **nmaipy**, the open-source exporter that turns these APIs' responses into rollups and per-class files. Most confusion comes from mixing two layers:
-- what the API returns;
-- what nmaipy computes from it.
-
-A good answer keeps the two apart.
+Most users call these APIs directly; few use **nmaipy**, the open-source exporter that turns the responses into rollups and per-class files. Treat nmaipy as a reference for how to interpret API responses, not as the user's product. The exception is a user who received a data export produced with nmaipy: their columns, rollups and primary features are nmaipy's.
 
 ## How to answer
 
-1. **Work out which layer the question is about.**
-   - It is about the *raw API response* if the asker mentions JSON fields such as `clippedAreaSqm`, `belongsToParcel`, `attributes` or `hurricaneScore`.
-   - It is about *nmaipy's output* if they mention snake_case columns such as `roof_total_clipped_area_sqft`, `primary_roof_tree_overhang_ratio` or `feature_api_success`.
-   - It may be about both. Say which layer each part of your answer describes.
+1. **Pin down what the question is about before investigating.** You need to know:
+   - which API it concerns (AI Feature, Roof Age or Damage Conflation);
+   - where the value came from: returned by the API, computed in an nmaipy export, or derived by the user from values we delivered (e.g. a ratio of two areas they calculated themselves).
+
+   Most questions turn out to be about the raw API, but don't assume it. Don't infer the API or the source from how names are written (camelCase vs snake_case, upper-cased or renamed columns); downstream products rename fields freely. If the question doesn't settle either point, give the part of the answer that holds under every reading, then ask only what decides the rest: list the readings you see and what you need to know to choose. Don't answer one reading with a caveat. If every reading leads to the same answer, just answer.
+
+   When the question reports a value that looks wrong or surprising, validate it before explaining it: ask for a few real examples (feature or AOI ids, the request or file, the values they see) and reproduce them against the live API (see `references/verifying-with-live-data.md`). Explain what you see in those examples, not what usually happens.
+
+   Questions about what the API can do or which classes exist ("can we get…", "does the API tell us…") rarely depend on where a value came from, and a question about a kind of object (pools, decks, roofs) means the AI Feature API. Answer those directly, but still ask if something you need is unclear.
 2. **Read the matching reference file** from the map below before answering. The details are subtle: for example, `areaSqm` means different things for roofs and for vegetation. Answering from general intuition gets them wrong.
 3. **Say how well established each claim is.** The references tag claims as verified against the live API, read from nmaipy code, or inferred. Carry that through.
    - If the references don't cover something, say so. Don't fill the gap with plausible API behaviour; offer to check it (see `references/verifying-with-live-data.md`).
+   - If you don't know and can't find out, say "I don't know". Keep inferred claims out of the text written for the user.
 4. **Check Nearmap's official API documentation for what the API promises,** if you can fetch URLs.
    - `https://developer.nearmap.com/llms.txt` indexes Markdown versions of the docs, e.g. `docs/ai-api.md`, `docs/parcel-mode-user-guide.md`, `docs/roof-age-api.md`, `docs/damage-conflation-api.md`, and a `reference/*.md` page per endpoint.
    - Use it for parameters, fields, endpoints and anything the references don't cover, and cite the page.
    - Where it differs from a reference file's `[live]` finding, give both: the docs state the intended contract, the `[live]` tag what responses actually showed.
+   - For what a class means (definition, what it includes and excludes, which packs carry it, release status), use Nearmap's public AI layer pages, indexed at `https://help.nearmap.com/kb/articles/160-about-ai-layers`. A class appearing in the public docs doesn't mean a user can get it: check its release status and which packs carry it.
+   - For model accuracy, quote only the public Gen 6 system report (`https://help.nearmap.com/api/v2/media/download-by-url?url=https%3A%2F%2Fus.v-cdn.net%2F6037589%2Fuploads%2F533RTKFGWY84%2Fgen6-systemreport.pdf`). For whether a feature is present on a property, use its property-level metrics. Its pixel-level and hard-example figures measure something different and aren't comparable.
 5. **Confirm nmaipy-behaviour claims against the installed source when you can.**
    - The references describe the nmaipy in the same repository checkout (its version is in `nmaipy/__version__.py`), and only that. Function names are given, so you can grep for them.
    - Find the source with `python -c "import nmaipy, os; print(os.path.dirname(nmaipy.__file__))"`, or use a repo checkout.
    - If the code disagrees with the reference, trust the code and mention the difference.
    - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older than the checkout's, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
-6. **Lead with the direct answer**, then the mechanism, then what to do about it: which column to use instead, which flag to set, or how to check. Use exact column and field names, because the asker will look them up.
+6. **Lead with the direct answer**, then the mechanism, then what to do about it: which field to use instead, which parameter to set, or how to check. Use exact field and column names, because the asker will look them up.
+   - Always end with a **What to tell the user** section: plain-language text the asker can paste straight into an email or Slack message. Write it for the user, not the asker. Leave out internal references (source files, function names, reference-file tags, test details) and mention nmaipy only if the user received an nmaipy export.
 7. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references and the official documentation state.
+8. **Leave commercial questions to the account manager.** For credits, pricing, licensing or where a user may display the data, say what the official docs state and refer the rest to their account manager.
 
 ## Reference map
 
@@ -47,6 +53,8 @@ A good answer keeps the two apart.
 | post-catastrophe damage ratings, event ids, pre-event vs event, `--parcel-mode` on the damage exporter, damage rollups, how this differs from Feature API damage classification | `references/damage-conflation-api.md` |
 | checking a claim yourself against the live API (needs an API key) | `references/verifying-with-live-data.md` |
 | the API's official, documented contract: parameters, fields, endpoints, other Nearmap APIs | `https://developer.nearmap.com/llms.txt` and the page it links |
+| what a class or layer means, which packs carry it, its release status | `https://help.nearmap.com/kb/articles/160-about-ai-layers` and the layer's own page |
+| model accuracy (precision, recall, area error) | the public Gen 6 system report (link in step 4) |
 
 ## Frequent questions
 
