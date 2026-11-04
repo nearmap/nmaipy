@@ -232,6 +232,14 @@ class TestIncludeSkipHandling:
             api = self._api(tmp_path, regrid_on_skip=False)
         assert api.retry_on_realtime_skip is False
 
+    def test_deprecated_regrid_on_skip_attribute_aliases_retry_on_realtime_skip(self, tmp_path):
+        api = self._api(tmp_path)
+        with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+            assert api.regrid_on_skip is True
+        with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+            api.regrid_on_skip = False
+        assert api.retry_on_realtime_skip is False
+
     def test_grid_cells_are_not_retried_or_regridded(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path)
         _install_stubs(api, monkeypatch, calls, responses=[SKIPPED])

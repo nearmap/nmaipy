@@ -328,6 +328,25 @@ class FeatureApi(GriddedApiClient):
             )
         self.retry_on_realtime_skip = retry_on_realtime_skip and regrid_on_skip is not False
 
+    @property
+    def regrid_on_skip(self) -> bool:
+        """Deprecated alias of `retry_on_realtime_skip`, to be removed in nmaipy 6.0."""
+        warnings.warn(
+            "FeatureApi's regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.retry_on_realtime_skip
+
+    @regrid_on_skip.setter
+    def regrid_on_skip(self, value: bool) -> None:
+        warnings.warn(
+            "FeatureApi's regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.retry_on_realtime_skip = value
+
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
         """Context manager for session lifecycle — delegates to base class with appropriate retry config.
