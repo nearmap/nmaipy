@@ -171,7 +171,8 @@ def probe(live: list[Exchange]) -> list[str]:
 
 
 def vocabulary(live: list[Exchange]) -> dict:
-    """Names only: pack codes and class ids, and per case and feature class its attribute blocks and components."""
+    """Names only: pack codes and class ids, and per case and feature class its attribute blocks and the union of their
+    components over all features."""
     packs = {
         p["code"]: {
             "featureClasses": sorted(c["id"] for c in p["featureClasses"]),
@@ -182,15 +183,21 @@ def vocabulary(live: list[Exchange]) -> dict:
         for p in e.body["packs"]
         if p["code"] in {code for case in CASES.values() for code in case["packs"]}
     }
-    attributes = defaultdict(lambda: defaultdict(dict))
+    attributes = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
     for e in live:
         if e.endpoint != "features" or e.status != 200:
             continue
         for feature in e.body["features"]:
             for block in feature["attributes"]:
-                components = sorted(c["description"] for c in block.get("components", []))
-                attributes[e.case][feature["classId"]][block["description"]] = components
-    return {"packs": packs, "attributes": {case: dict(by_class) for case, by_class in attributes.items()}}
+                components = {c["description"] for c in block.get("components", [])}
+                attributes[e.case][feature["classId"]][block["description"]] |= components
+    return {
+        "packs": packs,
+        "attributes": {
+            case: {cid: {b: sorted(c) for b, c in blocks.items()} for cid, blocks in by_class.items()}
+            for case, by_class in attributes.items()
+        },
+    }
 
 
 def check_fields(live: list[Exchange], fake: list[Exchange]) -> list[str]:

@@ -11,7 +11,7 @@
 
 The world is synthetic: rectangles laid out in metres from arbitrary origins, so no AOI is a real parcel, and every value in `expected/` comes from the fake. Class ids are nmaipy's, class descriptions come from `nmaipy/class_descriptions.json`, and attribute block and component names come from `tests/golden/vocabulary.json`, which holds names only and is written from the live API.
 
-Each case folder holds `aois.csv`, `expected/` and `cache_paths.txt`, all written by `regenerate`. In `expected/`, each table keyed by `aoi_id` is transposed: line 1 is `column` then the row keys (`aoi_id`, plus `feature_id` when present), and each later line is one column then its values, sorted by column name. A `.parquet` whose `.csv` twin exists keeps only the columns the twin lacks. Parquet dtypes and GeoParquet metadata are in `schemas.json`.
+Each case folder holds `aois.csv`, `expected/` and `cache_paths.txt`, all written by `regenerate`. In `expected/`, each table keyed by `aoi_id` is transposed: line 1 is `column` then the row keys (`aoi_id`, plus `feature_id` when present), and each later line is one column then its values, sorted by column name. A `.parquet` whose `.csv` twin exists drops each column (other than the row keys) whose values match the twin's for every row key, so it keeps the columns the twin lacks and any value that differs from the twin. Parquet dtypes and GeoParquet metadata are in `schemas.json`.
 
 ## Re-baseline or refresh
 

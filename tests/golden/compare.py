@@ -62,7 +62,8 @@ def canonicalise_export(final_dir: Path, expected_dir: Path) -> None:
 
     Tables keyed by `aoi_id` are transposed: line 1 is `column` then the row keys (`aoi_id`, plus `feature_id` when
     present), and each later line is one column then its values, sorted by column name. A `.parquet` whose `.csv`
-    twin exists keeps only the columns the twin lacks. Parquet dtypes and GeoParquet metadata go to `schemas.json`.
+    twin exists drops each non-key column whose values match the twin's for every row key, and keeps the rest. Parquet
+    dtypes and GeoParquet metadata go to `schemas.json`.
     """
     final_dir = _final(final_dir)
     shutil.rmtree(expected_dir, ignore_errors=True)
@@ -78,8 +79,8 @@ def canonicalise_export(final_dir: Path, expected_dir: Path) -> None:
             schemas[name] = _schema(table)
             twin = source.with_name(source.stem.removesuffix("_features") + ".csv")
             if twin != source and twin.name in names:
-                twin_columns = set(pd.read_csv(twin, nrows=0).columns)
-                table = table[[c for c in table.columns if c not in twin_columns or c in _key_columns(table)]]
+                matching = _columns_matching(table, _read_table(final_dir / twin.name))
+                table = table[[c for c in table.columns if c not in matching]]
             _write_table(table, expected_dir / f"{name}.csv")
         elif source.name == "README.md":
             (expected_dir / name).write_text(_readme_text(source), encoding="utf-8")
@@ -131,6 +132,24 @@ def _key_columns(table: pd.DataFrame) -> list[str]:
     if "aoi_id" not in table.columns:
         return []
     return ["aoi_id", "feature_id"] if "feature_id" in table.columns else ["aoi_id"]
+
+
+def _columns_matching(table: pd.DataFrame, twin: pd.DataFrame) -> set[str]:
+    """The non-key columns `table` shares with `twin` whose canonical values are the same for every row key."""
+    keys = _key_columns(table)
+    shared = [c for c in table.columns if c in twin.columns and c not in keys]
+    if not keys or _key_columns(twin) != keys:
+        return set()
+    left, right = _keyed_cells(table, keys, shared), _keyed_cells(twin, keys, shared)
+    if left[keys[0]].keys() != right[keys[0]].keys():
+        return set()
+    return {c for c in shared if all(_cells_match(right[c][r], left[c][r], c) for r in left[c])}
+
+
+def _keyed_cells(table: pd.DataFrame, keys: list[str], columns: list[str]) -> dict[str, dict[str, str]]:
+    cells = {c: [_cell(v, c) for v in table[c]] for c in [*keys, *columns]}
+    row_keys = _row_keys([[cells[k][i] for k in keys] for i in range(len(table))], cells)
+    return {c: dict(zip(row_keys, values, strict=True)) for c, values in cells.items()}
 
 
 def _write_table(table: pd.DataFrame, target: Path) -> None:
@@ -260,7 +279,7 @@ def _parse_table(path: Path) -> dict[str, dict[str, str]]:
 def _cells_match(expected: str, actual: str, column: str) -> bool:
     if expected == actual:
         return True
-    if not expected or not actual or bool(_INTEGER.match(expected)) != bool(_INTEGER.match(actual)):
+    if not expected or not actual or _INTEGER.match(expected) or _INTEGER.match(actual):
         return False
     if column.endswith("geometry"):
         try:

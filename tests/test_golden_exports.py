@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import geopandas as gpd
 import pytest
 from shapely.geometry import Polygon, mapping
 
@@ -180,6 +181,9 @@ def test_compare_detects_changes(tmp_path: Path) -> None:
     dropped_row = building[0][1]
     _write_rows(actual / "building.csv", [row[:1] + row[2:] for row in building])
     roof = _rows(actual / "roof.csv")
+    roof_id = next(row for row in roof if row[0] == "primary_child_roof_age_feature_id")
+    first_id = next(i for i, value in enumerate(roof_id) if i and value)
+    roof_id[first_id] = str(int(roof_id[first_id]) + 1)
     _write_rows(actual / "roof.csv", [row for row in roof if row[0] != "area_sqft"])
 
     differences = compare_exports(expected, actual)
@@ -187,6 +191,20 @@ def test_compare_detects_changes(tmp_path: Path) -> None:
     assert any(d.startswith("rollup.csv: column roof_count: 1 mismatches") for d in differences), differences
     assert f"building.csv: missing rows [{dropped_row!r}]" in differences, differences
     assert "roof.csv: missing columns ['area_sqft']" in differences, differences
+    assert any(
+        d.startswith("roof.csv: column primary_child_roof_age_feature_id: 1 mismatches") for d in differences
+    ), differences
+
+
+def test_compare_detects_parquet_value_changes(golden_runs: dict[str, Path], tmp_path: Path) -> None:
+    final = tmp_path / "final"
+    shutil.copytree(golden_runs["us"] / "final", final)
+    roofs = gpd.read_parquet(final / "roof_features.parquet")
+    roofs.loc[roofs.index[0], "area_sqft"] += 1.0
+    roofs.to_parquet(final / "roof_features.parquet")
+
+    differences = compare_exports(GOLDEN_DIR / "us" / "expected", final)
+    assert "roof_features.parquet.csv: extra columns ['area_sqft']" in differences, differences
 
 
 @pytest.mark.live_api
