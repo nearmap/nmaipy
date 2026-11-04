@@ -518,10 +518,14 @@ def _write_class_descriptions(descriptions: dict):
         pass  # Read-only install (e.g. site-packages); in-memory update still applies
 
 
+# Connected classes have no whole-object extent: the API clips their geometry to the
+# query AOI and reports areaSqm == clippedAreaSqm. Discrete classes (roof, building,
+# driveway, ...) keep their whole outline and report areaSqm == unclippedAreaSqm.
 CONNECTED_CLASS_IDS = (
     SURFACES_IDS
     + VEG_IDS
     + [
+        VEG_WOODY_COMPOSITE_ID,
         DRIVEABLE_ID,
         LEAF_OFF_VEG_ID,
     ]

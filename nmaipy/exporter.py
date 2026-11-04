@@ -575,9 +575,12 @@ def _group_children_by_aoi(
 ) -> dict:
     """Group non-roof child features by aoi_id for efficient per-AOI lookup.
 
-    Child features only need to be from the same AOI as the parent feature, since
-    features are queried per-AOI and cannot span AOI boundaries. Grouping up front
-    reduces child features from ~270k globally to ~86 per AOI.
+    Child features are only matched against parents from the same AOI. Features do
+    extend past the AOI (the API returns a roof's children whole, even ones lying
+    outside it), but each AOI is queried separately and its copy of a multiparcel
+    roof and children carries that parcel's clip, so another AOI's rows must
+    never be mixed in. Grouping up front reduces child features from ~270k
+    globally to ~86 per AOI.
 
     Note: returns views into the source DataFrame (no .copy()) since downstream
     consumers (flatten_roof_attributes / calculate_child_feature_attributes) do

@@ -70,9 +70,9 @@ SCOPE_PREFIXES: tuple[str, ...] = tuple(_SCOPE_PHRASES.keys())
 # ``_total_clipped`` is preferred over ``_clipped``. Each entry pairs a suffix
 # to strip with a parenthetical to append to the humanised class phrase so the
 # clipped/unclipped distinction survives without doubling up the word "area".
-# Exposed as a module-level constant so downstream tooling (e.g. the
-# ai-offline-export-pipelines spec_drift audit) can introspect which spec
-# fields a pattern's ``{class}`` capture would route to.
+# Exposed as a module-level constant so downstream tooling (e.g. a spec-drift
+# audit) can introspect which spec fields a pattern's ``{class}`` capture would
+# route to.
 _SUFFIX_STRIP_RULES: tuple[tuple[str, str], ...] = (
     ("_total_clipped", " (clipped to parcel boundary)"),
     ("_total_unclipped", " (before parcel clipping)"),
@@ -335,8 +335,9 @@ def load_metadata(
     increasing precedence:
 
       1. ``spec_raw_fields.json`` — auto-generated from the Feature API
-         OpenAPI spec by ``ai_offline_export_pipelines.spec_drift``. Raw API
-         surface descriptions.
+         OpenAPI spec. Raw API surface descriptions. Fields of the score
+         models' ``*ModelInputFeatures`` schemas are skipped (see
+         ``_is_model_input_field``).
       2. ``column_metadata.json`` — hand-curated, nmaipy-derived columns
          (linkage, dominant_*, roof_age, geocoding, etc.) and the regex
          patterns. PM-editable.
@@ -370,6 +371,8 @@ def load_metadata(
     exact: dict[str, ColumnMeta] = {}
     for layer in (spec_raw_fields, column_metadata, overrides):
         for name, entry in layer.get("exact_matches", {}).items():
+            if layer is spec_raw_fields and _is_model_input_field(entry):
+                continue
             base = exact.get(name)
             exact[name] = _overlay_meta(base, entry) if base else _meta_from_json(entry)
 
@@ -381,6 +384,18 @@ def load_metadata(
         k: v for k, v in column_metadata.get("defensible_space_zone_distances", {}).items() if not k.startswith("_")
     }
     return exact, patterns, legend, zone_distances
+
+
+def _is_model_input_field(entry: dict) -> bool:
+    """Whether a spec_raw_fields entry is a field of a ``*ModelInputFeatures`` schema.
+
+    Score model inputs are only ever emitted under a ``<peril>_vulnerability_model_input_``
+    or ``wind_hail_risk_model_input_`` prefix, which the model-input patterns resolve.
+    Indexed by their bare name (``tree_overhang_ratio``, ``metal_present``, ...) they
+    would shadow the base AI model's roof component columns of the same name, giving
+    those a score-model description.
+    """
+    return entry.get("_spec_ref", "").split(".", 1)[0].endswith("ModelInputFeatures")
 
 
 def _read_json(json_path: Optional[str], package: str, default_filename: str) -> dict:
