@@ -248,7 +248,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 
 ## Customer-facing knowledge skill
 
-`.claude/skills/nearmap-ai-apis/` is a Q&A skill for customers and solution engineers about API and output semantics. Its `references/` files restate behaviour documented here and in the code (with function names, not line numbers). When a change alters behaviour those files describe (area handling, parcelMode, rollup nulls, primary selection, roof age linking, damage rollups, …), update the matching reference file in the same PR. The same public-content rules apply as for the rest of the repository.
+`.agents/skills/nearmap-ai-apis/` is a Q&A skill for customers and solution engineers about API and output semantics. It lives in `.agents/skills`, where Codex and Gemini CLI find it, and `.claude/skills/nearmap-ai-apis` is a symlink to it for Claude Code. Keep it tool-neutral: Agent Skills frontmatter only (`tests/test_agent_skills.py` checks it) and no instructions that assume one agent's tools. Its `references/` files restate behaviour documented here and in the code (with function names, not line numbers). When a change alters behaviour those files describe (area handling, parcelMode, rollup nulls, primary selection, roof age linking, damage rollups, …), update the matching reference file in the same PR. The same public-content rules apply as for the rest of the repository.
 
 ## Code Architecture
 
