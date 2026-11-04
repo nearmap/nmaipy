@@ -1549,6 +1549,12 @@ class FeatureApi(GriddedApiClient):
                         grid_size=REALTIME_SKIP_GRID_SIZE_DEGREES,
                     )
                     if grid_error is None:
+                        answered, cells = gridded_metadata["grid_cells_answered"], gridded_metadata["grid_cells"]
+                        if answered < cells:
+                            # Below aoi_grid_min_pct=100 a grid passes with cells missing, and their features with
+                            # them, so it would replace a response that has every feature with one that lacks some.
+                            grid_error = {"message": f"only {answered} of {cells} grid cells answered"}
+                    if grid_error is None:
                         # Cells run without parcelMode and return no parcel-level aggregate; keep this one's.
                         gridded_metadata["aggregate"] = metadata.get("aggregate")
                         features_gdf, metadata, grid_errors_df = gridded_features, gridded_metadata, gridded_errors_df

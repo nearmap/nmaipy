@@ -109,7 +109,7 @@ def calls(monkeypatch):
     return record
 
 
-def _install_stubs(api, monkeypatch, calls, *, responses, grid_fails=False):
+def _install_stubs(api, monkeypatch, calls, *, responses, grid_fails=False, grid_partial=False):
     """Stub `get_features` to return `responses` in turn, and `_attempt_gridding`; the real `payload_gdf` parses.
 
     Each response is the roofSpotlightIndex include for the AOI's one roof, or an exception for the request to raise.
@@ -130,11 +130,19 @@ def _install_stubs(api, monkeypatch, calls, *, responses, grid_fails=False):
         calls["grids"].append(kwargs)
         if grid_fails:
             return None, None, {"aoi_id": kwargs["aoi_id"], "message": "Multiple dates", "failure_type": "grid"}, None
+        # A grid passes with cells missing when aoi_grid_min_pct is below 100; it then reports the failed cells.
+        answered = 15 if grid_partial else 16
         return (
             gpd.GeoDataFrame({"feature_id": ["cell-roof"], "geometry": [SMALL_AOI]}, geometry="geometry"),
-            {"aoi_id": kwargs["aoi_id"], "system_version": "v", "gridded": True},
+            {
+                "aoi_id": kwargs["aoi_id"],
+                "system_version": "v",
+                "gridded": True,
+                "grid_cells": 16,
+                "grid_cells_answered": answered,
+            },
             None,
-            None,
+            gpd.GeoDataFrame({"status_code": [503]}, geometry=[SMALL_AOI]) if grid_partial else None,
         )
 
     monkeypatch.setattr(api, "get_features", stub_get_features)
@@ -219,6 +227,17 @@ class TestIncludeSkipHandling:
         assert error is None, f"A failed grid should not fail the AOI, got {error}"
         assert grid_errors is None
         assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
+
+    def test_incomplete_grid_keeps_the_ungridded_response(self, tmp_path, monkeypatch, calls):
+        """The cells that didn't answer would take their features with them; the response has every feature."""
+        api = self._api(tmp_path, aoi_grid_min_pct=90)
+        _install_stubs(api, monkeypatch, calls, responses=[SKIPPED, SKIPPED], grid_partial=True)
+        features, metadata, error, grid_errors = api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
+        assert len(calls["grids"]) == 1
+        assert error is None, f"An incomplete grid should not fail the AOI, got {error}"
+        assert grid_errors is None, "A response that was not gridded should not carry grid cell errors"
+        assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
+        assert _skip_state(features) == SKIPPED
 
     def test_off_leaves_skipped_scores_null(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path, retry_on_realtime_skip=False)
