@@ -12,6 +12,8 @@ This skill answers questions from customers and solution engineers about the sub
 
 Most users call these APIs directly; few use **nmaipy**, the open-source exporter that turns the responses into rollups and per-class files. Treat nmaipy as a reference for how to interpret API responses, not as the user's product. The exception is a user who received a data export produced with nmaipy: their columns, rollups and primary features are nmaipy's.
 
+Users have different API entitlements: which APIs, packs, classes, score includes and system versions a key can get varies by subscription. Don't assume full access. When an answer depends on a class, include or API, say which pack or product it needs, and check what the API key in the environment can get (`packs.json`). If a class or include doesn't come back in a live check, that may be the key's entitlements rather than the API. When a question is relayed, that key may not have the same entitlements as the person who asked.
+
 ## How to answer
 
 1. **Pin down what the question is about before investigating.** You need to know:
@@ -33,6 +35,7 @@ Most users call these APIs directly; few use **nmaipy**, the open-source exporte
    - Where it differs from a reference file's `[live]` finding, give both: the docs state the intended contract, the `[live]` tag what responses actually showed.
    - For what a class means (definition, what it includes and excludes, which packs carry it, release status), use Nearmap's public AI layer pages, indexed at `https://help.nearmap.com/kb/articles/160-about-ai-layers`. A class appearing in the public docs doesn't mean a user can get it: check its release status and which packs carry it.
    - For model accuracy, quote only the public Gen 6 system report (`https://help.nearmap.com/api/v2/media/download-by-url?url=https%3A%2F%2Fus.v-cdn.net%2F6037589%2Fuploads%2F533RTKFGWY84%2Fgen6-systemreport.pdf`). For whether a feature is present on a property, use its property-level metrics. Its pixel-level and hard-example figures measure something different and aren't comparable.
+   - Web-fetch tools often return the help-centre pages truncated (their content is rendered by script) and can't parse the report PDF. If that happens, download the file directly (e.g. with `curl`) and extract the text (e.g. `pdftotext -layout` for the PDF; the report's tables lose some alignment, so check figures against the row and column headers).
 5. **Confirm nmaipy-behaviour claims against the installed source when you can.**
    - The references describe the nmaipy in the same repository checkout (its version is in `nmaipy/__version__.py`), and only that. Function names are given, so you can grep for them.
    - Find the source with `python -c "import nmaipy, os; print(os.path.dirname(nmaipy.__file__))"`, or use a repo checkout.
