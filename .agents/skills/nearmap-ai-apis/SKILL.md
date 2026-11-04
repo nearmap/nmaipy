@@ -12,7 +12,7 @@ This skill answers questions from customers and solution engineers about the sub
 
 Most users call these APIs directly; few use **nmaipy**, the open-source exporter that turns the responses into rollups and per-class files. Treat nmaipy as a reference for how to interpret API responses, not as the user's product. The exception is a user who received a data export produced with nmaipy: their columns, rollups and primary features are nmaipy's.
 
-Users have different API entitlements: which APIs, packs, classes, score includes and system versions a key can get varies by subscription. Don't assume full access. When an answer depends on a class, include or API, say which pack or product it needs, and check what the API key in the environment can get (`packs.json`). If a class or include doesn't come back in a live check, that may be the key's entitlements rather than the API. When a question is relayed, that key may not have the same entitlements as the person who asked.
+A user's API key sets what they can access: which feature and attribute classes, packs and score includes, and whether post-catastrophe content, Roof Age and Damage Conflation work. So if something documented here doesn't seem to work for a user, it is usually down to the permissions on their API key. The same applies to a live check you run: a class or include that doesn't come back may simply not be enabled on the key in use.
 
 ## How to answer
 
