@@ -1,0 +1,11 @@
+feature_id,description,area_sqm,area_sqft,clipped_area_sqm,unclipped_area_sqm
+3a6c9a7a-840c-5ea6-943e-fa63deb6e856,Medium and High Vegetation (>2m),491.3,5289.0,491.3,539701.0
+47f5ba1a-9435-5b54-84cc-c2ef9291adaf,Woody Vegetation,497.4,5354.0,497.4,531545.3
+643bb0aa-168c-50df-b67c-021b8fafc745,Medium and High Vegetation (>2m),312.3,3362.0,312.3,883.8
+65408b91-432d-5b50-b712-25acc15a0bb6,Medium and High Vegetation with Woody Vegetation,331.8,3571.0,331.8,926.6
+6e0d6530-8f2a-5387-bbfe-eff15ebf4f73,Medium and High Vegetation with Woody Vegetation,497.7,5358.0,497.7,549529.1
+c41e10cc-9bcb-5b41-944a-cee6eec566ae,Medium and High Vegetation (>2m),2.3,25.0,2.3,2.3
+c56a7dca-533d-5a62-a6d5-d4b661c0a0e9,Building (Deprecated),186.9,2011.0,186.2,186.9
+da1b2da0-8622-53ea-9c9f-48f14dc15060,Building,191.5,2061.0,191.0,191.5
+e7576c37-18c5-5ddb-afe2-1fe7fc07d621,Woody Vegetation,330.6,3558.0,330.6,918.6
+f66612b9-f997-521a-93e8-005f34415bcb,Roof,186.9,2011.0,186.2,186.9

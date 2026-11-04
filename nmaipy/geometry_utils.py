@@ -198,8 +198,18 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
     This function:
     1. Removes duplicate discrete features (same feature_id and geometry)
     2. Merges geometries of connected features that were split across grid cells
-    3. Sums clipped areas for merged features
+    3. Sums clipped areas for merged features; merges ``area_*`` according to the
+       feature's kind (see below)
     4. Preserves all other columns, using the value from the largest area portion
+
+    ``area_*`` means different things for the two kinds of feature class (verified
+    against the live API). A discrete class (roof, building, ...) reports the whole
+    object's area in every cell the object touches, identical to
+    ``unclipped_area_*``, so the merged feature keeps that single value. A connected
+    class (vegetation, surfaces, ...) reports only the piece inside the queried cell,
+    identical to ``clipped_area_*``, so the pieces are summed. The kind is read from
+    that identity per feature, which is why ``unclipped_area_*`` must accompany
+    ``area_*``.
 
     Args:
         features_gdf: GeoDataFrame with features from gridded queries
@@ -221,20 +231,29 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
         empty_gdf.index.name = AOI_ID_COLUMN_NAME
         return empty_gdf
 
-    # Columns with clipped areas that should be summed when geometries are merged
-    # These are the only columns that need special aggregation
+    # Clipped areas are always the in-cell piece, so they are summed across cells.
     agg_cols_sum = [
-        "area_sqm",
-        "area_sqft",
         "clipped_area_sqm",
         "clipped_area_sqft",
     ]
+    # area_* is summed only for connected features; see the docstring.
+    area_unclipped_pairs = {
+        "area_sqm": "unclipped_area_sqm",
+        "area_sqft": "unclipped_area_sqft",
+    }
 
     # Get all columns present in the input data
     all_columns = features_gdf.columns.tolist()
 
-    # Identify which sum columns are actually present
+    # Identify which aggregated columns are actually present
     existing_agg_cols_sum = [col for col in agg_cols_sum if col in all_columns]
+    existing_area_pairs = {area: unclipped for area, unclipped in area_unclipped_pairs.items() if area in all_columns}
+    missing_unclipped = [unclipped for unclipped in existing_area_pairs.values() if unclipped not in all_columns]
+    if missing_unclipped:
+        raise ValueError(
+            f"combine_features_from_grid needs {missing_unclipped} alongside the matching area column to tell "
+            "discrete features (area repeated per cell) from connected ones (area split across cells)."
+        )
 
     # Pre-sort by area descending so larger chunk "wins" in first aggregation
     # This makes the "first" aggregation deterministic and meaningful
@@ -244,7 +263,7 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
 
     # Detect and warn about conflicting values for same feature_id
     # Identity columns = columns that should be identical for same feature_id
-    special_cols = {"geometry", "feature_id"} | set(existing_agg_cols_sum)
+    special_cols = {"geometry", "feature_id"} | set(existing_agg_cols_sum) | set(existing_area_pairs)
     cols_to_check = [col for col in all_columns if col not in special_cols]
 
     if cols_to_check:
@@ -281,29 +300,17 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
         .set_index("feature_id")
     )
 
-    # Sum clipped areas for merged features (if any exist)
-    if existing_agg_cols_sum:
-        features_gdf_summed = (
-            features_gdf.filter(existing_agg_cols_sum + ["feature_id"], axis=1)
-            .groupby("feature_id")
-            .aggregate({col: "sum" for col in existing_agg_cols_sum})
-        )
-    else:
-        # No sum columns to aggregate
-        features_gdf_summed = None
-
-    # Join dissolved geometries with summed areas (if we have any)
-    if features_gdf_summed is not None:
-        # Update the sum columns in the dissolved dataframe
-        # Use update instead of join to overwrite the "first" values with the summed values
-        for col in existing_agg_cols_sum:
-            if col in features_gdf_summed.columns:
-                features_gdf_dissolved[col] = features_gdf_summed[col]
-        features_gdf_out = features_gdf_dissolved
-    else:
-        features_gdf_out = features_gdf_dissolved
+    # Overwrite the dissolved "first" values with the merged areas (aligned on feature_id).
+    by_feature = features_gdf.groupby("feature_id")
+    for col in existing_agg_cols_sum:
+        features_gdf_dissolved[col] = by_feature[col].sum()
+    for area_col, unclipped_col in existing_area_pairs.items():
+        # Discrete: every cell repeats the whole-object area, so keep one copy.
+        # Connected: each cell reports its own piece, so add them up.
+        whole_object = (features_gdf[area_col] == features_gdf[unclipped_col]).groupby(features_gdf["feature_id"]).all()
+        features_gdf_dissolved[area_col] = by_feature[area_col].first().where(whole_object, by_feature[area_col].sum())
 
     # Reset index to make feature_id a column, then set AOI_ID as index
-    features_gdf_out = features_gdf_out.reset_index().set_index(AOI_ID_COLUMN_NAME)
+    features_gdf_out = features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     return features_gdf_out

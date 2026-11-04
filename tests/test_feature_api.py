@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import sys
@@ -14,11 +15,11 @@ import pandas as pd
 import pytest
 import requests
 from shapely.affinity import translate
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.wkt import loads
 
-from nmaipy import geometry_utils, parcels, reference_code
-from nmaipy.api_common import AIFeatureAPIError, APIGridError, generate_curl_command
+from nmaipy import geometry_utils
+from nmaipy.api_common import AIFeatureAPIError, APIKeyFilter, generate_curl_command
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -33,7 +34,7 @@ from nmaipy.constants import (
     SOLAR_ID,
     VEG_MEDHIGH_ID,
 )
-from nmaipy.feature_api import AIFeatureAPIRequestSizeError, FeatureApi
+from nmaipy.feature_api import TIMEOUT_SECONDS, AIFeatureAPIRequestSizeError, FeatureApi
 
 
 @pytest.mark.live_api
@@ -125,8 +126,6 @@ class TestFeatureAPI:
         assert result.crs == API_CRS
 
         # Test 3: Normal case with features to combine
-        from shapely.geometry import Polygon
-
         test_features = gpd.GeoDataFrame(
             {
                 "feature_id": [1, 1, 2],  # Two features with same ID should be combined
@@ -138,6 +137,8 @@ class TestFeatureAPI:
                 AOI_ID_COLUMN_NAME: ["aoi1", "aoi1", "aoi1"],
                 "class_id": [100, 100, 200],
                 "area_sqm": [1.0, 1.0, 1.0],
+                # Feature 1 is a connected patch split across two cells
+                "unclipped_area_sqm": [4.0, 4.0, 1.0],
                 "confidence": [0.9, 0.9, 0.8],
             },
             crs=API_CRS,
@@ -849,9 +850,6 @@ class TestFeatureAPI:
 
     def test_api_key_filtering(self):
         """Test that API key filter removes sensitive information from logs"""
-        import logging
-
-        from nmaipy.api_common import APIKeyFilter
 
         # Create a mock log record
         class MockRecord:
@@ -964,8 +962,6 @@ class TestFeatureAPI:
 
     def test_timeout_values(self):
         """Test that timeout values are correctly set"""
-        from nmaipy.feature_api import READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
-
         # Read timeout must clear the longest legitimate response-generation time
         # observed for feature-dense AOIs (~250s) while staying below intermediate
         # NAT idle-drop limits (~350s) — see constants.py for the full rationale.
@@ -987,13 +983,6 @@ class TestFeatureAPI:
 
     def test_read_timeout_treated_as_504(self):
         """Test that read timeouts are treated as 504 Gateway Timeout errors"""
-        from http import HTTPStatus
-
-        import requests
-        from shapely.geometry import Polygon
-
-        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
-
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 
         # Create a simple test polygon
@@ -1018,12 +1007,6 @@ class TestFeatureAPI:
 
     def test_timeout_logging_with_debug(self):
         """Test that timeout errors generate debug logs with curl commands"""
-        import logging
-        from unittest.mock import patch
-
-        import requests
-        from shapely.geometry import Polygon
-
         # Set up debug logging
         logging.getLogger("nmaipy").setLevel(logging.DEBUG)
 
@@ -1055,13 +1038,6 @@ class TestFeatureAPI:
 
     def test_exception_sanitization(self):
         """Test that exceptions properly sanitize API keys from stored request strings"""
-        from unittest.mock import MagicMock
-
-        import requests
-        from shapely.geometry import Polygon
-
-        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
-
         api = FeatureApi(api_key="SUPER_SECRET_KEY_123", cache_dir=None)
         test_polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
 
@@ -1168,8 +1144,6 @@ class TestFeatureAPI:
         This tests the fix for the bug where _attempt_gridding assumed metadata_df
         would always have at least one row after gridding.
         """
-        from shapely.geometry import box
-
         # Create a large AOI that will trigger gridding
         large_aoi = box(150.0, -34.0, 151.0, -33.0)  # ~100km x 100km
 
@@ -1237,7 +1211,6 @@ class TestEmptyBody502Handling:
 
     def test_empty_body_502_treated_as_size_error(self):
         """A 502 with an empty body is escalated to a size error"""
-        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
 
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 

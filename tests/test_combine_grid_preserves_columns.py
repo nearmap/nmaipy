@@ -8,6 +8,7 @@ Also tests the conflict resolution logic where larger area portions win
 when the same feature_id has different values across grid cells.
 """
 
+from pathlib import Path
 from unittest.mock import patch
 
 import geopandas as gpd
@@ -17,6 +18,12 @@ from shapely.geometry import Polygon
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS
 from nmaipy.geometry_utils import combine_features_from_grid
+
+DATA_DIR = Path(__file__).parent / "data"
+# A bundled NJ parcel queried live with parcelMode off on a ~11 m grid (so its roof and building span
+# several cells), plus the same parcel's ungridded response as ground truth.
+GRID_CELLS_CSV = DATA_DIR / "test_grid_cells_area_semantics.csv"
+UNGRIDDED_CSV = DATA_DIR / "test_grid_cells_area_semantics_ungridded.csv"
 
 
 def test_combine_features_preserves_include_columns():
@@ -40,6 +47,8 @@ def test_combine_features_preserves_include_columns():
             AOI_ID_COLUMN_NAME: ["aoi1", "aoi1", "aoi1", "aoi1"],
             "class_id": [13, 13, 13, 13],  # All roofs
             "area_sqm": [1.0, 1.0, 1.0, 1.0],
+            # Feature 1 is a connected patch (5 sqm overall) split across two cells
+            "unclipped_area_sqm": [5.0, 5.0, 1.0, 1.0],
             "confidence": [0.9, 0.9, 0.8, 0.85],
             # Include parameter columns (defensibleSpace)
             "defensible_space_zone_0_coverage_ratio": [0.75, 0.75, 0.82, 0.90],
@@ -102,6 +111,7 @@ def test_combine_features_preserves_custom_columns():
             AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
             "class_id": [13, 13],
             "area_sqm": [1.0, 1.0],
+            "unclipped_area_sqm": [1.0, 1.0],
             # Custom columns that weren't in the original hardcoded list
             "custom_field_1": ["value1", "value2"],
             "custom_field_2": [42, 43],
@@ -137,7 +147,7 @@ def test_combine_features_empty_input():
 
 
 def test_combine_features_area_summing():
-    """Test that area columns are still summed correctly after the fix."""
+    """Connected-feature pieces split across grid cells have their areas summed."""
 
     # Create test features where one feature appears in multiple grid cells
     test_features = gpd.GeoDataFrame(
@@ -153,6 +163,9 @@ def test_combine_features_area_summing():
             "class_id": [13, 13, 13, 13],
             "area_sqm": [10.0, 15.0, 12.0, 20.0],
             "area_sqft": [100.0, 150.0, 120.0, 200.0],
+            # Connected feature: each cell reports only its piece, smaller than the whole patch
+            "unclipped_area_sqm": [60.0, 60.0, 60.0, 20.0],
+            "unclipped_area_sqft": [600.0, 600.0, 600.0, 200.0],
             "clipped_area_sqm": [10.0, 15.0, 12.0, 20.0],
             "clipped_area_sqft": [100.0, 150.0, 120.0, 200.0],
             "confidence": [0.9, 0.9, 0.9, 0.8],
@@ -199,6 +212,7 @@ def test_larger_clipped_area_wins_conflict():
                 75.0,
             ],  # First chunk is larger for feature 1
             "area_sqm": [100.0, 50.0, 75.0],
+            "unclipped_area_sqm": [400.0, 400.0, 75.0],
             # Conflicting values for feature 1: different hurricane_score
             "hurricane_score": [8.5, 7.0, 6.5],
             "rsi_score": [90, 85, 80],
@@ -233,6 +247,7 @@ def test_conflict_warning_logged():
             "class_id": [13, 13],
             "clipped_area_sqm": [100.0, 50.0],
             "area_sqm": [100.0, 50.0],
+            "unclipped_area_sqm": [400.0, 400.0],
             "hurricane_score": [8.5, 7.0],  # Conflict!
         },
         crs=API_CRS,
@@ -264,6 +279,7 @@ def test_fallback_to_area_sqm_when_clipped_area_missing():
             "class_id": [13, 13, 13],
             # Only area_sqm, no clipped_area_sqm
             "area_sqm": [100.0, 50.0, 75.0],  # First chunk is larger
+            "unclipped_area_sqm": [400.0, 400.0, 75.0],
             "hurricane_score": [8.5, 7.0, 6.5],  # Conflict for feature 1
         },
         crs=API_CRS,
@@ -294,6 +310,7 @@ def test_no_warning_when_values_identical():
             "class_id": [13, 13],
             "clipped_area_sqm": [100.0, 50.0],
             "area_sqm": [100.0, 50.0],
+            "unclipped_area_sqm": [400.0, 400.0],
             # Same values for both instances - no conflict
             "hurricane_score": [8.5, 8.5],
             "rsi_score": [90, 90],
@@ -305,3 +322,52 @@ def test_no_warning_when_values_identical():
         combine_features_from_grid(test_features)
         # Should NOT have logged any warnings since values are identical
         mock_logger.warning.assert_not_called()
+
+
+def test_merged_grid_areas_match_ungridded_response():
+    """Merging a real gridded response reproduces each feature's ungridded area.
+
+    Discrete classes (roof, building) repeat their whole-object area in every cell they touch, so
+    summing them multiplied the area by the number of cells. Connected classes (vegetation) report
+    only the in-cell piece, so their pieces must still be summed.
+    """
+    cells = pd.read_csv(GRID_CELLS_CSV)
+    cells = gpd.GeoDataFrame(cells, geometry=gpd.GeoSeries.from_wkt(cells["geometry"]), crs=API_CRS)
+    # Same shape get_features_gdf_gridded hands to the merge: aoi_id as both index and column.
+    cells = cells.set_index(AOI_ID_COLUMN_NAME, drop=False)
+    expected = pd.read_csv(UNGRIDDED_CSV).set_index("feature_id")
+    cells_per_feature = cells.groupby("feature_id").size()
+
+    roof_cells = cells_per_feature[cells.loc[cells["description"] == "Roof", "feature_id"].iloc[0]]
+    assert roof_cells > 1, "Fixture must split the roof across several grid cells to exercise the merge"
+
+    merged = combine_features_from_grid(cells).set_index("feature_id")
+
+    assert set(merged.index) == set(expected.index), "Merge should yield exactly the ungridded feature set"
+    for feature_id, row in expected.iterrows():
+        got = merged.loc[feature_id]
+        # Each cell rounds its piece to 0.1 sqm / 1 sqft, so allow that much per cell.
+        n = cells_per_feature[feature_id]
+        assert got["area_sqm"] == pytest.approx(
+            row["area_sqm"], abs=0.1 * n
+        ), f"{row['description']} {feature_id}: merged area_sqm {got['area_sqm']} != ungridded {row['area_sqm']}"
+        assert got["area_sqft"] == pytest.approx(
+            row["area_sqft"], abs=1.0 * n
+        ), f"{row['description']} {feature_id}: merged area_sqft {got['area_sqft']} != ungridded {row['area_sqft']}"
+        assert got["clipped_area_sqm"] == pytest.approx(row["clipped_area_sqm"], abs=0.1 * n)
+        assert got["unclipped_area_sqm"] == row["unclipped_area_sqm"]
+
+
+def test_merge_requires_unclipped_area_alongside_area():
+    """Without unclipped_area_* the merge cannot tell discrete from connected features, so it refuses."""
+    features = gpd.GeoDataFrame(
+        {
+            "feature_id": [1, 1],
+            "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), Polygon([(1, 0), (2, 0), (2, 1), (1, 1)])],
+            AOI_ID_COLUMN_NAME: ["aoi1", "aoi1"],
+            "area_sqm": [2.0, 2.0],
+        },
+        crs=API_CRS,
+    )
+    with pytest.raises(ValueError, match="unclipped_area_sqm"):
+        combine_features_from_grid(features)
