@@ -64,7 +64,7 @@
  "features.parquet": {
   "dtypes": {
    "Roof 3d attributes.classId": "string",
-   "Roof 3d attributes.has3dAttributes": "boolean",
+   "Roof 3d attributes.has3dAttributes": "object:boolean",
    "Roof material.classId": "string",
    "Roof material.components": "string",
    "Roof overhang attributes.classId": "string",
@@ -75,7 +75,7 @@
    "aoi_id": "string",
    "area_sqm": "float64",
    "attributes": "string",
-   "belongs_to_parcel": "boolean",
+   "belongs_to_parcel": "object:boolean",
    "class_id": "string",
    "clipped_area_sqm": "float64",
    "confidence": "float64",
@@ -84,7 +84,7 @@
    "feature_id": "string",
    "fidelity": "float64",
    "geometry": "geometry",
-   "is_footprint": "boolean",
+   "is_footprint": "object:boolean",
    "link": "string",
    "mesh_date": "string",
    "multiparcel_feature": "bool",

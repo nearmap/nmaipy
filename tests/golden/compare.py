@@ -122,10 +122,13 @@ def _schema(table: pd.DataFrame) -> dict:
 
 
 def _dtype_name(column: pd.Series) -> str:
-    """The dtype, with object and string columns named by their values' type (pandas versions name these apart)."""
-    if column.dtype == object or isinstance(column.dtype, pd.StringDtype):
-        return pd.api.types.infer_dtype(column.astype(object), skipna=True)
-    return str(column.dtype)
+    """The dtype; string-valued object columns are named like string columns (pandas versions name these apart)."""
+    if column.dtype != object and not isinstance(column.dtype, pd.StringDtype):
+        return str(column.dtype)
+    inferred = pd.api.types.infer_dtype(column.astype(object), skipna=True)
+    if isinstance(column.dtype, pd.StringDtype) or inferred in ("string", "empty"):
+        return inferred
+    return f"object:{inferred}"
 
 
 def _key_columns(table: pd.DataFrame) -> list[str]:
