@@ -11,7 +11,7 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import box, shape
 
-from nmaipy.constants import API_CRS, AREA_CRS, CONNECTED_CLASS_IDS, ROOF_ID, TREE_OVERHANG_ID
+from nmaipy.constants import API_CRS, AREA_CRS, BUILDING_NEW_ID, ROOF_ID, TREE_OVERHANG_ID
 from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import flatten_roof_attributes
 
@@ -140,18 +140,23 @@ def test_nmaipy_tree_overhang_ratio_is_the_per_parcel_value(split):
 
 @pytest.mark.live_api
 def test_area_semantics_discrete_vs_connected(split):
-    """Discrete classes report their whole area; connected classes are clipped to the AOI."""
-    connected = set(CONNECTED_CLASS_IDS)
+    """Every feature reports either its whole area (discrete) or its in-AOI area (connected).
+
+    nmaipy keeps no list of connected classes and reads the kind from these areas, so this checks the response
+    contract rather than a class list: a feature whose area is its clip but not its whole comes back clipped to
+    the AOI, and the bounded objects (roof, building) report their whole area.
+    """
     n_connected_extending_past = 0
     for side in ("W", "E"):
         half = split["halves"][side]
         for f in split["payloads"][side]["features"]:
-            if f["classId"] in connected:
-                assert f["areaSqm"] == f["clippedAreaSqm"], f"Connected {f['description']}: areaSqm should be in-AOI"
-                assert not f.get("clippedGeometry"), "Connected features are already clipped to the AOI"
+            area, clipped, whole = f["areaSqm"], f["clippedAreaSqm"], f["unclippedAreaSqm"]
+            assert area in (clipped, whole), f"{f['description']}: areaSqm {area} is neither {clipped} nor {whole}"
+            if f["classId"] in (ROOF_ID, BUILDING_NEW_ID):
+                assert area == whole, f"Discrete {f['description']}: areaSqm should be the whole area"
+            if area == clipped < whole:
+                assert not f.get("clippedGeometry"), f"Connected {f['description']} is already clipped to the AOI"
                 outside = shape(f["geometry"]).difference(half)
-                assert _area_sqm(outside) < max(0.5, 0.01 * f["areaSqm"]), "Connected geometry should lie in the AOI"
-                n_connected_extending_past += f["unclippedAreaSqm"] > f["clippedAreaSqm"]
-            else:
-                assert f["areaSqm"] == f["unclippedAreaSqm"], f"Discrete {f['description']}: areaSqm should be whole"
+                assert _area_sqm(outside) < max(0.5, 0.01 * area), f"Connected {f['description']} should lie in the AOI"
+                n_connected_extending_past += 1
     assert n_connected_extending_past > 0, "Fixture should include vegetation that extends past a half"

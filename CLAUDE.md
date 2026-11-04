@@ -222,8 +222,9 @@ Verified against the live Feature API by querying the bundled `tests/data/test_p
 
 - **Discrete versus connected classes. This holds in both modes, unchanged by parcelMode.**
   - **Discrete classes** (roof, building, roof components, driveway, …) are whole objects that can extend past the AOI. `geometry` is the whole outline, and `areaSqm` == `unclippedAreaSqm`, the whole object's area.
-  - **Connected classes** (vegetation, surfaces, roads: `CONNECTED_CLASS_IDS`) have no whole-object extent. `geometry` is already clipped to the AOI and `areaSqm` == `clippedAreaSqm`. `unclippedAreaSqm` is the whole connected patch, extending beyond the AOI.
+  - **Connected classes** (vegetation, surfaces, roads, …; most classes) have no whole-object extent. `geometry` is already clipped to the AOI and `areaSqm` == `clippedAreaSqm`. `unclippedAreaSqm` is the whole connected patch, extending beyond the AOI.
   - For both kinds, `clippedAreaSqm` is the area inside the query AOI.
+  - nmaipy keeps no list of either kind, since the API's classes change. Code that needs the kind reads it from these areas.
   - For gridded AOIs, every cell repeats a discrete object's whole area but reports only its own piece of a connected one. `combine_features_from_grid` therefore keeps one copy of the former and sums the latter. It tells them apart by whether a feature's `areaSqm` equals its `clippedAreaSqm` in every cell, never by `unclippedAreaSqm` (a connected patch's is the whole forest or lawn, however little of it is in the AOI).
 - **What parcelMode adds**:
   - `belongsToParcel`: whether the API attributes the feature to the parcel. In testing, roofs with about half or less of their area inside came back `false`. Connected features are nearly all `true`; a few Lawn Grass patches came back `false` (under 1% of connected area). `payload_gdf` drops `false` features, so `belongs_to_parcel` is true on every row answered with parcelMode on, and null for gridded AOIs' rows (grid cells run with parcelMode off) and when parcelMode is off.

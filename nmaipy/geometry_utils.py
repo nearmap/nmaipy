@@ -189,7 +189,7 @@ def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: 
     return df_gridded
 
 
-def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_ids: list = None) -> gpd.GeoDataFrame:
+def combine_features_from_grid(features_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Combine features from multiple grid cells, removing duplicates and merging connected features.
 
@@ -217,8 +217,6 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
     Args:
         features_gdf: GeoDataFrame with features from gridded queries
                      Must have 'feature_id' column and AOI_ID_COLUMN_NAME index
-        connected_class_ids: Optional list of class IDs that represent connected features
-                           (currently not used, but available for future enhancement)
 
     Returns:
         GeoDataFrame with combined/deduplicated features, maintaining same structure
