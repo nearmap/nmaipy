@@ -197,6 +197,9 @@ READ_TIMEOUT_SECONDS = 300
 # server produced nothing, so retrying those is cheap. Once this is exhausted the timeout
 # surfaces to the caller, which grids the AOI instead of resending it whole.
 READ_TIMEOUT_MAX_RETRIES = 1
+# How long to wait before re-requesting an AOI whose response had an include returned as {"skipped": true}.
+# The API skips includes for very large parcels or under load; a delay gives a load-related skip time to clear.
+INCLUDE_SKIP_RETRY_DELAY_SECONDS = 30
 
 # Delay between retries for ChunkedEncodingError (network-level errors)
 CHUNKED_ENCODING_RETRY_DELAY = 1.0

@@ -2605,7 +2605,15 @@ def parse_arguments():
     )
     parser.add_argument(
         "--no-regrid-on-skip",
-        help="Disable reactive gridding when the API marks any include as skipped. Default is to regrid so the AOI is re-queried as sub-AOIs and populated scores come back.",
+        help="Don't grid an AOI whose includes the API still skips after the retry (see --no-retry-on-skip). By "
+        "default an AOI spanning more than one grid cell is gridded, so each cell is a smaller request the API can "
+        "score; cells run without parcelMode.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--no-retry-on-skip",
+        help="Don't request an AOI a second time when the API returns any of its includes as skipped. By default it "
+        "is requested once more, unchanged, after a short delay, which clears a skip caused by load.",
         action="store_true",
     )
     parser.add_argument(
@@ -2869,6 +2877,8 @@ _CONFIG_KEYS_SAFE_TO_CHANGE = frozenset(
         "compress_cache",
         "no_cache",
         "overwrite_cache",
+        # Retrying a skipped include changes how hard we try, not what an AOI means.
+        "retry_on_skip",
     }
 )
 # List-valued keys that select a set of things: their order carries no meaning.
@@ -2930,6 +2940,7 @@ class NearmapAIExporter(BaseExporter):
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
         api_warmup_interval_seconds=API_WARMUP_INTERVAL_SECONDS,  # Seconds between worker ramp-up; 0 disables
+        retry_on_skip=True,  # Request an AOI once more when the API skips any of its includes
     ):
         # Initialize base exporter first
         super().__init__(
@@ -2952,6 +2963,7 @@ class NearmapAIExporter(BaseExporter):
         self.aoi_grid_inexact = aoi_grid_inexact
         self.aoi_grid_cell_size = aoi_grid_cell_size
         self.regrid_on_skip = regrid_on_skip
+        self.retry_on_skip = retry_on_skip
         # Note: processes, chunk_size, log_level handled by BaseExporter
         self.merge_read_workers = merge_read_workers
         self.threads = threads
@@ -3024,6 +3036,7 @@ class NearmapAIExporter(BaseExporter):
             "aoi_grid_inexact": aoi_grid_inexact,
             "aoi_grid_cell_size": aoi_grid_cell_size,
             "regrid_on_skip": regrid_on_skip,
+            "retry_on_skip": retry_on_skip,
             "processes": processes,
             "threads": threads,
             "chunk_size": chunk_size,
@@ -3738,6 +3751,7 @@ class NearmapAIExporter(BaseExporter):
                 progress_counters=progress_counters,
                 grid_size=self.aoi_grid_cell_size,
                 regrid_on_skip=self.regrid_on_skip,
+                retry_on_skip=self.retry_on_skip,
                 maxretry=self.max_retries,
                 rapid=self.rapid,
                 order=self.order,
@@ -5194,6 +5208,7 @@ def main():
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
         regrid_on_skip=not args.no_regrid_on_skip,
+        retry_on_skip=not args.no_retry_on_skip,
         max_retries=args.max_retries,
         api_warmup_interval_seconds=args.api_warmup_interval,
     )
