@@ -5,9 +5,9 @@ Covers the merge of:
 - ``spec_raw_fields.json`` (auto-generated from the Feature API spec)
 - ``column_metadata_overrides.json`` (PM elaborations)
 
-The drift checker in ai-offline-export-pipelines/spec_drift produces and
-maintains spec_raw_fields.json; here we only assert the loader-side
-invariants that nmaipy itself relies on.
+spec_raw_fields.json is generated from the Feature API OpenAPI spec by a
+spec-drift tool; here we only assert the loader-side invariants that nmaipy
+itself relies on.
 """
 
 from __future__ import annotations
@@ -44,15 +44,15 @@ def test_no_stale_overrides():
     """Every override key must correspond to an entry in spec_raw_fields.
 
     Override entries that don't have a raw-field counterpart are a sign the
-    underlying spec field was renamed or removed; remediation belongs in the
-    spec_drift skill, not silently masking via overrides.
+    underlying spec field was renamed or removed; remediation belongs in
+    regenerating spec_raw_fields.json, not silently masking via overrides.
     """
     spec = _load_json_resource("spec_raw_fields.json")["exact_matches"]
     overrides = _load_json_resource("column_metadata_overrides.json").get("exact_matches", {})
     stale = set(overrides) - set(spec)
     assert not stale, (
         f"Overrides reference keys not present in spec_raw_fields.json: {sorted(stale)}. "
-        "Run the spec_drift skill in ai-offline-export-pipelines to reconcile."
+        "Regenerate spec_raw_fields.json from the current API spec and reconcile the overrides."
     )
 
 
@@ -113,3 +113,33 @@ def test_grid_coverage_columns_resolve(unit, unit_name):
         assert lookup_column(name, area_unit=unit).group == "api_status", name
     meta = lookup_column(f"answered_area_{unit}", area_unit=unit)
     assert "denominator" in meta.description and meta.unit == unit_name
+
+
+def test_model_input_fields_do_not_shadow_roof_component_columns():
+    """Score-model input fields must not describe roof component columns of the same bare name.
+
+    The spec's ``*ModelInputFeatures`` schemas (hurricane, wind, wildfire, ...) have fields such as
+    ``treeOverhangRatio`` and ``metalPresent``. nmaipy only emits those under a model-input prefix,
+    but their bare names equal the base AI model's roof component columns (``tree_overhang_ratio``,
+    ``metal_present``), which must keep their component descriptions.
+    """
+    spec = _load_json_resource("spec_raw_fields.json")["exact_matches"]
+    model_input_keys = sorted(
+        name
+        for name, entry in spec.items()
+        if entry.get("_spec_ref", "").split(".", 1)[0].endswith("ModelInputFeatures")
+        and name.endswith(("_present", "_ratio"))
+    )
+    assert "tree_overhang_ratio" in model_input_keys, "Expected the hurricane tree overhang input in the spec layer"
+    for name in model_input_keys:
+        meta = lookup_column(name, area_unit="sqft", class_label="roof")
+        assert meta.source != "score model", f"{name} resolved to a score-model description: {meta.description!r}"
+        for scope in ("primary_roof_", ""):
+            scoped = lookup_column(f"{scope}{name}", area_unit="sqft")
+            assert scoped.source != "score model", f"{scope}{name} resolved to {scoped.description!r}"
+
+    component = lookup_column("flat_present", class_label="roof")
+    assert "shingle" not in component.description.lower(), component.description
+
+    model_input = lookup_column("hurricane_vulnerability_model_input_tree_overhang_ratio")
+    assert "hurricane" in model_input.description, model_input.description
