@@ -218,15 +218,16 @@ Code implications (see PR #210 for the bug class this prevents):
 
 ## parcelMode response semantics
 
-Verified against the live Feature API by querying the bundled `tests/data/test_parcels_2.csv` parcels, plus synthetic halves of some of them split through a roof, with `parcelMode=true` and `false` (`building` + `roof_char` packs, includes `roofSpotlightIndex,defensibleSpace,hurricaneScore`):
+Verified against the live Feature API by querying the bundled `tests/data/test_parcels_2.csv` parcels, plus synthetic halves of some of them split through a roof, with `parcelMode=true` and `false` (`building`, `roof_char`, `vegetation` and `surfaces` packs; includes `roofSpotlightIndex,defensibleSpace,hurricaneScore`):
 
-- **Present in both modes, unchanged by parcelMode**:
-  - `geometry` is always the whole feature outline.
-  - `areaSqm` (= `unclippedAreaSqm`) is the whole feature's area.
-  - `clippedAreaSqm` is the feature's area inside the query AOI, computed in both modes.
+- **Discrete versus connected classes. This holds in both modes, unchanged by parcelMode.**
+  - **Discrete classes** (roof, building, roof components, driveway, …) are whole objects that can extend past the AOI. `geometry` is the whole outline, and `areaSqm` == `unclippedAreaSqm`, the whole object's area.
+  - **Connected classes** (vegetation, surfaces, roads: `CONNECTED_CLASS_IDS`) have no whole-object extent. `geometry` is already clipped to the AOI and `areaSqm` == `clippedAreaSqm`. `unclippedAreaSqm` is the whole connected patch, extending beyond the AOI.
+  - For both kinds, `clippedAreaSqm` is the area inside the query AOI.
+  - For gridded AOIs, every cell repeats a discrete object's whole area but reports only its own piece of a connected one. `combine_features_from_grid` therefore keeps one copy of the former and sums the latter.
 - **What parcelMode adds**:
-  - `belongsToParcel`: whether the API attributes the feature to the parcel. In testing, roofs with about half or less of their area inside came back `false`. `payload_gdf` drops `false` features, so `belongs_to_parcel` is always true in a parcelMode export and null with parcelMode off.
-  - `clippedGeometry`, only for **multiparcel** features (a substantial part lies outside the parcel). `payload_gdf` swaps it into `geometry` and sets `multiparcel_feature`.
+  - `belongsToParcel`: whether the API attributes the feature to the parcel. In testing, roofs with about half or less of their area inside came back `false`. Connected features are nearly all `true`; a few Lawn Grass patches came back `false` (under 1% of connected area). `payload_gdf` drops `false` features, so `belongs_to_parcel` is always true in a parcelMode export and null with parcelMode off.
+  - `clippedGeometry`, only for **multiparcel** discrete features (a substantial part lies outside the parcel). Connected features never get one, because their geometry is already clipped. `payload_gdf` swaps it into `geometry` and sets `multiparcel_feature`.
   - A belonging feature that only slightly overhangs the boundary gets no `clippedGeometry`. It is returned and analysed whole, though its `clippedAreaSqm` is still the in-parcel area.
 - **`attributes` are never recomputed for the clip.** A feature's `attributes` (roof material, shape and overhang components with their `areaSqm`, `ratio` and `confidence`; pitch; building attributes) are identical in both modes and in every parcel that returns the feature. A component `ratio` is component area divided by whole-feature area.
 - **Includes are per-parcel for multiparcel features.** `roofSpotlightIndex` (value and confidence), `hurricaneScore` and `defensibleSpace` differ between the parcels sharing a multiparcel roof, and differ from the parcelMode-off response. For other roofs they are whole-roof and match parcelMode off. For example, `hurricaneScore.modelInputFeatures.treeOverhangRatio` is the clip's ratio for a multiparcel roof and the whole roof's ratio otherwise.
