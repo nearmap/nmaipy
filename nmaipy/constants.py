@@ -25,8 +25,8 @@ ROOF_AGE_DEFAULT_RESOURCE_ID = "latest"
 # is to bump the dataset alias whenever the underlying model changes, but the two are
 # not formally 1:1.
 #
-# `latest` is a pointer maintained by the API team that today serves A.0; it will be
-# bumped to A.1 (and beyond) as new datasets are released.
+# `latest` is a pointer maintained by the API team to its current default dataset, bumped
+# as new datasets are released.
 ROOF_AGE_A0_RESOURCE_ID = "81b605d0-d70d-592d-a1f0-a14c7d020912"
 ROOF_AGE_A1_RESOURCE_ID = "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
 # Same A.1 model as above, re-run over refreshed imagery. A sibling of A.1, not a
@@ -43,10 +43,8 @@ ROOF_AGE_DATASET_ALIASES: dict[str, str] = {
 }
 
 # Datasets that do not support the `untilAsOfDate` / `sinceAsOfDate` body parameters.
-# As of writing, only A.0. `latest` is intentionally NOT in this set: today it points
-# at A.0 (so the API will reject cutoff requests with HTTP 500 against `latest`), but
-# once it's bumped to A.1+ the same client invocation will start working without any
-# code change here.
+# Only A.0, which answers a cutoff with HTTP 500. `latest` is intentionally NOT in this set:
+# it follows the API's current default dataset, and cutoffs against it are a normal request.
 ROOF_AGE_NO_CUTOFF_RESOURCE_IDS = frozenset({ROOF_AGE_A0_RESOURCE_ID})
 
 

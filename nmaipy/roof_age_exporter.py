@@ -172,7 +172,7 @@ def parse_arguments():
     parser.add_argument(
         "--roof-age-dataset",
         help=(
-            "Roof Age dataset to query. Known aliases: 'latest' (default, currently a pointer to A.0), "
+            "Roof Age dataset to query. Known aliases: 'latest' (default, the API's current default dataset), "
             "'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal resource UUID, "
             "which lets you target newly published datasets without a code change."
         ),

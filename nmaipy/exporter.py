@@ -2552,7 +2552,7 @@ def parse_arguments():
         "--roof-age-dataset",
         help=(
             "Roof Age dataset to query when --roof-age is set. Known aliases: 'latest' (default, "
-            "returns A.0), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
+            "the API's current default dataset), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
             "resource UUID."
         ),
         type=str,
@@ -3823,6 +3823,7 @@ class NearmapAIExporter(BaseExporter):
                         overwrite_cache=self.overwrite_cache,
                         compress_cache=self.compress_cache,
                         threads=self.threads,
+                        maxretry=self.max_retries,
                         country=self.country,
                         progress_counters=progress_counters,
                         resource_id=self.roof_age_resource_id,

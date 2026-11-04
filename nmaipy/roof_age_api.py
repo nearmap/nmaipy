@@ -49,6 +49,7 @@ from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
+    MAX_RETRIES,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
     ROOF_AGE_DEFAULT_PAGE_LIMIT,
@@ -85,6 +86,7 @@ class RoofAgeApi(BaseApiClient):
         overwrite_cache: Optional[bool] = False,
         compress_cache: Optional[bool] = False,
         threads: Optional[int] = 10,
+        maxretry: int = MAX_RETRIES,
         url_root: Optional[str] = None,
         country: str = "us",
         progress_counters: Optional[dict] = None,
@@ -103,6 +105,7 @@ class RoofAgeApi(BaseApiClient):
             overwrite_cache: Whether to overwrite cached values
             compress_cache: Whether to use gzip compression for cache files
             threads: Number of threads for concurrent execution
+            maxretry: Number of retries for failed requests
             url_root: Override the default API root URL (for testing)
             country: Country code for address queries (e.g., 'us', 'au')
             progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
@@ -127,6 +130,7 @@ class RoofAgeApi(BaseApiClient):
             overwrite_cache=overwrite_cache,
             compress_cache=compress_cache,
             threads=threads,
+            maxretry=maxretry,
             bearer_token=bearer_token,
         )
 

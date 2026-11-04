@@ -2203,6 +2203,19 @@ class TestCoverageGapChunks:
         chunk_path = self._run_two_api_chunk(roof_age_exporter, "answered", "503")
         assert not (chunk_path / "rollup_0000.parquet").exists()
 
+    def test_both_clients_get_the_exporters_retry_budget(self, roof_age_exporter):
+        roof_age_exporter.max_retries = 7
+        with (
+            patch("nmaipy.exporter.FeatureApi") as feature_api,
+            patch("nmaipy.exporter.RoofAgeApi") as roof_age_api,
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+        ):
+            feature_api.return_value.get_features_gdf_bulk.return_value = self._feature_response("answered")
+            roof_age_api.return_value.get_roof_age_bulk.return_value = self._roof_age_response("answered")
+            roof_age_exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(), classes_df=self._classes_df())
+        assert feature_api.call_args.kwargs["maxretry"] == 7, "Feature API client should get --max-retries"
+        assert roof_age_api.call_args.kwargs["maxretry"] == 7, "Roof Age client should get --max-retries"
+
     def test_rollup_reports_how_much_of_each_aoi_answered(self, exporter):
         """A gridded AOI carries its grid counts and answered share; an AOI answered in one request is answered
         whole; an AOI the Feature API didn't answer has no coverage figures. answered_area_<unit> is the
