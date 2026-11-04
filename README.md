@@ -516,6 +516,7 @@ See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 - **Issues / feature requests**: [GitHub](https://github.com/nearmap/nmaipy/issues)
 - **API key & access**: contact Nearmap
 - **Column-level documentation**: open `final/README.md` inside your export's output directory
+- **Asking Claude about the APIs**: this repository includes a [Claude Code](https://claude.com/claude-code) skill, `.claude/skills/nearmap-ai-apis`, for technical Q&A about how the AI Feature, Roof Age and Damage Conflation APIs behave and how nmaipy's outputs reflect that. It covers questions like "why is my roof area bigger than the lot?" or "why is tree overhang 100% on a shared roof?". Run Claude Code from a checkout of this repository and ask your question; the skill loads automatically.
 
 ## License
 

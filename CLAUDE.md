@@ -244,6 +244,10 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 - Gridded AOIs run with parcelMode off, so `_clip_roof_geoms_to_aoi` clips the stored outline to the AOI first.
 - Includes are passed through unchanged.
 
+## Customer-facing knowledge skill
+
+`.claude/skills/nearmap-ai-apis/` is a Q&A skill for customers and solution engineers about API and output semantics. Its `references/` files restate behaviour documented here and in the code (with function names, not line numbers). When a change alters behaviour those files describe (area handling, parcelMode, rollup nulls, primary selection, roof age linking, damage rollups, …), update the matching reference file in the same PR. The same public-content rules apply as for the rest of the repository.
+
 ## Code Architecture
 
 ### Exporter Layer (user-facing entry points)
