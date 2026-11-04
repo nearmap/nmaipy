@@ -44,7 +44,7 @@ def normalise_date_column(values: pd.Series) -> pd.Series:
     """Return a per-AOI ``since``/``until`` column as ``YYYY-MM-DD`` strings, with null for no override.
 
     GeoJSON and GeoPackage readers parse date-like values as ``datetime64``, and a typed parquet column holds
-    ``datetime.date`` objects; both become strings. An empty or blank string means no per-AOI override, as a
+    ``datetime.date`` objects; both become strings, discarding any time of day. An empty or blank string means no per-AOI override, as a
     null does, so it becomes null (CSV readers already give NaN there). Anything else is left for
     ``validate_date_cutoffs`` to accept or reject.
     """

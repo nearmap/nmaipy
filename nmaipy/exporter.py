@@ -4868,6 +4868,8 @@ class NearmapAIExporter(BaseExporter):
 
         # Every cutoff must be a YYYY-MM-DD date, and no AOI's since may be after its until, before any request
         # goes out: a malformed or inverted date otherwise fails (or is dropped) per request, deep in the export.
+        # Rows pinned to a survey_resource_id are checked too: the Feature API ignores their dates, but the Roof Age
+        # API still sends them.
         validate_date_cutoffs(aoi_gdf, since=self.since, until=self.until)
         # The A.0 Roof Age dataset answers any cutoff with HTTP 500.
         if self.roof_age and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:

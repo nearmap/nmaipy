@@ -107,13 +107,18 @@ class TestValidateDateCutoffs:
         validate_date_cutoffs(_aois(since=["2025-10-08"], until=["2025-10-08"]))
 
 
-def test_export_rejects_bad_dates_before_querying_even_with_survey_resource_ids(tmp_path):
-    """Rows without a survey_resource_id still use their dates, so the check runs when that column exists too."""
+@pytest.mark.parametrize("bad_row", ["a", "b"])
+def test_export_rejects_bad_dates_before_querying_even_with_survey_resource_ids(tmp_path, bad_row):
+    """The check runs when the file has a survey_resource_id column, on every row.
+
+    Row "b" has no resource id, so the Feature API uses its dates. Row "a" is pinned to one, so the Feature API
+    ignores its dates, but the Roof Age API still sends them.
+    """
     aois = gpd.GeoDataFrame(
         {
             AOI_ID_COLUMN_NAME: ["a", "b"],
             "survey_resource_id": ["resource", None],
-            "until": [None, "2025/12/31"],
+            "until": ["2025/12/31" if row == bad_row else None for row in ("a", "b")],
         },
         geometry=[box(151.20, -33.90, 151.2005, -33.8995), box(151.21, -33.90, 151.2105, -33.8995)],
         crs="EPSG:4326",
@@ -127,6 +132,6 @@ def test_export_rejects_bad_dates_before_querying_even_with_survey_resource_ids(
         patch.object(AOIExporter, "split_into_chunks") as split_into_chunks,
     ):
         feature_api.return_value.get_feature_classes.return_value = classes_df
-        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
+        with pytest.raises(ValueError, match=rf"column 'until'.*'{bad_row}'"):
             exporter.run()
     split_into_chunks.assert_not_called()
