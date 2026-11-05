@@ -12,7 +12,7 @@ from shapely.wkt import loads
 from nmaipy import parcels
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, LAT_LONG_CRS
 
-from .golden.drift import LARGE_ADELAIDE_AOI_WKT
+from .golden.aois import LARGE_ADELAIDE_AOI_WKT
 
 
 @pytest.fixture(scope="session", autouse=True)

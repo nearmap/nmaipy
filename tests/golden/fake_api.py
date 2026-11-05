@@ -21,16 +21,22 @@ from shapely.geometry.base import BaseGeometry
 from nmaipy.constants import (
     API_CRS,
     AREA_CRS,
-    CONNECTED_CLASS_IDS,
+    DRIVEABLE_ID,
     GRID_SIZE_DEGREES,
+    LEAF_OFF_VEG_ID,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     ROOF_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
+    SURFACES_IDS,
+    VEG_IDS,
+    VEG_WOODY_COMPOSITE_ID,
 )
 from nmaipy.geometry_utils import split_geometry_into_grid
 
 from .world import CLASS_DESCRIPTIONS, Block, Feature, RoofInstance, Survey, World, class_id, synthetic_id, vocabulary
 
+# The classes the API clips to the request; the fake keeps its own list so it does not follow nmaipy.constants.
+CONNECTED_CLASS_IDS = frozenset([*SURFACES_IDS, *VEG_IDS, VEG_WOODY_COMPOSITE_ID, DRIVEABLE_ID, LEAF_OFF_VEG_ID])
 HOST = "api.nearmap.com"
 FEATURES_ROOT = "/ai/features/v4/bulk"
 ROOF_AGE_PATH = "/ai/roofage/v1/resources/latest.json"
