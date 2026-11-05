@@ -11,6 +11,7 @@ import cProfile
 import gc
 import json
 import logging
+import math
 import multiprocessing
 import pstats
 import re
@@ -599,25 +600,77 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
+# The Feature API clips a parcelMode roof only when the roof, the parcel and the
+# pieces inside and outside the parcel are all "building-like": at least 30 m² and
+# 3 m wide, the width measured after a 0.5 m erosion (aipostprocessing
+# algorithm/parcel, version A.2). A slight overhang leaves the roof whole.
+_BUILDING_LIKE_MIN_AREA_SQM = 30.0
+_BUILDING_LIKE_MIN_WIDTH_M = 3.0
+_BUILDING_LIKE_EROSION_M = 0.5
+
+
+def _is_building_like(geom_m) -> bool:
+    """The API's building-likeness of a geometry in a metric CRS."""
+    if geom_m is None or geom_m.is_empty or geom_m.area < _BUILDING_LIKE_MIN_AREA_SQM:
+        return False
+    eroded = geom_m.buffer(-_BUILDING_LIKE_EROSION_M)
+    # A geometry is narrow only when every part of it is: take the widest part's
+    # short side of its minimum-width bounding rectangle.
+    widest = 0.0
+    for part in getattr(eroded, "geoms", [eroded]):
+        if part.is_empty or part.area == 0:
+            continue
+        exterior = getattr(part.minimum_rotated_rectangle, "exterior", None)
+        if exterior is None:
+            continue  # degenerate rectangle, zero width
+        coords = list(exterior.coords)
+        if len(coords) < 3:
+            continue
+        widest = max(widest, min(math.dist(coords[0], coords[1]), math.dist(coords[1], coords[2])))
+    return widest >= _BUILDING_LIKE_MIN_WIDTH_M - 2 * _BUILDING_LIKE_EROSION_M
+
+
+def _should_clip_to_parcel(roof_m, parcel_m) -> bool:
+    """Whether the API would return a ``clippedGeometry`` for this roof (both in a metric CRS)."""
+    if roof_m is None or roof_m.is_empty:
+        return False
+    if not (_is_building_like(roof_m) and _is_building_like(parcel_m)):
+        return False
+    return _is_building_like(roof_m.intersection(parcel_m)) and _is_building_like(roof_m.difference(parcel_m))
+
+
 def _clip_roof_geoms_to_aoi(
     parent_gdf: gpd.GeoDataFrame,
     aoi_geometries: dict,
 ) -> "gpd.GeoSeries":
-    """Clip each roof (parent) geometry to its own AOI/parcel polygon.
+    """Clip each roof (parent) geometry to its own AOI/parcel polygon where the API would.
 
     GRIDDED AOIs ONLY: ``aoi_geometries`` must contain entries solely for AOIs
     answered by gridded (parcelMode-off) queries — ``process_chunk`` builds the
     map from the ``gridded`` metadata flag. Rows whose aoi_id is not in the map
     are passed through untouched.
 
-    Clipped-roof component recalculation intersects child features against the
+    Used for the clipped-roof component recalculation and for the Roof Age
+    instance link. Component recalculation intersects child features against the
     parent roof outline. Gridding disables parcelMode, so the API returns whole
     (unclipped) feature outlines while the clipped area is summed per grid cell
     in ``combine_features_from_grid`` — the stored roof geometry is the *whole*
     roof but ``clipped_area`` is the parcel-clipped area. Passing that whole
     outline as the parent inflates every recomputed component area to whole-roof
     magnitude (a single component can exceed the clipped roof area). Clipping
-    the parent to the parcel here reconciles the two.
+    the parent to the parcel here reconciles the two. Roof Age instances are
+    likewise scoped to the parcel, so the instance link compares the clipped
+    outline too; linking the whole outline understates the IoU and can match the
+    neighbouring parcel's instance.
+
+    The clip follows the API's own rule (``_should_clip_to_parcel``): a roof is
+    clipped only when the roof, the parcel and the pieces inside and outside the
+    parcel are all building-like (>= 30 m² and >= 3 m wide). A roof with a slight
+    overhang stays whole, exactly as parcelMode returns it, and its Roof Age
+    instance is the whole roof too; clipping it regardless would understate the
+    IoU of the link. Component areas of such a roof are then whole-roof
+    magnitudes while ``clipped_area`` is the in-parcel sum of the grid cells, a
+    difference of under 30 m² (or a narrow sliver) by construction.
 
     Ordinary parcelMode AOIs must never appear in the map: their multiparcel
     roofs arrive pre-clipped (``clippedGeometry``) and their slight-overhang
@@ -637,8 +690,12 @@ def _clip_roof_geoms_to_aoi(
         clip_geom = aoi_geometries.get(aoi_id)
         if clip_geom is None or clip_geom.is_empty:
             continue
-        sub = gpd.GeoSeries([geoms[p] for p in positions], crs=crs)
+        sub = gpd.GeoSeries([geoms[p] for p in positions], crs=crs or API_CRS)
         try:
+            # The API judges building-likeness in UTM; estimate it per parcel.
+            metric_crs = sub.estimate_utm_crs()
+            parcel_m = gpd.GeoSeries([clip_geom], crs=crs or API_CRS).to_crs(metric_crs).iloc[0]
+            clip_mask = [_should_clip_to_parcel(g, parcel_m) for g in sub.to_crs(metric_crs).values]
             clipped = sub.intersection(clip_geom)
         except Exception as e:
             # Defensive: a topology error on one AOI must not abort the whole
@@ -653,12 +710,37 @@ def _clip_roof_geoms_to_aoi(
             )
             continue
         for k, p in enumerate(positions):
+            if not clip_mask[k]:
+                continue  # the API would leave this roof whole (slight overhang)
             c = clipped.iloc[k]
             # Keep the original outline if the intersection is empty/invalid
             # rather than blanking the parent (an empty parent disables recalc).
             if c is not None and not c.is_empty:
                 geoms[p] = c
     return gpd.GeoSeries(geoms, index=parent_gdf.index, crs=crs)
+
+
+def _gridded_aoi_geometries(aoi_gdf, gridded_aoi_ids: set):
+    """Map aoi_id -> AOI polygon for the gridded AOIs only, for ``_clip_roof_geoms_to_aoi``.
+
+    Gridding disables parcelMode, so those AOIs store the whole (unclipped) roof
+    outline against a parcel-clipped area. Non-gridded parcelMode AOIs are
+    deliberately excluded: their multiparcel roofs arrive pre-clipped
+    (``clippedGeometry``) and their slight-overhang (belongs-to-parcel) roofs
+    must keep whole-roof analysis.
+
+    Keys come from ``_aoi_id_values`` (the same derivation the consumer uses on
+    the roof rows) so they match whether aoi_id is the index or a column. Returns
+    None when there is nothing to clip or aoi_id cannot be resolved, so the clip
+    degrades to a no-op rather than silently mis-keying every AOI.
+    """
+    if not gridded_aoi_ids or not isinstance(aoi_gdf, gpd.GeoDataFrame) or "geometry" not in aoi_gdf.columns:
+        return None
+    try:
+        aoi_ids = _aoi_id_values(aoi_gdf)
+    except ValueError:
+        return None
+    return {aid: geom for aid, geom in zip(aoi_ids, aoi_gdf.geometry) if geom is not None and aid in gridded_aoi_ids}
 
 
 def _batch_project_geometries(
@@ -3807,6 +3889,9 @@ class NearmapAIExporter(BaseExporter):
                 # downcasting raises a pandas FutureWarning.
                 gridded_mask = metadata_df["gridded"].eq(True)
                 gridded_aoi_ids = set(metadata_df.index[gridded_mask])
+            # AOI polygons of the gridded AOIs, for the Roof Age link below and the
+            # roof-parent clip of the per-class component recalculation.
+            aoi_geometries = _gridded_aoi_geometries(aoi_gdf, gridded_aoi_ids)
 
             # Filter out deprecated feature classes. RSI resolution now uses IoU-based
             # Roof → Building(New) → BL linkage rather than the API's parent_id chain
@@ -3969,9 +4054,23 @@ class NearmapAIExporter(BaseExporter):
                     logger.debug(
                         f"Chunk {chunk_id}: Linking {len(roof_age_gdf)} roof instances to {len(roofs_gdf)} roofs"
                     )
+                    # Gridded AOIs store the whole roof outline (parcelMode off) while the
+                    # Roof Age instances are scoped to the parcel, so link by the outline
+                    # clipped to the AOI, as the parcelMode path does through clippedGeometry.
+                    # The whole outline understates the IoU of a roof crossing the boundary and
+                    # can match the neighbouring parcel's instance. The exported roof geometry
+                    # stays whole; only the link inputs are clipped.
+                    link_roofs_gdf = roofs_gdf
+                    if aoi_geometries:
+                        link_roofs_gdf = roofs_gdf.copy()
+                        link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries)
                     roof_age_gdf_linked, roofs_gdf_linked = parcels.link_roof_instances_to_roofs(
-                        roof_age_gdf, roofs_gdf
+                        roof_age_gdf, link_roofs_gdf
                     )
+                    if link_roofs_gdf is not roofs_gdf:
+                        # link_roof_instances_to_roofs keeps the row order; restore the whole outline.
+                        assert len(roofs_gdf_linked) == len(roofs_gdf)
+                        roofs_gdf_linked["geometry"] = roofs_gdf.geometry.values
 
                     # Update features_gdf with linked data
                     # Remove old roof instances and roofs, add linked versions
@@ -4379,24 +4478,7 @@ class NearmapAIExporter(BaseExporter):
                     # multiparcel roofs are already clipped (clippedGeometry) and
                     # slight-overhang (belongs-to-parcel) roofs must keep
                     # whole-roof analysis. Cheap map build (one entry per AOI).
-                    aoi_geometries = None
-                    if gridded_aoi_ids and isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
-                        # Key by _aoi_id_values (the same derivation the consumer
-                        # _clip_roof_geoms_to_aoi uses on the roof rows) so the map
-                        # keys match regardless of whether aoi_id is the index or a
-                        # column. If aoi_id can't be resolved, leave the map None so
-                        # the clip degrades to a no-op rather than silently
-                        # mis-keying every AOI.
-                        try:
-                            aoi_ids = _aoi_id_values(aoi_gdf)
-                        except ValueError:
-                            aoi_ids = None
-                        if aoi_ids is not None:
-                            aoi_geometries = {
-                                aid: geom
-                                for aid, geom in zip(aoi_ids, aoi_gdf.geometry)
-                                if geom is not None and aid in gridded_aoi_ids
-                            }
+                    # aoi_geometries was built next to gridded_aoi_ids above.
 
                     _t_per_class_start = time.monotonic()
                     per_class_results = _compute_all_per_class_data(

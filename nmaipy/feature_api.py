@@ -1328,8 +1328,9 @@ class FeatureApi(GriddedApiClient):
                 # Gridded queries run with parcelMode disabled, so stored feature
                 # outlines are whole (no clippedGeometry / belongsToParcel
                 # judgment) while clipped_area is parcel-clipped. Consumers use
-                # this flag to decide whether roof parents must be clipped to the
-                # AOI before component recalculation (see exporter.process_chunk).
+                # this flag to decide whether roof outlines must be clipped to the
+                # AOI before component recalculation and the Roof Age instance
+                # link (see exporter.process_chunk).
                 "gridded": True,
                 # grid_cells, grid_cells_answered, answered_area_fraction
                 **grid_summary,
