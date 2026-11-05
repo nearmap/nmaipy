@@ -2,6 +2,7 @@
 """Test that roofConditionConfidenceStats is correctly handled in flatten_roof_attributes."""
 
 import ast
+import io
 import json
 import os
 from pathlib import Path
@@ -173,7 +174,6 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
 
 def test_rollup_with_roof_condition_confidence_stats(
     roof_condition_confidence_stats_payload,
-    tmp_path: Path,
 ):
     """Test parcel rollup with roofConditionConfidenceStats to generate CSV output."""
     # Use payload from fixture
@@ -231,9 +231,13 @@ def test_rollup_with_roof_condition_confidence_stats(
         primary_decision="largest_intersection",
     )
 
-    # Save to CSV
-    outfile = tmp_path / "test_parcels_rollup_roof_condition_confidence_stats.csv"
-    rollup_df.to_csv(outfile)
+    # Compare the rollup as CSV holds it with the committed file; regenerate that file with rollup_df.to_csv(...)
+    # when the rollup changes on purpose
+    expected = pd.read_csv(
+        data_directory / "test_parcels_rollup_roof_condition_confidence_stats.csv", index_col=AOI_ID_COLUMN_NAME
+    )
+    actual = pd.read_csv(io.StringIO(rollup_df.to_csv()), index_col=AOI_ID_COLUMN_NAME)
+    pd.testing.assert_frame_equal(actual, expected)
 
     # Verify histogram bin columns are present
     columns = list(rollup_df.columns)

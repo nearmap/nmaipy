@@ -1,5 +1,6 @@
 import json
 import os
+import warnings
 from pathlib import Path
 
 # Default columns
@@ -25,8 +26,8 @@ ROOF_AGE_DEFAULT_RESOURCE_ID = "latest"
 # is to bump the dataset alias whenever the underlying model changes, but the two are
 # not formally 1:1.
 #
-# `latest` is a pointer maintained by the API team that today serves A.0; it will be
-# bumped to A.1 (and beyond) as new datasets are released.
+# `latest` is a pointer maintained by the API team to its current default dataset, bumped
+# as new datasets are released.
 ROOF_AGE_A0_RESOURCE_ID = "81b605d0-d70d-592d-a1f0-a14c7d020912"
 ROOF_AGE_A1_RESOURCE_ID = "cf6bf06a-c8f7-58bd-9b1e-bce8e089a9bc"
 # Same A.1 model as above, re-run over refreshed imagery. A sibling of A.1, not a
@@ -43,10 +44,8 @@ ROOF_AGE_DATASET_ALIASES: dict[str, str] = {
 }
 
 # Datasets that do not support the `untilAsOfDate` / `sinceAsOfDate` body parameters.
-# As of writing, only A.0. `latest` is intentionally NOT in this set: today it points
-# at A.0 (so the API will reject cutoff requests with HTTP 500 against `latest`), but
-# once it's bumped to A.1+ the same client invocation will start working without any
-# code change here.
+# Only A.0, which answers a cutoff with HTTP 500. `latest` is intentionally NOT in this set:
+# it follows the API's current default dataset, and cutoffs against it are a normal request.
 ROOF_AGE_NO_CUTOFF_RESOURCE_IDS = frozenset({ROOF_AGE_A0_RESOURCE_ID})
 
 
@@ -198,6 +197,13 @@ READ_TIMEOUT_SECONDS = 300
 # server produced nothing, so retrying those is cheap. Once this is exhausted the timeout
 # surfaces to the caller, which grids the AOI instead of resending it whole.
 READ_TIMEOUT_MAX_RETRIES = 1
+# Realtime scores (RSI, peril scores, defensible space) come back as {"skipped": true} when the API's scorer gives up:
+# for parcels with very many roofs, or under load. How long to wait before requesting such an AOI once more, which
+# clears a load-related skip.
+REALTIME_SKIP_RETRY_DELAY_SECONDS = 10
+# Grid cell size for an AOI still skipped after that retry. About 0.04 sq km, roughly 20 roofs in dense urban areas
+# (about 500 roofs per sq km), well under the size at which the scorer gives up. GRID_SIZE_DEGREES cells hold more.
+REALTIME_SKIP_GRID_SIZE_DEGREES = 0.002
 
 # Delay between retries for ChunkedEncodingError (network-level errors)
 CHUNKED_ENCODING_RETRY_DELAY = 1.0
@@ -518,19 +524,6 @@ def _write_class_descriptions(descriptions: dict):
         pass  # Read-only install (e.g. site-packages); in-memory update still applies
 
 
-# Connected classes have no whole-object extent: the API clips their geometry to the
-# query AOI and reports areaSqm == clippedAreaSqm. Discrete classes (roof, building,
-# driveway, ...) keep their whole outline and report areaSqm == unclippedAreaSqm.
-CONNECTED_CLASS_IDS = (
-    SURFACES_IDS
-    + VEG_IDS
-    + [
-        VEG_WOODY_COMPOSITE_ID,
-        DRIVEABLE_ID,
-        LEAF_OFF_VEG_ID,
-    ]
-)
-
 CLASS_1111_YARD_DEBRIS = "405efaad-4b79-585d-88d8-43ae5fbb6f05"
 CLASS_1054_POLE = "46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"
 
@@ -585,3 +578,20 @@ ROOF_CHAR_IDS = [
     TURRET_ROOF_ID,
     TREE_OVERHANG_ID,
 ]
+
+
+# Deprecated in 5.4.0, to be removed in 6.0. The grid merge no longer uses a class list (a feature is connected when
+# its area equals its clipped area), and this one was incomplete. Kept, with a warning, for code that imports it.
+_DEPRECATED_CONNECTED_CLASS_IDS = SURFACES_IDS + VEG_IDS + [VEG_WOODY_COMPOSITE_ID, DRIVEABLE_ID, LEAF_OFF_VEG_ID]
+
+
+def __getattr__(name):
+    if name == "CONNECTED_CLASS_IDS":
+        warnings.warn(
+            "nmaipy.constants.CONNECTED_CLASS_IDS is deprecated and will be removed in nmaipy 6.0. It is incomplete "
+            "and nmaipy no longer uses it: a feature is connected when its areaSqm equals its clippedAreaSqm.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _DEPRECATED_CONNECTED_CLASS_IDS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

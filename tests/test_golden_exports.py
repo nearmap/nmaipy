@@ -41,6 +41,7 @@ EXPORT_CONFIG_KEYS = (
     "aoi_grid_inexact",
     "aoi_grid_cell_size",
     "regrid_on_skip",
+    "retry_on_realtime_skip",
     "processes",
     "threads",
     "chunk_size",
@@ -83,6 +84,8 @@ SAFE_TO_CHANGE = frozenset(
         "no_cache",
         "overwrite_cache",
         "processes",
+        "regrid_on_skip",
+        "retry_on_realtime_skip",
         "threads",
     }
 )

@@ -8,6 +8,7 @@ This module provides common geometric operations used by multiple API clients:
 - Coordinate extraction for caching
 """
 
+import warnings
 from typing import Tuple, Union
 
 import geopandas as gpd
@@ -203,28 +204,44 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
     4. Preserves all other columns, using the value from the largest area portion
 
     ``area_*`` means different things for the two kinds of feature class (verified
-    against the live API). A discrete class (roof, building, ...) reports the whole
-    object's area in every cell the object touches, identical to
-    ``unclipped_area_*``, so the merged feature keeps that single value. A connected
-    class (vegetation, surfaces, ...) reports only the piece inside the queried cell,
-    identical to ``clipped_area_*``, so the pieces are summed. The kind is read from
-    that identity per feature, which is why ``unclipped_area_*`` must accompany
-    ``area_*``.
+    against the live API). A discrete class (roof, building, pool, ...) reports the
+    whole object's area in every cell the object touches, so the merged feature keeps
+    that single value. A connected class (vegetation, surfaces, ...) reports only the
+    piece inside the queried cell, identical to ``clipped_area_*``, so its merged area
+    is the summed clipped area. The kind is read per feature from the response, not
+    from a list of classes: a feature is connected when its area equals its clipped
+    area in every cell. Grid cells do not overlap, so a discrete object that crosses a
+    cell edge has a clipped area below its whole area in at least one cell, and a
+    feature in a single cell gets the same value either way. ``area_sqm`` and
+    ``clipped_area_*`` must therefore accompany ``area_*``.
 
     Args:
         features_gdf: GeoDataFrame with features from gridded queries
-                     Must have 'feature_id' column and AOI_ID_COLUMN_NAME index
-        connected_class_ids: Optional list of class IDs that represent connected features
-                           (currently not used, but available for future enhancement)
+                     Must have 'feature_id' column and AOI_ID_COLUMN_NAME index. The cells of one AOI:
+                     rows are merged by feature_id alone, so features shared by several AOIs would collapse.
+        connected_class_ids: Deprecated and ignored; to be removed in nmaipy 6.0. The kind is read per feature.
 
     Returns:
         GeoDataFrame with combined/deduplicated features, maintaining same structure
+
+    Raises:
+        ValueError: If ``area_*`` comes without ``area_sqm`` and ``clipped_area_*``, or if a cell's
+            ``area_sqm`` equals neither its ``clipped_area_sqm`` nor its ``unclipped_area_sqm``,
+            so the response follows neither kind.
 
     Note:
         Returns empty GeoDataFrame with proper structure if input is None or empty.
         When the same feature_id has different values for a column across grid cells,
         the value from the larger area portion is used and a warning is logged.
     """
+    if connected_class_ids is not None:
+        warnings.warn(
+            "combine_features_from_grid's connected_class_ids is deprecated, ignored, and will be removed in nmaipy "
+            "6.0: a feature's kind is read from its areas.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Handle empty or None input
     if features_gdf is None or len(features_gdf) == 0:
         empty_gdf = gpd.GeoDataFrame(columns=["geometry"], crs=API_CRS)
@@ -236,10 +253,10 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
         "clipped_area_sqm",
         "clipped_area_sqft",
     ]
-    # area_* is summed only for connected features; see the docstring.
-    area_unclipped_pairs = {
-        "area_sqm": "unclipped_area_sqm",
-        "area_sqft": "unclipped_area_sqft",
+    # area_* is the summed clipped area only for connected features; see the docstring.
+    area_clipped_pairs = {
+        "area_sqm": "clipped_area_sqm",
+        "area_sqft": "clipped_area_sqft",
     }
 
     # Get all columns present in the input data
@@ -247,19 +264,22 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
 
     # Identify which aggregated columns are actually present
     existing_agg_cols_sum = [col for col in agg_cols_sum if col in all_columns]
-    existing_area_pairs = {area: unclipped for area, unclipped in area_unclipped_pairs.items() if area in all_columns}
-    missing_unclipped = [unclipped for unclipped in existing_area_pairs.values() if unclipped not in all_columns]
-    if missing_unclipped:
-        raise ValueError(
-            f"combine_features_from_grid needs {missing_unclipped} alongside the matching area column to tell "
-            "discrete features (area repeated per cell) from connected ones (area split across cells)."
-        )
+    existing_area_pairs = {area: clipped for area, clipped in area_clipped_pairs.items() if area in all_columns}
+    if existing_area_pairs:
+        # The kind is decided once, from the sqm pair, and applied to every unit.
+        required = dict.fromkeys(["area_sqm", "clipped_area_sqm", *existing_area_pairs.values()])
+        missing = [col for col in required if col not in all_columns]
+        if missing:
+            raise ValueError(
+                f"combine_features_from_grid needs {missing} to merge {list(existing_area_pairs)}: a feature whose "
+                "area equals its clipped area in every cell is connected (pieces summed), otherwise it is discrete "
+                "(whole area repeated per cell)."
+            )
 
-    # Pre-sort by area descending so larger chunk "wins" in first aggregation
+    # Pre-sort by clipped area descending so the largest piece "wins" in first aggregation
     # This makes the "first" aggregation deterministic and meaningful
-    sort_col = "clipped_area_sqm" if "clipped_area_sqm" in all_columns else "area_sqm"
-    if sort_col in all_columns:
-        features_gdf = features_gdf.sort_values(by=sort_col, ascending=False)
+    if "clipped_area_sqm" in all_columns:
+        features_gdf = features_gdf.sort_values(by="clipped_area_sqm", ascending=False)
 
     # Detect and warn about conflicting values for same feature_id
     # Identity columns = columns that should be identical for same feature_id
@@ -304,11 +324,42 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
     by_feature = features_gdf.groupby("feature_id")
     for col in existing_agg_cols_sum:
         features_gdf_dissolved[col] = by_feature[col].sum()
-    for area_col, unclipped_col in existing_area_pairs.items():
+    if existing_area_pairs:
+        in_cell_area = features_gdf["area_sqm"] == features_gdf["clipped_area_sqm"]
+        # The kind rule below relies on every cell reporting either its clipped piece (connected) or the whole
+        # object (discrete, area == unclipped area). A connected piece whose area differed from its clip would be
+        # taken for discrete and keep only its largest piece, so refuse any row that is neither. The check is exact:
+        # the API's clippedAreaSqm for a discrete object wholly inside one cell can exceed its areaSqm by a few
+        # tenths of a sqm, so comparing summed clipped areas with the kept area cannot tell that noise from a
+        # misread piece. A row without an area or unclipped area can't be checked here (see the area-less check below).
+        if "unclipped_area_sqm" in all_columns:
+            area, unclipped = features_gdf["area_sqm"], features_gdf["unclipped_area_sqm"]
+            follows_neither = ~in_cell_area & (area != unclipped) & area.notna() & unclipped.notna()
+            if follows_neither.any():
+                sample = features_gdf.loc[
+                    follows_neither, ["feature_id", "area_sqm", "clipped_area_sqm", unclipped.name]
+                ]
+                raise ValueError(
+                    f"combine_features_from_grid: {int(follows_neither.sum())} cell row(s) report an area_sqm equal "
+                    f"to neither their clipped_area_sqm (a connected piece) nor their unclipped_area_sqm (a whole "
+                    f"object): {sample.head(3).to_dict('records')}"
+                )
+        # An area-less feature has no area in any cell. One with an area in some cells only can't be read: a NaN cell
+        # fails the area == clipped test, so a connected feature would be taken for discrete and keep one piece.
+        has_area = features_gdf["area_sqm"].notna().groupby(features_gdf["feature_id"])
+        partly_area_less = has_area.any() & ~has_area.all()
+        if partly_area_less.any():
+            raise ValueError(
+                f"combine_features_from_grid: {int(partly_area_less.sum())} feature(s) report an area_sqm in some grid "
+                f"cells but not others, e.g. {partly_area_less[partly_area_less].index[:3].tolist()}"
+            )
+        # Connected: each cell's area is its clipped piece, so the area is the summed clipped area.
         # Discrete: every cell repeats the whole-object area, so keep one copy.
-        # Connected: each cell reports its own piece, so add them up.
-        whole_object = (features_gdf[area_col] == features_gdf[unclipped_col]).groupby(features_gdf["feature_id"]).all()
-        features_gdf_dissolved[area_col] = by_feature[area_col].first().where(whole_object, by_feature[area_col].sum())
+        connected = in_cell_area.groupby(features_gdf["feature_id"]).all()
+        for area_col, clipped_col in existing_area_pairs.items():
+            features_gdf_dissolved[area_col] = features_gdf_dissolved[clipped_col].where(
+                connected, by_feature[area_col].first()
+            )
 
     # Reset index to make feature_id a column, then set AOI_ID as index
     features_gdf_out = features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)
