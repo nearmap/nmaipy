@@ -24,13 +24,18 @@ from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi
 
 from .golden.compare import compare_exports
-from .golden.fake_api import FIELD_PATHS
+from .golden.fake_api import FIELD_PATHS, IGNORED_LIVE_FIELDS
 from .golden.regenerate import cache_paths
-from .golden.replay import CASES, GOLDEN_DIR, emitted_paths, run_case, write_aois
+from .golden.replay import CASES, GOLDEN_DIR, emitted_paths, run_case, serving, write_aois
 
 REPO = Path(__file__).parents[1]
 SIZE_CAP = 1024 * 1024
-FORBIDDEN = re.compile(r"internal|sdSurveyId|taskId|webtile|bearer|apikey=(?!APIKEYREMOVED)", re.IGNORECASE)
+# The fake leaves these live fields out, so they must not appear in committed data. "schema" is left out: it is an
+# ordinary word that the README uses.
+_IGNORED_LEAVES = {re.split(r"\.|\[\]", p.split(":", 1)[1])[-1] for p in IGNORED_LIVE_FIELDS} - {"schema"}
+FORBIDDEN = re.compile(
+    "|".join([*sorted(_IGNORED_LEAVES), "internal", "webtile", "bearer", "apikey=(?!APIKEYREMOVED)"]), re.IGNORECASE
+)
 EXPORT_CONFIG_KEYS = (
     "aoi_file",
     "packs",
@@ -156,7 +161,8 @@ def test_golden_data_is_small_text() -> None:
 
 
 def test_export_config_keys(tmp_path: Path) -> None:
-    NearmapAIExporter(aoi_file=GOLDEN_DIR / "us" / "aois.csv", output_dir=tmp_path)
+    with serving("us", tmp_path):
+        NearmapAIExporter(aoi_file=GOLDEN_DIR / "us" / "aois.csv", output_dir=tmp_path)
     config = json.loads((tmp_path / "final" / "export_config.json").read_text())
     assert tuple(config["parameters"]) == EXPORT_CONFIG_KEYS
     assert set(config["_metadata"]) == {"export_started_at", "nmaipy_version", "python_version", "platform"}
@@ -166,7 +172,8 @@ def test_export_config_keys(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("kind", CACHE_PATHS)
 def test_cache_key_layout(kind: str, tmp_path: Path) -> None:
-    assert _cache_path(kind, tmp_path) == CACHE_PATHS[kind]
+    with serving("us", tmp_path):
+        assert _cache_path(kind, tmp_path) == CACHE_PATHS[kind]
 
 
 def test_compare_detects_changes(tmp_path: Path) -> None:

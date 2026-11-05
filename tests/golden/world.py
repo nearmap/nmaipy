@@ -484,7 +484,10 @@ class _Builder:
         dominant = (lambda c: c == largest) if description == "Roof material" else (lambda c: None)
         return Block(
             description,
-            tuple(Component(c, r, round(0.5 + r / 2, 3) if r else None, dominant(c)) for c, r in components.items()),
+            tuple(
+                Component(c, r, round(0.5 + r / 2, 3) if r else None, dominant(c))
+                for c, r in {**dict.fromkeys(names[description], 0.0), **components}.items()
+            ),
         )
 
     def house(

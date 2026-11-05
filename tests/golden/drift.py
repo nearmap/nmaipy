@@ -363,6 +363,15 @@ def _feature_rules(e: Exchange) -> list[str]:
     for f in body["features"]:
         name = f"{f['description']} {f['id']}"
         geometry = shape(f["geometry"])
+        for block in f["attributes"]:
+            vocabulary_components = world.vocabulary()["attributes"][e.case][f["classId"]][block["description"]]
+            if (
+                vocabulary_components
+                and sorted(c["description"] for c in block.get("components", [])) != vocabulary_components
+            ):
+                differences.append(
+                    f"{name}: block {block['description']!r} does not list exactly its vocabulary components"
+                )
         if f["classId"] in CONNECTED_CLASS_IDS:
             if f["areaSqm"] != f["clippedAreaSqm"]:
                 differences.append(f"{name}: connected areaSqm != clippedAreaSqm")
