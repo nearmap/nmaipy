@@ -163,7 +163,11 @@ def test_is_building_like(name, geom, want):
         ("4 m wide strip outside", _metres_box(64, 10, 40, 40), True),
         ("L-shaped 2 m strip outside, narrow round the corner", _ROOF_L_STRIP_2M, False),
         ("L-shaped 4 m strip outside", _ROOF_L_STRIP_4M, True),
-        ("20 m² shed crossing the boundary", _metres_box(98, 10, 5, 4), False),
+        # Not building-like itself, so parcelMode would not assign it either; a gridded AOI keeps it, so clip it.
+        ("20 m² shed crossing the boundary", _metres_box(98, 10, 5, 4), True),
+        ("5x5 m shed with 5 m² inside", _metres_box(99, 10, 5, 5), True),
+        ("20 m² shed wholly inside the parcel", _metres_box(10, 10, 5, 4), False),
+        ("roof wholly outside the parcel", _metres_box(200, 10, 20, 10), False),
         # parcelMode would not assign this roof to the parcel; a gridded AOI keeps it, so clip it.
         ("neighbour's roof reaching 2 m in, 20 m² inside", _ROOF_NEIGHBOURS, True),
     ],

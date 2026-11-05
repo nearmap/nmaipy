@@ -400,17 +400,21 @@ def should_clip_roof_to_parcel(roof_m, parcel_m) -> bool:
 
     Follows the API's parcelMode rule with one addition. parcelMode clips a roof
     when the roof, the parcel and both pieces are building-like, and leaves it
-    whole when the outside piece is not (a slight overhang). A roof whose inside
-    piece is not building-like it does not assign to the parcel at all
-    (``belongsToParcel`` false, dropped), but a gridded AOI keeps every roof, so
-    that roof is clipped to its inside piece here rather than analysed and linked
-    with the neighbour's whole outline.
+    whole when the outside piece is not (a slight overhang). A roof that is not
+    building-like itself, or whose inside piece is not, it does not assign to the
+    parcel at all (``belongsToParcel`` false, dropped), but a gridded AOI keeps
+    every roof, so that roof is clipped to its inside piece here rather than
+    analysed and linked with the neighbour's whole outline. A roof wholly inside
+    the parcel has nothing to clip.
     """
     if roof_m is None or roof_m.is_empty or parcel_m is None or parcel_m.is_empty:
         return False
     inside = roof_m.intersection(parcel_m)
     if inside.is_empty:
         return False
-    if not (is_building_like(roof_m) and is_building_like(parcel_m)):
+    outside = roof_m.difference(parcel_m)
+    if outside.is_empty or not is_building_like(parcel_m):
         return False
-    return not is_building_like(inside) or is_building_like(roof_m.difference(parcel_m))
+    if not is_building_like(roof_m):
+        return True
+    return not is_building_like(inside) or is_building_like(outside)

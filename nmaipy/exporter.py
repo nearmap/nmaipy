@@ -634,8 +634,9 @@ def _clip_roof_geoms_to_aoi(
     clipping it would understate the IoU of the link. Component areas of such a
     roof are then whole-roof magnitudes while ``clipped_area`` is the in-parcel
     sum of the grid cells, a difference of under 30 m² (or a narrow sliver). A
-    roof whose inside piece is not building-like is one parcelMode would not
-    assign to the parcel; a gridded AOI keeps it, so it is clipped to that piece.
+    roof that is not building-like itself, or whose inside piece is not, is one
+    parcelMode would not assign to the parcel; a gridded AOI keeps it, so it is
+    clipped to that piece.
     Building-likeness is judged in ``AREA_CRS[country]``.
 
     Ordinary parcelMode AOIs must never appear in the map: their multiparcel
