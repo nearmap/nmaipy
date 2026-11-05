@@ -4211,6 +4211,9 @@ class NearmapAIExporter(BaseExporter):
 
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
+            # Last use of the raw features. The merges share its geometries and strings, but its own column
+            # arrays and attribute dicts (~0.7 GB per 1M rows) would otherwise stay held to the chunk's end.
+            del features_gdf
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
