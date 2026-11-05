@@ -364,7 +364,9 @@ def _feature_rules(e: Exchange) -> list[str]:
         name = f"{f['description']} {f['id']}"
         geometry = shape(f["geometry"])
         for block in f["attributes"]:
-            vocabulary_components = world.vocabulary()["attributes"][e.case][f["classId"]][block["description"]]
+            vocabulary_components = (
+                world.vocabulary()["attributes"].get(e.case, {}).get(f["classId"], {}).get(block["description"])
+            )
             if (
                 vocabulary_components
                 and sorted(c["description"] for c in block.get("components", [])) != vocabulary_components
