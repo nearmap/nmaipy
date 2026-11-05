@@ -12,6 +12,7 @@ and select "primary" features for detailed attribute extraction.
 
 import json
 import re
+import warnings
 from typing import Union
 
 import geopandas as gpd
@@ -765,9 +766,9 @@ def resolve_scores_with_bl_fallback(primary_row, bl_row, country: str = "us") ->
 
 
 def _parent_lookup_rows(features_gdf: gpd.GeoDataFrame) -> pd.Series:
-    """Mask of the rows a parent lookup is ever read for.
+    """Mask of the rows nmaipy's own consumers ever read from a parent lookup.
 
-    Consumers read the lookup two ways: Roof and Building(New) rows by their own
+    They read it two ways: Roof and Building(New) rows by their own
     feature_id (roof scores, roof → building linkage), and any row by parent_id
     while walking a chain to its Building Lifecycle. No other row is ever read —
     on a dense chunk that is millions of vegetation and surface polygons, whose
@@ -785,18 +786,18 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
 
     Returns plain dicts (not pd.Series views) so the lookup is lightweight
     and decoupled from the source DataFrame.  Resets a named index (e.g.
-    aoi_id) into the dict so it is not silently dropped. Holds only the rows
-    the lookup is read for (see _parent_lookup_rows).
+    aoi_id) into the dict so it is not silently dropped.
 
     Only valid for a single AOI's features: in parcelMode a feature that
     overlaps multiple parcels appears once per parcel (same feature_id) with
     attributes computed on that parcel's clipped geometry, so on a multi-AOI
     frame this dict would collapse those rows to whichever parcel came last.
-    For chunk-level (multi-AOI) frames use build_parent_lookup_by_aoi().
+    For chunk-level (multi-AOI) frames use _build_parent_lookup_by_aoi().
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
-    filtered = features_gdf[_parent_lookup_rows(features_gdf)]
+    mask = features_gdf["feature_id"].notna()
+    filtered = features_gdf[mask]
     # reset_index promotes a named index (typically aoi_id) into a column
     # so to_dict("records") preserves it in every dict.
     if filtered.index.name is not None:
@@ -804,7 +805,7 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     return dict(zip(filtered["feature_id"].values, filtered.to_dict("records")))
 
 
-def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
+def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     """Build {aoi_id: {feature_id: row dict}} for parent_id chain traversal.
 
     Parent chains never cross parcels — a feature's parent is returned in the
@@ -813,7 +814,9 @@ def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     unique within each sub-dict. Consumers take their parcel's sub-dict
     (`lookup.get(aoi_id, {})`) and use it exactly like build_parent_lookup()
     output; resolve_footprint_rsi() / _traverse_to_bl() work unchanged on it.
-    Holds only the rows the lookup is read for (see _parent_lookup_rows).
+
+    Holds only the rows nmaipy's own consumers read (see _parent_lookup_rows),
+    which on a dense chunk is a small fraction of the frame.
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
@@ -828,6 +831,17 @@ def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     ):
         lookup.setdefault(aoi, {})[fid] = rec
     return lookup
+
+
+def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
+    """Deprecated: nmaipy-internal, and will be removed in nmaipy 6.0. See _build_parent_lookup_by_aoi."""
+    warnings.warn(
+        "build_parent_lookup_by_aoi is internal to nmaipy, is deprecated and will be removed in nmaipy 6.0. It now "
+        "holds only the rows nmaipy reads: Roof and Building(New) rows, and rows that are some row's parent.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _build_parent_lookup_by_aoi(features_gdf)
 
 
 def resolve_footprint_rsi(
@@ -853,7 +867,7 @@ def resolve_footprint_rsi(
         features_gdf: Features GeoDataFrame for parent_id lookups, used to build
             parent_lookup if not provided. Must be scoped to the feature's own
             AOI (see build_parent_lookup); pass a per-AOI sub-dict of
-            build_parent_lookup_by_aoi() output for chunk-level frames.
+            _build_parent_lookup_by_aoi() output for chunk-level frames.
         parent_lookup: Pre-built feature_id → row dict for fast traversal,
             scoped to the feature's own AOI.
             Pass this when calling in a loop to avoid rebuilding per call.
@@ -1604,7 +1618,7 @@ def parcel_rollup(
     # Build parent lookup once for the whole chunk, scoped per AOI: in parcelMode
     # a multiparcel feature appears once per parcel (same feature_id, per-clip
     # attributes), so each parcel must traverse only its own rows.
-    chunk_parent_lookup = build_parent_lookup_by_aoi(features_gdf)
+    chunk_parent_lookup = _build_parent_lookup_by_aoi(features_gdf)
 
     rollups = []
     # Loop over parcels with features in them

@@ -131,8 +131,8 @@ from nmaipy.feature_attributes import (
     is_resolved_score_column,
 )
 from nmaipy.parcels import (
+    _build_parent_lookup_by_aoi,
     _traverse_to_bl,
-    build_parent_lookup_by_aoi,
     class_column_names,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
@@ -1260,7 +1260,7 @@ def _compute_all_per_class_data(
     # feature_id, per-clip attributes), so parent-chain traversal must stay
     # inside each row's own parcel.
     shared_parent_lookup = (
-        build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
+        _build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
     )
 
     # Build class_descriptions from chunk data
@@ -1480,7 +1480,7 @@ def _compute_feature_class_data(
     p_lookup_by_aoi = (
         parent_lookup
         if parent_lookup is not None
-        else (build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
+        else (_build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
     )
     _roof_to_bn_by_aoi = roof_to_building_lookup or {}
 

@@ -16,6 +16,7 @@ from nmaipy.constants import (
     VEG_MEDHIGH_ID,
 )
 from nmaipy.parcels import (
+    _build_parent_lookup_by_aoi,
     build_parent_lookup,
     build_parent_lookup_by_aoi,
     extract_rsi_from_feature,
@@ -140,9 +141,9 @@ class TestResolveFootprintRsi:
 
 
 class TestParentLookupRows:
-    """A parent lookup holds only the rows it is read for: Roof and Building(New) rows (read by their own
-    feature_id) and rows that are some row's parent (read while walking a chain). Dense chunks are mostly
-    vegetation and surface polygons that are never read, so holding them is pure memory cost."""
+    """The chunk lookup holds only the rows nmaipy reads: Roof and Building(New) rows (by their own feature_id)
+    and rows that are some row's parent (while walking a chain). Dense chunks are mostly vegetation and surface
+    polygons that are never read. The single-parcel lookup still holds every row."""
 
     ROWS = [
         ("roof", ROOF_ID, None),
@@ -158,19 +159,25 @@ class TestParentLookupRows:
         frame = pd.DataFrame(rows)
         return frame if with_parent_id else frame.drop(columns="parent_id")
 
-    @pytest.mark.parametrize("by_aoi", [False, True], ids=["single_aoi", "by_aoi"])
-    def test_keeps_roofs_buildings_and_parents_only(self, by_aoi):
-        frame = self._frame()
-        lookup = build_parent_lookup_by_aoi(frame)["aoi_1"] if by_aoi else build_parent_lookup(frame)
+    def test_single_parcel_lookup_keeps_every_row(self):
+        assert set(build_parent_lookup(self._frame())) == {f for f, _, _ in self.ROWS}
+
+    def test_chunk_lookup_keeps_roofs_buildings_and_parents(self):
+        lookup = _build_parent_lookup_by_aoi(self._frame())["aoi_1"]
         expected = {"roof", "building", "lifecycle", "lawn"}
         assert set(lookup) == expected, "lookup should hold Roof and Building(New) rows and every row's parent"
 
-    def test_frame_without_parent_id_keeps_roofs_and_buildings(self):
-        assert set(build_parent_lookup(self._frame(with_parent_id=False))) == {"roof", "building"}
+    def test_chunk_lookup_without_parent_id_keeps_roofs_and_buildings(self):
+        assert set(_build_parent_lookup_by_aoi(self._frame(with_parent_id=False))["aoi_1"]) == {"roof", "building"}
 
-    def test_building_still_resolves_lifecycle_rsi(self):
+    def test_chunk_lookup_still_resolves_lifecycle_rsi(self):
         frame = self._frame()
         frame["roof_spotlight_index"] = None
         frame.loc[frame["feature_id"] == "lifecycle", "roof_spotlight_index"] = [{"value": 42, "confidence": 0.8}]
-        lookup = build_parent_lookup(frame)
+        lookup = _build_parent_lookup_by_aoi(frame)["aoi_1"]
         assert resolve_footprint_rsi(lookup["building"], parent_lookup=lookup)["roof_spotlight_index"] == 42
+
+    def test_deprecated_public_name_warns_and_returns_the_chunk_lookup(self):
+        with pytest.warns(DeprecationWarning, match="build_parent_lookup_by_aoi"):
+            lookup = build_parent_lookup_by_aoi(self._frame())
+        assert lookup == _build_parent_lookup_by_aoi(self._frame())
