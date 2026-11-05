@@ -125,11 +125,11 @@ def _tile_child_row(aoi_id="parcel-a"):
 def test_clip_roof_geoms_to_aoi_yields_clipped_parent():
     """`_clip_roof_geoms_to_aoi` returns the parcel-clipped roof, not the whole outline."""
     roof_gdf = gpd.GeoDataFrame([_roof_row()], geometry="geometry", crs=API_CRS)
-    clipped = _clip_roof_geoms_to_aoi(roof_gdf, {"parcel-a": _PARCEL})
+    clipped = _clip_roof_geoms_to_aoi(roof_gdf, {"parcel-a": _PARCEL}, "us")
     assert _proj_area_sqft(clipped.iloc[0]) == pytest.approx(_CLIPPED_ROOF_SQFT, rel=1e-6)
 
     # No AOI geometry available for this AOI → original (whole) outline kept.
-    unchanged = _clip_roof_geoms_to_aoi(roof_gdf, {})
+    unchanged = _clip_roof_geoms_to_aoi(roof_gdf, {}, "us")
     assert _proj_area_sqft(unchanged.iloc[0]) == pytest.approx(_UNCLIPPED_ROOF_SQFT, rel=1e-6)
 
 
@@ -306,3 +306,51 @@ def test_attempt_gridding_metadata_marks_gridded(monkeypatch):
     assert error is None
     assert metadata["gridded"] is True
     assert {k: metadata[k] for k in fake_grid_summary} == fake_grid_summary, "grid coverage must reach the metadata"
+
+
+# The parcel covers the roof except a strip under 2 m wide on its east side: the
+# API's parcelMode rule leaves such a slight overhang whole (the outside piece is
+# not building-like), so the gridded clip must too.
+_PARCEL_SLIGHT_OVERHANG = box(-74.2820, 40.6300, -74.28002, 40.6320)
+
+
+def _rollup_and_per_class_tile_area(parcel):
+    """The primary roof's recomputed Tile area from the rollup and from the per-class file, for a gridded AOI."""
+    rows = [_roof_row(), _tile_child_row()]
+    chunk = gpd.GeoDataFrame(rows, geometry="geometry", crs=API_CRS)
+    classes_df = pd.DataFrame({"id": [ROOF_ID], "description": ["roof"]}).set_index("id")
+    parcels_gdf = gpd.GeoDataFrame(
+        {"geometry": [parcel]}, index=pd.Index(["parcel-a"], name=AOI_ID_COLUMN_NAME), crs=API_CRS
+    )
+    rollup = parcel_rollup(
+        parcels_gdf,
+        chunk.set_index(AOI_ID_COLUMN_NAME),
+        classes_df,
+        country="us",
+        primary_decision="largest_intersection",
+        gridded_aoi_ids={"parcel-a"},
+    )
+    per_class = _compute_all_per_class_data(
+        chunk,
+        country="us",
+        aoi_input_columns=[],
+        whitelisted_classes=[ROOF_ID],
+        threads=1,
+        aoi_geometries={"parcel-a": parcel},
+    )
+    roof = per_class[ROOF_ID]["tabular"].to_pandas().iloc[0]
+    return rollup.loc["parcel-a", "primary_roof_tile_area_sqft"], roof["tile_area_sqft"]
+
+
+def test_rollup_and_per_class_clip_the_same_outline_for_a_shared_roof():
+    """Half the roof is next door: both outputs recompute the component on the parcel clip."""
+    rollup_area, per_class_area = _rollup_and_per_class_tile_area(_PARCEL)
+    assert rollup_area == pytest.approx(_CLIPPED_ROOF_SQFT, rel=1e-3)
+    assert per_class_area == pytest.approx(rollup_area, rel=1e-6)
+
+
+def test_rollup_and_per_class_keep_the_same_whole_outline_for_a_slight_overhang():
+    """A narrow overhang: the API would leave the roof whole, and so do both outputs, identically."""
+    rollup_area, per_class_area = _rollup_and_per_class_tile_area(_PARCEL_SLIGHT_OVERHANG)
+    assert rollup_area == pytest.approx(_UNCLIPPED_ROOF_SQFT, rel=1e-3)
+    assert per_class_area == pytest.approx(rollup_area, rel=1e-6)

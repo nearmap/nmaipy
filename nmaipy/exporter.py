@@ -11,7 +11,6 @@ import cProfile
 import gc
 import json
 import logging
-import math
 import multiprocessing
 import pstats
 import re
@@ -131,6 +130,7 @@ from nmaipy.feature_attributes import (
     flatten_roof_attributes,
     is_resolved_score_column,
 )
+from nmaipy.geometry_utils import should_clip_roof_to_parcel
 from nmaipy.parcels import (
     _traverse_to_bl,
     build_parent_lookup_by_aoi,
@@ -600,48 +600,10 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
-# The Feature API clips a parcelMode roof only when the roof, the parcel and the
-# pieces inside and outside the parcel are all "building-like": at least 30 m² and
-# 3 m wide, the width measured after a 0.5 m erosion (aipostprocessing
-# algorithm/parcel, version A.2). A slight overhang leaves the roof whole.
-_BUILDING_LIKE_MIN_AREA_SQM = 30.0
-_BUILDING_LIKE_MIN_WIDTH_M = 3.0
-_BUILDING_LIKE_EROSION_M = 0.5
-
-
-def _is_building_like(geom_m) -> bool:
-    """The API's building-likeness of a geometry in a metric CRS."""
-    if geom_m is None or geom_m.is_empty or geom_m.area < _BUILDING_LIKE_MIN_AREA_SQM:
-        return False
-    eroded = geom_m.buffer(-_BUILDING_LIKE_EROSION_M)
-    # A geometry is narrow only when every part of it is: take the widest part's
-    # short side of its minimum-width bounding rectangle.
-    widest = 0.0
-    for part in getattr(eroded, "geoms", [eroded]):
-        if part.is_empty or part.area == 0:
-            continue
-        exterior = getattr(part.minimum_rotated_rectangle, "exterior", None)
-        if exterior is None:
-            continue  # degenerate rectangle, zero width
-        coords = list(exterior.coords)
-        if len(coords) < 3:
-            continue
-        widest = max(widest, min(math.dist(coords[0], coords[1]), math.dist(coords[1], coords[2])))
-    return widest >= _BUILDING_LIKE_MIN_WIDTH_M - 2 * _BUILDING_LIKE_EROSION_M
-
-
-def _should_clip_to_parcel(roof_m, parcel_m) -> bool:
-    """Whether the API would return a ``clippedGeometry`` for this roof (both in a metric CRS)."""
-    if roof_m is None or roof_m.is_empty:
-        return False
-    if not (_is_building_like(roof_m) and _is_building_like(parcel_m)):
-        return False
-    return _is_building_like(roof_m.intersection(parcel_m)) and _is_building_like(roof_m.difference(parcel_m))
-
-
 def _clip_roof_geoms_to_aoi(
     parent_gdf: gpd.GeoDataFrame,
     aoi_geometries: dict,
+    country: str,
 ) -> "gpd.GeoSeries":
     """Clip each roof (parent) geometry to its own AOI/parcel polygon where the API would.
 
@@ -663,14 +625,18 @@ def _clip_roof_geoms_to_aoi(
     outline too; linking the whole outline understates the IoU and can match the
     neighbouring parcel's instance.
 
-    The clip follows the API's own rule (``_should_clip_to_parcel``): a roof is
-    clipped only when the roof, the parcel and the pieces inside and outside the
-    parcel are all building-like (>= 30 m² and >= 3 m wide). A roof with a slight
-    overhang stays whole, exactly as parcelMode returns it, and its Roof Age
-    instance is the whole roof too; clipping it regardless would understate the
-    IoU of the link. Component areas of such a roof are then whole-roof
-    magnitudes while ``clipped_area`` is the in-parcel sum of the grid cells, a
-    difference of under 30 m² (or a narrow sliver) by construction.
+    The clip follows the API's parcelMode rule
+    (``geometry_utils.should_clip_roof_to_parcel``, shared with the rollup's
+    ``clip_roof_to_parcel`` so both outputs use the same outline): a roof whose
+    pieces inside and outside the parcel are both building-like (>= 30 m² and
+    >= 3 m wide) is clipped; a roof with a slight overhang stays whole, exactly
+    as parcelMode returns it, and its Roof Age instance is the whole roof too, so
+    clipping it would understate the IoU of the link. Component areas of such a
+    roof are then whole-roof magnitudes while ``clipped_area`` is the in-parcel
+    sum of the grid cells, a difference of under 30 m² (or a narrow sliver). A
+    roof whose inside piece is not building-like is one parcelMode would not
+    assign to the parcel; a gridded AOI keeps it, so it is clipped to that piece.
+    Building-likeness is judged in ``AREA_CRS[country]``.
 
     Ordinary parcelMode AOIs must never appear in the map: their multiparcel
     roofs arrive pre-clipped (``clippedGeometry``) and their slight-overhang
@@ -681,6 +647,7 @@ def _clip_roof_geoms_to_aoi(
     aoi_vals = _aoi_id_values(parent_gdf)
     geoms = list(parent_gdf.geometry.values)
     crs = parent_gdf.crs
+    metric_crs = AREA_CRS[country.lower()]
     # Group row positions by AOI so each parcel's roofs are clipped in one
     # vectorized GeoSeries.intersection call.
     pos_by_aoi: dict = {}
@@ -692,10 +659,8 @@ def _clip_roof_geoms_to_aoi(
             continue
         sub = gpd.GeoSeries([geoms[p] for p in positions], crs=crs or API_CRS)
         try:
-            # The API judges building-likeness in UTM; estimate it per parcel.
-            metric_crs = sub.estimate_utm_crs()
             parcel_m = gpd.GeoSeries([clip_geom], crs=crs or API_CRS).to_crs(metric_crs).iloc[0]
-            clip_mask = [_should_clip_to_parcel(g, parcel_m) for g in sub.to_crs(metric_crs).values]
+            clip_mask = [should_clip_roof_to_parcel(g, parcel_m) for g in sub.to_crs(metric_crs).values]
             clipped = sub.intersection(clip_geom)
         except Exception as e:
             # Defensive: a topology error on one AOI must not abort the whole
@@ -772,7 +737,7 @@ def _batch_project_geometries(
     projected_crs = AREA_CRS[country.lower()]
     parent_geom = parent_gdf.geometry
     if aoi_geometries:
-        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries)
+        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries, country)
     parent_projected = parent_geom.to_crs(projected_crs)
     child_proj_by_aoi = {}
     for aoi_id, children in child_by_aoi.items():
@@ -4063,7 +4028,7 @@ class NearmapAIExporter(BaseExporter):
                     link_roofs_gdf = roofs_gdf
                     if aoi_geometries:
                         link_roofs_gdf = roofs_gdf.copy()
-                        link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries)
+                        link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries, self.country)
                     roof_age_gdf_linked, roofs_gdf_linked = parcels.link_roof_instances_to_roofs(
                         roof_age_gdf, link_roofs_gdf
                     )

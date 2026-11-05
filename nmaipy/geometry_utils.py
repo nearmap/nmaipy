@@ -365,3 +365,52 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
     features_gdf_out = features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)
 
     return features_gdf_out
+
+
+# The Feature API's parcelMode rule for a roof crossing the parcel boundary. A
+# geometry is "building-like" when it is at least 30 m² and at least 3 m wide,
+# the width judged after a 0.5 m erosion. The API clips the roof (clippedGeometry)
+# only when the roof, the parcel and the pieces inside and outside the parcel are
+# all building-like; a slight overhang leaves the roof whole.
+BUILDING_LIKE_MIN_AREA_SQM = 30.0
+BUILDING_LIKE_MIN_WIDTH_M = 3.0
+BUILDING_LIKE_EROSION_M = 0.5
+
+
+def is_building_like(geom_m) -> bool:
+    """The API's building-likeness of a geometry in a metric CRS.
+
+    Width is tested by erosion: after the API's 0.5 m erosion some part must
+    still be ``BUILDING_LIKE_MIN_WIDTH_M - 2 × 0.5`` m wide, which holds exactly
+    when a disc of that diameter fits in it, i.e. when eroding it by half that
+    width again leaves something. One erosion by the total does the same and
+    judges any shape, including an L-shaped or fragmented strip, by its true
+    width rather than by a bounding rectangle.
+    """
+    if geom_m is None or geom_m.is_empty or geom_m.area < BUILDING_LIKE_MIN_AREA_SQM:
+        return False
+    remaining_width = BUILDING_LIKE_MIN_WIDTH_M - 2 * BUILDING_LIKE_EROSION_M
+    # A hair under the exact half-width so a piece of exactly the minimum width passes.
+    eroded = geom_m.buffer(-(BUILDING_LIKE_EROSION_M + remaining_width / 2 - 1e-6))
+    return not eroded.is_empty and eroded.area > 0
+
+
+def should_clip_roof_to_parcel(roof_m, parcel_m) -> bool:
+    """Whether a gridded AOI's roof outline should be clipped to the parcel (both in a metric CRS).
+
+    Follows the API's parcelMode rule with one addition. parcelMode clips a roof
+    when the roof, the parcel and both pieces are building-like, and leaves it
+    whole when the outside piece is not (a slight overhang). A roof whose inside
+    piece is not building-like it does not assign to the parcel at all
+    (``belongsToParcel`` false, dropped), but a gridded AOI keeps every roof, so
+    that roof is clipped to its inside piece here rather than analysed and linked
+    with the neighbour's whole outline.
+    """
+    if roof_m is None or roof_m.is_empty or parcel_m is None or parcel_m.is_empty:
+        return False
+    inside = roof_m.intersection(parcel_m)
+    if inside.is_empty:
+        return False
+    if not (is_building_like(roof_m) and is_building_like(parcel_m)):
+        return False
+    return not is_building_like(inside) or is_building_like(roof_m.difference(parcel_m))

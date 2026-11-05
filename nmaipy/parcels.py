@@ -66,6 +66,7 @@ from nmaipy.feature_attributes import (
     flatten_roof_instance_attributes,
     is_resolved_score_column,
 )
+from nmaipy.geometry_utils import should_clip_roof_to_parcel
 from nmaipy.primary_feature_selection import DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH
 from nmaipy.primary_feature_selection import select_primary
 
@@ -923,10 +924,12 @@ def feature_attributes(
         clip_roof_to_parcel: True only for AOIs answered by gridded (parcelMode-off)
                             queries, whose stored roof outlines are whole while
                             clipped_area is parcel-clipped. Clips the primary roof to
-                            parcel_geom before component recalculation. Must stay False
-                            for ordinary parcelMode AOIs: multiparcel roofs are already
-                            clipped (clippedGeometry) and slight-overhang
-                            (belongs-to-parcel) roofs must keep whole-roof analysis.
+                            parcel_geom before component recalculation where the API's
+                            parcelMode rule would (geometry_utils.should_clip_roof_to_parcel);
+                            a slight overhang stays whole. Must stay False for ordinary
+                            parcelMode AOIs: multiparcel roofs are already clipped
+                            (clippedGeometry) and slight-overhang (belongs-to-parcel)
+                            roofs must keep whole-roof analysis.
 
     Returns: Flat dictionary
 
@@ -1248,11 +1251,15 @@ def feature_attributes(
                     # to its parcel before recomputing clipped-roof component areas.
                     # Gridded rows store the whole roof outline while clipped_area is
                     # the parcel-clipped area; passing the whole outline as the parent
-                    # inflates every component to whole-roof magnitude. Ordinary
-                    # parcelMode AOIs must NOT take this path: multiparcel roofs are
-                    # already clipped (clippedGeometry) and slight-overhang
-                    # (belongs-to-parcel) roofs are deliberately analysed whole-roof,
-                    # so flatten_roof_attributes projects the stored outline itself.
+                    # inflates every component to whole-roof magnitude. The clip follows
+                    # the API's parcelMode rule (should_clip_roof_to_parcel, shared with
+                    # exporter._clip_roof_geoms_to_aoi so the rollup and the per-class
+                    # file use the same outline): a slight overhang stays whole, as
+                    # parcelMode would return it. Ordinary parcelMode AOIs must NOT take
+                    # this path: multiparcel roofs are already clipped (clippedGeometry)
+                    # and slight-overhang (belongs-to-parcel) roofs are deliberately
+                    # analysed whole-roof, so flatten_roof_attributes projects the
+                    # stored outline itself.
                     parent_projected = None
                     if clip_roof_to_parcel and parcel_geom is not None and not parcel_geom.is_empty:
                         roof_geom = (
@@ -1261,15 +1268,19 @@ def feature_attributes(
                             else primary_feature.get("geometry")
                         )
                         if roof_geom is not None:
+                            roof_m, parcel_m = (
+                                gpd.GeoSeries([roof_geom, parcel_geom], crs=API_CRS)
+                                .to_crs(AREA_CRS[country.lower()])
+                                .values
+                            )
+                            parent_projected = roof_m
                             try:
-                                clipped_roof = roof_geom.intersection(parcel_geom)
-                                if not clipped_roof.is_empty:
-                                    roof_geom = clipped_roof
+                                if should_clip_roof_to_parcel(roof_m, parcel_m):
+                                    clipped_roof = roof_m.intersection(parcel_m)
+                                    if not clipped_roof.is_empty:
+                                        parent_projected = clipped_roof
                             except GEOSException:
                                 logger.warning("Roof→parcel clip failed for primary roof; keeping unclipped outline.")
-                            parent_projected = (
-                                gpd.GeoSeries([roof_geom], crs=API_CRS).to_crs(AREA_CRS[country.lower()]).iloc[0]
-                            )
                     primary_attributes = flatten_roof_attributes(
                         [primary_feature],
                         country=country,
