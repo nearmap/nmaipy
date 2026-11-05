@@ -764,12 +764,29 @@ def resolve_scores_with_bl_fallback(primary_row, bl_row, country: str = "us") ->
     return {}
 
 
+def _parent_lookup_rows(features_gdf: gpd.GeoDataFrame) -> pd.Series:
+    """Mask of the rows a parent lookup is ever read for.
+
+    Consumers read the lookup two ways: Roof and Building(New) rows by their own
+    feature_id (roof scores, roof → building linkage), and any row by parent_id
+    while walking a chain to its Building Lifecycle. No other row is ever read —
+    on a dense chunk that is millions of vegetation and surface polygons, whose
+    row dicts would otherwise be most of the lookup's memory. A frame without a
+    parent_id column has no chains, so none of its rows is a parent.
+    """
+    is_read_by_own_id = features_gdf["class_id"].isin([ROOF_ID, BUILDING_NEW_ID])
+    parent_ids = features_gdf["parent_id"].dropna() if "parent_id" in features_gdf.columns else ()
+    is_a_parent = features_gdf["feature_id"].isin(parent_ids)
+    return features_gdf["feature_id"].notna() & (is_read_by_own_id | is_a_parent)
+
+
 def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     """Build a feature_id → row dict for fast parent_id chain traversal.
 
     Returns plain dicts (not pd.Series views) so the lookup is lightweight
     and decoupled from the source DataFrame.  Resets a named index (e.g.
-    aoi_id) into the dict so it is not silently dropped.
+    aoi_id) into the dict so it is not silently dropped. Holds only the rows
+    the lookup is read for (see _parent_lookup_rows).
 
     Only valid for a single AOI's features: in parcelMode a feature that
     overlaps multiple parcels appears once per parcel (same feature_id) with
@@ -779,8 +796,7 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
-    mask = features_gdf["feature_id"].notna()
-    filtered = features_gdf[mask]
+    filtered = features_gdf[_parent_lookup_rows(features_gdf)]
     # reset_index promotes a named index (typically aoi_id) into a column
     # so to_dict("records") preserves it in every dict.
     if filtered.index.name is not None:
@@ -797,11 +813,11 @@ def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     unique within each sub-dict. Consumers take their parcel's sub-dict
     (`lookup.get(aoi_id, {})`) and use it exactly like build_parent_lookup()
     output; resolve_footprint_rsi() / _traverse_to_bl() work unchanged on it.
+    Holds only the rows the lookup is read for (see _parent_lookup_rows).
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
-    mask = features_gdf["feature_id"].notna()
-    filtered = features_gdf[mask]
+    filtered = features_gdf[_parent_lookup_rows(features_gdf)]
     if filtered.index.name is not None:
         filtered = filtered.reset_index()
     if AOI_ID_COLUMN_NAME not in filtered.columns:

@@ -7,13 +7,17 @@ import pandas as pd
 import pytest
 
 from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
     BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
+    LAWN_GRASS_ID,
     ROOF_ID,
+    VEG_MEDHIGH_ID,
 )
 from nmaipy.parcels import (
     build_parent_lookup,
+    build_parent_lookup_by_aoi,
     extract_rsi_from_feature,
     resolve_footprint_rsi,
 )
@@ -133,3 +137,40 @@ class TestResolveFootprintRsi:
         lookup = {bl["feature_id"]: bl}
         result = resolve_footprint_rsi(bn, parent_lookup=lookup)
         assert result["roof_spotlight_index"] == 77
+
+
+class TestParentLookupRows:
+    """A parent lookup holds only the rows it is read for: Roof and Building(New) rows (read by their own
+    feature_id) and rows that are some row's parent (read while walking a chain). Dense chunks are mostly
+    vegetation and surface polygons that are never read, so holding them is pure memory cost."""
+
+    ROWS = [
+        ("roof", ROOF_ID, None),
+        ("building", BUILDING_NEW_ID, "lifecycle"),
+        ("lifecycle", BUILDING_LIFECYCLE_ID, None),
+        ("lawn", LAWN_GRASS_ID, None),
+        ("tree", VEG_MEDHIGH_ID, "lawn"),
+        ("other_tree", VEG_MEDHIGH_ID, None),
+    ]
+
+    def _frame(self, with_parent_id=True):
+        rows = [{AOI_ID_COLUMN_NAME: "aoi_1", "feature_id": f, "class_id": c, "parent_id": p} for f, c, p in self.ROWS]
+        frame = pd.DataFrame(rows)
+        return frame if with_parent_id else frame.drop(columns="parent_id")
+
+    @pytest.mark.parametrize("by_aoi", [False, True], ids=["single_aoi", "by_aoi"])
+    def test_keeps_roofs_buildings_and_parents_only(self, by_aoi):
+        frame = self._frame()
+        lookup = build_parent_lookup_by_aoi(frame)["aoi_1"] if by_aoi else build_parent_lookup(frame)
+        expected = {"roof", "building", "lifecycle", "lawn"}
+        assert set(lookup) == expected, "lookup should hold Roof and Building(New) rows and every row's parent"
+
+    def test_frame_without_parent_id_keeps_roofs_and_buildings(self):
+        assert set(build_parent_lookup(self._frame(with_parent_id=False))) == {"roof", "building"}
+
+    def test_building_still_resolves_lifecycle_rsi(self):
+        frame = self._frame()
+        frame["roof_spotlight_index"] = None
+        frame.loc[frame["feature_id"] == "lifecycle", "roof_spotlight_index"] = [{"value": 42, "confidence": 0.8}]
+        lookup = build_parent_lookup(frame)
+        assert resolve_footprint_rsi(lookup["building"], parent_lookup=lookup)["roof_spotlight_index"] == 42
