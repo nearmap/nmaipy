@@ -26,12 +26,14 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
+from nmaipy import exporter
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
     AREA_CRS,
     ROOF_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
+    VEG_MEDHIGH_ID,
 )
 from nmaipy.exporter import (
     _batch_project_geometries,
@@ -201,6 +203,38 @@ def test_per_class_export_clips_components_to_parcel():
     roof = res[ROOF_ID]["tabular"].to_pandas().iloc[0]
     assert roof["tile_area_sqft"] == pytest.approx(_CLIPPED_ROOF_SQFT, rel=1e-3)
     assert roof["tile_area_sqft"] <= roof["clipped_area_sqft"] * 1.001
+
+
+def test_per_class_export_projects_children_only_for_aois_with_a_roof(monkeypatch):
+    """Children are only read for a roof in their own AOI, so an AOI without a roof (on a dense
+    chunk, most of the frame) is never grouped or projected, and the roof export is unchanged."""
+    roofless_tree = {
+        **_tile_child_row(aoi_id="parcel-b"),
+        "feature_id": "tree-1",
+        "class_id": VEG_MEDHIGH_ID,
+        "parent_id": None,
+    }
+    projected_aois = []
+
+    def spy(parent_geoms, child_by_aoi, *args, **kwargs):
+        projected_aois.extend(child_by_aoi)
+        return _batch_project_geometries(parent_geoms, child_by_aoi, *args, **kwargs)
+
+    monkeypatch.setattr(exporter, "_batch_project_geometries", spy)
+    chunk = gpd.GeoDataFrame([_roof_row(), _tile_child_row(), roofless_tree], geometry="geometry", crs=API_CRS)
+    res = _compute_all_per_class_data(
+        chunk,
+        country="us",
+        aoi_input_columns=[],
+        whitelisted_classes=[ROOF_ID],
+        threads=1,
+        aoi_geometries={"parcel-a": _PARCEL},
+    )
+
+    assert "parcel-a" in projected_aois, "the roof's own AOI should still have its children projected"
+    assert "parcel-b" not in projected_aois, "an AOI without a roof should have no children projected"
+    roof = res[ROOF_ID]["tabular"].to_pandas().iloc[0]
+    assert roof["tile_area_sqft"] == pytest.approx(_CLIPPED_ROOF_SQFT, rel=1e-3)
 
 
 def test_parcel_rollup_primary_component_respects_clip():

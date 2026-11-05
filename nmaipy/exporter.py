@@ -1287,9 +1287,11 @@ def _compute_all_per_class_data(
     if has_dependent:
         roof_features_chunk = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
         roof_instance_chunk = class_groups.get(ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame())
-        # non_roof_chunk is "all rows except roof" — can't be served by the
-        # class_groups dict without a concat scan, so keep the boolean mask.
-        non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
+        # Non-roof rows are only ever read as children of a roof in the same AOI, so
+        # AOIs without a roof contribute none — on dense chunks, most of the frame.
+        roof_aois = _aoi_id_values(roof_features_chunk) if len(roof_features_chunk) > 0 else []
+        in_roof_aoi = pd.Index(_aoi_id_values(chunk_gdf)).isin(roof_aois)
+        non_roof_chunk = chunk_gdf[(chunk_gdf["class_id"] != ROOF_ID).values & in_roof_aoi]
 
         # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
