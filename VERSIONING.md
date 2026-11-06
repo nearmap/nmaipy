@@ -18,9 +18,10 @@ For users without Claude Code, or as a reference for what the skill does.
 
 ### Prerequisites
 
-Install build tools:
+Install [pixi](https://pixi.sh) (0.83 or newer) and the default environment, which carries the build tools (`python-build`, `twine`):
 ```bash
-pip install build twine
+curl -fsSL https://pixi.sh/install.sh | sh
+pixi install
 ```
 
 Configure PyPI authentication in `~/.pypirc`:
@@ -36,9 +37,9 @@ Get tokens from: https://pypi.org/manage/account/token/
 
 #### 1. Update Version Number
 
-Edit `nmaipy/__version__.py`:
-```python
-__version__ = "4.0.1"  # Increment following semver
+Run `bump_version.py`, which updates both copies of the version: `nmaipy/__version__.py` and the `[tool.pixi.package]` version in `pyproject.toml`:
+```bash
+python bump_version.py patch   # or minor, major, or a specific version such as 4.0.1
 ```
 
 **Semantic Versioning:**
@@ -59,7 +60,7 @@ raw resource UUID is a PATCH, not a MINOR — a new constant is not a new featur
 #### 2. Commit Version Change
 
 ```bash
-git add nmaipy/__version__.py
+git add nmaipy/__version__.py pyproject.toml
 git commit -m "Release version X.Y.Z"
 git push origin main
 ```
@@ -67,7 +68,7 @@ git push origin main
 #### 3. Run Tests
 
 ```bash
-pytest
+pixi run pytest
 ```
 
 All tests must pass before proceeding.
@@ -75,15 +76,15 @@ All tests must pass before proceeding.
 #### 4. Build Package
 
 ```bash
-rm -rf dist/ build/ *.egg-info
-python -m build
-twine check dist/*
+pixi run build
 ```
+
+This clears `dist/`, builds the sdist and wheel, and runs `twine check --strict` on them.
 
 #### 5. Upload to PyPI
 
 ```bash
-twine upload dist/*
+pixi run twine upload dist/*
 ```
 
 Verify:
@@ -129,7 +130,7 @@ This provides an additional validation layer but does not publish to PyPI (that'
 
 Before production release:
 ```bash
-twine upload --repository testpypi dist/*
+pixi run twine upload --repository testpypi dist/*
 
 pip install --index-url https://test.pypi.org/simple/ \
     --extra-index-url https://pypi.org/simple/ nmaipy
@@ -139,5 +140,4 @@ pip install --index-url https://test.pypi.org/simple/ \
 
 - **403 Forbidden**: Check API token is correct and starts with `pypi-`
 - **Version exists**: Increment version number, can't reuse versions
-- **Build issues**: Ensure `MANIFEST.in` includes necessary files
 - **Import errors**: Check all dependencies are listed in `pyproject.toml`

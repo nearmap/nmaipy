@@ -25,20 +25,23 @@ def read_current_version():
 
 
 def write_version(version):
-    """Write the new version into __version__.py.
+    """Write the new version into __version__.py and the [tool.pixi.package] table of pyproject.toml.
 
-    Substitutes only the version string in place — the rest of the file
+    Substitutes only the version string in place — the rest of each file
     (e.g. the pre-release-safe __version_info__ parsing) is preserved.
-    conda.recipe/meta.yaml needs no update: it reads __version__.py
-    directly via load_file_regex.
+    Both files are checked before either is written.
     """
-    version_file = Path("nmaipy/__version__.py")
-    content = version_file.read_text()
-    new_content, n = re.subn(r'__version__ = "[^"]+"', f'__version__ = "{version}"', content)
-    if n != 1:
-        raise ValueError(f"Expected exactly one __version__ assignment in {version_file}, found {n}")
-    version_file.write_text(new_content)
-    print(f"✓ Updated nmaipy/__version__.py to {version}")
+    updates = [
+        _substitute_once(Path("nmaipy/__version__.py"), r'__version__ = "[^"]+"', f'__version__ = "{version}"'),
+        _substitute_once(
+            Path("pyproject.toml"),
+            r'(\[tool\.pixi\.package\]\n(?:[^\[\n].*\n|\n)*?)version = "[^"]+"',
+            rf'\g<1>version = "{version}"',
+        ),
+    ]
+    for path, content in updates:
+        path.write_text(content)
+        print(f"✓ Updated {path} to {version}")
 
 
 def bump_version(bump_type):
@@ -74,7 +77,7 @@ def main():
     arg = sys.argv[1]
 
     # Check if it's a specific version
-    if re.match(r"^\d+\.\d+\.\d+$", arg):
+    if re.match(r"^\d+\.\d+\.\d+((a|b|rc)\d+)?$", arg):
         new_version = arg
         current = read_current_version()
         print(f"Setting version: {current} → {new_version}")
@@ -98,6 +101,13 @@ def main():
     print("3. Push changes and tag:")
     print("   git push && git push --tags")
     print("4. Create a GitHub release from the tag")
+
+
+def _substitute_once(path: Path, pattern: str, replacement: str) -> tuple[Path, str]:
+    content, n = re.subn(pattern, replacement, path.read_text())
+    if n != 1:
+        raise ValueError(f"Expected exactly one match for {pattern!r} in {path}, found {n}")
+    return path, content
 
 
 if __name__ == "__main__":
