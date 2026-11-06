@@ -131,8 +131,8 @@ from nmaipy.feature_attributes import (
     is_resolved_score_column,
 )
 from nmaipy.parcels import (
+    _build_parent_lookup_by_aoi,
     _traverse_to_bl,
-    build_parent_lookup_by_aoi,
     class_column_names,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
@@ -1260,7 +1260,7 @@ def _compute_all_per_class_data(
     # feature_id, per-clip attributes), so parent-chain traversal must stay
     # inside each row's own parcel.
     shared_parent_lookup = (
-        build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
+        _build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
     )
 
     # Build class_descriptions from chunk data
@@ -1287,9 +1287,10 @@ def _compute_all_per_class_data(
     if has_dependent:
         roof_features_chunk = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
         roof_instance_chunk = class_groups.get(ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame())
-        # non_roof_chunk is "all rows except roof" — can't be served by the
-        # class_groups dict without a concat scan, so keep the boolean mask.
-        non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
+        # Children are only read for a roof in their own AOI.
+        roof_aois = _aoi_id_values(roof_features_chunk) if len(roof_features_chunk) > 0 else []
+        in_roof_aoi = pd.Index(_aoi_id_values(chunk_gdf)).isin(roof_aois)
+        non_roof_chunk = chunk_gdf[(chunk_gdf["class_id"] != ROOF_ID).values & in_roof_aoi]
 
         # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
@@ -1478,7 +1479,7 @@ def _compute_feature_class_data(
     p_lookup_by_aoi = (
         parent_lookup
         if parent_lookup is not None
-        else (build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
+        else (_build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
     )
     _roof_to_bn_by_aoi = roof_to_building_lookup or {}
 
@@ -4209,6 +4210,7 @@ class NearmapAIExporter(BaseExporter):
 
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
+            del features_gdf  # last use
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
