@@ -80,7 +80,7 @@ requires-pixi = ">=0.83"
 [tool.pixi.package]
 name = "nmaipy"
 # pixi-build cannot read hatchling's dynamic version; bump_version.py keeps this equal to nmaipy/__version__.py
-version = "5.4.0"
+version = "5.5.0"
 
 [tool.pixi.package.build.backend]
 name = "pixi-build-python"
