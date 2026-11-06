@@ -1,0 +1,322 @@
+{
+ "042a1d14-4a23-50dc-aabb-befc9645af3b": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Leaf-off Tree Overhang",
+  "type": "Feature"
+ },
+ "1878ccf6-46ec-55a7-a20b-0cf658afb755": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Building",
+  "type": "Feature"
+ },
+ "1ab60ef7-e770-5ab6-995e-124676b2be11": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Flat",
+  "type": "Feature"
+ },
+ "2780fa70-7713-437c-ad98-656b8a5cc4f2": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Low Vegetation (0.5m-2m)",
+  "type": "Feature"
+ },
+ "30fc0c55-2b61-569f-b424-44082987ecb9": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Medium and High Vegetation with Woody Vegetation",
+  "type": "Feature"
+ },
+ "3719eb40-d6d1-5071-bbe6-379a551bb65f": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Dutch Gable",
+  "type": "Feature"
+ },
+ "4424186a-0b42-5608-a5a0-d4432695c260": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Metal",
+  "type": "Feature"
+ },
+ "4bbf8dbd-cc81-5773-961f-0121101422be": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Shingle",
+  "type": "Feature"
+ },
+ "516fdfd5-0be9-59fe-b849-92faef8ef26e": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Tile",
+  "type": "Feature"
+ },
+ "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Gable",
+  "type": "Feature"
+ },
+ "89582082-e5b8-5853-bc94-3a0392cab98a": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Turret",
+  "type": "Feature"
+ },
+ "8e9448bd-4669-5f46-b8f0-840fee25c34c": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Tree Overhang",
+  "type": "Feature"
+ },
+ "a7d921b7-393c-4121-b317-e9cda3e4c19b": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Very Low Vegetation (<0.5m)",
+  "type": "Feature"
+ },
+ "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Hip",
+  "type": "Feature"
+ },
+ "c08255a4-ba9f-562b-932c-ff76f2faeeeb": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Roof",
+  "type": "Feature"
+ },
+ "cd15ea0b-a0f6-58b6-9a63-480654ff506c": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Dormer Window",
+  "type": "Feature"
+ },
+ "cd47dfd1-2c24-543c-89fd-7677b2cc100b": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Leaf-off Vegetation",
+  "type": "Feature"
+ },
+ "dfd8181b-80c9-4234-9d05-0eef927e3aca": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Medium and High Vegetation (>2m)",
+  "type": "Feature"
+ },
+ "eaa83113-44b3-505e-9515-ba8a8d403dd4": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Woody Vegetation",
+  "type": "Feature"
+ },
+ "f5070c73-66ca-5cb1-9744-2629a27533ce": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "alpha",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "All-in Vegetation",
+  "type": "Feature"
+ }
+}

@@ -1,0 +1,26 @@
+column,u1/1068322427200512217,u1/3086812827030844601,u1/5609344838371086160,u2/3954382173534175455,u3/3954382173534175455,u5/6164306327220453054,u5/6268719138944313617
+aoi_id,u1,u1,u1,u2,u3,u5,u5
+area_sqft,301.49715,435.077287,1960.32349,3356.72568,3356.72568,12901.7315,2420.15777
+class_id,f00f1a9e-0001-4000-a000-000000000001,f00f1a9e-0001-4000-a000-000000000001,f00f1a9e-0001-4000-a000-000000000001,f00f1a9e-0001-4000-a000-000000000001,f00f1a9e-0001-4000-a000-000000000001,f00f1a9e-0001-4000-a000-000000000001,f00f1a9e-0001-4000-a000-000000000001
+description,Roof Instance,Roof Instance,Roof Instance,Roof Instance,Roof Instance,Roof Instance,Roof Instance
+feature_id,1068322427200512217,3086812827030844601,5609344838371086160,3954382173534175455,3954382173534175455,6164306327220453054,6268719138944313617
+is_primary,N,N,Y,Y,Y,N,Y
+link,"https://apps.nearmap.com/maps/#/@40.50030995,-100.49996454999999,21.00z,0d/V/20160820?locationMarker","https://apps.nearmap.com/maps/#/@40.50022456666667,-100.49968103333333,21.00z,0d/V/20090501?locationMarker","https://apps.nearmap.com/maps/#/@40.50017295,-100.49981985,21.00z,0d/V/20120615?locationMarker","https://apps.nearmap.com/maps/#/@40.5001774,-100.49917305,21.00z,0d/V/20180901?locationMarker","https://apps.nearmap.com/maps/#/@40.5001774,-100.49917305,21.00z,0d/V/20180901?locationMarker","https://apps.nearmap.com/maps/#/@40.50017965,-100.4980508,21.00z,0d?locationMarker","https://apps.nearmap.com/maps/#/@40.5001572,-100.4980803,21.00z,0d?locationMarker"
+parent_id,,,3b74ca53-ee7c-5ea1-8176-07ca1c928fe9,3f6e774d-006c-5127-9e1e-2c4f272727df,3f6e774d-006c-5127-9e1e-2c4f272727df,9d050659-4bd8-5ea9-9109-a779a6caeaca,9d050659-4bd8-5ea9-9109-a779a6caeaca
+parent_iou,0.0,0.0,0.9298,0.4939,0.4934,0.1876,1.0
+roof_age_after_installation_capture_date,2016-09-30,2010-03-15,2013-04-10,2018-11-20,2018-11-20,,
+roof_age_as_of_date,2025-01-01,2025-01-01,2025-01-01,2025-01-01,2025-01-01,2025-01-01,2025-01-01
+roof_age_assessor_data,N,N,N,N,N,N,N
+roof_age_before_installation_capture_date,,2008-02-01,2011-03-01,2017-04-03,2017-04-03,,
+roof_age_evidence_type,5.0,5.0,5.0,7.0,7.0,0.0,3.0
+roof_age_evidence_type_description,multiple_images,multiple_images,multiple_images,multiple_images_with_change,multiple_images_with_change,no_evidence,single_image
+roof_age_installation_date,2016-08-20,2009-05-01,2012-06-15,2018-09-01,2018-09-01,,
+roof_age_kind,roof,roof,roof,roof,roof,parcel,roof
+roof_age_map_browser_url,"https://apps.nearmap.com/maps/#/@40.500310,-100.499965,20z,0d/V/20160930?locationMarker","https://apps.nearmap.com/maps/#/@40.500225,-100.499681,20z,0d/V/20100315?locationMarker","https://apps.nearmap.com/maps/#/@40.500173,-100.499820,20z,0d/V/20241005?locationMarker","https://apps.nearmap.com/maps/#/@40.500177,-100.499173,20z,0d/V/20241005?locationMarker","https://apps.nearmap.com/maps/#/@40.500177,-100.499173,20z,0d/V/20241005?locationMarker",,"https://apps.nearmap.com/maps/#/@40.500157,-100.498080,20z,0d/V/20241005?locationMarker"
+roof_age_max_capture_date,2016-09-30,2010-03-15,2024-10-05,2024-10-05,2024-10-05,2024-10-05,2024-10-05
+roof_age_min_capture_date,2016-09-30,2008-02-01,2011-03-01,2017-04-03,2017-04-03,2024-10-05,2024-10-05
+roof_age_model_version,A.1,A.1,A.1,A.1,A.1,A.1,A.1
+roof_age_number_of_captures,1.0,2.0,3.0,3.0,3.0,1.0,1.0
+roof_age_relevant_permits,N,N,N,N,N,N,N
+roof_age_trust_score,55.0,40.0,61.5,74.0,74.0,0.0,0.0
+roof_age_years_as_of_date,8.4,15.7,12.5,6.3,6.3,,

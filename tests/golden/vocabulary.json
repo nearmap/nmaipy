@@ -1,0 +1,228 @@
+{
+ "attributes": {
+  "au": {
+   "c08255a4-ba9f-562b-932c-ff76f2faeeeb": {
+    "Roof 3d attributes": [],
+    "Roof material": [
+     "Ballasted",
+     "Built Up",
+     "Clay Tile",
+     "EPDM",
+     "Metal",
+     "Mod-Bit",
+     "PVC/TPO",
+     "Roof Coating",
+     "Shingle",
+     "Slate",
+     "Tile",
+     "Wood Shake"
+    ],
+    "Roof overhang attributes": [
+     "Leaf-off Tree Overhang",
+     "Low Vegetation (0.5m-2m) Overhang",
+     "Power Line Overhang",
+     "Tree Overhang",
+     "Very Low Vegetation (<0.5m) Overhang"
+    ],
+    "Roof types": [
+     "Bowstring Truss",
+     "Dormer Window",
+     "Dutch Gable",
+     "Flat",
+     "Flat (Deprecated)",
+     "Gable",
+     "Gambrel",
+     "Hip",
+     "Jerkinhead",
+     "Mansard",
+     "Parapet",
+     "Quonset",
+     "Shed",
+     "Turret"
+    ]
+   }
+  },
+  "us": {
+   "0339726f-081e-5a6e-b9a9-42d95c1b5c8a": {
+    "Pool Condition": [
+     "Above Ground Swimming Pool",
+     "Covered Swimming Pool",
+     "Empty swimming pool",
+     "In lanai swimming pool",
+     "Unmaintained Swimming Pool"
+    ]
+   },
+   "1878ccf6-46ec-55a7-a20b-0cf658afb755": {
+    "Building 3d attributes": [],
+    "Building pitch": [],
+    "Ground height": []
+   },
+   "a2e4ae39-8a61-5515-9d18-8900aa6e6072": {
+    "Building 3d attributes": [],
+    "Building pitch": [],
+    "Ground height": []
+   },
+   "c08255a4-ba9f-562b-932c-ff76f2faeeeb": {
+    "Roof 3d attributes": [],
+    "Roof Condition": [
+     "Active Ponding",
+     "Exposed Roof Deck",
+     "Exposed Underlayment",
+     "Missing Asphalt shingles",
+     "Missing Roof Tile or Shingle",
+     "Roof Debris",
+     "Roof Patching",
+     "Roof Ponding",
+     "Roof Rusting",
+     "Roof Staining",
+     "Roof with Permanent Repair",
+     "Roof with Temporary Repair",
+     "Structural Damage",
+     "Tile or Shingle Staining",
+     "Worn Shingles",
+     "Zinc Staining"
+    ],
+    "Roof material": [
+     "Ballasted",
+     "Built Up",
+     "Clay Tile",
+     "EPDM",
+     "Metal",
+     "Mod-Bit",
+     "PVC/TPO",
+     "Roof Coating",
+     "Shingle",
+     "Slate",
+     "Tile",
+     "Wood Shake"
+    ],
+    "Roof overhang attributes": [
+     "Leaf-off Tree Overhang",
+     "Low Vegetation (0.5m-2m) Overhang",
+     "Power Line Overhang",
+     "Tree Overhang",
+     "Very Low Vegetation (<0.5m) Overhang"
+    ],
+    "Roof types": [
+     "Bowstring Truss",
+     "Dormer Window",
+     "Dutch Gable",
+     "Flat",
+     "Flat (Deprecated)",
+     "Gable",
+     "Gambrel",
+     "Hip",
+     "Jerkinhead",
+     "Mansard",
+     "Parapet",
+     "Quonset",
+     "Shed",
+     "Turret"
+    ]
+   }
+  }
+ },
+ "packs": {
+  "building": {
+   "attributeClasses": [],
+   "featureClasses": [
+    "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+    "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+    "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
+   ]
+  },
+  "building_char": {
+   "attributeClasses": [
+    "19e49dad-4228-554e-9f5e-c2e37b2e11d9",
+    "f5efb75e-22bb-5b53-93f1-892501868627",
+    "f7628feb-6d70-50ee-bbfd-053b4e685e8f"
+   ],
+   "featureClasses": [
+    "1878ccf6-46ec-55a7-a20b-0cf658afb755",
+    "a2e4ae39-8a61-5515-9d18-8900aa6e6072",
+    "c08255a4-ba9f-562b-932c-ff76f2faeeeb"
+   ]
+  },
+  "pool": {
+   "attributeClasses": [
+    "027835c1-443c-55aa-940f-26b474cea277"
+   ],
+   "featureClasses": [
+    "00f385f3-683b-52d4-953e-02e86f2e89c7",
+    "0339726f-081e-5a6e-b9a9-42d95c1b5c8a"
+   ]
+  },
+  "roof_char": {
+   "attributeClasses": [
+    "20a58db2-bc02-531d-98f5-451f88ce1fed",
+    "39072960-5582-52af-9051-4bc8625ff9ba",
+    "7ab56e15-d5d4-51bb-92bd-69e910e82e56",
+    "89c7d478-58de-56bd-96d2-e71e27a36905"
+   ],
+   "featureClasses": [
+    "042a1d14-4a23-50dc-aabb-befc9645af3b",
+    "1ab60ef7-e770-5ab6-995e-124676b2be11",
+    "224f98d3-b853-542a-8b18-e1e46e3a8200",
+    "3719eb40-d6d1-5071-bbe6-379a551bb65f",
+    "4424186a-0b42-5608-a5a0-d4432695c260",
+    "4bbf8dbd-cc81-5773-961f-0121101422be",
+    "516fdfd5-0be9-59fe-b849-92faef8ef26e",
+    "59c6e27e-6ef2-5b5c-90e7-31cfca78c0c2",
+    "89582082-e5b8-5853-bc94-3a0392cab98a",
+    "8e9448bd-4669-5f46-b8f0-840fee25c34c",
+    "ac0a5f75-d8aa-554c-8a43-cee9684ef9e9",
+    "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+    "cd15ea0b-a0f6-58b6-9a63-480654ff506c"
+   ]
+  },
+  "roof_cond": {
+   "attributeClasses": [
+    "3065525d-3f14-5b9d-8c4c-077f1ad5c694",
+    "f14c1581-66e6-5cf1-a051-2298ad165d28"
+   ],
+   "featureClasses": [
+    "526496bf-7344-5024-82d7-77ceb671feb4",
+    "7218eb36-0d36-5b53-a2fe-6e99c7d950bc",
+    "abb1f304-ce01-527b-b799-cbfd07551b2c",
+    "c08255a4-ba9f-562b-932c-ff76f2faeeeb",
+    "cfa8951a-4c29-54de-ae98-e5f804c305e3",
+    "dec855e2-ae6f-56b5-9cbb-f9967ff8ca12",
+    "f41e02b0-adc0-5b46-ac95-8c59aa9fe317",
+    "f55813f9-a39d-571d-9688-8d3f76aa35b9",
+    "f907e625-26b3-59db-a806-d41f62ce1f1b"
+   ]
+  },
+  "solar": {
+   "attributeClasses": [],
+   "featureClasses": [
+    "3680e1b8-8ae1-5a15-8ec7-820078ef3298",
+    "c1143023-135b-54fd-9a07-8de0ff55de51"
+   ]
+  },
+  "surfaces": {
+   "attributeClasses": [],
+   "featureClasses": [
+    "0ad1355f-5dfd-403b-8b8b-b7d8ed95731f",
+    "290897be-078b-4948-97aa-755289a67a29",
+    "2e0bd9e3-3b67-4990-84dc-1b4812fdd02b",
+    "372fb6c1-a3ab-5019-ba0f-489ed12079de",
+    "4aec3d8a-da20-5fcd-a868-6c19d2772b2e",
+    "68dc5061-5842-4a17-8073-e278a91b607d",
+    "97a1f8a8-7cf2-4e81-82b4-753ee225d9ed",
+    "dd1e6ef5-8227-492a-b02f-adcf660d06d0"
+   ]
+  },
+  "vegetation": {
+   "attributeClasses": [],
+   "featureClasses": [
+    "2780fa70-7713-437c-ad98-656b8a5cc4f2",
+    "30fc0c55-2b61-569f-b424-44082987ecb9",
+    "a7d921b7-393c-4121-b317-e9cda3e4c19b",
+    "cd47dfd1-2c24-543c-89fd-7677b2cc100b",
+    "dfd8181b-80c9-4234-9d05-0eef927e3aca",
+    "eaa83113-44b3-505e-9515-ba8a8d403dd4",
+    "f5070c73-66ca-5cb1-9744-2629a27533ce"
+   ]
+  }
+ }
+}
