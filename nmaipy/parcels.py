@@ -797,7 +797,7 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     return dict(zip(filtered["feature_id"].values, filtered.to_dict("records")))
 
 
-def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
+def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame, all_rows: bool = False) -> dict:
     """Build {aoi_id: {feature_id: row dict}} for parent_id chain traversal.
 
     Parent chains never cross parcels — a feature's parent is returned in the
@@ -807,11 +807,12 @@ def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     (`lookup.get(aoi_id, {})`) and use it exactly like build_parent_lookup()
     output; resolve_footprint_rsi() / _traverse_to_bl() work unchanged on it.
 
-    Holds only the rows nmaipy reads (see _parent_lookup_rows).
+    Holds only the rows nmaipy reads (see _parent_lookup_rows), or every row with all_rows.
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
-    filtered = features_gdf[_parent_lookup_rows(features_gdf)]
+    keep = features_gdf["feature_id"].notna() if all_rows else _parent_lookup_rows(features_gdf)
+    filtered = features_gdf[keep]
     if filtered.index.name is not None:
         filtered = filtered.reset_index()
     if AOI_ID_COLUMN_NAME not in filtered.columns:
@@ -825,14 +826,13 @@ def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
 
 
 def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
-    """Deprecated: nmaipy-internal, and will be removed in nmaipy 6.0. See _build_parent_lookup_by_aoi."""
+    """Deprecated: nmaipy-internal, and will be removed in nmaipy 6.0. Holds every row, as it always has."""
     warnings.warn(
-        "build_parent_lookup_by_aoi is internal, deprecated and will be removed in nmaipy 6.0; it now holds only "
-        "Roof, Building(New) and parent rows.",
+        "build_parent_lookup_by_aoi is internal, deprecated and will be removed in nmaipy 6.0.",
         DeprecationWarning,
         stacklevel=2,
     )
-    return _build_parent_lookup_by_aoi(features_gdf)
+    return _build_parent_lookup_by_aoi(features_gdf, all_rows=True)
 
 
 def resolve_footprint_rsi(
