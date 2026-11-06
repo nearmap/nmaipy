@@ -766,15 +766,7 @@ def resolve_scores_with_bl_fallback(primary_row, bl_row, country: str = "us") ->
 
 
 def _parent_lookup_rows(features_gdf: gpd.GeoDataFrame) -> pd.Series:
-    """Mask of the rows nmaipy's own consumers ever read from a parent lookup.
-
-    They read it two ways: Roof and Building(New) rows by their own
-    feature_id (roof scores, roof → building linkage), and any row by parent_id
-    while walking a chain to its Building Lifecycle. No other row is ever read —
-    on a dense chunk that is millions of vegetation and surface polygons, whose
-    row dicts would otherwise be most of the lookup's memory. A frame without a
-    parent_id column has no chains, so none of its rows is a parent.
-    """
+    """Rows nmaipy reads from a parent lookup: Roof and Building(New) rows by feature_id, and parents by parent_id."""
     is_read_by_own_id = features_gdf["class_id"].isin([ROOF_ID, BUILDING_NEW_ID])
     parent_ids = features_gdf["parent_id"].dropna() if "parent_id" in features_gdf.columns else ()
     is_a_parent = features_gdf["feature_id"].isin(parent_ids)
@@ -815,8 +807,7 @@ def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     (`lookup.get(aoi_id, {})`) and use it exactly like build_parent_lookup()
     output; resolve_footprint_rsi() / _traverse_to_bl() work unchanged on it.
 
-    Holds only the rows nmaipy's own consumers read (see _parent_lookup_rows),
-    which on a dense chunk is a small fraction of the frame.
+    Holds only the rows nmaipy reads (see _parent_lookup_rows).
     """
     if features_gdf is None or len(features_gdf) == 0 or "feature_id" not in features_gdf.columns:
         return {}
@@ -836,8 +827,8 @@ def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
 def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
     """Deprecated: nmaipy-internal, and will be removed in nmaipy 6.0. See _build_parent_lookup_by_aoi."""
     warnings.warn(
-        "build_parent_lookup_by_aoi is internal to nmaipy, is deprecated and will be removed in nmaipy 6.0. It now "
-        "holds only the rows nmaipy reads: Roof and Building(New) rows, and rows that are some row's parent.",
+        "build_parent_lookup_by_aoi is internal, deprecated and will be removed in nmaipy 6.0; it now holds only "
+        "Roof, Building(New) and parent rows.",
         DeprecationWarning,
         stacklevel=2,
     )

@@ -141,9 +141,7 @@ class TestResolveFootprintRsi:
 
 
 class TestParentLookupRows:
-    """The chunk lookup holds only the rows nmaipy reads: Roof and Building(New) rows (by their own feature_id)
-    and rows that are some row's parent (while walking a chain). Dense chunks are mostly vegetation and surface
-    polygons that are never read. The single-parcel lookup still holds every row."""
+    """The chunk lookup holds only Roof, Building(New) and parent rows; the single-parcel lookup holds every row."""
 
     ROWS = [
         ("roof", ROOF_ID, None),

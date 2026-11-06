@@ -1287,8 +1287,7 @@ def _compute_all_per_class_data(
     if has_dependent:
         roof_features_chunk = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
         roof_instance_chunk = class_groups.get(ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame())
-        # Non-roof rows are only ever read as children of a roof in the same AOI, so
-        # AOIs without a roof contribute none — on dense chunks, most of the frame.
+        # Children are only read for a roof in their own AOI.
         roof_aois = _aoi_id_values(roof_features_chunk) if len(roof_features_chunk) > 0 else []
         in_roof_aoi = pd.Index(_aoi_id_values(chunk_gdf)).isin(roof_aois)
         non_roof_chunk = chunk_gdf[(chunk_gdf["class_id"] != ROOF_ID).values & in_roof_aoi]
@@ -4211,9 +4210,7 @@ class NearmapAIExporter(BaseExporter):
 
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
-            # Last use of the raw features. The merges share its geometries and strings, but its own column
-            # arrays and attribute dicts (~0.7 GB per 1M rows) would otherwise stay held to the chunk's end.
-            del features_gdf
+            del features_gdf  # last use
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)

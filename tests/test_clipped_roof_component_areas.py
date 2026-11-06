@@ -206,8 +206,7 @@ def test_per_class_export_clips_components_to_parcel():
 
 
 def test_per_class_export_projects_children_only_for_aois_with_a_roof(monkeypatch):
-    """Children are only read for a roof in their own AOI, so an AOI without a roof (on a dense
-    chunk, most of the frame) is never grouped or projected, and the roof export is unchanged."""
+    """An AOI without a roof has no children projected, and the roof export is unchanged."""
     roofless_tree = {
         **_tile_child_row(aoi_id="parcel-b"),
         "feature_id": "tree-1",
