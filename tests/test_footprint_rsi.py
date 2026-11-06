@@ -4,15 +4,18 @@ import json
 
 import geopandas as gpd
 import pandas as pd
-import pytest
 
 from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
     BUILDING_ID,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
+    LAWN_GRASS_ID,
     ROOF_ID,
+    VEG_MEDHIGH_ID,
 )
 from nmaipy.parcels import (
+    _build_parent_lookup_by_aoi,
     build_parent_lookup,
     extract_rsi_from_feature,
     resolve_footprint_rsi,
@@ -133,3 +136,39 @@ class TestResolveFootprintRsi:
         lookup = {bl["feature_id"]: bl}
         result = resolve_footprint_rsi(bn, parent_lookup=lookup)
         assert result["roof_spotlight_index"] == 77
+
+
+class TestParentLookupRows:
+    """The chunk lookup holds only Roof, Building(New) and parent rows; the single-parcel lookup holds every row."""
+
+    ROWS = [
+        ("roof", ROOF_ID, None),
+        ("building", BUILDING_NEW_ID, "lifecycle"),
+        ("lifecycle", BUILDING_LIFECYCLE_ID, None),
+        ("lawn", LAWN_GRASS_ID, None),
+        ("tree", VEG_MEDHIGH_ID, "lawn"),
+        ("other_tree", VEG_MEDHIGH_ID, None),
+    ]
+
+    def _frame(self, with_parent_id=True):
+        rows = [{AOI_ID_COLUMN_NAME: "aoi_1", "feature_id": f, "class_id": c, "parent_id": p} for f, c, p in self.ROWS]
+        frame = pd.DataFrame(rows)
+        return frame if with_parent_id else frame.drop(columns="parent_id")
+
+    def test_single_parcel_lookup_keeps_every_row(self):
+        assert set(build_parent_lookup(self._frame())) == {f for f, _, _ in self.ROWS}
+
+    def test_chunk_lookup_keeps_roofs_buildings_and_parents(self):
+        lookup = _build_parent_lookup_by_aoi(self._frame())["aoi_1"]
+        expected = {"roof", "building", "lifecycle", "lawn"}
+        assert set(lookup) == expected, "lookup should hold Roof and Building(New) rows and every row's parent"
+
+    def test_chunk_lookup_without_parent_id_keeps_roofs_and_buildings(self):
+        assert set(_build_parent_lookup_by_aoi(self._frame(with_parent_id=False))["aoi_1"]) == {"roof", "building"}
+
+    def test_chunk_lookup_still_resolves_lifecycle_rsi(self):
+        frame = self._frame()
+        frame["roof_spotlight_index"] = None
+        frame.loc[frame["feature_id"] == "lifecycle", "roof_spotlight_index"] = [{"value": 42, "confidence": 0.8}]
+        lookup = _build_parent_lookup_by_aoi(frame)["aoi_1"]
+        assert resolve_footprint_rsi(lookup["building"], parent_lookup=lookup)["roof_spotlight_index"] == 42
