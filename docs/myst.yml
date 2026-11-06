@@ -1,0 +1,16 @@
+version: 1
+project:
+  title: nmaipy
+  github: https://github.com/nearmap/nmaipy
+  license: Apache-2.0
+  toc:
+    - file: index.md
+site:
+  template: https://github.com/jupyter-book/myst-theme/releases/download/myst-to-react%401.4.1/book-theme.zip
+  options:
+    style: _static/custom.css
+    logo: _static/mark.svg
+    logo_dark: _static/mark-dark.svg
+    logo_alt: nmaipy
+    logo_text: nmaipy
+    favicon: _static/favicon.svg

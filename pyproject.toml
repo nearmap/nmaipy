@@ -130,9 +130,17 @@ isort = "*"
 lint = "black --check nmaipy tests && isort --check-only nmaipy tests"
 format = "black nmaipy tests && isort nmaipy tests"
 
+[tool.pixi.feature.docs.dependencies]
+mystmd = "*"
+
+[tool.pixi.feature.docs.tasks]
+# mystmd does not copy assets referenced from the custom stylesheet
+docs = { cmd = "rm -rf _build/html && myst build --html --strict && cp -r _static/fonts _build/html/fonts", cwd = "docs" }
+
 [tool.pixi.environments]
 default = { features = ["py314", "test", "build", "notebooks"], solve-group = "py314" }
 py312 = { features = ["py312", "test"], solve-group = "py312" }
 py313 = { features = ["py313", "test"], solve-group = "py313" }
 py314 = { features = ["py314", "test"], solve-group = "py314" }
 lint = { features = ["py314", "lint"], no-default-feature = true }
+docs = { features = ["py314", "docs"], no-default-feature = true }

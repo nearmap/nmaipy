@@ -23,6 +23,7 @@ Environments:
 - `default` — Python 3.14 with test, build (`python-build`, `twine`) and notebook (`ipykernel`, `matplotlib-base`) tools
 - `py312`, `py313`, `py314` — the test environment on each supported Python version
 - `lint` — `black` and `isort` only
+- `docs` — `mystmd`, for the documentation site
 
 ## Key Commands
 
@@ -94,6 +95,15 @@ Check formatting without changing files:
 ```bash
 pixi run lint
 ```
+
+### Documentation Site
+
+The documentation site at https://nearmap.github.io/nmaipy/ is built with MyST from `docs/` (`docs/index.md` includes `README.md`; the theme overrides live in `docs/_static/custom.css`). Build it into `docs/_build/html`:
+```bash
+pixi run docs
+```
+
+Preview it with `python -m http.server -d docs/_build/html`. The `Docs` workflow (`.github/workflows/docs.yml`) builds the site on pull requests and deploys it to GitHub Pages from `main`.
 
 ### Export Data
 
