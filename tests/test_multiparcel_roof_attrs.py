@@ -12,7 +12,7 @@ Covered here:
 - roof attribute cache (roof class, both frame layouts)
 - Building(New): child-roof RSI min/max AND headline resolved RSI
 - Building Lifecycle: primary-child-roof linkage and resolved RSI
-- roof-class RSI fallback via BL when the roof has no RSI of its own
+- roof-class RSI fallback via BL when the roof has no RSI of its own, including when no roof in the chunk has one
 - parcel_rollup: per-parcel RSI min/max via the chunk-hoisted parent lookup
 
 See the original roof-only bug: same roof, two parcels, RSI 15/0.57 (this
@@ -263,6 +263,34 @@ def test_multiparcel_roof_bl_fallback_rsi_uses_own_parcel_bl():
     # not parcel_north's BL clip (77). North roof keeps its own RSI.
     assert roof.loc["parcel_south", "roof_spotlight_index"] == 44
     assert roof.loc["parcel_north", "roof_spotlight_index"] == 96
+
+
+def test_roof_bl_fallback_rsi_when_no_roof_in_the_chunk_has_its_own():
+    """Roof export where no roof in the chunk has RSI of its own (e.g. every building damaged): the RSI resolved
+    through each parcel's BL must still reach the Roof file, which used to have no RSI columns at all."""
+    chunk = _make_chunk(
+        [
+            _roof_row("parcel_south", _SOUTH_GEOM, None, None, 691.0, with_rsi=False),
+            _roof_row("parcel_north", _NORTH_GEOM, None, None, 455.0, with_rsi=False),
+            _building_row("parcel_south", SHARED_BUILDING_FID, _SOUTH_GEOM, parent_id=SHARED_BL_FID),
+            _building_row("parcel_north", SHARED_BUILDING_FID, _NORTH_GEOM, parent_id=SHARED_BL_FID),
+            _bl_row("parcel_south", _SOUTH_GEOM, rsi_value=44, rsi_conf=0.61),
+            _bl_row("parcel_north", _NORTH_GEOM, rsi_value=77, rsi_conf=0.71),
+        ]
+    )
+    res = _compute_all_per_class_data(
+        chunk,
+        country="us",
+        aoi_input_columns=[],
+        whitelisted_classes=[ROOF_ID],
+        threads=1,
+    )
+    roof = res[ROOF_ID]["tabular"].to_pandas().set_index(AOI_ID_COLUMN_NAME)
+
+    assert "roof_spotlight_index" in roof.columns, "Roof file should carry the RSI resolved through the BL"
+    assert roof.loc["parcel_south", "roof_spotlight_index"] == 44, "south roof should take its own parcel's BL RSI"
+    assert roof.loc["parcel_north", "roof_spotlight_index"] == 77, "north roof should take its own parcel's BL RSI"
+    assert roof.loc["parcel_north", "roof_spotlight_index_confidence"] == 0.71
 
 
 def test_multiparcel_rollup_rsi_min_max_use_own_parcel_clip():
