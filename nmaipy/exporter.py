@@ -1789,12 +1789,18 @@ def _compute_feature_class_data(
 
                 rsi_result = _resolve_rsi_batch(n_rows, _resolve_roof_rsi)
                 if rsi_result is not None:
-                    rsi_vals, rsi_conf, rsi_mver = rsi_result
-                    # Overwrite roof_spotlight_index in existing df_parts
-                    for part in df_parts:
-                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                    # Overwrite the roofs' own RSI columns, and add any that no roof in the chunk had of its own.
+                    rsi_batch = {}
+                    for col, arr in zip(_RSI_COLUMNS, rsi_result):
+                        if col not in added_cols:
+                            rsi_batch[col] = arr
+                            continue
+                        for part in df_parts:
                             if col in part.columns:
                                 part[col] = arr
+                    if rsi_batch:
+                        df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
+                        added_cols.update(rsi_batch)
         except Exception:
             logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 

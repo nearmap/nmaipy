@@ -4,7 +4,6 @@ import json
 
 import geopandas as gpd
 import pandas as pd
-import pytest
 
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
@@ -18,7 +17,6 @@ from nmaipy.constants import (
 from nmaipy.parcels import (
     _build_parent_lookup_by_aoi,
     build_parent_lookup,
-    build_parent_lookup_by_aoi,
     extract_rsi_from_feature,
     resolve_footprint_rsi,
 )
@@ -174,8 +172,3 @@ class TestParentLookupRows:
         frame.loc[frame["feature_id"] == "lifecycle", "roof_spotlight_index"] = [{"value": 42, "confidence": 0.8}]
         lookup = _build_parent_lookup_by_aoi(frame)["aoi_1"]
         assert resolve_footprint_rsi(lookup["building"], parent_lookup=lookup)["roof_spotlight_index"] == 42
-
-    def test_deprecated_public_name_warns_and_returns_the_chunk_lookup(self):
-        with pytest.warns(DeprecationWarning, match="build_parent_lookup_by_aoi"):
-            lookup = build_parent_lookup_by_aoi(self._frame())
-        assert lookup == _build_parent_lookup_by_aoi(self._frame())
