@@ -1,11 +1,4 @@
-"""Roof Age instance link on gridded AOIs: compare the roof outline clipped to the AOI.
-
-Roof Age cuts instances per lot, along lot lines that can differ slightly from the
-AOI's. A gridded AOI's roof outline is whole (parcelMode off), so against a row
-crossing the AOI boundary, a larger neighbouring lot whose instance overlaps the AOI
-by a sliver wins the link. ``_link_roof_instances`` compares the outline clipped to
-the AOI instead, and the linked roofs keep their whole outline.
-"""
+"""Gridded AOIs link Roof Age instances by the roof outline clipped to the AOI."""
 
 import geopandas as gpd
 import pytest
@@ -16,8 +9,7 @@ from nmaipy.constants import API_CRS
 from nmaipy.exporter import _link_roof_instances
 
 _AOI = box(0, 0, 10, 10)
-# A row roof 2 units inside the AOI and 4 outside. Roof Age's lot line sits 0.05 inside
-# the AOI's boundary, so the neighbouring lot's instance overlaps the AOI by a sliver.
+# A row roof crossing the AOI boundary; Roof Age's lot line is 0.05 inside it, so the neighbour's lot overlaps the AOI.
 _ROW_ROOF = box(8, 1, 14, 2)
 _OUR_LOT = box(8, 1, 9.95, 2)
 _NEIGHBOURS_LOT = box(9.95, 1, 14, 2)

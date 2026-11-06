@@ -664,9 +664,7 @@ def _clip_roof_geoms_to_aoi(
 def _link_roof_instances(roof_age_gdf: gpd.GeoDataFrame, roofs_gdf: gpd.GeoDataFrame, aoi_geometries: dict) -> tuple:
     """``parcels.link_roof_instances_to_roofs``, comparing gridded AOIs' roofs by their AOI-clipped outline.
 
-    Roof Age instances are cut per lot, while a gridded AOI's roof outline is whole,
-    so a roof crossing the AOI boundary is compared by its part inside the AOI
-    (``_clip_roof_geoms_to_aoi``). The returned roofs keep their whole outline.
+    Roof Age instances are pre-cut to lots. The returned roofs keep their whole outline.
     """
     if not aoi_geometries:
         return parcels.link_roof_instances_to_roofs(roof_age_gdf, roofs_gdf)
@@ -3833,25 +3831,12 @@ class NearmapAIExporter(BaseExporter):
                 gridded_mask = metadata_df["gridded"].eq(True)
                 gridded_aoi_ids = set(metadata_df.index[gridded_mask])
 
-            # Map aoi_id -> parcel geometry (API_CRS) so clipped-roof
-            # component recalculation can clip the roof parent to its
-            # parcel. Restricted to GRIDDED AOIs only: gridding disables
-            # parcelMode, so those rows store the whole (unclipped) roof
-            # outline against a parcel-clipped area — without the clip the
-            # recomputed component areas come out at whole-roof magnitude.
-            # Non-gridded parcelMode AOIs are deliberately excluded:
-            # multiparcel roofs are already clipped (clippedGeometry) and
-            # slight-overhang (belongs-to-parcel) roofs must keep
-            # whole-roof analysis. Cheap map build (one entry per AOI). The Roof Age
-            # link below uses the same clip (_link_roof_instances).
+            # aoi_id -> AOI polygon, for GRIDDED AOIs only: their roof outlines are whole
+            # (parcelMode off), so the component recalculation and the Roof Age link clip
+            # roofs to the AOI. parcelMode AOIs keep the API's clippedGeometry.
             aoi_geometries = None
             if gridded_aoi_ids and isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
-                # Key by _aoi_id_values (the same derivation the consumer
-                # _clip_roof_geoms_to_aoi uses on the roof rows) so the map
-                # keys match regardless of whether aoi_id is the index or a
-                # column. If aoi_id can't be resolved, leave the map None so
-                # the clip degrades to a no-op rather than silently
-                # mis-keying every AOI.
+                # Keyed as _clip_roof_geoms_to_aoi keys the roofs; no aoi_id, no clip.
                 try:
                     aoi_ids = _aoi_id_values(aoi_gdf)
                 except ValueError:
