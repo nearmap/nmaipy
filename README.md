@@ -1,5 +1,7 @@
 # nmaipy - Nearmap AI Python Library
 
+[![PyPI](https://img.shields.io/pypi/v/nmaipy.svg)](https://pypi.org/project/nmaipy/) [![conda-forge](https://img.shields.io/conda/vn/conda-forge/nmaipy.svg)](https://anaconda.org/conda-forge/nmaipy)
+
 Extract building footprints, vegetation, damage assessments, roof condition, and other AI features from Nearmap's aerial imagery using simple Python code.
 
 **Supported countries:** `au` (Australia), `us` (United States), `nz` (New Zealand), `ca` (Canada)
