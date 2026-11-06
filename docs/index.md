@@ -18,5 +18,5 @@ Nearmap AI Python Library
 :::
 
 ```{include} ../README.md
-:start-line: 1
+:start-line: 3
 ```
