@@ -1878,7 +1878,8 @@ def _compute_feature_class_data(
             # Remove any columns that would be duplicates
             bldg_batch = {k: v for k, v in bldg_batch.items() if k not in added_cols}
             if bldg_batch:
-                df_parts.append(pd.DataFrame(bldg_batch, index=range(n_rows)))
+                # By position: class_features keeps the chunk's index labels.
+                df_parts.append(pd.DataFrame({k: v.to_numpy() for k, v in bldg_batch.items()}, index=range(n_rows)))
                 added_cols.update(bldg_batch.keys())
         except Exception as e:
             logger.debug(f"Could not flatten building attributes: {e}")
