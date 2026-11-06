@@ -11,7 +11,7 @@ Execute the full release workflow for nmaipy.
 
 - Branch: !`git branch --show-current`
 - Git status: !`git status --short`
-- Current version: !`python -c "from nmaipy import __version__; print(__version__)"`
+- Current version: !`pixi run python -c "from nmaipy import __version__; print(__version__)"`
 - Latest GitHub release: !`gh release list --limit 1 2>/dev/null || echo "No releases found"`
 - Latest git tag: !`git describe --tags --abbrev=0 2>/dev/null || echo "No tags found"`
 
@@ -28,12 +28,12 @@ Execute these steps in order, stopping if any step fails:
    - If version hasn't been bumped, stop and ask user to update version first
 
 3. **Enforce code formatting**
-   - Run `black -l 120 nmaipy/ tests/` and `isort nmaipy/ tests/`
+   - Run `pixi run format` (black and isort, configured in `pyproject.toml`)
    - If any files were reformatted, stage them and present a suggested commit message for user review
    - This ensures consistent formatting before release
 
 4. **Run test suite (including live API)**
-   - Run `pytest` (all tests, including live API — requires `API_KEY` env var) and verify all tests pass
+   - Run `pixi run pytest` (all tests, including live API — requires `API_KEY` env var) and verify all tests pass
    - A release must pass the full test suite, not just the non-live subset
    - If tests fail, attempt to fix failures where appropriate (obvious bugs, missing imports, etc.)
    - Stage any fixes and present a suggested commit message for user review
@@ -52,10 +52,8 @@ Execute these steps in order, stopping if any step fails:
    - Always build, tag, and release from an up-to-date `main` — never from the feature branch.
 
 7. **Build and publish to PyPI**
-   - Clean old builds: `rm -rf dist/ build/ *.egg-info`
-   - Build: `python -m build`
-   - Verify: `twine check dist/*`
-   - Upload: `twine upload dist/*`
+   - Build: `pixi run build` (clears `dist/`, builds the sdist and wheel, and runs `twine check --strict`)
+   - Upload: `pixi run twine upload dist/*`
 
 8. **Write release notes** (do this *before* pushing the tag, so they're ready to apply in step 10)
    - Review all changes since last release: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
@@ -117,6 +115,10 @@ Execute these steps in order, stopping if any step fails:
      The recipe's `pip_check: true` test fails CI when a declared dep is missing, so a red CI
      on the bot PR usually means a `run:` dep needs adding.
 
+   - **Reconcile the build backend.** nmaipy builds with hatchling. If the recipe's
+     `requirements.host` still lists `setuptools` and `wheel`, replace them with
+     `hatchling >=1.27` in the same push.
+
    - **Merge on green CI.** You must be a listed maintainer
      (`extra.recipe-maintainers` — currently `mbewley`, `bretttully`).
 
@@ -132,4 +134,4 @@ Report the final status with links to:
 - conda-forge feedstock PR (note whether dependency edits were needed). This is
   asynchronous and may still be open/pending when the rest of the release is done.
 
-**Note:** After the tag is pushed, the Release Validation workflow runs automatically: it runs tests, verifies the tag matches the version, **creates the GitHub release** (empty notes, `prerelease: false`) and attaches the build artifacts, then verifies the version is live on PyPI (with `--pre`, so pre-releases are found). Step 10 finalizes the notes and pre-release flag on the release this workflow creates.
+**Note:** After the tag is pushed, the Release Validation workflow runs automatically: it runs tests, verifies the tag matches the version, **creates the GitHub release** (empty notes, `prerelease: false`) and attaches the build artifacts, then verifies the version is live on PyPI. Step 10 finalizes the notes and pre-release flag on the release this workflow creates.

@@ -11,24 +11,20 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.11.3
       with:
-        python-version: '3.12'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-
-    - name: Install dependencies
-      run: uv pip install --system -e ".[dev]"
+        pixi-version: v0.83.0
+        environments: py312 default
+        locked: true
 
     - name: Run tests
-      run: pytest -m "not live_api and not integration"
+      run: pixi run -e py312 test
 
     - name: Get version
       id: get_version
       run: |
-        echo "VERSION=$(python -c 'from nmaipy import __version__; print(__version__)')" >> $GITHUB_OUTPUT
+        echo "VERSION=$(pixi run -e py312 python -c 'from nmaipy import __version__; print(__version__)')" >> $GITHUB_OUTPUT
 
     - name: Verify tag matches version
       run: |
@@ -40,7 +36,7 @@ jobs:
         fi
 
     - name: Build package
-      run: python -m build
+      run: pixi run build
 
     - name: Upload artifacts to release
       uses: softprops/action-gh-release@v2
@@ -54,7 +50,7 @@ jobs:
         echo "Checking for nmaipy $VERSION on PyPI..."
         for i in 1 2 3; do
           echo "Attempt $i/3..."
-          if pip index versions nmaipy --pre 2>/dev/null | grep -q "$VERSION"; then
+          if curl -sf "https://pypi.org/pypi/nmaipy/$VERSION/json" > /dev/null; then
             echo "Found nmaipy $VERSION on PyPI"
             exit 0
           fi

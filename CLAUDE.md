@@ -4,41 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Environment Setup
 
-To set up the environment for nmaipy, use conda with the provided environment.yaml file:
+The development environment is managed by [pixi](https://pixi.sh) from the `[tool.pixi.*]` tables in `pyproject.toml`, locked in `pixi.lock`. Every package, including nmaipy itself (built by pixi-build from `[project.dependencies]`), comes from conda-forge; nothing is installed from PyPI. The old `nmaipy` conda environment is no longer used.
+
+From a fresh clone:
 
 ```bash
-conda env create -f environment.yaml
-conda activate nmaipy
+conda deactivate                                # if the old nmaipy conda env is active
+curl -fsSL https://pixi.sh/install.sh | sh      # install pixi (0.83 or newer); then open a new shell
+pixi install                                    # create the default environment in .pixi/
+pixi run test                                   # run the offline test suite
 ```
 
-Alternatively, you can install the package with development dependencies:
+On Windows, install pixi with `powershell -ExecutionPolicy ByPass -c "irm -useb https://pixi.sh/install.ps1 | iex"`. Once nothing else needs it, the old environment can be removed with `conda env remove -n nmaipy`.
 
-```bash
-pip install -e ".[dev]"
-```
+Run any command inside an environment with `pixi run <cmd>` (e.g. `pixi run python nmaipy/exporter.py ...`), or start a shell with it activated with `pixi shell`. Pick a non-default environment with `-e <env>`.
+
+Environments:
+- `default` — Python 3.14 with test, build (`python-build`, `twine`) and notebook (`ipykernel`, `matplotlib-base`) tools
+- `py312`, `py313`, `py314` — the test environment on each supported Python version
+- `lint` — `black` and `isort` only
 
 ## Key Commands
 
 ### Running Tests
 
-Run all tests (excluding live API tests):
+Run all tests (excluding live API tests; the `test` task runs `pytest -m "not live_api"`):
 ```bash
-pytest -m "not live_api"
+pixi run test
+```
+
+Run them on a specific Python version:
+```bash
+pixi run -e py312 test
 ```
 
 Run all tests including live API (requires `API_KEY` env var):
 ```bash
-pytest
+pixi run pytest
 ```
 
 Run a specific test file:
 ```bash
-pytest tests/test_parcels.py
+pixi run pytest tests/test_parcels.py
 ```
 
 Run a specific test:
 ```bash
-pytest tests/test_parcels.py::test_function_name
+pixi run pytest tests/test_parcels.py::test_function_name
 ```
 
 #### End-to-End Testing
@@ -50,7 +62,7 @@ End-to-end tests against the live API are a critical way to validate new feature
 
 To run an end-to-end test (requires `API_KEY`), choose parameters appropriate to the feature being tested — packs, flags, country, etc. will vary by context. Example:
 ```bash
-python nmaipy/exporter.py \
+pixi run python nmaipy/exporter.py \
     --aoi-file tests/data/test_parcels_2.csv \
     --output-dir data/my_test_output \
     --country us \
@@ -69,21 +81,19 @@ Output directly to a subfolder under `data/` so files can be reviewed in the IDE
 - `unit` — unit tests
 - `slow` — long-running tests
 
-Deselect markers with `-m`, e.g.: `pytest -m "not live_api and not slow"`
+Deselect markers with `-m`, e.g.: `pixi run pytest -m "not live_api and not slow"`
 
 ### Code Formatting
 
-Format code with black:
+Format code with black and sort imports with isort:
 ```bash
-black nmaipy tests
+pixi run format
 ```
 
-Sort imports with isort:
+Check formatting without changing files:
 ```bash
-isort nmaipy tests
+pixi run lint
 ```
-
-Note: `ruff` is also available in the conda environment for linting.
 
 ### Export Data
 
@@ -401,8 +411,8 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 
 ### Configuration Files
 
-- **pyproject.toml**: Package metadata, dependencies, build config. Python >=3.12 required.
-- **environment.yaml** / **environment-minimal.yaml**: Conda environment specifications.
+- **pyproject.toml**: Package metadata and dependencies, the hatchling build config, and the pixi workspace, package and environments. Python >=3.12 required.
+- **pixi.lock**: Locked conda-forge solve for every pixi environment. Regenerate with `pixi lock` after changing `pyproject.toml`; never edit by hand.
 
 ### Data Flow
 

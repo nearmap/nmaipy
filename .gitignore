@@ -28,3 +28,5 @@ run_*.py
 run.sh
 .DS_Store
 *INDS-*.md
+.pixi/
+docs/_build/
