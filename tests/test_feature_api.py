@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
+import orjson
 import pandas as pd
 import pytest
 import requests
@@ -34,7 +35,12 @@ from nmaipy.constants import (
     SOLAR_ID,
     VEG_MEDHIGH_ID,
 )
-from nmaipy.feature_api import TIMEOUT_SECONDS, AIFeatureAPIRequestSizeError, FeatureApi
+from nmaipy.feature_api import (
+    ORJSON_TRUNCATED_MSG,
+    TIMEOUT_SECONDS,
+    AIFeatureAPIRequestSizeError,
+    FeatureApi,
+)
 
 
 @pytest.mark.live_api
@@ -1251,6 +1257,67 @@ class TestEmptyBody502Handling:
         assert error["status_code"] == HTTPStatus.BAD_GATEWAY
         assert error["message"] == "upstream application error"
         assert error["failure_type"] == "standard"
+
+
+class TestTruncatedJsonLogging:
+    """A 200 whose body fails to parse is gridded either way; only the log level differs.
+
+    A truncated body is the expected sign of an over-large response and logs at debug, so a
+    burst of them doesn't flood the log. Any other parse error keeps its warning, since it
+    may be a payload stdlib json accepted but orjson rejects, masquerading as a size error.
+    """
+
+    @staticmethod
+    def _test_polygon():
+        return Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+    def test_orjson_truncation_message_is_pinned(self):
+        """feature_api matches orjson's truncation message as text, so a wording change must fail here."""
+        with pytest.raises(orjson.JSONDecodeError) as exc_info:
+            orjson.loads(b'{"features": [{"id": "abc", "geometry": {"type": "Polygon", "coordinates": [[1.5')
+        assert (
+            exc_info.value.msg == ORJSON_TRUNCATED_MSG
+        ), f"orjson's truncation message changed to {exc_info.value.msg!r}; update ORJSON_TRUNCATED_MSG"
+
+    @pytest.mark.parametrize(
+        "content, expected_level",
+        [
+            (b'{"features": [{"id": "abc", "geometry": {"type": "Poly', logging.DEBUG),
+            (b'{"features": [], "value": NaN}', logging.WARNING),
+            (b'\xef\xbb\xbf{"features": []}', logging.WARNING),
+        ],
+        ids=["truncated", "nan-literal", "bom"],
+    )
+    def test_parse_error_grids_and_logs_at_expected_level(self, caplog, content, expected_level):
+        """Every unparseable 200 raises a size error; only non-truncation errors warn."""
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+        response = MagicMock()
+        response.ok = True
+        response.content = content
+
+        # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.DEBUG, logger="nmaipy"):
+                with patch("requests.Session.post", return_value=response):
+                    with pytest.raises(AIFeatureAPIRequestSizeError):
+                        api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
+
+        parse_records = [r for r in caplog.records if "JSON" in r.getMessage() and "200 response" in r.getMessage()]
+        assert (
+            len(parse_records) == 1
+        ), f"Expected one parse-error log record, got {[r.getMessage() for r in parse_records]}"
+        assert parse_records[0].levelno == expected_level, (
+            f"Expected level {logging.getLevelName(expected_level)}, got {parse_records[0].levelname}: "
+            f"{parse_records[0].getMessage()}"
+        )
+        warnings_logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings_logged) == (
+            1 if expected_level == logging.WARNING else 0
+        ), f"Unexpected warnings: {[r.getMessage() for r in warnings_logged]}"
 
 
 class TestBulkUnexpectedErrorHandling:
