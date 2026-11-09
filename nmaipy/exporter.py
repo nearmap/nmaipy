@@ -599,9 +599,18 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
+def _intersection_or_none(geom, clip_geom):
+    """``geom ∩ clip_geom``, or None when GEOS cannot compute it (an invalid ``geom``)."""
+    try:
+        return geom.intersection(clip_geom)
+    except shapely.errors.GEOSException:
+        return None
+
+
 def _clip_roof_geoms_to_aoi(
     parent_gdf: gpd.GeoDataFrame,
     aoi_geometries: dict,
+    purpose: str,
 ) -> "gpd.GeoSeries":
     """Clip each roof (parent) geometry to its own AOI/parcel polygon.
 
@@ -623,6 +632,15 @@ def _clip_roof_geoms_to_aoi(
     roofs arrive pre-clipped (``clippedGeometry``) and their slight-overhang
     (belongs-to-parcel) roofs are deliberately analysed whole-roof.
 
+    AOIs are valid by the time they reach here (``aoi_io`` drops invalid ones), so a
+    clip can only fail on an invalid roof. That roof keeps its whole outline, and the
+    rest of its AOI's roofs are still clipped.
+
+    Args:
+        parent_gdf: Roofs to clip, keyed by aoi_id (index or column).
+        aoi_geometries: aoi_id -> AOI polygon in API_CRS, for gridded AOIs only.
+        purpose: What the clip is for, named in the warning when a roof can't be clipped.
+
     Returns a GeoSeries aligned (by position and index) with ``parent_gdf``.
     """
     aoi_vals = _aoi_id_values(parent_gdf)
@@ -639,22 +657,22 @@ def _clip_roof_geoms_to_aoi(
             continue
         sub = gpd.GeoSeries([geoms[p] for p in positions], crs=crs)
         try:
-            clipped = sub.intersection(clip_geom)
-        except Exception as e:
-            # Defensive: a topology error on one AOI must not abort the whole
-            # chunk. Keep the unclipped outline(s) for this AOI — this
-            # reintroduces whole-roof component magnitudes for the AOI, so
-            # warn rather than debug.
+            clipped = list(sub.intersection(clip_geom))
+        except shapely.errors.GEOSException as e:
+            # One invalid roof fails the whole vectorized call, so clip this AOI's roofs one at a
+            # time: only the roofs that fail keep their whole outline. Warn, because each of those
+            # gets whole-roof magnitudes downstream.
+            clipped = [_intersection_or_none(g, clip_geom) for g in sub]
             logger.warning(
-                "Roof→parcel clip failed for AOI %s (%d roof(s)): %s; keeping unclipped outline(s).",
-                aoi_id,
+                "%s: could not clip %d of %d roof(s) to AOI %s (%s); keeping their whole outline(s).",
+                purpose,
+                sum(c is None for c in clipped),
                 len(positions),
+                aoi_id,
                 e,
             )
-            continue
-        for k, p in enumerate(positions):
-            c = clipped.iloc[k]
-            # Keep the original outline if the intersection is empty/invalid
+        for p, c in zip(positions, clipped):
+            # Keep the original outline if the intersection is empty or failed
             # rather than blanking the parent (an empty parent disables recalc).
             if c is not None and not c.is_empty:
                 geoms[p] = c
@@ -669,9 +687,12 @@ def _link_roof_instances(roof_age_gdf: gpd.GeoDataFrame, roofs_gdf: gpd.GeoDataF
     if not aoi_geometries:
         return parcels.link_roof_instances_to_roofs(roof_age_gdf, roofs_gdf)
     link_roofs_gdf = roofs_gdf.copy()
-    link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries).values
+    link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries, "Roof Age link").values
     roof_instances_linked, roofs_linked = parcels.link_roof_instances_to_roofs(roof_age_gdf, link_roofs_gdf)
-    # link_roof_instances_to_roofs returns the roofs in their input order.
+    # The whole outlines go back by position, which link_roof_instances_to_roofs guarantees. A feature_id
+    # can repeat across AOIs, so it is no key. Check the order rather than risk a roof getting another's outline.
+    if not np.array_equal(roofs_linked["feature_id"].to_numpy(), roofs_gdf["feature_id"].to_numpy()):
+        raise RuntimeError("link_roof_instances_to_roofs reordered the roofs; their whole outlines can't be restored")
     roofs_linked["geometry"] = roofs_gdf.geometry.values
     return roof_instances_linked, roofs_linked
 
@@ -705,7 +726,7 @@ def _batch_project_geometries(
     projected_crs = AREA_CRS[country.lower()]
     parent_geom = parent_gdf.geometry
     if aoi_geometries:
-        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries)
+        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries, "Roof component recalculation")
     parent_projected = parent_geom.to_crs(projected_crs)
     child_proj_by_aoi = {}
     for aoi_id, children in child_by_aoi.items():

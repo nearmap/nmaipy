@@ -127,11 +127,11 @@ def _tile_child_row(aoi_id="parcel-a"):
 def test_clip_roof_geoms_to_aoi_yields_clipped_parent():
     """`_clip_roof_geoms_to_aoi` returns the parcel-clipped roof, not the whole outline."""
     roof_gdf = gpd.GeoDataFrame([_roof_row()], geometry="geometry", crs=API_CRS)
-    clipped = _clip_roof_geoms_to_aoi(roof_gdf, {"parcel-a": _PARCEL})
+    clipped = _clip_roof_geoms_to_aoi(roof_gdf, {"parcel-a": _PARCEL}, "test")
     assert _proj_area_sqft(clipped.iloc[0]) == pytest.approx(_CLIPPED_ROOF_SQFT, rel=1e-6)
 
     # No AOI geometry available for this AOI → original (whole) outline kept.
-    unchanged = _clip_roof_geoms_to_aoi(roof_gdf, {})
+    unchanged = _clip_roof_geoms_to_aoi(roof_gdf, {}, "test")
     assert _proj_area_sqft(unchanged.iloc[0]) == pytest.approx(_UNCLIPPED_ROOF_SQFT, rel=1e-6)
 
 
