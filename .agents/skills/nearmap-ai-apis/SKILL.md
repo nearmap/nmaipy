@@ -51,7 +51,7 @@ A user's API key sets what they can access: which feature and attribute classes,
    - Always end with a **What to tell the user** section: plain-language text the asker can paste straight into an email or Slack message. Write it for the user, not the asker. Leave out internal references (source files, function names, reference-file tags, test details) and mention nmaipy only if the user received an nmaipy export.
      - Name every value by where the user finds it: its path in the response (e.g. the roof feature's `attributes[]` entry "Roof overhang attributes" → `components[]` "Tree Overhang" → `ratio`), or the column name for an nmaipy export. Never a loose description such as "the whole-roof attributes".
      - Only describe values the user can see or calculate themselves. Show a calculation from the fields they have rather than saying a value was "worked out".
-     - Don't use the peril scores (e.g. `hurricaneScore`) or `defensibleSpace` to demonstrate behaviour unless the question is about them. Many users don't request them.
+     - Don't use the peril scores (e.g. `hurricaneScore`) or `defensibleSpace` to demonstrate behaviour unless the question is about them.
 7. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references and the official documentation state.
 8. **Leave commercial questions to the account manager.** For credits, pricing, licensing or where a user may display the data, say what the official docs state and refer the rest to their account manager. Quote the docs rather than interpreting contract or legal terms, and don't point users to deprecated endpoints.
 
