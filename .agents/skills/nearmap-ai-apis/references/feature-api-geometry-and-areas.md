@@ -86,6 +86,10 @@ These are two different kinds of per-roof data, with different clipping behaviou
 
   For slight-overhang and fully inside roofs they are whole-roof values, identical to parcelMode off.
 
+A component's whole-roof `ratio` sits on the roof feature at `attributes[]` (the entry whose `description` is e.g. "Roof material", "Roof types" or "Roof overhang attributes") → `components[]` (e.g. "Tree Overhang") → `ratio` [live].
+
+**Per-lot component ratio from basic fields.** Σ `clippedAreaSqm` of the component's child features (`parentId` = the roof's `id`, e.g. `description` "Tree Overhang") ÷ the roof's `clippedAreaSqm` [live]. On 21 bundled NJ lots, each split through its largest roof (November 2026, `building` and `roof_char` packs), it matched nmaipy's `tree_overhang_ratio` and `hurricaneScore.modelInputFeatures.treeOverhangRatio` within 0.002 on all 27 halves with a multiparcel roof. With parcelMode off it gave the same per-lot figures within 0.001, while the hurricane figure was whole-roof. Use this calculation to explain per-lot values: it needs no score includes.
+
 For example, `hurricaneScore.modelInputFeatures.treeOverhangRatio` is the clipped part's tree overhang ratio for a multiparcel roof, and the whole roof's ratio otherwise.
 
 nmaipy flattens includes into columns such as `roof_spotlight_index`, `hurricane_vulnerability_score` and `hurricane_vulnerability_model_input_tree_overhang_ratio`, passing the values through unchanged [nmaipy].
