@@ -8,6 +8,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+import shapely
 from shapely.affinity import affine_transform
 from shapely.geometry import Polygon, box
 
@@ -88,9 +89,12 @@ def test_only_gridded_aois_are_clipped_and_every_roof_keeps_its_outline():
 
 
 def test_an_invalid_roof_keeps_its_outline_without_unclipping_the_rest_of_its_aoi(caplog):
-    """One invalid roof fails GEOS's vectorized clip; only that roof keeps its whole outline."""
+    """One invalid roof fails GEOS's vectorized clip; only that roof keeps its whole outline.
+
+    A roof with no geometry in the same AOI passes through as None and isn't counted as a failure.
+    """
     bowtie = Polygon([(8, 4), (12, 6), (12, 4), (8, 6), (8, 4)])
-    roofs = _roofs(("a", "row", _ROW_ROOF), ("a", "bowtie", bowtie))
+    roofs = _roofs(("a", "row", _ROW_ROOF), ("a", "bowtie", bowtie), ("a", "no-geometry", None))
 
     nmaipy_logger = logging.getLogger("nmaipy")
     nmaipy_logger.addHandler(caplog.handler)  # propagate=False, so attach caplog's handler directly
@@ -102,24 +106,35 @@ def test_an_invalid_roof_keeps_its_outline_without_unclipping_the_rest_of_its_ao
 
     assert clipped.iloc[0].equals(box(8, 1, 10, 2)), "The valid roof must still be clipped to its AOI"
     assert clipped.iloc[1].equals(bowtie), "The invalid roof must keep its whole outline"
+    assert clipped.iloc[2] is None, "A roof with no geometry must pass through untouched"
     messages = [r.getMessage() for r in caplog.records]
-    assert len(messages) == 1 and messages[0].startswith(
-        "Roof Age link: could not clip 1 of 2 roof(s) to AOI a"
-    ), f"Expected one warning naming the caller and the failed count, got {messages}"
+    assert len(messages) == 1, f"Expected one warning, got {messages}"
+    assert messages[0].startswith("Roof Age link: could not clip 1 of 3 roof(s) to AOI a"), messages[0]
+    assert messages[0].endswith("Feature IDs: ['bowtie']"), messages[0]
 
 
-def test_link_refuses_to_restore_outlines_onto_reordered_roofs(monkeypatch):
-    """Whole outlines go back by position, so a link that reordered the roofs must fail, not swap outlines."""
+@pytest.mark.parametrize(
+    "roof_rows, reorder",
+    [
+        ([("a", "a-row", _ROW_ROOF), ("a", "a-shed", _SHED)], lambda df: df.iloc[::-1]),
+        # One roof spanning two AOIs: the feature_id sequence is identical after the swap.
+        ([("b", "row", _ROW_ROOF), ("a", "row", _ROW_ROOF)], lambda df: df.sort_index(kind="stable")),
+        ([("a", "a-row", _ROW_ROOF), ("a", "a-shed", _SHED)], lambda df: df.iloc[:1]),
+    ],
+    ids=["reversed", "same-feature-in-two-aois", "row-dropped"],
+)
+def test_link_refuses_to_restore_outlines_onto_reordered_roofs(monkeypatch, roof_rows, reorder):
+    """Whole outlines go back by position, so a link that moved the roofs must fail, not swap outlines."""
     real_link = parcels.link_roof_instances_to_roofs
 
     def reordering_link(roof_age_gdf, roofs_gdf):
         instances_linked, roofs_linked = real_link(roof_age_gdf, roofs_gdf)
-        return instances_linked, roofs_linked.iloc[::-1]
+        return instances_linked, reorder(roofs_linked)
 
     monkeypatch.setattr(parcels, "link_roof_instances_to_roofs", reordering_link)
-    roofs = _roofs(("a", "a-row", _ROW_ROOF), ("a", "a-shed", _SHED))
-    with pytest.raises(RuntimeError, match="reordered the roofs"):
-        _link_roof_instances(_instances(*_row_instances("a")), roofs, {"a": _AOI})
+    instances = _instances(*_row_instances("a"), *_row_instances("b"))
+    with pytest.raises(RuntimeError, match="reordered or changed the roofs"):
+        _link_roof_instances(instances, _roofs(*roof_rows), {"a": _AOI, "b": _AOI})
 
 
 class TestProcessChunkWiring:
@@ -216,16 +231,16 @@ class TestProcessChunkWiring:
         metadata = pd.DataFrame({"resource_id": ["r"] * 2}, index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME))
         return instances, metadata, pd.DataFrame()
 
-    def test_only_gridded_aois_reach_the_link_clipped(self, exporter, monkeypatch):
-        calls = []
-        real_link = exporter_mod._link_roof_instances
+    def test_only_gridded_aois_are_clipped_and_the_chunk_writes_their_links(self, exporter, monkeypatch):
+        clips = set()
+        real_clip = exporter_mod._clip_roof_geoms_to_aoi
 
-        def recording_link(roof_age_gdf, roofs_gdf, aoi_geometries):
-            result = real_link(roof_age_gdf, roofs_gdf, aoi_geometries)
-            calls.append((aoi_geometries, result))
-            return result
+        def recording_clip(parent_gdf, aoi_geometries, purpose):
+            clips.add((purpose, tuple(sorted(aoi_geometries))))
+            assert aoi_geometries["p1"].equals(self._place(_AOI, "p1")), "The clip map must hold p1's AOI polygon"
+            return real_clip(parent_gdf, aoi_geometries, purpose)
 
-        monkeypatch.setattr(exporter_mod, "_link_roof_instances", recording_link)
+        monkeypatch.setattr(exporter_mod, "_clip_roof_geoms_to_aoi", recording_clip)
         classes_df = pd.DataFrame({"description": ["Roof"]}, index=pd.Index([ROOF_ID], name="id"))
         with (
             patch("nmaipy.exporter.FeatureApi") as feature_api,
@@ -236,12 +251,19 @@ class TestProcessChunkWiring:
             roof_age_api.return_value.get_roof_age_bulk.return_value = self._roof_age_response()
             exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(), classes_df=classes_df)
 
-        assert (Path(exporter.chunk_path) / "rollup_0000.parquet").exists(), "The chunk must complete"
-        assert len(calls) == 1, f"Expected one Roof Age link per chunk, got {len(calls)}"
-        aoi_geometries, (_, roofs_linked) = calls[0]
-        assert aoi_geometries is not None, "process_chunk built no clip map, so the gridded AOI's roof went unclipped"
-        assert set(aoi_geometries) == {"p1"}, f"Only the gridded AOI belongs in the clip map, got {set(aoi_geometries)}"
-        assert aoi_geometries["p1"].equals(self._place(_AOI, "p1"))
-        primary = _by_feature_id(roofs_linked)["primary_child_roof_age_feature_id"]
+        chunk_path = Path(exporter.chunk_path)
+        assert (chunk_path / "rollup_0000.parquet").exists(), "The chunk must complete"
+        # Both users of the clip map must get it, holding exactly the gridded AOI.
+        assert clips == {("Roof Age link", ("p1",)), ("Roof component recalculation", ("p1",))}, clips
+
+        roofs = pd.read_parquet(chunk_path / "roof_0000.parquet").set_index("feature_id")
+        primary = roofs["primary_child_roof_age_feature_id"]
         assert primary["p1-row"] == "p1-ours", "The gridded AOI's roof must link by its AOI-clipped outline"
         assert primary["p2-row"] == "p2-neighbour", "The non-gridded AOI's roof must link by its whole outline"
+        # Per-class chunk files hold geometry as plain WKB.
+        roof_features = pd.read_parquet(chunk_path / "roof_features_0000.parquet").set_index("feature_id")
+        for aoi_id in ("p1", "p2"):
+            written = shapely.from_wkb(roof_features.loc[f"{aoi_id}-row", "geometry"])
+            assert written.equals_exact(
+                self._place(_ROW_ROOF, aoi_id), tolerance=1e-12
+            ), f"{aoi_id}'s roof must be written with its whole outline"
