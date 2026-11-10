@@ -425,15 +425,19 @@ class TestRobustFileReading:
         finally:
             Path(parquet_path).unlink()
 
-    @pytest.mark.parametrize("suffix,driver", [("geojson", "GeoJSON"), ("gpkg", "GPKG")])
-    def test_since_until_come_back_as_date_strings(self, tmp_path, suffix, driver):
-        """GeoJSON/GeoPackage readers parse YYYY-MM-DD values as datetimes, which the exporters
-        reject; read_from_file must return them as strings, keeping nulls null."""
+    @pytest.mark.parametrize("suffix,driver,date_typed", [("geojson", "GeoJSON", False), ("gpkg", "GPKG", True)])
+    def test_since_until_come_back_as_date_strings(self, tmp_path, suffix, driver, date_typed):
+        """GeoJSON readers parse YYYY-MM-DD text, and GeoPackage readers a date-typed field, as datetimes, which
+        the exporters reject; read_from_file must return them as strings, keeping nulls null."""
+        since, until = ["2025-03-06", None], ["2025-12-31", None]
+        if date_typed:
+            # A GeoPackage gives back text fields as text, so only a date-typed field exercises the conversion.
+            since, until = pd.to_datetime(since), pd.to_datetime(until)
         gdf = gpd.GeoDataFrame(
             {
                 AOI_ID_COLUMN_NAME: ["a", "b"],
-                "since": ["2025-03-06", None],
-                "until": ["2025-12-31", None],
+                "since": since,
+                "until": until,
             },
             geometry=[
                 Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
