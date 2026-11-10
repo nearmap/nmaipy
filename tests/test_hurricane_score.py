@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Test that hurricaneScore is correctly handled in flatten_roof_attributes."""
 
+import io
 import json
 import os
 from pathlib import Path
@@ -401,9 +402,11 @@ def test_rollup_with_hurricane_score(hurricane_score_payload):
         primary_decision="largest_intersection",
     )
 
-    # Save rollup CSV
-    output_file = data_directory / "test_parcels_rollup_hurricane_score.csv"
-    rollup_df.to_csv(output_file)
+    # Compare the rollup as CSV holds it with the committed file; regenerate that file with rollup_df.to_csv(...)
+    # when the rollup changes on purpose
+    expected = pd.read_csv(data_directory / "test_parcels_rollup_hurricane_score.csv", index_col=AOI_ID_COLUMN_NAME)
+    actual = pd.read_csv(io.StringIO(rollup_df.to_csv()), index_col=AOI_ID_COLUMN_NAME)
+    pd.testing.assert_frame_equal(actual, expected)
 
     # Verify resolved hurricaneScore columns use primary_ prefix (no roof_ infix)
     assert "primary_hurricane_vulnerability_score" in rollup_df.columns

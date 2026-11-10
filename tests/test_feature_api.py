@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import sys
@@ -10,15 +11,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
+import orjson
 import pandas as pd
 import pytest
 import requests
 from shapely.affinity import translate
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.wkt import loads
 
-from nmaipy import geometry_utils, parcels, reference_code
-from nmaipy.api_common import AIFeatureAPIError, APIGridError, generate_curl_command
+from nmaipy import geometry_utils
+from nmaipy.api_common import AIFeatureAPIError, APIKeyFilter, generate_curl_command
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -33,7 +35,12 @@ from nmaipy.constants import (
     SOLAR_ID,
     VEG_MEDHIGH_ID,
 )
-from nmaipy.feature_api import AIFeatureAPIRequestSizeError, FeatureApi
+from nmaipy.feature_api import (
+    ORJSON_TRUNCATED_MSG,
+    TIMEOUT_SECONDS,
+    AIFeatureAPIRequestSizeError,
+    FeatureApi,
+)
 
 
 @pytest.mark.live_api
@@ -125,8 +132,6 @@ class TestFeatureAPI:
         assert result.crs == API_CRS
 
         # Test 3: Normal case with features to combine
-        from shapely.geometry import Polygon
-
         test_features = gpd.GeoDataFrame(
             {
                 "feature_id": [1, 1, 2],  # Two features with same ID should be combined
@@ -138,6 +143,8 @@ class TestFeatureAPI:
                 AOI_ID_COLUMN_NAME: ["aoi1", "aoi1", "aoi1"],
                 "class_id": [100, 100, 200],
                 "area_sqm": [1.0, 1.0, 1.0],
+                # Feature 1 is a connected patch split across two cells
+                "clipped_area_sqm": [1.0, 1.0, 1.0],
                 "confidence": [0.9, 0.9, 0.8],
             },
             crs=API_CRS,
@@ -849,9 +856,6 @@ class TestFeatureAPI:
 
     def test_api_key_filtering(self):
         """Test that API key filter removes sensitive information from logs"""
-        import logging
-
-        from nmaipy.api_common import APIKeyFilter
 
         # Create a mock log record
         class MockRecord:
@@ -964,8 +968,6 @@ class TestFeatureAPI:
 
     def test_timeout_values(self):
         """Test that timeout values are correctly set"""
-        from nmaipy.feature_api import READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
-
         # Read timeout must clear the longest legitimate response-generation time
         # observed for feature-dense AOIs (~250s) while staying below intermediate
         # NAT idle-drop limits (~350s) — see constants.py for the full rationale.
@@ -987,13 +989,6 @@ class TestFeatureAPI:
 
     def test_read_timeout_treated_as_504(self):
         """Test that read timeouts are treated as 504 Gateway Timeout errors"""
-        from http import HTTPStatus
-
-        import requests
-        from shapely.geometry import Polygon
-
-        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
-
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 
         # Create a simple test polygon
@@ -1018,12 +1013,6 @@ class TestFeatureAPI:
 
     def test_timeout_logging_with_debug(self):
         """Test that timeout errors generate debug logs with curl commands"""
-        import logging
-        from unittest.mock import patch
-
-        import requests
-        from shapely.geometry import Polygon
-
         # Set up debug logging
         logging.getLogger("nmaipy").setLevel(logging.DEBUG)
 
@@ -1055,13 +1044,6 @@ class TestFeatureAPI:
 
     def test_exception_sanitization(self):
         """Test that exceptions properly sanitize API keys from stored request strings"""
-        from unittest.mock import MagicMock
-
-        import requests
-        from shapely.geometry import Polygon
-
-        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
-
         api = FeatureApi(api_key="SUPER_SECRET_KEY_123", cache_dir=None)
         test_polygon = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
 
@@ -1168,8 +1150,6 @@ class TestFeatureAPI:
         This tests the fix for the bug where _attempt_gridding assumed metadata_df
         would always have at least one row after gridding.
         """
-        from shapely.geometry import box
-
         # Create a large AOI that will trigger gridding
         large_aoi = box(150.0, -34.0, 151.0, -33.0)  # ~100km x 100km
 
@@ -1237,7 +1217,6 @@ class TestEmptyBody502Handling:
 
     def test_empty_body_502_treated_as_size_error(self):
         """A 502 with an empty body is escalated to a size error"""
-        from nmaipy.feature_api import AIFeatureAPIRequestSizeError
 
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 
@@ -1278,6 +1257,67 @@ class TestEmptyBody502Handling:
         assert error["status_code"] == HTTPStatus.BAD_GATEWAY
         assert error["message"] == "upstream application error"
         assert error["failure_type"] == "standard"
+
+
+class TestTruncatedJsonLogging:
+    """A 200 whose body fails to parse is gridded either way; only the log level differs.
+
+    A truncated body is the expected sign of an over-large response and logs at debug, so a
+    burst of them doesn't flood the log. Any other parse error keeps its warning, since it
+    may be a payload stdlib json accepted but orjson rejects, masquerading as a size error.
+    """
+
+    @staticmethod
+    def _test_polygon():
+        return Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001), (0, 0)])
+
+    def test_orjson_truncation_message_is_pinned(self):
+        """feature_api matches orjson's truncation message as text, so a wording change must fail here."""
+        with pytest.raises(orjson.JSONDecodeError) as exc_info:
+            orjson.loads(b'{"features": [{"id": "abc", "geometry": {"type": "Polygon", "coordinates": [[1.5')
+        assert (
+            exc_info.value.msg == ORJSON_TRUNCATED_MSG
+        ), f"orjson's truncation message changed to {exc_info.value.msg!r}; update ORJSON_TRUNCATED_MSG"
+
+    @pytest.mark.parametrize(
+        "content, expected_level",
+        [
+            (b'{"features": [{"id": "abc", "geometry": {"type": "Poly', logging.DEBUG),
+            (b'{"features": [], "value": NaN}', logging.WARNING),
+            (b'\xef\xbb\xbf{"features": []}', logging.WARNING),
+        ],
+        ids=["truncated", "nan-literal", "bom"],
+    )
+    def test_parse_error_grids_and_logs_at_expected_level(self, caplog, content, expected_level):
+        """Every unparseable 200 raises a size error; only non-truncation errors warn."""
+        api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
+        response = MagicMock()
+        response.ok = True
+        response.content = content
+
+        # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.DEBUG, logger="nmaipy"):
+                with patch("requests.Session.post", return_value=response):
+                    with pytest.raises(AIFeatureAPIRequestSizeError):
+                        api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
+
+        parse_records = [r for r in caplog.records if "JSON" in r.getMessage() and "200 response" in r.getMessage()]
+        assert (
+            len(parse_records) == 1
+        ), f"Expected one parse-error log record, got {[r.getMessage() for r in parse_records]}"
+        assert parse_records[0].levelno == expected_level, (
+            f"Expected level {logging.getLevelName(expected_level)}, got {parse_records[0].levelname}: "
+            f"{parse_records[0].getMessage()}"
+        )
+        warnings_logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings_logged) == (
+            1 if expected_level == logging.WARNING else 0
+        ), f"Unexpected warnings: {[r.getMessage() for r in warnings_logged]}"
 
 
 class TestBulkUnexpectedErrorHandling:

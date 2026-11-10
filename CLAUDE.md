@@ -208,13 +208,49 @@ When adding new columns derived from API descriptions, always use the programmat
 
 - **Stable within a survey**: the same physical feature from the same survey ID has the same `feature_id` no matter which AOI or query returned it. This is what makes gridding deduplication (`combine_features_from_grid`) and cross-AOI matching work.
 - **Not stable across surveys/dates**: the same physical feature captured on different survey dates gets different IDs. Never match or deduplicate by `feature_id` across dates.
-- **Multiparcel consequence (parcelMode)**: two AOIs that intersect the same feature from the same survey each get a row with the *same* `feature_id`, but attributes (RSI, component areas, defensible space, …) are computed by the API on **that parcel's clipped geometry**, and nmaipy's flattening recomputes child-intersection attributes per clip as well. The row identity in any multi-AOI frame is therefore `(aoi_id, feature_id)`, never `feature_id` alone.
+- **Multiparcel consequence (parcelMode)**: two AOIs that intersect the same feature from the same survey each get a row with the *same* `feature_id`, but per-parcel values differ between the rows. The API returns that parcel's `clippedGeometry` / `clippedArea*` and computes the includes (RSI, hurricane score, defensible space) on **that parcel's clip**. Its `attributes` (component areas and ratios, …) stay whole-feature, so nmaipy's flattening recomputes them per clip from child features (see "parcelMode response semantics" below). The row identity in any multi-AOI frame is therefore `(aoi_id, feature_id)`, never `feature_id` alone.
 
 Code implications (see PR #210 for the bug class this prevents):
-- Any chunk-level (multi-AOI) cross-row structure must be keyed by `(aoi_id, feature_id)` (e.g. `roof_attrs_cache`) or scoped per AOI as `{aoi_id: {feature_id: …}}` (`build_parent_lookup_by_aoi`, `roof_to_building_lookup`), with each consumer taking its row's own parcel sub-dict.
+- Any chunk-level (multi-AOI) cross-row structure must be keyed by `(aoi_id, feature_id)` (e.g. `roof_attrs_cache`) or scoped per AOI as `{aoi_id: {feature_id: …}}` (`_build_parent_lookup_by_aoi`, `roof_to_building_lookup`), with each consumer taking its row's own parcel sub-dict.
 - `build_parent_lookup` (flat, fid-keyed) is only valid for a single AOI's features.
 - Parent-chain traversal and IoU linkage never cross parcels — per-AOI scoping preserves that invariant by construction, and a chain that is broken within a parcel must yield null rather than borrow another parcel's clip value.
 - Deduplication by bare `feature_id` is only correct within one AOI and one survey (the gridded-query merge case).
+
+## parcelMode response semantics
+
+Verified against the live Feature API by querying the bundled `tests/data/test_parcels_2.csv` parcels, plus synthetic halves of some of them split through a roof, with `parcelMode=true` and `false` (`building`, `roof_char`, `vegetation` and `surfaces` packs; includes `roofSpotlightIndex,defensibleSpace,hurricaneScore`):
+
+- **Discrete versus connected classes. This holds in both modes, unchanged by parcelMode.**
+  - **Discrete classes** (roof, building, roof components, driveway, …) are whole objects that can extend past the AOI. `geometry` is the whole outline, and `areaSqm` == `unclippedAreaSqm`, the whole object's area.
+  - **Connected classes** (vegetation, surfaces, roads, …; most classes) have no whole-object extent. `geometry` is already clipped to the AOI and `areaSqm` == `clippedAreaSqm`. `unclippedAreaSqm` is the whole connected patch, extending beyond the AOI.
+  - For both kinds, `clippedAreaSqm` is the area inside the query AOI.
+  - nmaipy uses no list of either kind, since the API's classes change. Code that needs the kind reads it from these areas. (`CONNECTED_CLASS_IDS` is deprecated until 6.0, served by `constants.__getattr__` with a warning.)
+  - For gridded AOIs, every cell repeats a discrete object's whole area but reports only its own piece of a connected one. `combine_features_from_grid` therefore keeps one copy of the former and sums the latter. It tells them apart by whether a feature's `areaSqm` equals its `clippedAreaSqm` in every cell, never by `unclippedAreaSqm` (a connected patch's is the whole forest or lawn, however little of it is in the AOI).
+- **parcelMode adds or removes no features.** For the same AOI both modes return exactly the same set (43,885 features over 485 random lots in 12 US and AU metros, plus the bundled parcels); it only flags and clips them. For some classes, `belongsToParcel` is `false` for a feature below the class's (unpublished) minimum confidence even when it lies wholly inside the parcel, so `payload_gdf` drops it in parcelMode while parcelMode-off and gridded results keep it. Some classes (e.g. Pole) come back with no flag, and are kept with `belongs_to_parcel` null.
+- **What parcelMode adds**:
+  - `belongsToParcel`: whether the feature meaningfully belongs within the parcel, as assessed by the API's geospatial algorithms. A feature judged not to belong, typically a neighbour's roof that appears to cross the boundary because of parcel/imagery offset or parallax, comes back `false`. It is not a simple share-of-area threshold: a roof split down the middle belongs to both halves. Connected features are nearly all `true`; the Lawn Grass patches that came back `false` were low-confidence ones. `payload_gdf` drops `false` features, so `belongs_to_parcel` is true on every row answered with parcelMode on (null for unflagged classes such as Pole), and null for gridded AOIs' rows (grid cells run with parcelMode off) and when parcelMode is off.
+  - `clippedGeometry`, only for discrete features the API judges to be **multiparcel** (genuinely shared with another parcel). Connected features never get one, because their geometry is already clipped. `payload_gdf` swaps it into `geometry` and sets `multiparcel_feature`.
+  - A belonging feature that only slightly overhangs the boundary gets no `clippedGeometry`. It is returned and analysed whole, though its `clippedAreaSqm` is still the in-parcel area.
+- **`attributes` are never recomputed for the clip.** A feature's `attributes` (roof material, shape and overhang components with their `areaSqm`, `ratio` and `confidence`; pitch; building attributes) are identical in both modes and in every parcel that returns the feature. A component `ratio` is component area divided by whole-feature area.
+- **Includes are per-parcel for multiparcel features.** `roofSpotlightIndex` (value and confidence), `hurricaneScore` and `defensibleSpace` differ between the parcels sharing a multiparcel roof, and differ from the parcelMode-off response. For other roofs they are whole-roof and match parcelMode off. For example, `hurricaneScore.modelInputFeatures.treeOverhangRatio` is the clip's ratio for a multiparcel roof and the whole roof's ratio otherwise.
+- **A returned roof brings all its children, whole.** Every feature whose `parentId` is the roof (material, shape, Tree Overhang, …) is returned with its full `geometry`, even if it lies entirely outside the AOI. This happens in both modes, and every parcel returning the roof gets the same child set. parcelMode only flags them:
+  - children of a multiparcel roof that lie wholly outside the parcel are `belongsToParcel=false` with `clippedAreaSqm=0`, so `payload_gdf` drops them;
+  - children of a multiparcel roof that cross the boundary get `clippedGeometry`;
+  - children of a slight-overhang roof all belong and stay whole;
+  - children of a non-belonging roof are all `false`.
+
+How nmaipy uses this: `flatten_roof_attributes` recomputes components through `calculate_child_feature_attributes` whenever `clipped_area < 0.99 × unclipped_area`.
+- Each component's `_present`, `_area_*`, `_ratio` and `_confidence` is recomputed as Σ area(child ∩ stored roof geometry) / area(stored roof geometry), in the equal-area CRS. It uses that AOI's children, matched by class id.
+- For a multiparcel roof the stored geometry is the clip, so the result is the per-parcel value. It matches the API's own per-parcel `treeOverhangRatio` in `hurricaneScore` exactly.
+- For a slight-overhang roof the stored geometry is the whole outline, so the result reproduces the whole-roof value.
+- Gridded AOIs run with parcelMode off, so the stored outline is clipped to the AOI first: by `_clip_roof_geoms_to_aoi` for the per-class files and inline in `parcel_rollup` (`clip_roof_to_parcel`) for the rollup. The includes stay whole-roof there, so the recomputed ratio no longer matches them.
+- The Roof Age link (`exporter._link_roof_instances`) compares a gridded AOI's roofs by that same clipped outline, since Roof Age instances are cut per lot. The exported roof keeps its whole outline.
+- Grid cells run with parcelMode off by design. Gridding is meant for very large areas, where discrete objects crossing the outer boundary matter little, while parcelMode would treat each cell as a parcel and cut features at the internal grid lines. An AOI whose realtime scores the API skips is first requested once more, unchanged, after `REALTIME_SKIP_RETRY_DELAY_SECONDS` (the retry bypasses the cache, which holds the skipped response). If it still skips and spans more than one `REALTIME_SKIP_GRID_SIZE_DEGREES` cell, it is gridded at that size, since each cell is a request the scorer can handle (the large-parcel, many-roofs case). Both steps are `retry_on_realtime_skip` / `--no-retry-on-realtime-skip`; `regrid_on_skip` is a deprecated alias. Those cells are pinned to the first response's survey; if the grid fails, the AOI keeps its response (skipped scores null), and a successful grid keeps its parcel-level aggregate.
+- Includes are passed through unchanged.
+
+## Customer-facing knowledge skill
+
+`.agents/skills/nearmap-ai-apis/` is a Q&A skill for customers and solution engineers about API and output semantics. It lives in `.agents/skills`, where Codex and Gemini CLI find it, and `.claude/skills/nearmap-ai-apis` is a symlink to it for Claude Code. Keep it tool-neutral: Agent Skills frontmatter only (`tests/test_agent_skills.py` checks it) and no instructions that assume one agent's tools. Its `references/` files restate behaviour documented here and in the code (with function names, not line numbers). When a change alters behaviour those files describe (area handling, parcelMode, rollup nulls, primary selection, roof age linking, damage rollups, …), update the matching reference file in the same PR. The same public-content rules apply as for the rest of the repository.
 
 ## Code Architecture
 
@@ -256,7 +292,7 @@ Code implications (see PR #210 for the bug class this prevents):
    - Bulk feature requests with auto-gridding on oversized AOIs
    - Feature geometry requests (`get_features_gdf()`, `get_features_gdf_bulk()`)
    - Date range and survey resource queries
-   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses; there is no HTTP rollup endpoint.
+   - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses. The Feature API's former rollup endpoints are deprecated and unused.
 
 6. **roof_age_api.py**: `RoofAgeApi(BaseApiClient)` — client for Nearmap Roof Age API
    - AOI-based queries (`get_roof_age_by_aoi()`) with pagination

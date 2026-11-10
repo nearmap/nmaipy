@@ -63,6 +63,7 @@ import psutil
 
 from nmaipy import log, parcels, storage
 from nmaipy.__version__ import __version__
+from nmaipy.aoi_io import validate_date_cutoffs
 from nmaipy.api_common import (
     collect_latency_stats_from_apis,
     combine_chunk_latency_stats,
@@ -130,8 +131,8 @@ from nmaipy.feature_attributes import (
     is_resolved_score_column,
 )
 from nmaipy.parcels import (
+    _build_parent_lookup_by_aoi,
     _traverse_to_bl,
-    build_parent_lookup_by_aoi,
     class_column_names,
     extract_rsi_from_feature,
     link_roofs_to_buildings,
@@ -575,9 +576,12 @@ def _group_children_by_aoi(
 ) -> dict:
     """Group non-roof child features by aoi_id for efficient per-AOI lookup.
 
-    Child features only need to be from the same AOI as the parent feature, since
-    features are queried per-AOI and cannot span AOI boundaries. Grouping up front
-    reduces child features from ~270k globally to ~86 per AOI.
+    Child features are only matched against parents from the same AOI. Features do
+    extend past the AOI (the API returns a roof's children whole, even ones lying
+    outside it), but each AOI is queried separately and its copy of a multiparcel
+    roof and children carries that parcel's clip, so another AOI's rows must
+    never be mixed in. Grouping up front reduces child features from ~270k
+    globally to ~86 per AOI.
 
     Note: returns views into the source DataFrame (no .copy()) since downstream
     consumers (flatten_roof_attributes / calculate_child_feature_attributes) do
@@ -655,6 +659,21 @@ def _clip_roof_geoms_to_aoi(
             if c is not None and not c.is_empty:
                 geoms[p] = c
     return gpd.GeoSeries(geoms, index=parent_gdf.index, crs=crs)
+
+
+def _link_roof_instances(roof_age_gdf: gpd.GeoDataFrame, roofs_gdf: gpd.GeoDataFrame, aoi_geometries: dict) -> tuple:
+    """``parcels.link_roof_instances_to_roofs``, comparing gridded AOIs' roofs by their AOI-clipped outline.
+
+    Roof Age instances are pre-cut to lots. The returned roofs keep their whole outline.
+    """
+    if not aoi_geometries:
+        return parcels.link_roof_instances_to_roofs(roof_age_gdf, roofs_gdf)
+    link_roofs_gdf = roofs_gdf.copy()
+    link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries).values
+    roof_instances_linked, roofs_linked = parcels.link_roof_instances_to_roofs(roof_age_gdf, link_roofs_gdf)
+    # link_roof_instances_to_roofs returns the roofs in their input order.
+    roofs_linked["geometry"] = roofs_gdf.geometry.values
+    return roof_instances_linked, roofs_linked
 
 
 def _batch_project_geometries(
@@ -1256,7 +1275,7 @@ def _compute_all_per_class_data(
     # feature_id, per-clip attributes), so parent-chain traversal must stay
     # inside each row's own parcel.
     shared_parent_lookup = (
-        build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
+        _build_parent_lookup_by_aoi(cross_class_gdf) if cross_class_gdf is not None and len(cross_class_gdf) > 0 else {}
     )
 
     # Build class_descriptions from chunk data
@@ -1283,9 +1302,10 @@ def _compute_all_per_class_data(
     if has_dependent:
         roof_features_chunk = class_groups.get(ROOF_ID, gpd.GeoDataFrame())
         roof_instance_chunk = class_groups.get(ROOF_INSTANCE_CLASS_ID, gpd.GeoDataFrame())
-        # non_roof_chunk is "all rows except roof" — can't be served by the
-        # class_groups dict without a concat scan, so keep the boolean mask.
-        non_roof_chunk = chunk_gdf[chunk_gdf["class_id"] != ROOF_ID]
+        # Children are only read for a roof in their own AOI.
+        roof_aois = _aoi_id_values(roof_features_chunk) if len(roof_features_chunk) > 0 else []
+        in_roof_aoi = pd.Index(_aoi_id_values(chunk_gdf)).isin(roof_aois)
+        non_roof_chunk = chunk_gdf[(chunk_gdf["class_id"] != ROOF_ID).values & in_roof_aoi]
 
         # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
@@ -1474,7 +1494,7 @@ def _compute_feature_class_data(
     p_lookup_by_aoi = (
         parent_lookup
         if parent_lookup is not None
-        else (build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
+        else (_build_parent_lookup_by_aoi(features_gdf) if features_gdf is not None and len(features_gdf) > 0 else {})
     )
     _roof_to_bn_by_aoi = roof_to_building_lookup or {}
 
@@ -1784,12 +1804,18 @@ def _compute_feature_class_data(
 
                 rsi_result = _resolve_rsi_batch(n_rows, _resolve_roof_rsi)
                 if rsi_result is not None:
-                    rsi_vals, rsi_conf, rsi_mver = rsi_result
-                    # Overwrite roof_spotlight_index in existing df_parts
-                    for part in df_parts:
-                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                    # Overwrite the roofs' own RSI columns, and add any that no roof in the chunk had of its own.
+                    rsi_batch = {}
+                    for col, arr in zip(_RSI_COLUMNS, rsi_result):
+                        if col not in added_cols:
+                            rsi_batch[col] = arr
+                            continue
+                        for part in df_parts:
                             if col in part.columns:
                                 part[col] = arr
+                    if rsi_batch:
+                        df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
+                        added_cols.update(rsi_batch)
         except Exception:
             logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
 
@@ -1873,7 +1899,8 @@ def _compute_feature_class_data(
             # Remove any columns that would be duplicates
             bldg_batch = {k: v for k, v in bldg_batch.items() if k not in added_cols}
             if bldg_batch:
-                df_parts.append(pd.DataFrame(bldg_batch, index=range(n_rows)))
+                # By position: class_features keeps the chunk's index labels.
+                df_parts.append(pd.DataFrame({k: v.to_numpy() for k, v in bldg_batch.items()}, index=range(n_rows)))
                 added_cols.update(bldg_batch.keys())
         except Exception as e:
             logger.debug(f"Could not flatten building attributes: {e}")
@@ -2534,11 +2561,11 @@ def parse_arguments():
     parser.add_argument("--output-dir", help="Directory to store results", type=str, required=True)
     parser.add_argument(
         "--packs",
-        help="List of AI packs (default: building)",
+        help="List of AI packs (default: building, unless --classes is given)",
         type=str,
         nargs="+",
         required=False,
-        default=["building"],
+        default=None,
     )
     parser.add_argument(
         "--roof-age",
@@ -2549,7 +2576,7 @@ def parse_arguments():
         "--roof-age-dataset",
         help=(
             "Roof Age dataset to query when --roof-age is set. Known aliases: 'latest' (default, "
-            "returns A.0), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
+            "the API's current default dataset), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
             "resource UUID."
         ),
         type=str,
@@ -2557,7 +2584,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--classes",
-        help="List of Feature Class IDs (UUIDs)",
+        help="List of Feature Class IDs (UUIDs), separated by spaces. Mutually exclusive with --packs",
         type=str,
         nargs="+",
         required=False,
@@ -2600,8 +2627,16 @@ def parse_arguments():
         default=GRID_SIZE_DEGREES,
     )
     parser.add_argument(
+        "--no-retry-on-realtime-skip",
+        help="Leave realtime scores (RSI, peril scores, defensible space) null when the API skips them. By default an "
+        "AOI with a skipped score is requested once more, unchanged, after a short delay, which clears a skip caused "
+        "by load; if it still skips and the AOI is large enough to split, it is gridded into small cells the scorer "
+        "can handle (cells run without parcelMode).",
+        action="store_true",
+    )
+    parser.add_argument(
         "--no-regrid-on-skip",
-        help="Disable reactive gridding when the API marks any include as skipped. Default is to regrid so the AOI is re-queried as sub-AOIs and populated scores come back.",
+        help="Deprecated alias of --no-retry-on-realtime-skip.",
         action="store_true",
     )
     parser.add_argument(
@@ -2726,7 +2761,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--until",
-        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'until' column in data takes precedent.",
+        help="Bulk limit on date for responses (latest inclusive date returned). Presence of 'until' column in data takes precedent.",
         required=False,
         type=str,
     )
@@ -2804,6 +2839,13 @@ def parse_arguments():
     if args.only3d and args.prefer3d:
         parser.error("--only3d and --prefer3d are mutually exclusive")
 
+    # The Feature API takes either packs or classes, never both, so the building
+    # pack is only the default when no classes are given.
+    if args.packs and args.classes:
+        parser.error("--packs and --classes are mutually exclusive")
+    if not args.packs and not args.classes:
+        args.packs = ["building"]
+
     if args.roof_age:
         resolved = resolve_roof_age_dataset(args.roof_age_dataset)
         if resolved in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
@@ -2858,6 +2900,9 @@ _CONFIG_KEYS_SAFE_TO_CHANGE = frozenset(
         "compress_cache",
         "no_cache",
         "overwrite_cache",
+        # Like max_retries, these only govern how hard we try to recover scores the API didn't deliver.
+        "retry_on_realtime_skip",
+        "regrid_on_skip",
     }
 )
 # List-valued keys that select a set of things: their order carries no meaning.
@@ -2885,7 +2930,7 @@ class NearmapAIExporter(BaseExporter):
         aoi_grid_min_pct=100,
         aoi_grid_inexact=False,
         aoi_grid_cell_size=GRID_SIZE_DEGREES,  # Grid cell size in degrees for subdividing large AOIs
-        regrid_on_skip=True,
+        regrid_on_skip=None,
         processes=PROCESSES,
         threads=THREADS,
         chunk_size=CHUNK_SIZE,
@@ -2919,6 +2964,7 @@ class NearmapAIExporter(BaseExporter):
         class_level_files=True,  # Export per-feature-class CSV files (attributes only)
         max_retries=MAX_RETRIES,  # Maximum retry attempts for failed API requests
         api_warmup_interval_seconds=API_WARMUP_INTERVAL_SECONDS,  # Seconds between worker ramp-up; 0 disables
+        retry_on_realtime_skip=True,  # Retry, then grid, an AOI whose realtime scores the API skips
     ):
         # Initialize base exporter first
         super().__init__(
@@ -2931,6 +2977,8 @@ class NearmapAIExporter(BaseExporter):
 
         # Assign NearmapAIExporter-specific parameters to instance variables
         self.aoi_file = aoi_file
+        if packs is not None and classes is not None:
+            raise ValueError("packs and classes are mutually exclusive: the Feature API accepts only one of them")
         self.packs = packs
         self.classes = classes
         self.include = include
@@ -2938,7 +2986,13 @@ class NearmapAIExporter(BaseExporter):
         self.aoi_grid_min_pct = aoi_grid_min_pct
         self.aoi_grid_inexact = aoi_grid_inexact
         self.aoi_grid_cell_size = aoi_grid_cell_size
-        self.regrid_on_skip = regrid_on_skip
+        if regrid_on_skip is not None:
+            warnings.warn(
+                "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.retry_on_realtime_skip = retry_on_realtime_skip and regrid_on_skip is not False
         # Note: processes, chunk_size, log_level handled by BaseExporter
         self.merge_read_workers = merge_read_workers
         self.threads = threads
@@ -3011,6 +3065,7 @@ class NearmapAIExporter(BaseExporter):
             "aoi_grid_inexact": aoi_grid_inexact,
             "aoi_grid_cell_size": aoi_grid_cell_size,
             "regrid_on_skip": regrid_on_skip,
+            "retry_on_realtime_skip": self.retry_on_realtime_skip,
             "processes": processes,
             "threads": threads,
             "chunk_size": chunk_size,
@@ -3054,6 +3109,25 @@ class NearmapAIExporter(BaseExporter):
 
         # Save export configuration at start (before processing begins)
         self._save_config(config_params)
+
+    @property
+    def regrid_on_skip(self) -> bool:
+        """Deprecated alias of `retry_on_realtime_skip`, to be removed in nmaipy 6.0."""
+        warnings.warn(
+            "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.retry_on_realtime_skip
+
+    @regrid_on_skip.setter
+    def regrid_on_skip(self, value: bool) -> None:
+        warnings.warn(
+            "regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.retry_on_realtime_skip = value
 
     def _read_existing_config_params(self):
         """Read the parameters block of any previously-saved export_config.json.
@@ -3724,7 +3798,7 @@ class NearmapAIExporter(BaseExporter):
                 parcel_mode=self.parcel_mode,
                 progress_counters=progress_counters,
                 grid_size=self.aoi_grid_cell_size,
-                regrid_on_skip=self.regrid_on_skip,
+                retry_on_realtime_skip=self.retry_on_realtime_skip,
                 maxretry=self.max_retries,
                 rapid=self.rapid,
                 order=self.order,
@@ -3756,6 +3830,23 @@ class NearmapAIExporter(BaseExporter):
                 # downcasting raises a pandas FutureWarning.
                 gridded_mask = metadata_df["gridded"].eq(True)
                 gridded_aoi_ids = set(metadata_df.index[gridded_mask])
+
+            # aoi_id -> AOI polygon, for GRIDDED AOIs only: their roof outlines are whole
+            # (parcelMode off), so the component recalculation and the Roof Age link clip
+            # roofs to the AOI. parcelMode AOIs keep the API's clippedGeometry.
+            aoi_geometries = None
+            if gridded_aoi_ids and isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
+                # Keyed as _clip_roof_geoms_to_aoi keys the roofs; no aoi_id, no clip.
+                try:
+                    aoi_ids = _aoi_id_values(aoi_gdf)
+                except ValueError:
+                    aoi_ids = None
+                if aoi_ids is not None:
+                    aoi_geometries = {
+                        aid: geom
+                        for aid, geom in zip(aoi_ids, aoi_gdf.geometry)
+                        if geom is not None and aid in gridded_aoi_ids
+                    }
 
             # Filter out deprecated feature classes. RSI resolution now uses IoU-based
             # Roof → Building(New) → BL linkage rather than the API's parent_id chain
@@ -3811,6 +3902,7 @@ class NearmapAIExporter(BaseExporter):
                         overwrite_cache=self.overwrite_cache,
                         compress_cache=self.compress_cache,
                         threads=self.threads,
+                        maxretry=self.max_retries,
                         country=self.country,
                         progress_counters=progress_counters,
                         resource_id=self.roof_age_resource_id,
@@ -3917,8 +4009,8 @@ class NearmapAIExporter(BaseExporter):
                     logger.debug(
                         f"Chunk {chunk_id}: Linking {len(roof_age_gdf)} roof instances to {len(roofs_gdf)} roofs"
                     )
-                    roof_age_gdf_linked, roofs_gdf_linked = parcels.link_roof_instances_to_roofs(
-                        roof_age_gdf, roofs_gdf
+                    roof_age_gdf_linked, roofs_gdf_linked = _link_roof_instances(
+                        roof_age_gdf, roofs_gdf, aoi_geometries
                     )
 
                     # Update features_gdf with linked data
@@ -4157,6 +4249,7 @@ class NearmapAIExporter(BaseExporter):
 
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
+            del features_gdf  # last use
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
@@ -4321,35 +4414,6 @@ class NearmapAIExporter(BaseExporter):
                     aoi_input_columns = [
                         c for c in aoi_gdf.columns if c not in system_columns and c not in ADDRESS_FIELDS
                     ]
-
-                    # Map aoi_id -> parcel geometry (API_CRS) so clipped-roof
-                    # component recalculation can clip the roof parent to its
-                    # parcel. Restricted to GRIDDED AOIs only: gridding disables
-                    # parcelMode, so those rows store the whole (unclipped) roof
-                    # outline against a parcel-clipped area — without the clip the
-                    # recomputed component areas come out at whole-roof magnitude.
-                    # Non-gridded parcelMode AOIs are deliberately excluded:
-                    # multiparcel roofs are already clipped (clippedGeometry) and
-                    # slight-overhang (belongs-to-parcel) roofs must keep
-                    # whole-roof analysis. Cheap map build (one entry per AOI).
-                    aoi_geometries = None
-                    if gridded_aoi_ids and isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
-                        # Key by _aoi_id_values (the same derivation the consumer
-                        # _clip_roof_geoms_to_aoi uses on the roof rows) so the map
-                        # keys match regardless of whether aoi_id is the index or a
-                        # column. If aoi_id can't be resolved, leave the map None so
-                        # the clip degrades to a no-op rather than silently
-                        # mis-keying every AOI.
-                        try:
-                            aoi_ids = _aoi_id_values(aoi_gdf)
-                        except ValueError:
-                            aoi_ids = None
-                        if aoi_ids is not None:
-                            aoi_geometries = {
-                                aid: geom
-                                for aid, geom in zip(aoi_ids, aoi_gdf.geometry)
-                                if geom is not None and aid in gridded_aoi_ids
-                            }
 
                     _t_per_class_start = time.monotonic()
                     per_class_results = _compute_all_per_class_data(
@@ -4748,6 +4812,10 @@ class NearmapAIExporter(BaseExporter):
             else:
                 classes_df = feature_api.get_feature_classes()  # All classes
                 if self.classes is not None:
+                    # An unknown id (a typo, or several ids joined into one string) would
+                    # otherwise be dropped here and the export would have no class outputs.
+                    if diff := set(self.classes) - set(classes_df.index):
+                        raise ValueError(f"Unknown classes: {sorted(diff)}")
                     classes_df = classes_df[classes_df.index.isin(self.classes)]
         finally:
             feature_api.cleanup()
@@ -4853,26 +4921,15 @@ class NearmapAIExporter(BaseExporter):
             else:
                 logger.debug("No latest date will used")
 
-            # Validate per-AOI cutoff columns. Two checks:
-            #   1) Strings only — pandas may infer datetime64 from CSV/parquet, after which the
-            #      per-AOI override is silently skipped at request time. We surface that loud here.
-            #   2) When --roof-age targets the A.0 dataset, reject any per-AOI cutoffs since the
-            #      Roof Age API will return HTTP 500.
+        # Every cutoff must be a YYYY-MM-DD date, and no AOI's since may be after its until, before any request
+        # goes out: a malformed or inverted date otherwise fails (or is dropped) per request, deep in the export.
+        # Rows pinned to a survey_resource_id are checked too: the Feature API ignores their dates, but the Roof Age
+        # API still sends them.
+        validate_date_cutoffs(aoi_gdf, since=self.since, until=self.until)
+        # The A.0 Roof Age dataset answers any cutoff with HTTP 500.
+        if self.roof_age and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS:
             for col, flag in ((UNTIL_COL_NAME, "--until"), (SINCE_COL_NAME, "--since")):
-                if col not in aoi_gdf.columns:
-                    continue
-                non_null = aoi_gdf[col].dropna()
-                if len(non_null) and not pd.api.types.is_string_dtype(non_null):
-                    raise ValueError(
-                        f"AOI file column '{col}' must contain YYYY-MM-DD strings, got dtype "
-                        f"{non_null.dtype}. If your input file is parsing the column as a date, "
-                        f"cast to string before export, e.g. df[{col!r}] = df[{col!r}].dt.strftime('%Y-%m-%d')."
-                    )
-                if (
-                    self.roof_age
-                    and self.roof_age_resource_id in ROOF_AGE_NO_CUTOFF_RESOURCE_IDS
-                    and aoi_gdf[col].notna().any()
-                ):
+                if col in aoi_gdf.columns and aoi_gdf[col].notna().any():
                     raise ValueError(
                         f"AOI file column '{col}' has values, but --roof-age is targeting a dataset "
                         f"that does not support cutoffs. {format_no_cutoff_error(flag=flag)}"
@@ -5191,7 +5248,8 @@ def main():
         roof_age_dataset=args.roof_age_dataset,
         class_level_files=not args.no_class_level_files,
         aoi_grid_cell_size=args.aoi_grid_cell_size,
-        regrid_on_skip=not args.no_regrid_on_skip,
+        regrid_on_skip=False if args.no_regrid_on_skip else None,
+        retry_on_realtime_skip=not args.no_retry_on_realtime_skip,
         max_retries=args.max_retries,
         api_warmup_interval_seconds=args.api_warmup_interval,
     )

@@ -43,12 +43,14 @@ import stringcase
 from shapely.geometry import Polygon, shape
 
 from nmaipy import log, storage
+from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import BaseApiClient, RoofAgeAPIError
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
     API_CRS,
     FEATURE_CLASS_DESCRIPTIONS,
+    MAX_RETRIES,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
     ROOF_AGE_DEFAULT_PAGE_LIMIT,
@@ -93,6 +95,7 @@ class RoofAgeApi(BaseApiClient):
         until_as_of_date: Optional[str] = None,
         since_as_of_date: Optional[str] = None,
         bearer_token: Optional[str] = None,
+        maxretry: int = MAX_RETRIES,
     ):
         """
         Initialize Roof Age API client.
@@ -117,6 +120,7 @@ class RoofAgeApi(BaseApiClient):
                 response to roof state from that date onwards.
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
+            maxretry: Number of retries for failed requests
 
             Note: cutoff parameters are not supported on the A.0 dataset. Callers are expected to validate
             the combination upstream — sending a cutoff against A.0 returns HTTP 500.
@@ -127,6 +131,7 @@ class RoofAgeApi(BaseApiClient):
             overwrite_cache=overwrite_cache,
             compress_cache=compress_cache,
             threads=threads,
+            maxretry=maxretry,
             bearer_token=bearer_token,
         )
 
@@ -141,8 +146,9 @@ class RoofAgeApi(BaseApiClient):
 
         # Store dataset selection
         self.resource_id = resource_id
-        self.until_as_of_date = until_as_of_date
-        self.since_as_of_date = since_as_of_date
+        # A blank cutoff means none, so it is neither sent nor used in the cache path.
+        self.until_as_of_date = blank_date_to_none(until_as_of_date)
+        self.since_as_of_date = blank_date_to_none(since_as_of_date)
 
         # Configure API endpoints
         if url_root is None:
@@ -707,6 +713,8 @@ class RoofAgeApi(BaseApiClient):
         """
         if not isinstance(aoi_gdf.index, pd.Index) or aoi_gdf.index.name != AOI_ID_COLUMN_NAME:
             raise ValueError(f"aoi_gdf must have '{AOI_ID_COLUMN_NAME}' as index")
+        # Per-row dates that aren't YYYY-MM-DD strings would otherwise fall back to the bulk dates unseen.
+        aoi_gdf = prepare_date_cutoffs(aoi_gdf, since=self.since_as_of_date, until=self.until_as_of_date)
 
         # Detect input mode - check for address fields and geometry
         has_address_fields = set(aoi_gdf.columns.tolist()).intersection(set(ADDRESS_FIELDS)) == set(ADDRESS_FIELDS)

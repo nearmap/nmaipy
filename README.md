@@ -331,6 +331,8 @@ Commonly available packs (this list is not exhaustive):
 
 For the full catalog and access details, use the snippet above or check the [Nearmap help site](https://help.nearmap.com).
 
+`NearmapAIExporter` takes either `packs` or `classes` (feature class UUIDs from `get_feature_classes()`), not both. The Feature API rejects a request carrying both, so the constructor raises `ValueError`. Pass neither and requests carry no filter, so you get every class your account can query, which can be a very large response. The CLI defaults to `--packs building` instead. A class id that isn't in `get_feature_classes()` fails the export before any AOI is requested.
+
 ## Input Data Formats
 
 `nmaipy` accepts AOIs in:
@@ -424,7 +426,8 @@ Key options:
 
 | Flag | What it does |
 |------|--------------|
-| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pool`, `solar`, `damage`, etc.) |
+| `--packs` | AI packs to extract (`building`, `vegetation`, `surfaces`, `pool`, `solar`, `damage`, etc.). Defaults to `building` when neither `--packs` nor `--classes` is given |
+| `--classes` | Feature class UUIDs to extract, separated by spaces (not commas). Mutually exclusive with `--packs` |
 | `--include` | Additional calculated includes (`roofSpotlightIndex`, `roofConditionConfidenceStats`, `damage`, `defensibleSpace`, `hurricaneScore`, `windScore`, `hailScore`, `wildfireScore`, `windHailRiskScore`) |
 | `--roof-age` | Include Roof Age API data (US only) |
 | `--roof-age-dataset` | `latest` (default), `A.0`, `A.1`, `A.1Q2`, or any raw resource UUID |
@@ -513,6 +516,7 @@ See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 - **Issues / feature requests**: [GitHub](https://github.com/nearmap/nmaipy/issues)
 - **API key & access**: contact Nearmap
 - **Column-level documentation**: open `final/README.md` inside your export's output directory
+- **Asking an AI coding agent about the APIs**: this repository includes an [Agent Skill](https://agentskills.io), `.agents/skills/nearmap-ai-apis`, for technical Q&A about how the AI Feature, Roof Age and Damage Conflation APIs behave and how nmaipy's outputs reflect that. It covers questions like "why is my roof area bigger than the lot?" or "why is tree overhang 100% on a shared roof?". Run Claude Code, Codex or Gemini CLI from a checkout of this repository and ask your question; each finds the skill there. Claude Code reaches it through a symlink in `.claude/skills`, so on Windows clone with symlinks enabled.
 
 ## License
 

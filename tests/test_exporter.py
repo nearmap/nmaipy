@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -50,6 +51,7 @@ from nmaipy.exporter import (
     _stream_merge_chunks_to_parquet,
     _unify_and_concat_tables,
     _write_errors_parquet,
+    parse_arguments,
 )
 from nmaipy.feature_api import FeatureApi
 
@@ -68,8 +70,8 @@ class TestResolvePrefetchWorkers:
             (2, 3),  # round(3.0) -> 3
             (4, 6),  # nmaipy CLI default 4 -> 6
             (8, 12),
-            (12, 18),  # current operational default on a 23-CPU box -> 18
-            (16, 24),  # AI Exporter's 16 processes -> 24
+            (12, 18),
+            (16, 24),
         ],
     )
     def test_derivation(self, processes, expected):
@@ -2203,6 +2205,19 @@ class TestCoverageGapChunks:
         chunk_path = self._run_two_api_chunk(roof_age_exporter, "answered", "503")
         assert not (chunk_path / "rollup_0000.parquet").exists()
 
+    def test_both_clients_get_the_exporters_retry_budget(self, roof_age_exporter):
+        roof_age_exporter.max_retries = 7
+        with (
+            patch("nmaipy.exporter.FeatureApi") as feature_api,
+            patch("nmaipy.exporter.RoofAgeApi") as roof_age_api,
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+        ):
+            feature_api.return_value.get_features_gdf_bulk.return_value = self._feature_response("answered")
+            roof_age_api.return_value.get_roof_age_bulk.return_value = self._roof_age_response("answered")
+            roof_age_exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(), classes_df=self._classes_df())
+        assert feature_api.call_args.kwargs["maxretry"] == 7, "Feature API client should get --max-retries"
+        assert roof_age_api.call_args.kwargs["maxretry"] == 7, "Roof Age client should get --max-retries"
+
     def test_rollup_reports_how_much_of_each_aoi_answered(self, exporter):
         """A gridded AOI carries its grid counts and answered share; an AOI answered in one request is answered
         whole; an AOI the Feature API didn't answer has no coverage figures. answered_area_<unit> is the
@@ -2589,7 +2604,14 @@ class TestResumeRequiresSameConfig:
 
     @pytest.mark.parametrize(
         "change",
-        [{}, {"processes": 2}, {"threads": 3}, {"max_retries": 5}, {"packs": ["vegetation", "building"]}],
+        [
+            {},
+            {"processes": 2},
+            {"threads": 3},
+            {"max_retries": 5},
+            {"retry_on_realtime_skip": False},
+            {"packs": ["vegetation", "building"]},
+        ],
         ids=lambda change: next(iter(change), "unchanged"),
     )
     def test_safe_change_resumes(self, tmp_path, change):
@@ -2683,6 +2705,65 @@ class TestAoiInputColumnsWithDates:
         assert json.loads(saved["captures"].iloc[0]) == [{"captureDate": "2024-05-01", "source": "a"}]
 
 
+class TestPacksAndClasses:
+    """The Feature API rejects a request carrying both packs and classes, so the exporter takes one or the other,
+    and an unknown class must fail the export instead of silently producing no class outputs."""
+
+    _ROOF_CLASSES = pd.DataFrame({"description": ["Roof"], "type": ["Feature"]}, index=pd.Index([ROOF_ID], name="id"))
+
+    @staticmethod
+    def _parse(monkeypatch, *flags):
+        argv = ["exporter", "--aoi-file", "aoi.geojson", "--output-dir", "out", "--country", "us", *flags]
+        monkeypatch.setattr("sys.argv", argv)
+        return parse_arguments()
+
+    def test_cli_defaults_to_building_pack(self, monkeypatch):
+        args = self._parse(monkeypatch)
+        assert (args.packs, args.classes) == (["building"], None)
+
+    def test_cli_classes_replace_default_pack(self, monkeypatch):
+        args = self._parse(monkeypatch, "--classes", ROOF_ID)
+        assert (args.packs, args.classes) == (None, [ROOF_ID])
+
+    def test_cli_packs_and_classes_are_mutually_exclusive(self, monkeypatch, capsys):
+        with pytest.raises(SystemExit):
+            self._parse(monkeypatch, "--packs", "building", "--classes", ROOF_ID)
+        assert "--packs and --classes are mutually exclusive" in capsys.readouterr().err
+
+    # An empty pack list still counts as given: otherwise run() would take the packs branch with no packs,
+    # build the rollup against every class, and skip the unknown-class check.
+    @pytest.mark.parametrize("packs", [["building"], []])
+    def test_exporter_rejects_packs_and_classes(self, tmp_path, packs):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            AOIExporter(
+                aoi_file="data/examples/sydney_parcels.geojson",
+                output_dir=str(tmp_path),
+                country="us",
+                packs=packs,
+                classes=[ROOF_ID],
+            )
+
+    @pytest.mark.parametrize(
+        "classes, unknown",
+        [
+            (["not-a-class-id"], ["not-a-class-id"]),
+            ([f"{ROOF_ID},{BUILDING_NEW_ID}"], [f"{ROOF_ID},{BUILDING_NEW_ID}"]),
+            (["zz-unknown", ROOF_ID, "aa-unknown"], ["aa-unknown", "zz-unknown"]),
+        ],
+    )
+    def test_unknown_class_fails_the_export(self, tmp_path, classes, unknown):
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            classes=classes,
+        )
+        with patch("nmaipy.exporter.FeatureApi") as api:
+            api.return_value.get_feature_classes.return_value = self._ROOF_CLASSES
+            with pytest.raises(ValueError, match=re.escape(f"Unknown classes: {unknown}")):
+                exporter.run()
+
+
 def test_class_list_is_read_from_the_configured_url_root(tmp_path):
     """The classes/packs lookup at the start of run() must use the exporter's url_root, like the feature
     requests do, so an export against another Feature API host doesn't read its class list from the default one."""
@@ -2697,3 +2778,31 @@ def test_class_list_is_read_from_the_configured_url_root(tmp_path):
         with pytest.raises(RuntimeError, match="stop after the class lookup client"):
             exporter.run()
     assert api.call_args.kwargs["url_root"] == "api.example.test/ai/features/v4/bulk"
+
+
+def test_config_written_before_retry_on_realtime_skip_still_resumes(tmp_path):
+    """A 5.3.0 config has no retry_on_realtime_skip key; resuming it here must not count that as a change."""
+    exporter = AOIExporter(
+        aoi_file="data/examples/sydney_parcels.geojson", output_dir=str(tmp_path), country="au", packs=["building"]
+    )
+    exporter._previous_config_params = {
+        k: v for k, v in exporter._current_config_params.items() if k != "retry_on_realtime_skip"
+    }
+    assert exporter._config_diff() == []
+
+
+def test_regrid_on_skip_is_a_deprecated_alias(tmp_path):
+    with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+        exporter = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="au",
+            packs=["building"],
+            regrid_on_skip=False,
+        )
+    assert exporter.retry_on_realtime_skip is False
+    with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+        assert exporter.regrid_on_skip is False
+    with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
+        exporter.regrid_on_skip = True
+    assert exporter.retry_on_realtime_skip is True

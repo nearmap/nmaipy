@@ -9,6 +9,7 @@ import os
 import random
 import time
 import uuid
+import warnings
 from http import HTTPStatus
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -25,6 +26,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from nmaipy import geometry_utils, log, storage
+from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,
     AIFeatureAPIError,
@@ -46,7 +48,6 @@ from nmaipy.constants import (
     AREA_CRS,
     BACKOFF_MAX,
     CHUNKED_ENCODING_RETRY_DELAY,
-    CONNECTED_CLASS_IDS,
     DUMMY_STATUS_CODE,
     GRID_SIZE_DEGREES,
     LAT_LONG_CRS,
@@ -54,6 +55,8 @@ from nmaipy.constants import (
     MAX_RETRIES,
     POLYGON_TOO_COMPLEX,
     READ_TIMEOUT_SECONDS,
+    REALTIME_SKIP_GRID_SIZE_DEGREES,
+    REALTIME_SKIP_RETRY_DELAY_SECONDS,
     SINCE_COL_NAME,
     SLOW_REQUEST_THRESHOLD_SECONDS,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -62,8 +65,13 @@ from nmaipy.constants import (
     TIMEOUT_SECONDS,
     UNTIL_COL_NAME,
 )
+from nmaipy.feature_attributes import INCLUDE_FIELD_MAPPINGS
 
 logger = log.get_logger()
+
+# orjson's JSONDecodeError.msg for a body that ends mid-document, i.e. a truncated response.
+# Matched as text because orjson exposes no error code; a test pins the wording.
+ORJSON_TRUNCATED_MSG = "unexpected end of data"
 
 
 # Deprecated aliases — prefer APIGridError/APIRequestSizeError from api_common
@@ -84,9 +92,14 @@ def _grid_rejection_message(n_answered: int, n_cells: int, failed_statuses: pd.S
     """
     Message for a grid that failed as a whole. Gives the share of cells answered as a 10-point bracket and
     the failed cells' distinct statuses rather than exact counts, so grids that failed alike share one message
-    and group together in error summaries. The exact counts go on the error row's own columns.
+    and group together in error summaries. The exact counts go on the error row's own columns. A cell whose
+    request raised has no status, so it is listed as "no status".
     """
-    statuses = "{" + ", ".join(str(s) for s in sorted({int(s) for s in failed_statuses})) + "}"
+    known = failed_statuses.dropna()
+    labels = [str(s) for s in sorted({int(s) for s in known})]
+    if len(known) < len(failed_statuses):
+        labels.append("no status")
+    statuses = "{" + ", ".join(labels) + "}"
     if n_answered == 0:
         return f"Rejected as no grid cells answered. Failed due to {statuses}"
     low = n_answered * 10 // n_cells * 10
@@ -136,15 +149,27 @@ def is_class_returnable_at_version(
     return False
 
 
+# Include columns as ``payload_gdf`` leaves them (snake-cased key, raw API dict), mapped to the
+# ``<snake_key>`` that flattening later uses for its ``<snake_key>_skipped`` column.
+_SKIPPABLE_INCLUDE_COLUMNS = {
+    **{stringcase.snakecase(camel_key): config["snake_key"] for camel_key, config in INCLUDE_FIELD_MAPPINGS.items()},
+    "defensible_space": "defensible_space",
+}
+
+
 def _response_has_include_skips(features_gdf) -> Tuple[bool, List[str]]:
-    """Return (any_skipped, names) for any per-roof ``*_skipped`` columns set True."""
+    """Return (any_skipped, names) for includes the API returned as ``{"skipped": true}`` on any feature.
+
+    Runs on ``payload_gdf`` output, where each include column still holds the API's raw dict; the
+    ``*_skipped`` columns only exist after flattening. Names are those ``<snake_key>_skipped`` columns.
+    """
     skipped: List[str] = []
     if features_gdf is not None and len(features_gdf) > 0:
-        for col in features_gdf.columns:
-            if not col.endswith("_skipped"):
+        for col, snake_key in _SKIPPABLE_INCLUDE_COLUMNS.items():
+            if col not in features_gdf.columns:
                 continue
-            if (features_gdf[col] == True).any():  # noqa: E712 - avoid pandas dtype coercion warning
-                skipped.append(col)
+            if features_gdf[col].map(lambda v: isinstance(v, dict) and v.get("skipped") is True).any():
+                skipped.append(f"{snake_key}_skipped")
     return (len(skipped) > 0, skipped)
 
 
@@ -202,8 +227,9 @@ class FeatureApi(GriddedApiClient):
         exclude_tiles_with_occlusion: Optional[bool] = False,
         progress_counters: Optional[dict] = None,
         grid_size: Optional[float] = GRID_SIZE_DEGREES,
-        regrid_on_skip: Optional[bool] = True,
+        regrid_on_skip: Optional[bool] = None,
         bearer_token: Optional[str] = None,
+        retry_on_realtime_skip: bool = True,
     ):
         """
         Initialize FeatureApi class
@@ -236,10 +262,13 @@ class FeatureApi(GriddedApiClient):
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
-            regrid_on_skip: When True (default), reactively grid the AOI if any include
-                comes back ``{"skipped": true}`` from the API's per-parcel CPU cutoff.
-                Gridded sub-queries disable parcel mode, so the API sees mini-parcels and
-                returns populated scores. Aggregate DS is parcel-mode-only and stays null.
+            regrid_on_skip: Deprecated, to be removed in nmaipy 6.0; ``False`` turns off ``retry_on_realtime_skip``.
+            retry_on_realtime_skip: When True (default), an AOI whose response returns a realtime score (an
+                include) as ``{"skipped": true}`` is requested once more, unchanged and bypassing the cache, after
+                ``REALTIME_SKIP_RETRY_DELAY_SECONDS``, which clears a skip caused by load. If the score is still
+                skipped and the AOI spans more than one ``REALTIME_SKIP_GRID_SIZE_DEGREES`` cell (a parcel with very
+                many roofs), it is gridded so each cell is a request the scorer can handle; cells run without
+                parcelMode, pinned to the response's survey, and if the grid fails the response is kept.
         """
         # Call parent class initialization
         # GriddedApiClient handles: thread-safety (_adapters, _thread_local, _lock),
@@ -294,7 +323,33 @@ class FeatureApi(GriddedApiClient):
         # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
 
-        self.regrid_on_skip = regrid_on_skip
+        if regrid_on_skip is not None:
+            warnings.warn(
+                "FeatureApi's regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use "
+                "retry_on_realtime_skip, which also covers the retry before regridding.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.retry_on_realtime_skip = retry_on_realtime_skip and regrid_on_skip is not False
+
+    @property
+    def regrid_on_skip(self) -> bool:
+        """Deprecated alias of `retry_on_realtime_skip`, to be removed in nmaipy 6.0."""
+        warnings.warn(
+            "FeatureApi's regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.retry_on_realtime_skip
+
+    @regrid_on_skip.setter
+    def regrid_on_skip(self, value: bool) -> None:
+        warnings.warn(
+            "FeatureApi's regrid_on_skip is deprecated and will be removed in nmaipy 6.0; use retry_on_realtime_skip.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.retry_on_realtime_skip = value
 
     @contextlib.contextmanager
     def _session_scope(self, in_gridding_mode=False):
@@ -689,6 +744,7 @@ class FeatureApi(GriddedApiClient):
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
         disable_parcel_mode: bool = False,
+        refresh_cache: bool = False,
     ):
         """
         Get features for the provided geometry.
@@ -703,6 +759,7 @@ class FeatureApi(GriddedApiClient):
             address_fields: Address fields for address-based queries
             survey_resource_id: ID of the specific survey to query
             param_dic: Optional dictionary of custom parameters to add to the API request
+            refresh_cache: Request from the API even if the response is cached, and replace the cached copy
 
         Returns:
             API response as a dictionary
@@ -720,6 +777,7 @@ class FeatureApi(GriddedApiClient):
             in_gridding_mode=in_gridding_mode,
             param_dic=param_dic,
             disable_parcel_mode=disable_parcel_mode,
+            refresh_cache=refresh_cache,
         )
         return data
 
@@ -737,6 +795,7 @@ class FeatureApi(GriddedApiClient):
         in_gridding_mode: bool = False,
         param_dic: Optional[Dict[str, str]] = None,
         disable_parcel_mode: bool = False,
+        refresh_cache: bool = False,
     ):
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
@@ -751,6 +810,7 @@ class FeatureApi(GriddedApiClient):
             survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull.
                                NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
             param_dic: Optional dictionary of custom parameters to add to the API request
+            refresh_cache: Skip the cache read and fetch from the API, replacing any cached copy
 
         Returns:
             API response as a Dictionary
@@ -771,6 +831,8 @@ class FeatureApi(GriddedApiClient):
             disable_parcel_mode=disable_parcel_mode,
         )
         cache_path = None if self.cache_dir is None else self._post_request_cache_path(url, body)
+        if refresh_cache:
+            return self._fetch_results(url, body, cache_path, in_gridding_mode)
 
         # Check if it's already cached
         data = self._read_cached_response(cache_path)
@@ -948,14 +1010,23 @@ class FeatureApi(GriddedApiClient):
                     # orjson is 5-10x faster than stdlib on multi-MB payloads.
                     data = orjson.loads(response.content)
                 except orjson.JSONDecodeError as e:
-                    # Usually a truncated over-large response, so treat as a size
-                    # error to trigger gridding — but log visibly, because orjson
-                    # also rejects payloads stdlib accepted (NaN/Infinity literals,
-                    # BOM, invalid UTF-8) and those would masquerade as size errors.
-                    logger.warning(
-                        f"JSON parse error on 200 response ({len(response.content)} bytes) - "
-                        f"treating as size error to trigger gridding: {e}"
-                    )
+                    # A truncated body is the expected sign of an over-large response:
+                    # grid it, logging at debug like the other size-error triggers. Any
+                    # other parse error is treated the same way but logged visibly,
+                    # because orjson also rejects payloads stdlib accepted (NaN/Infinity
+                    # literals, BOM, invalid UTF-8) and those would masquerade as size
+                    # errors. A body cut inside a multi-byte UTF-8 character reports as
+                    # invalid UTF-8, so the rare non-ASCII truncation still warns.
+                    if e.msg == ORJSON_TRUNCATED_MSG:
+                        logger.debug(
+                            f"Truncated JSON on 200 response ({len(response.content)} bytes) - "
+                            f"treating as size error to trigger gridding: {e}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Non-truncation JSON parse error on 200 response ({len(response.content)} bytes) - "
+                            f"treating as size error to trigger gridding: {e}"
+                        )
                     raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
                 except Exception as e:
                     # Treat JSON parsing errors as size errors to trigger gridding
@@ -1151,11 +1222,10 @@ class FeatureApi(GriddedApiClient):
             df["geometry"] = gpd.GeoSeries([None] * len(df), crs=cls.SOURCE_CRS).values
             gdf = gpd.GeoDataFrame(df, geometry="geometry", crs=cls.SOURCE_CRS)
 
-        # Ensure belongs_to_parcel column exists - when parcel_mode is disabled during gridding,
-        # the API may not return this field, but downstream code expects it to exist
-        if "belongs_to_parcel" not in gdf.columns and len(gdf) > 0:
-            gdf["belongs_to_parcel"] = True
-
+        # belongs_to_parcel always exists here (it is in ``columns``, so a response
+        # without belongsToParcel gets it null-filled above). It is null when
+        # parcelMode is off, including for grid sub-requests, and True on every row
+        # that survives the parcel_mode filter.
         return gdf, metadata
 
     def _attempt_gridding(
@@ -1171,6 +1241,7 @@ class FeatureApi(GriddedApiClient):
         survey_resource_id: Optional[str] = None,
         aoi_grid_inexact: Optional[bool] = None,
         reason: Optional[str] = None,
+        grid_size: Optional[float] = None,
     ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
         """
         Helper method to attempt gridding large AOIs and handle the common pattern of gridding,
@@ -1222,7 +1293,7 @@ class FeatureApi(GriddedApiClient):
                 until=until,
                 survey_resource_id=survey_resource_id,
                 aoi_grid_inexact=allow_inexact_gridding,
-                grid_size=self.grid_size,
+                grid_size=grid_size or self.grid_size,
                 reason=reason,
                 disable_parcel_mode=True,  # Disable parcel_mode for grid sub-requests
             )
@@ -1416,37 +1487,101 @@ class FeatureApi(GriddedApiClient):
             )
             features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
 
-            # Detect per-parcel CPU-cutoff skips. If reactive gridding is enabled,
-            # discard the just-parsed response and re-issue as a gridded query so
-            # sub-AOIs come back as mini-parcels with populated scores. Otherwise,
-            # surface the skip at INFO so the operator who opted out of regridding
-            # still sees what the API dropped.
-            if not in_gridding_mode and geometry is not None:
+            # The API's realtime scorer skips scores for parcels with very many roofs, or under load. First ask once
+            # more, unchanged and past the cache (which holds the skipped response), after a delay: that clears a
+            # load-related skip. If it still skips and the AOI spans several small grid cells, grid it: each cell is a
+            # request the scorer can handle, though cells run without parcelMode. Otherwise keep the response.
+            if not in_gridding_mode:
                 any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
-                if any_skipped:
-                    if self.regrid_on_skip and not fail_hard_regrid:
-                        logger.debug(
-                            f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
-                            f"triggering reactive gridding"
-                        )
-                        features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
+                retry_failed = False
+                if any_skipped and self.retry_on_realtime_skip:
+                    logger.info(
+                        f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
+                        f"retrying once in {REALTIME_SKIP_RETRY_DELAY_SECONDS}s"
+                    )
+                    time.sleep(REALTIME_SKIP_RETRY_DELAY_SECONDS)
+                    try:
+                        payload = self.get_features(
                             geometry=geometry,
                             region=region,
                             packs=packs,
                             classes=classes,
                             include=include,
-                            aoi_id=aoi_id,
                             since=since,
                             until=until,
+                            address_fields=address_fields,
                             survey_resource_id=survey_resource_id,
-                            aoi_grid_inexact=self.aoi_grid_inexact,
-                            reason="reactive - include skip",
+                            in_gridding_mode=in_gridding_mode,
+                            param_dic=param_dic,
+                            disable_parcel_mode=disable_parcel_mode,
+                            refresh_cache=True,
                         )
+                        features_gdf, metadata = self.payload_gdf(payload, aoi_id, effective_parcel_mode)
+                        any_skipped, skipped_includes = _response_has_include_skips(features_gdf)
+                    except (AIFeatureAPIError, requests.exceptions.RetryError, requests.exceptions.Timeout) as e:
+                        # The first response answered, so a retry that fails (likely under the load that caused the
+                        # skip) must not turn the AOI into an error. Gridding would send more requests into the
+                        # same failures, so keep the first response as it is.
+                        logger.warning(
+                            f"AOI (id {aoi_id}): retry after an include skip failed ({type(e).__name__}); "
+                            f"keeping the first response, whose skipped scores stay null"
+                        )
+                        retry_failed = True
+                n_cells = (
+                    len(
+                        geometry_utils.split_geometry_into_grid(
+                            geometry=geometry, cell_size=REALTIME_SKIP_GRID_SIZE_DEGREES
+                        )
+                    )
+                    if any_skipped
+                    and self.retry_on_realtime_skip
+                    and not retry_failed
+                    and not fail_hard_regrid
+                    and geometry is not None
+                    else 0
+                )
+                if n_cells > 1:
+                    logger.info(
+                        f"AOI (id {aoi_id}): include skip persists ({', '.join(skipped_includes)}), "
+                        f"gridding into {n_cells} cells"
+                    )
+                    # Pin the cells to the survey this response came from, so they can't land on different
+                    # survey dates (which fails the grid) or move the AOI to another survey.
+                    gridded_features, gridded_metadata, grid_error, gridded_errors_df = self._attempt_gridding(
+                        geometry=geometry,
+                        region=region,
+                        packs=packs,
+                        classes=classes,
+                        include=include,
+                        aoi_id=aoi_id,
+                        since=since,
+                        until=until,
+                        survey_resource_id=survey_resource_id or metadata["survey_resource_id"],
+                        aoi_grid_inexact=self.aoi_grid_inexact,
+                        reason="reactive - include skip",
+                        grid_size=REALTIME_SKIP_GRID_SIZE_DEGREES,
+                    )
+                    if grid_error is None:
+                        answered, cells = gridded_metadata["grid_cells_answered"], gridded_metadata["grid_cells"]
+                        if answered < cells:
+                            # Below aoi_grid_min_pct=100 a grid passes with cells missing, and their features with
+                            # them, so it would replace a response that has every feature with one that lacks some.
+                            grid_error = {"message": f"only {answered} of {cells} grid cells answered"}
+                    if grid_error is None:
+                        # Cells run without parcelMode and return no parcel-level aggregate; keep this one's.
+                        gridded_metadata["aggregate"] = metadata.get("aggregate")
+                        features_gdf, metadata, grid_errors_df = gridded_features, gridded_metadata, gridded_errors_df
                     else:
-                        logger.info(
-                            f"AOI (id {aoi_id}): include skip detected ({', '.join(skipped_includes)}), "
-                            f"reactive gridding disabled — scores will remain null"
+                        # The grid only tries to fill the skipped scores; the response already answered.
+                        logger.warning(
+                            f"AOI (id {aoi_id}): gridding after an include skip failed "
+                            f"({grid_error.get('message')}); keeping the ungridded response, whose skipped "
+                            f"scores stay null"
                         )
+                elif any_skipped:
+                    logger.info(
+                        f"AOI (id {aoi_id}): include skip ({', '.join(skipped_includes)}), scores will remain null"
+                    )
         except AIFeatureAPIRequestSizeError as e:
             features_gdf, metadata, error = None, None, None
 
@@ -1786,6 +1921,11 @@ class FeatureApi(GriddedApiClient):
         See :py:meth:`_get_features_gdf_bulk_inner` for the underlying single-pass
         implementation.
         """
+        # A blank bulk date means no date, so it must not reach a request as text.
+        since_bulk, until_bulk = blank_date_to_none(since_bulk), blank_date_to_none(until_bulk)
+        if not in_gridding_mode:
+            # Per-row dates that aren't YYYY-MM-DD strings would otherwise fall back to the bulk dates unseen.
+            gdf = prepare_date_cutoffs(gdf, since=since_bulk, until=until_bulk)
         if not self.prefer3d or in_gridding_mode:
             return self._get_features_gdf_bulk_inner(
                 gdf=gdf,
