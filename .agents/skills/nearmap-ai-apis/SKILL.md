@@ -73,7 +73,7 @@ A user's API key sets what they can access: which feature and attribute classes,
 These come after step 1, not instead of it: if the answer depends on which field, mode or source the user means, ask first. The details are in the reference files named in brackets.
 
 - **"Roof area is bigger than the lot", or "roof total area exceeds the parcel".**
-  - Ask first: which number (one roof's `areaSqm`/`area_*`, a total across roofs such as `roof_total_area_*`, the primary roof's area, or the polygon measured in their own GIS); whether parcelMode was on, off, or the AOI was gridded; and where the lot area came from.
+  - Ask first: which number (one roof's `areaSqm`/`area_*`, a total across roofs such as `roof_total_area_*`, the primary roof's area, or the polygon measured in their own GIS); whether parcelMode was on or off (and, for an nmaipy export, whether the AOI was gridded); and where the lot area came from.
   - One roof's `areaSqm` is the *whole* roof in either mode, even when part of it lies outside the parcel. `clippedAreaSqm` (`*_clipped_area_*`) is the in-parcel part.
   - A total across roofs without parcelMode, or for a gridded AOI, can include neighbours' roofs that cross the boundary. With parcelMode, those come back `belongsToParcel=false` (nmaipy drops them).
   - In an nmaipy export, a multiparcel roof's geometry is the clipped piece while `area_*` stays whole, so an area measured from the polygon won't match `area_*`.
@@ -84,8 +84,8 @@ These come after step 1, not instead of it: if the answer depends on which field
   - [geometry-and-areas]
 - **"Tree overhang ratio on a shared (multiparcel) roof."**
   - The API's component `ratio` (roof `attributes[]` "Roof overhang attributes" → `components[]` "Tree Overhang") is always relative to the whole roof.
-  - The per-lot ratio is Σ `clippedAreaSqm` of the Tree Overhang features whose `parentId` is the roof's `id`, divided by the roof's `clippedAreaSqm`. It works with parcelMode on or off. Show this calculation.
-  - nmaipy's `tree_overhang_ratio` gives the same figure for a multiparcel roof (but the whole-roof ratio for a slight-overhang roof).
+  - For a multiparcel roof, the per-lot ratio is Σ `clippedAreaSqm` of the Tree Overhang features whose `parentId` is the roof's `id`, divided by the roof's `clippedAreaSqm`. It works with parcelMode on or off. Show this calculation. A slight-overhang roof is analysed whole, so its component `ratio` is already the answer.
+  - nmaipy's `tree_overhang_ratio` gives the same figure for a multiparcel roof (but the whole-roof ratio for a slight-overhang roof, except on a gridded AOI).
   - [geometry-and-areas]
 - **"A roof that slightly overhangs the boundary isn't clipped."**
   - That is by design: the API's geospatial assessment decides whether a crossing feature is genuinely shared (multiparcel, clipped) or just overhangs.

@@ -4,7 +4,7 @@ Use this when the references don't settle a question, or when someone needs proo
 
 ## Principles
 
-- **Replay the user's own request when you have it.** Run their `curl` (or URL and body) with your own API key in place of theirs, changing nothing else: the endpoint, parameters (`parcelMode`, packs, `since`/`until`, system version) and AOI are what produced the behaviour. Change one parameter at a time from there.
+- **Replay the user's own request when you have it.** Run their `curl` (or URL and body) with your own API key in place of theirs, changing nothing else: the endpoint, parameters (`parcelMode`, packs, `since`/`until`, system version) and AOI are what produced the behaviour. Change one parameter at a time from there. If your response differs from theirs, check first that the same classes and includes came back: your key's permissions may differ.
 
 - **Look at raw payloads, not exports.** `FeatureApi.get_features(...)` returns the response dict unchanged, so you see what the API sent before nmaipy filters or renames anything.
 - **Compare with one variable changed.** Query the same AOI with `parcel_mode=True` and `parcel_mode=False` (two `FeatureApi` instances), or query two AOIs that share a feature. Check that both responses have the same `surveyId` before comparing them.
