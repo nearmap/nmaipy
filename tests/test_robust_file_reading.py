@@ -447,6 +447,8 @@ class TestRobustFileReading:
         result = parcels.read_from_file(path)
 
         for col, expected in (("since", "2025-03-06"), ("until", "2025-12-31")):
-            assert pd.api.types.is_string_dtype(result[col]), f"{col} dtype is {result[col].dtype}"
+            # Check the values, not the dtype: pandas 2 keeps strings with nulls as object, pandas 3 as str.
+            non_null = result[col].dropna().tolist()
+            assert all(isinstance(v, str) for v in non_null), f"{col} should hold strings, got {non_null!r}"
             assert result.loc["a", col] == expected
             assert pd.isna(result.loc["b", col]), f"null {col} should stay null, got {result.loc['b', col]!r}"
