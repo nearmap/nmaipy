@@ -22,12 +22,13 @@ A user's API key sets what they can access: which feature and attribute classes,
 
    Most questions turn out to be about the raw API, but don't assume it. Don't infer the API or the source from how names are written (camelCase vs snake_case, upper-cased or renamed columns); downstream products rename fields freely. If the question doesn't settle either point, give the part of the answer that holds under every reading, then ask only what decides the rest: list the readings you see and what you need to know to choose. Don't answer one reading with a caveat. If every reading leads to the same answer, just answer.
 
-   When the question reports a value that looks wrong or surprising, validate it before explaining it: ask for a few real examples (feature or AOI ids, the request or file, the values they see) and reproduce them against the live API (see `references/verifying-with-live-data.md`). Explain what you see in those examples, not what usually happens.
+   When the question reports a value that looks wrong or surprising, validate it before explaining it: ask for a few real examples. Ask first for the exact API request they sent, e.g. a `curl` command with the API key removed, because replaying it is the most reliable way to reproduce what they saw. Otherwise ask for the geometry they queried, the feature ids and the values they see; for an nmaipy export, ask instead for the `aoi_id`s of the rows and the export's files. Then reproduce them against the live API (see `references/verifying-with-live-data.md`). Explain what you see in those examples, not what usually happens. While you wait for examples, still give the user what they can do now, if it holds in every case.
 
    Questions about what the API can do or which classes exist ("can we get…", "does the API tell us…") rarely depend on where a value came from, and a question about a kind of object (pools, decks, roofs) means the AI Feature API. Answer those directly, but still ask if something you need is unclear.
 2. **Read the matching reference file** from the map below before answering. The details are subtle: for example, `areaSqm` means different things for roofs and for vegetation. Answering from general intuition gets them wrong.
 3. **Say how well established each claim is.** The references tag claims as verified against the live API, read from nmaipy code, or inferred. Carry that through.
    - If the references don't cover something, say so. Don't fill the gap with plausible API behaviour; offer to check it (see `references/verifying-with-live-data.md`).
+   - If you notice something else while answering, such as a possible bug, mention it separately at the end as unchecked. Keep it out of the answer and out of the text written for the user. Suggest a next step only once you've reproduced it: for a fault in nmaipy, an issue at github.com/nearmap/nmaipy that reproduces it with public or made-up parcels and contains no API key, addresses, customer data or company names; for a fault in the API's own responses, Nearmap support.
    - Before saying something isn't documented, search Nearmap's public documentation: developer.nearmap.com (through `llms.txt`, step 4) and help.nearmap.com, Nearmap's knowledge hub. If neither covers it, say "I don't know" or that it isn't publicly documented, and suggest the user ask Nearmap support. Assume the asker is usually an external customer, so don't name internal teams. Keep inferred claims out of the text written for the user.
 4. **Check Nearmap's official API documentation for what the API promises,** if you can fetch URLs.
    - `https://developer.nearmap.com/llms.txt` indexes Markdown versions of the docs, e.g. `docs/ai-api.md`, `docs/parcel-mode-user-guide.md`, `docs/roof-age-api.md`, `docs/damage-conflation-api.md`, and a `reference/*.md` page per endpoint.
@@ -41,11 +42,18 @@ A user's API key sets what they can access: which feature and attribute classes,
    - Find the source with `python -c "import nmaipy, os; print(os.path.dirname(nmaipy.__file__))"`, or use a repo checkout.
    - If the code disagrees with the reference, trust the code and mention the difference.
    - An export records the nmaipy version that made it in `final/export_config.json` (`_metadata.nmaipy_version`). If it is older than the checkout's, don't reason about how that version behaved: re-query a sample of the rows in question with the current nmaipy (see `references/verifying-with-live-data.md`) and explain the current result.
-6. **Lead with the direct answer**, then the mechanism, then what to do about it: which field to use instead, which parameter to set, or how to check. Use exact field and column names, because the asker will look them up.
+6. **Open with an "Applies to" line** naming the API or APIs the answer covers (AI Feature, Roof Age, Damage Conflation) and whether it also covers nmaipy exports, with the nmaipy version from `nmaipy/__version__.py`. For example: "Applies to: AI Feature API. Also nmaipy 5.5.1 exports." or "Applies to: Roof Age API only, not nmaipy." Repeat the API scope at the top of the What to tell the user text, mentioning nmaipy there only if the user received an nmaipy export.
+   **Lead with the direct answer**, then the mechanism, then what to do about it: which field to use instead, which parameter to set, or how to check. Use exact field and column names, because the asker will look them up.
    - **Show spatial behaviour in a picture.** Area, clipping and parcel questions are about geometry, and are much easier to reason about drawn than described. When something is counterintuitive, find one real example (step 1) and draw it: the query AOI, the feature's outline and its in-AOI part, labelled with the values in question. Use what your environment can show: an interactive map page, an image (`references/verifying-with-live-data.md` has a plotting snippet), or a GeoJSON file the user can open at geojson.io or in QGIS.
+     - Use a real example: the user's own, or real adjoining parcels. If you can't find one, use the worked example in `references/feature-api-geometry-and-areas.md` (section 8) or make one up, and say in your first sentence that it is made up. Don't describe a made-up example as a real property, and don't present its numbers as real findings in the text written for the user.
+     - Make sure the user sees the picture without having to ask. A file path, or an image link to a local file, often shows nothing. Open the image for them, or put it somewhere your environment displays, such as a page or an inline image. Then say in one line what they're looking at. Assume the asker may not know how to open a file from the command line.
+     - Save scripts, images and GeoJSON in the user's working folder, not a temporary system directory, so they can find them again. Use a folder that is already excluded from version control if there is one (in an nmaipy checkout, `data/`, e.g. `data/nearmap-ai-apis/<topic>/`). Otherwise create a clearly named folder and tell the user it exists.
    - Always end with a **What to tell the user** section: plain-language text the asker can paste straight into an email or Slack message. Write it for the user, not the asker. Leave out internal references (source files, function names, reference-file tags, test details) and mention nmaipy only if the user received an nmaipy export.
+     - Name every value by where the user finds it: its path in the response (e.g. the roof feature's `attributes[]` entry "Roof overhang attributes" → `components[]` "Tree Overhang" → `ratio`), or the column name for an nmaipy export. Never a loose description such as "the whole-roof attributes".
+     - Only describe values the user can see or calculate themselves. Show a calculation from the fields they have rather than saying a value was "worked out".
+     - Don't use the peril scores (e.g. `hurricaneScore`) or `defensibleSpace` to demonstrate behaviour unless the question is about them.
 7. **Stick to documented behaviour.** Don't speculate about Nearmap's internal models or pipelines beyond what the references and the official documentation state.
-8. **Leave commercial questions to the account manager.** For credits, pricing, licensing or where a user may display the data, say what the official docs state and refer the rest to their account manager.
+8. **Leave commercial questions to the account manager.** For credits, pricing, licensing or where a user may display the data, say what the official docs state and refer the rest to their account manager. Quote the docs rather than interpreting contract or legal terms, and don't point users to deprecated endpoints.
 
 ## Reference map
 
@@ -62,20 +70,22 @@ A user's API key sets what they can access: which feature and attribute classes,
 
 ## Frequent questions
 
-The details are in the reference files named in brackets.
+These come after step 1, not instead of it: if the answer depends on which field, mode or source the user means, ask first. The details are in the reference files named in brackets.
 
 - **"Roof area is bigger than the lot", or "roof total area exceeds the parcel".**
-  - Discrete classes (roofs, buildings) report their *whole* area in `area_*`, even when part of the object lies outside the parcel.
-  - Use `*_clipped_area_*` for the in-parcel part.
+  - Ask first: which number (one roof's `areaSqm`/`area_*`, a total across roofs such as `roof_total_area_*`, the primary roof's area, or the polygon measured in their own GIS); whether parcelMode was on or off (and, for an nmaipy export, whether the AOI was gridded); and where the lot area came from.
+  - One roof's `areaSqm` is the *whole* roof in either mode, even when part of it lies outside the parcel. `clippedAreaSqm` (`*_clipped_area_*`) is the in-parcel part.
+  - A total across roofs without parcelMode, or for a gridded AOI, can include neighbours' roofs that cross the boundary. With parcelMode, those come back `belongsToParcel=false` (nmaipy drops them).
+  - In an nmaipy export, a multiparcel roof's geometry is the clipped piece while `area_*` stays whole, so an area measured from the polygon won't match `area_*`.
   - [geometry-and-areas]
 - **"Vegetation area never exceeds the parcel, but roof area can."**
   - Connected classes (vegetation, surfaces) are clipped to the query AOI by the API, so for them `area` equals `clipped_area`.
   - `unclipped_area` is the whole connected patch, which can be enormous.
   - [geometry-and-areas]
 - **"Tree overhang ratio on a shared (multiparcel) roof."**
-  - The API's component `ratio` is always relative to the whole roof.
-  - nmaipy recalculates it on the parcel's clipped roof from the tree overhang polygons. That matches the API's own per-parcel `hurricaneScore.modelInputFeatures.treeOverhangRatio`.
-  - Not on gridded AOIs: there the scores are whole-roof while nmaipy's ratio is for the in-AOI part.
+  - The API's component `ratio` (roof `attributes[]` "Roof overhang attributes" → `components[]` "Tree Overhang") is always relative to the whole roof.
+  - For a multiparcel roof, the per-lot ratio is Σ `clippedAreaSqm` of the Tree Overhang features whose `parentId` is the roof's `id`, divided by the roof's `clippedAreaSqm`. It works with parcelMode on or off. Show this calculation. A slight-overhang roof is analysed whole, so its component `ratio` is already the answer.
+  - nmaipy's `tree_overhang_ratio` gives the same figure for a multiparcel roof (but the whole-roof ratio for a slight-overhang roof, except on a gridded AOI).
   - [geometry-and-areas]
 - **"A roof that slightly overhangs the boundary isn't clipped."**
   - That is by design: the API's geospatial assessment decides whether a crossing feature is genuinely shared (multiparcel, clipped) or just overhangs.
