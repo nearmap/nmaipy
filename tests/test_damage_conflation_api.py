@@ -257,6 +257,144 @@ def test_fetch_all_pages_caps_runaway_pagination(damage_api, test_aoi, milton_re
     assert mock_session.post.call_count == 3  # aborted at the capped page, not looping forever
 
 
+def _page_responses(milton_response):
+    """Page 1 (carries nextCursor) and page 2 (final) of the Milton fixture as mock responses."""
+    page1 = copy.deepcopy(milton_response)
+    page2 = copy.deepcopy(milton_response)
+    page1["features"] = milton_response["features"][:8]
+    page1["nextCursor"] = "cursor-abc"
+    page2["features"] = milton_response["features"][8:]
+    page2.pop("nextCursor", None)
+    responses = []
+    for payload in (page1, page2):
+        r = Mock(ok=True, status_code=200)
+        r.json.return_value = payload
+        responses.append(r)
+    return responses
+
+
+def _bad_cursor_response():
+    """The API's answer for a cursor it can no longer honour: 400 with code BAD_CURSOR."""
+    r = Mock(ok=False, status_code=400, text='{"error":"...","code":"BAD_CURSOR"}')
+    r.json.return_value = {
+        "error": "'cursor' is invalid or no longer valid; restart pagination without a cursor",
+        "code": "BAD_CURSOR",
+    }
+    return r
+
+
+def _paged_session(scope, responses):
+    mock_session = Mock()
+    mock_session.post.side_effect = responses
+    mock_session._timeout = (120, 90)
+    scope.return_value.__enter__.return_value = mock_session
+    return mock_session
+
+
+def test_fetch_all_pages_restarts_once_on_bad_cursor(damage_api, test_aoi, milton_response):
+    """
+    The API pins a cursor to the resource that produced it and answers 400 BAD_CURSOR when it
+    can no longer honour one (a cursor issued before a deploy, or a resource that is gone).
+    The 400 tells the client to restart pagination without a cursor. Doing that once keeps the
+    AOI in the export instead of recording it in damage_errors.csv; the pages fetched before
+    the restart are discarded, so nothing is counted twice.
+    """
+    page1, _ = _page_responses(milton_response)
+    page1_again, page2_again = _page_responses(milton_response)
+
+    with (
+        patch.object(damage_api, "_session_scope") as scope,
+        patch.object(damage_api, "_load_from_cache", return_value=None),
+        patch.object(damage_api, "_save_to_cache"),
+    ):
+        mock_session = _paged_session(scope, [page1, _bad_cursor_response(), page1_again, page2_again])
+
+        gdf = damage_api.get_damage_by_aoi(test_aoi, aoi_id="restarted")
+
+    assert mock_session.post.call_count == 4  # page 1, BAD_CURSOR on page 2, then page 1 and 2 again
+    assert "cursor" not in mock_session.post.call_args_list[2].kwargs["json"]  # the restart sends no cursor
+    assert len(gdf) == len(milton_response["features"])  # one full pass; the discarded page is not counted twice
+    assert damage_api._retry_count == 1  # the restart shows up in the client's retry statistics
+
+
+def test_fetch_all_pages_raises_on_second_bad_cursor(damage_api, test_aoi, milton_response):
+    """A BAD_CURSOR on the restarted pull is a real failure, not something to keep retrying."""
+    page1, _ = _page_responses(milton_response)
+    page1_again, _ = _page_responses(milton_response)
+
+    with (
+        patch.object(damage_api, "_session_scope") as scope,
+        patch.object(damage_api, "_load_from_cache", return_value=None),
+        patch.object(damage_api, "_save_to_cache"),
+    ):
+        mock_session = _paged_session(scope, [page1, _bad_cursor_response(), page1_again, _bad_cursor_response()])
+
+        with pytest.raises(DamageConflationAPIError, match="restart pagination without a cursor"):
+            damage_api.get_damage_by_aoi(test_aoi, aoi_id="restarted-twice")
+
+    assert mock_session.post.call_count == 4  # page 1, BAD_CURSOR, page 1 again, BAD_CURSOR again — then give up
+
+
+def test_fetch_all_pages_does_not_restart_without_a_cursor(damage_api, test_aoi):
+    """A 400 BAD_CURSOR on a request that sent no cursor cannot be fixed by restarting."""
+    with (
+        patch.object(damage_api, "_session_scope") as scope,
+        patch.object(damage_api, "_load_from_cache", return_value=None),
+        patch.object(damage_api, "_save_to_cache"),
+    ):
+        mock_session = _paged_session(scope, [_bad_cursor_response()])
+
+        with pytest.raises(DamageConflationAPIError):
+            damage_api.get_damage_by_aoi(test_aoi, aoi_id="bad-first-page")
+
+    assert mock_session.post.call_count == 1
+
+
+def test_fetch_all_pages_does_not_restart_on_other_400s(damage_api, test_aoi, milton_response):
+    """Only BAD_CURSOR means 'restart'; a 400 with another code, or a non-JSON body, fails as before."""
+    other_400 = Mock(ok=False, status_code=400, text='{"error":"bad body","code":"BAD_REQUEST_BODY"}')
+    other_400.json.return_value = {"error": "bad body", "code": "BAD_REQUEST_BODY"}
+    non_json_400 = Mock(ok=False, status_code=400, text="<html>Bad Request</html>")
+    non_json_400.json.side_effect = json.JSONDecodeError("not json", "", 0)
+
+    for bad in (other_400, non_json_400):
+        page1, _ = _page_responses(milton_response)
+        with (
+            patch.object(damage_api, "_session_scope") as scope,
+            patch.object(damage_api, "_load_from_cache", return_value=None),
+            patch.object(damage_api, "_save_to_cache"),
+        ):
+            mock_session = _paged_session(scope, [page1, bad])
+
+            with pytest.raises(DamageConflationAPIError):
+                damage_api.get_damage_by_aoi(test_aoi, aoi_id="other-400")
+
+        assert mock_session.post.call_count == 2  # no restart attempted
+
+
+def test_fetch_all_pages_rejects_resource_change_between_pages(damage_api, test_aoi, milton_response):
+    """
+    Every page of one AOI must come from the resource that served page 1: the API guarantees it
+    by pinning the cursor to that resource, and every output row is stamped with page 1's
+    resourceId. A page from another resource would mix datasets without any visible sign, so
+    the client refuses it rather than merging.
+    """
+    page1, page2 = _page_responses(milton_response)
+    page2.json.return_value["resourceId"] = "00000000-0000-5000-8000-000000000000"
+
+    with (
+        patch.object(damage_api, "_session_scope") as scope,
+        patch.object(damage_api, "_load_from_cache", return_value=None),
+        patch.object(damage_api, "_save_to_cache"),
+    ):
+        mock_session = _paged_session(scope, [page1, page2])
+
+        with pytest.raises(DamageConflationAPIError, match="resourceId"):
+            damage_api.get_damage_by_aoi(test_aoi, aoi_id="mixed-resources")
+
+    assert mock_session.post.call_count == 2  # stops at the first page from another resource
+
+
 # ----------------------------------------------------------------------- caching
 def test_caching(damage_api, test_aoi, milton_response):
     with patch.object(damage_api, "_session_scope") as scope:
