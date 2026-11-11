@@ -101,7 +101,7 @@ Fix lint findings that ruff can fix safely, then format and sort imports with ru
 pixi run format
 ```
 
-Check without changing files. This runs ty first, then ruff:
+Check without changing files. This runs ty first, then ruff. CI runs the same check on every pull request and on pushes to main, and a PR must pass it:
 ```bash
 pixi run lint
 ```
