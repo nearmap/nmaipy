@@ -295,11 +295,18 @@ class RetryRequest(Retry):
                 # Clean URL of API key for logging
                 clean_url = url
                 if url and "apikey=" in url:
-                    clean_url = url.split("apikey=")[0] + "apikey=***"
+                    clean_url = url.split("?", 1)[0] + "?apikey=***"
 
                 logger.info(f"{reason} causing retry {len(result.history)} of request {clean_url}")
 
         return result
+
+
+def _cache_error_text(e: Exception) -> str:
+    """Describe a cache failure without the cache path, which can hold an address or zip code."""
+    if isinstance(e, OSError):
+        return f"{type(e).__name__}: {e.strerror}"
+    return type(e).__name__
 
 
 def is_read_timeout_error(exc: Exception) -> bool:
@@ -898,7 +905,7 @@ class BaseApiClient:
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
         except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
-            logger.warning(f"Failed to load from cache: {e}")
+            logger.warning(f"Failed to load from cache: {_cache_error_text(e)}")
             return None
 
     def _save_to_cache(self, cache_key: str, data: dict) -> None:
@@ -916,7 +923,7 @@ class BaseApiClient:
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
         except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
-            logger.warning(f"Failed to save to cache: {e}")
+            logger.warning(f"Failed to save to cache: {_cache_error_text(e)}")
 
     @contextlib.contextmanager
     def _coalesce_inflight(self, cache_path: str | None):

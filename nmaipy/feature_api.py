@@ -31,6 +31,7 @@ from nmaipy.api_common import (
     APIGridError,
     APIRequestSizeError,
     GriddedApiClient,
+    _cache_error_text,
     generate_curl_command,
     is_read_timeout_error,
 )
@@ -569,7 +570,7 @@ class FeatureApi(GriddedApiClient):
                 except OSError as e:
                     if attempt == 1:
                         raise
-                    logger.debug(f"Cache write failed ({e}), re-creating cache dir and retrying")
+                    logger.debug(f"Cache write failed ({_cache_error_text(e)}), re-creating cache dir and retrying")
                 finally:
                     temp_path.unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; failures are counted and logged in batches
@@ -579,7 +580,10 @@ class FeatureApi(GriddedApiClient):
             with self._lock:
                 self._cache_write_failures += 1
                 n = self._cache_write_failures
-            msg = f"Failed to write cache entry - continuing without caching it ({n} failures so far): {e}"
+            msg = (
+                f"Failed to write cache entry - continuing without caching it ({n} failures so far): "
+                f"{_cache_error_text(e)}"
+            )
             if n <= 3 or n % 1000 == 0:
                 logger.warning(msg)
             else:
@@ -873,7 +877,7 @@ class FeatureApi(GriddedApiClient):
             logger.error("Error loading compressed cache file.")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
             logger.error(f"Error: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
         except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
-            logger.error(f"Error loading cache file: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
+            logger.error(f"Error loading cache file: {_cache_error_text(e)}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
         return None
 
     def _fetch_results(self, url: str, body: dict, cache_path: str | None, in_gridding_mode: bool):

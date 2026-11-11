@@ -42,7 +42,7 @@ import stringcase
 
 from nmaipy import log, storage
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
-from nmaipy.api_common import BaseApiClient, RoofAgeAPIError
+from nmaipy.api_common import BaseApiClient, RoofAgeAPIError, _cache_error_text
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
@@ -246,7 +246,7 @@ class RoofAgeApi(BaseApiClient):
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
         except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
-            logger.warning(f"Failed to load from cache: {e}")
+            logger.warning(f"Failed to load from cache: {_cache_error_text(e)}")
             return None
 
     def _save_to_cache(
@@ -267,7 +267,7 @@ class RoofAgeApi(BaseApiClient):
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
         except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
-            logger.warning(f"Failed to save to cache: {e}")
+            logger.warning(f"Failed to save to cache: {_cache_error_text(e)}")
 
     def _build_request_payload(
         self,

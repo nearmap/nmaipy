@@ -328,3 +328,23 @@ class TestTolerantCacheWrite:
 
         assert not cache_path.exists()
         assert any("Failed to write cache entry" in r.message for r in caplog.records)
+
+    def test_write_failure_log_omits_the_cache_path(self, tmp_path, real_feature_payload, caplog):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        api = FeatureApi(api_key="dummy", cache_dir=cache_dir, compress_cache=True)
+        (cache_dir / "blocker").write_text("a file where a directory must go")
+        cache_path = cache_dir / "blocker" / "us" / "NJ" / "Springfield" / "07081" / "entry.json.gz"
+
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.DEBUG, logger="nmaipy"):
+                api._write_to_cache(cache_path, real_feature_payload)
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
+
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Failed to write cache entry" in logged
+        assert "07081" not in logged, "the zip code in the cache path was logged"
+        assert "Springfield" not in logged, "the city in the cache path was logged"
