@@ -79,9 +79,9 @@ def test_only_gridded_aois_are_clipped_and_every_roof_keeps_its_outline():
     _, roofs_linked = _link_roof_instances(instances, roofs, {"a": _AOI})
 
     assert list(roofs_linked["feature_id"]) == ["a-row", "b-row", "a-shed"], "Roofs must keep their input order"
-    assert all(linked.equals(original) for linked, original in zip(roofs_linked.geometry, roofs.geometry)), (
-        "Every linked roof must keep its whole outline"
-    )
+    assert all(
+        linked.equals(original) for linked, original in zip(roofs_linked.geometry, roofs.geometry, strict=True)
+    ), "Every linked roof must keep its whole outline"
     by_fid = _by_feature_id(roofs_linked)
     assert by_fid.loc["a-row", "primary_child_roof_age_feature_id"] == "a-ours"
     assert by_fid.loc["b-row", "primary_child_roof_age_feature_id"] == "b-neighbour"

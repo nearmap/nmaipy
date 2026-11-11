@@ -797,7 +797,7 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     # so to_dict("records") preserves it in every dict.
     if filtered.index.name is not None:
         filtered = filtered.reset_index()
-    return dict(zip(filtered["feature_id"].values, filtered.to_dict("records")))
+    return dict(zip(filtered["feature_id"].values, filtered.to_dict("records"), strict=True))
 
 
 def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame, all_rows: bool = False) -> dict:
@@ -822,7 +822,7 @@ def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame, all_rows: bool =
         raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot scope parent lookup per parcel")
     lookup: dict = {}
     for aoi, fid, rec in zip(
-        filtered[AOI_ID_COLUMN_NAME].values, filtered["feature_id"].values, filtered.to_dict("records")
+        filtered[AOI_ID_COLUMN_NAME].values, filtered["feature_id"].values, filtered.to_dict("records"), strict=True
     ):
         lookup.setdefault(aoi, {})[fid] = rec
     return lookup
@@ -1037,6 +1037,7 @@ def feature_attributes(
                 for fid, bid in zip(
                     roofs_linked_parcel["feature_id"].values,
                     roofs_linked_parcel["parent_building_id"].values,
+                    strict=True,
                 )
                 if pd.notna(bid)
             }

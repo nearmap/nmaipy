@@ -1533,7 +1533,7 @@ def _stats_to_row(stats: dict) -> dict:
 
     histogram = stats.get("histogram", [0] * (len(LATENCY_BUCKETS) - 1))
     bucket_names = _get_latency_bucket_names()
-    for name, count in zip(bucket_names, histogram):
+    for name, count in zip(bucket_names, histogram, strict=True):
         row[name] = count
 
     return row

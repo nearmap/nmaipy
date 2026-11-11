@@ -340,7 +340,7 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
 
     # Input columns pass through, ahead of the rollup columns, in both formats.
     for fmt in (rollup, pd.read_parquet(final / "damage_rollup.parquet").reset_index()):
-        assert dict(zip(fmt["aoi_id"], fmt["policy_number"])) == {"p1": "POL-1", "p2": "POL-2"}
+        assert dict(zip(fmt["aoi_id"], fmt["policy_number"], strict=True)) == {"p1": "POL-1", "p2": "POL-2"}
         cols = list(fmt.columns)
         assert cols.index("portfolio") < cols.index("n_buildings")
         assert "geometry" not in cols

@@ -1421,7 +1421,7 @@ class TestStreamMergeChunksToParquet:
 
         result = pq.read_table(out).sort_by("id")
         # id==4 came from the chunk lacking "val"; it must be null, not dropped.
-        by_id = dict(zip(result.column("id").to_pylist(), result.column("val").to_pylist()))
+        by_id = dict(zip(result.column("id").to_pylist(), result.column("val").to_pylist(), strict=True))
         assert by_id[4] is None
         assert by_id[1] == 1.0
 

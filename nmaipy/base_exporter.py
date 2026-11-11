@@ -806,7 +806,7 @@ class BaseExporter(ABC):
         self.logger.info(f"Processing {len(jobs)} chunks...")
         all_latency_stats = []
         last_resource_update = 0.0
-        pbar = tqdm(list(zip(jobs, range(len(jobs)))), desc="Processing chunks")
+        pbar = tqdm(list(zip(jobs, range(len(jobs)), strict=True)), desc="Processing chunks")
         for job, _ in pbar:
             now = time.time()
             if now - last_resource_update >= 5.0:

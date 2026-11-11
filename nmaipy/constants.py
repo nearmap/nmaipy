@@ -506,7 +506,7 @@ def refresh_class_descriptions(api_key: str | None = None):
     api = FeatureApi(api_key=api_key or os.environ.get("API_KEY"))
     classes_df = api.get_feature_classes()
     api.cleanup()
-    descriptions = dict(zip(classes_df.index, classes_df["description"]))
+    descriptions = dict(zip(classes_df.index, classes_df["description"], strict=True))
     # Preserve synthetic entries not from Feature API
     for cid in PER_CLASS_FILE_CLASS_IDS:
         if cid not in descriptions:

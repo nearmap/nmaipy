@@ -312,7 +312,7 @@ def _cast_all_null_object_columns(frames: list[pd.DataFrame]) -> list[pd.DataFra
         {c: typed[c] for c in df.columns if c in typed and _holds_missing(typed[c]) and _all_null_object(df, c)}
         for df in frames
     ]
-    return [df.astype(cast) if cast else df for df, cast in zip(frames, casts)]
+    return [df.astype(cast) if cast else df for df, cast in zip(frames, casts, strict=True)]
 
 
 def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.DataFrame:
@@ -677,7 +677,7 @@ def _clip_roof_geoms_to_aoi(
             # at a time: only the roofs that fail keep their whole outline. Warn, because each of
             # those is used whole where the clip was meant to apply.
             clipped = [_intersection_or_none(g, clip_geom) for g in sub]
-            failed = [p for p, g, c in zip(positions, sub, clipped) if g is not None and c is None]
+            failed = [p for p, g, c in zip(positions, sub, clipped, strict=True) if g is not None and c is None]
             failed_ids = parent_gdf["feature_id"].iloc[failed].tolist()
             logger.warning(
                 "%s: could not clip %d of %d roof(s) to AOI %s (%s); keeping their whole outline(s). Feature IDs: %s",
@@ -688,7 +688,7 @@ def _clip_roof_geoms_to_aoi(
                 e,
                 failed_ids[:5] + (["..."] if len(failed_ids) > 5 else []),
             )
-        for p, c in zip(positions, clipped):
+        for p, c in zip(positions, clipped, strict=True):
             # Keep the original outline if the intersection is empty or failed
             # rather than blanking the parent (an empty parent disables recalc).
             if c is not None and not c.is_empty:
@@ -1226,7 +1226,7 @@ def _dataframe_to_records_with_index(df):
     """
     records = df.to_dict("records")
     if df.index.name == AOI_ID_COLUMN_NAME:
-        for rec, idx_val in zip(records, df.index):
+        for rec, idx_val in zip(records, df.index, strict=True):
             rec[AOI_ID_COLUMN_NAME] = idx_val
     return records
 
@@ -1327,6 +1327,7 @@ def _compute_all_per_class_data(
         for cid, desc in zip(
             chunk_gdf["class_id"].values,
             chunk_gdf["description"].values,
+            strict=True,
         ):
             if cid and desc and cid not in chunk_class_descriptions:
                 chunk_class_descriptions[cid] = desc
@@ -1369,6 +1370,7 @@ def _compute_all_per_class_data(
                     _aoi_id_values(roofs_linked_chunk),
                     roofs_linked_chunk["feature_id"].values,
                     roofs_linked_chunk["parent_building_id"].values,
+                    strict=True,
                 ):
                     if pd.notna(bid):
                         roof_to_building_lookup.setdefault(aoi, {})[fid] = bid
@@ -1752,7 +1754,11 @@ def _compute_feature_class_data(
 
                     # Map attributes using vectorized lookup by (aoi_id, instance id)
                     ri_keys = list(
-                        zip(_aoi_id_values(class_features), class_features["primary_child_roof_age_feature_id"].values)
+                        zip(
+                            _aoi_id_values(class_features),
+                            class_features["primary_child_roof_age_feature_id"].values,
+                            strict=True,
+                        )
                     )
                     ri_mapped = ri_lookup.reindex(ri_keys).reset_index(drop=True)
                     ri_mapped_batch = {}
@@ -1772,7 +1778,9 @@ def _compute_feature_class_data(
                 # resolve to this parcel's clipped attributes, not another's.
                 attr_records = [
                     roof_attrs_cache.get((aoi, fid), {})
-                    for aoi, fid in zip(_aoi_id_values(class_features), class_features["feature_id"].values)
+                    for aoi, fid in zip(
+                        _aoi_id_values(class_features), class_features["feature_id"].values, strict=True
+                    )
                 ]
                 logger.debug(f"Roof attribute flattening: used cache for {len(class_features)} roofs")
             else:
@@ -1849,7 +1857,7 @@ def _compute_feature_class_data(
                 if rsi_result is not None:
                     # Overwrite the roofs' own RSI columns, and add any that no roof in the chunk had of its own.
                     rsi_batch = {}
-                    for col, arr in zip(_RSI_COLUMNS, rsi_result):
+                    for col, arr in zip(_RSI_COLUMNS, rsi_result, strict=True):
                         if col not in added_cols:
                             rsi_batch[col] = arr
                             continue
@@ -1982,7 +1990,9 @@ def _compute_feature_class_data(
                     # building up by its own (aoi_id, primary_child_roof_id).
                     roof_attrs = {
                         (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
-                        for aoi, fid in zip(_aoi_id_values(roofs_linked), roofs_linked["feature_id"].values)
+                        for aoi, fid in zip(
+                            _aoi_id_values(roofs_linked), roofs_linked["feature_id"].values, strict=True
+                        )
                     }
                     logger.debug(f"Building roof attribute flattening: used cache for {len(roofs_linked)} roofs")
                 else:
@@ -2027,7 +2037,11 @@ def _compute_feature_class_data(
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
                     roof_attrs_df.index = pd.MultiIndex.from_tuples(attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"])
                     lookup_keys = list(
-                        zip(_aoi_id_values(buildings_linked), buildings_linked["primary_child_roof_id"].values)
+                        zip(
+                            _aoi_id_values(buildings_linked),
+                            buildings_linked["primary_child_roof_id"].values,
+                            strict=True,
+                        )
                     )
                     mapped = roof_attrs_df.reindex(lookup_keys).reset_index(drop=True)
 
@@ -2127,7 +2141,7 @@ def _compute_feature_class_data(
                     if rsi_result is not None:
                         rsi_vals, rsi_conf, rsi_mver = rsi_result
                         rsi_batch = {}
-                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver), strict=True):
                             if col not in added_cols:
                                 rsi_batch[col] = arr
                                 added_cols.add(col)
@@ -2170,6 +2184,7 @@ def _compute_feature_class_data(
                                 _aoi_id_values(roofs_linked),
                                 roofs_linked["feature_id"].values,
                                 roofs_linked["primary_child_roof_age_feature_id"].values,
+                                strict=True,
                             )
                         }
 
@@ -2219,7 +2234,7 @@ def _compute_feature_class_data(
                             ri_keys = [
                                 (aoi, roof_to_ri.get((aoi, pcr_id)))
                                 for aoi, pcr_id in zip(
-                                    bldg_aois_for_ri, buildings_linked["primary_child_roof_id"].values
+                                    bldg_aois_for_ri, buildings_linked["primary_child_roof_id"].values, strict=True
                                 )
                             ]
                             ri_mapped = ri_lookup.reindex(ri_keys).reset_index(drop=True)
@@ -2301,7 +2316,9 @@ def _compute_feature_class_data(
                 # uses that parcel's own clipped area.
                 roof_key_to_idx = {
                     (aoi, fid): idx
-                    for idx, (aoi, fid) in enumerate(zip(_aoi_id_values(roofs), roofs["feature_id"].values))
+                    for idx, (aoi, fid) in enumerate(
+                        zip(_aoi_id_values(roofs), roofs["feature_id"].values, strict=True)
+                    )
                 }
                 for (r_aoi, bl_fid), roof_fids in bl_to_roofs.items():
                     if roof_area_col is not None and roof_area_col and len(roof_fids) > 1:
@@ -2321,8 +2338,8 @@ def _compute_feature_class_data(
                 bl_aois = _aoi_id_values(class_features)
                 bl_fids = class_features["feature_id"].array
                 bl_linkage_batch = {}
-                primary_ids = [bl_primary_roof.get((aoi, fid)) for aoi, fid in zip(bl_aois, bl_fids)]
-                child_counts = [len(bl_to_roofs.get((aoi, fid), [])) for aoi, fid in zip(bl_aois, bl_fids)]
+                primary_ids = [bl_primary_roof.get((aoi, fid)) for aoi, fid in zip(bl_aois, bl_fids, strict=True)]
+                child_counts = [len(bl_to_roofs.get((aoi, fid), [])) for aoi, fid in zip(bl_aois, bl_fids, strict=True)]
                 if "primary_child_roof_id" not in added_cols:
                     bl_linkage_batch["primary_child_roof_id"] = primary_ids
                     added_cols.add("primary_child_roof_id")
@@ -2338,7 +2355,7 @@ def _compute_feature_class_data(
                 roof_attrs = (
                     {
                         (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
-                        for aoi, fid in zip(_aoi_id_values(roofs), roofs["feature_id"].values)
+                        for aoi, fid in zip(_aoi_id_values(roofs), roofs["feature_id"].values, strict=True)
                     }
                     if roof_attrs_cache is not None
                     else {}
@@ -2349,7 +2366,7 @@ def _compute_feature_class_data(
                     roof_attrs_df = pd.DataFrame([roof_attrs[k] for k in attr_keys])
                     roof_attrs_df.columns = [f"primary_child_roof_{c}" for c in roof_attrs_df.columns]
                     roof_attrs_df.index = pd.MultiIndex.from_tuples(attr_keys, names=[AOI_ID_COLUMN_NAME, "feature_id"])
-                    mapped = roof_attrs_df.reindex(list(zip(bl_aois, primary_ids))).reset_index(drop=True)
+                    mapped = roof_attrs_df.reindex(list(zip(bl_aois, primary_ids, strict=True))).reset_index(drop=True)
 
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
@@ -2385,7 +2402,7 @@ def _compute_feature_class_data(
                     if rsi_result is not None:
                         rsi_vals, rsi_conf, rsi_mver = rsi_result
                         rsi_batch = {}
-                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver)):
+                        for col, arr in zip(_RSI_COLUMNS, (rsi_vals, rsi_conf, rsi_mver), strict=True):
                             if col not in added_cols:
                                 rsi_batch[col] = arr
                                 added_cols.add(col)
@@ -3886,7 +3903,7 @@ class NearmapAIExporter(BaseExporter):
                 if aoi_ids is not None:
                     aoi_geometries = {
                         aid: geom
-                        for aid, geom in zip(aoi_ids, aoi_gdf.geometry)
+                        for aid, geom in zip(aoi_ids, aoi_gdf.geometry, strict=True)
                         if geom is not None and aid in gridded_aoi_ids
                     }
 
@@ -4863,7 +4880,7 @@ class NearmapAIExporter(BaseExporter):
             feature_api.cleanup()
 
         # Auto-refresh class_descriptions.json if API descriptions have changed
-        api_descriptions = dict(zip(classes_df.index, classes_df["description"]))
+        api_descriptions = dict(zip(classes_df.index, classes_df["description"], strict=True))
         stale = any(FEATURE_CLASS_DESCRIPTIONS.get(cid) != desc for cid, desc in api_descriptions.items())
         if stale:
             try:
