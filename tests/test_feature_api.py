@@ -843,10 +843,7 @@ class TestFeatureAPI:
             # Test failure scenario - mock replace to fail
             with patch.object(Path, "replace", side_effect=Exception("Mock failure")):
                 target_path3 = cache_path / "test_cache3.json"
-                try:
-                    api._write_to_cache(target_path3, test_payload)
-                except Exception:
-                    pass  # Expected to fail
+                api._write_to_cache(target_path3, test_payload)
 
                 # Check no temp files remain even after failure
                 temp_files = list(cache_path.glob("*.tmp*"))

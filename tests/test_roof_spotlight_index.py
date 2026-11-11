@@ -104,7 +104,7 @@ def test_gen_rsi_data(cache_directory: Path):
             if isinstance(attrs, str):
                 try:
                     attrs = json.loads(attrs.replace("'", '"'))
-                except:
+                except json.JSONDecodeError:
                     attrs = ast.literal_eval(attrs) if attrs else []
             if isinstance(attrs, list) and len(attrs) > 0:
                 # Save sample of roof with attributes
@@ -199,10 +199,10 @@ def test_handles_missing_rsi_gracefully():
         if isinstance(attrs, str):
             try:
                 attrs = json.loads(attrs.replace("'", '"'))
-            except:
+            except json.JSONDecodeError:
                 try:
                     attrs = ast.literal_eval(attrs)
-                except:
+                except (ValueError, SyntaxError):
                     attrs = []
         roof["attributes"] = attrs if isinstance(attrs, list) else []
     else:

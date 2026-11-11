@@ -688,7 +688,7 @@ class BaseApiClient:
         # never let it fail cleanup if the shared Manager.Lock is already gone.
         try:
             self.flush_progress()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
             pass
 
         if hasattr(self, "_lock") and hasattr(self, "_adapters"):
@@ -696,7 +696,7 @@ class BaseApiClient:
                 for adapter in self._adapters:
                     try:
                         adapter.close()
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
                         pass
                 self._adapters.clear()
         else:  # Fallback if attributes don't exist
@@ -704,7 +704,7 @@ class BaseApiClient:
                 for adapter in self._adapters:
                     try:
                         adapter.close()
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
                         pass
                 self._adapters.clear()
         # Clear thread-local adapter cache (only affects calling thread,
@@ -854,7 +854,7 @@ class BaseApiClient:
             session.adapters.clear()
             try:
                 session.close()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 -- best-effort session close; must not mask the request's result
                 pass
 
     def _get_cache_path(self, cache_key: str) -> str:
@@ -894,7 +894,7 @@ class BaseApiClient:
 
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
             logger.warning(f"Failed to load from cache: {e}")
             return None
 
@@ -912,7 +912,7 @@ class BaseApiClient:
         cache_path = self._get_cache_path(cache_key)
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
             logger.warning(f"Failed to save to cache: {e}")
 
     @contextlib.contextmanager
@@ -1635,7 +1635,7 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> list
         try:
             with storage.open_file(path, "rb") as f:
                 return pd.read_parquet(f)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- latency stats are diagnostic; an unreadable chunk file is skipped
             return None
 
     with ThreadPoolExecutor(max_workers=S3_PARALLEL_READ_WORKERS) as executor:

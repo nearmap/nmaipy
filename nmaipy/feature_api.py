@@ -455,7 +455,7 @@ class FeatureApi(GriddedApiClient):
                             parsed.fragment,
                         )
                     )
-        except Exception:
+        except (ValueError, TypeError):
             pass  # If URL parsing fails, continue with simple replacement
 
         # Always do simple replacement as a catch-all
@@ -581,7 +581,7 @@ class FeatureApi(GriddedApiClient):
                     logger.debug(f"Cache write to {path} failed ({e}), re-creating cache dir and retrying")
                 finally:
                     temp_path.unlink(missing_ok=True)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; failures are counted and logged in batches
             # A systematic failure (read-only dir, ENOSPC, expired S3 creds)
             # would otherwise warn once per AOI — surface the first few and a
             # periodic running count instead of flooding the log.
@@ -882,10 +882,10 @@ class FeatureApi(GriddedApiClient):
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
         except EOFError as e:
-            logger.error(f"Error loading compressed cache file {cache_path}.")
-            logger.error(f"Error: {e}")
-        except Exception as e:
-            logger.error(f"Error loading cache file {cache_path}: {e}")
+            logger.error(f"Error loading compressed cache file {cache_path}.")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
+            logger.error(f"Error: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
+        except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
+            logger.error(f"Error loading cache file {cache_path}: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
         return None
 
     def _fetch_results(self, url: str, body: dict, cache_path: str | None, in_gridding_mode: bool):
@@ -977,10 +977,10 @@ class FeatureApi(GriddedApiClient):
                         time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff (min avg ~1s)
                         continue
                     # Exhausted all retries, log error and fall back to size error
-                    logger.error(
+                    logger.error(  # noqa: TRY400 -- gridding retries the request next; this is not a failure traceback
                         f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size error to trigger gridding: {e}"
                     )
-                    raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
+                    raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url)) from e
 
             # Use explicit None check to handle edge case of 0ms response time
             response_time_seconds = response_time_ms / 1000 if response_time_ms is not None else 0
@@ -1025,11 +1025,11 @@ class FeatureApi(GriddedApiClient):
                             f"Non-truncation JSON parse error on 200 response ({len(response.content)} bytes) - "
                             f"treating as size error to trigger gridding: {e}"
                         )
-                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
+                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url)) from e
                 except Exception as e:
                     # Treat JSON parsing errors as size errors to trigger gridding
                     logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")
-                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
+                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url)) from e
 
                 # Save to cache if configured
                 if self.cache_dir is not None:
@@ -1189,7 +1189,7 @@ class FeatureApi(GriddedApiClient):
                 df[AOI_ID_COLUMN_NAME] = [aoi_id] * len(df)
                 df = df.set_index(AOI_ID_COLUMN_NAME)
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"Problem setting aoi_id to {AOI_ID_COLUMN_NAME} as {aoi_id=} (dataframe has {len(df)} rows)."
                 )
                 raise ValueError(f"Failed to set aoi_id '{aoi_id}' on feature DataFrame with {len(df)} rows") from e
@@ -2244,7 +2244,7 @@ class FeatureApi(GriddedApiClient):
                     aoi_data, aoi_metadata, aoi_error, aoi_grid_errors = job.result()
                 except Exception as e:
                     failed_aoi_id = job_to_aoi_id.get(job, "unknown")
-                    logger.error(f"Unexpected error for AOI {failed_aoi_id}: {e}")
+                    logger.exception(f"Unexpected error for AOI {failed_aoi_id}")
                     aoi_data, aoi_metadata, aoi_grid_errors = None, None, None
                     aoi_error = {
                         AOI_ID_COLUMN_NAME: failed_aoi_id,

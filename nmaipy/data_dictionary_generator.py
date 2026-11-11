@@ -77,7 +77,7 @@ class DataDictionaryGenerator:
         for filepath, class_label in output_files.tabular_ai_files(self.final_dir, ext):
             try:
                 out_path = self._build_and_write(filepath, class_label, area_unit, extras, input_columns)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- per file: one failed dictionary must not block the others
                 logger.warning(f"Data dictionary generation failed for {filepath}: {exc}")
                 continue
             if out_path is not None:
@@ -96,7 +96,7 @@ class DataDictionaryGenerator:
                 try:
                     with storage.open_file(cfg_path, "r") as fh:
                         return json.load(fh)
-                except Exception:
+                except (OSError, ValueError):
                     continue
         return {}
 
@@ -122,7 +122,7 @@ class DataDictionaryGenerator:
             return set()
         try:
             return aoi_io.read_header_columns(str(aoi_file))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- documented best-effort: an unreadable input file yields no input columns
             logger.debug(f"Could not read input AOI columns from {aoi_file!r}: {exc}")
             return set()
 
@@ -162,7 +162,7 @@ class DataDictionaryGenerator:
                 with storage.open_file(filepath, "rb") as fh:
                     schema = pq.read_schema(fh)
                 return list(schema.names)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- falls back to pandas, which raises if it also fails
                 # Fallback for any case where pq.read_schema can't take the file handle.
                 df_head = pd.read_parquet(filepath, columns=[])
                 return list(df_head.columns)
@@ -234,6 +234,6 @@ def generate_dictionaries(output_dir: str) -> list[str]:
     """Generate dictionaries for an export, swallowing top-level errors. Returns written paths."""
     try:
         return DataDictionaryGenerator(output_dir=output_dir).generate_and_save()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- documented: dictionaries are optional and must not fail the export
         logger.warning(f"Data dictionary generation failed for {output_dir}: {exc}")
         return []

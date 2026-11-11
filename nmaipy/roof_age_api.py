@@ -248,7 +248,7 @@ class RoofAgeApi(BaseApiClient):
 
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
             logger.warning(f"Failed to load from cache: {e}")
             return None
 
@@ -269,7 +269,7 @@ class RoofAgeApi(BaseApiClient):
         )
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
             logger.warning(f"Failed to save to cache: {e}")
 
     def _build_request_payload(
@@ -778,7 +778,7 @@ class RoofAgeApi(BaseApiClient):
                     metadata["resource_id"] = roofs_gdf["resource_id"].iloc[0]
 
                 return ("success", roofs_gdf, metadata, None)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- per-AOI: the failure is recorded in the errors table and the other AOIs continue
                 error_info = {
                     AOI_ID_COLUMN_NAME: aoi_id,
                     "status_code": getattr(e, "status_code", -1),

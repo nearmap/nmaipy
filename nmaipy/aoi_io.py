@@ -257,7 +257,7 @@ def read_from_file(
         try:
             parcels_gdf = gpd.read_parquet(path)
             logger.info("Read geoparquet file with geometry using geopandas")
-        except (ValueError, Exception) as e:
+        except Exception as e:  # noqa: BLE001 -- any geopandas read failure falls back to pandas, which raises if it also fails
             # Handle both "Missing geo metadata" and other parquet reading issues
             if "Missing geo metadata" in str(e) or "geo" in str(e).lower():
                 # Non-geo parquet file - read with pandas to preserve explicit dtypes
@@ -269,9 +269,9 @@ def read_from_file(
                 try:
                     parcels_gdf = pd.read_parquet(path)
                     logger.info("Successfully read parquet with pandas fallback")
-                except Exception as e2:
-                    logger.error("Both geopandas and pandas failed to read parquet file")
-                    raise e2
+                except Exception:
+                    logger.exception("Both geopandas and pandas failed to read parquet file")
+                    raise
 
     elif suffix in ("geojson", "gpkg"):
         parcels_gdf = gpd.read_file(path)

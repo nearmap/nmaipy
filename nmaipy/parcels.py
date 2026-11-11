@@ -148,7 +148,7 @@ def _compute_iou(geom_a, geom_b) -> float:
             return 0.0
         union = geom_a.union(geom_b).area
         return intersection / union if union > 0 else 0.0
-    except Exception:
+    except GEOSException:
         return 0.0
 
 
@@ -1572,7 +1572,7 @@ def parcel_rollup(
         features_gdf = features_gdf[~features_gdf["class_id"].isin(DEPRECATED_CLASS_IDS)]
 
     if len(parcels_gdf.index.unique()) != len(parcels_gdf):
-        raise Exception(
+        raise ValueError(
             f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
     # Methods that use lat/lon for primary feature selection
@@ -1743,8 +1743,8 @@ def parcel_rollup(
                 # Convert to float first to handle integer columns
                 rollup_df[col] = rollup_df[col].astype(float).round(2)
             except (TypeError, ValueError):
-                logger.error(f"Failed to round column '{col}' - column description:")
-                logger.error(rollup_df[col].describe())
+                logger.exception(f"Failed to round column '{col}' - column description:")
+                logger.error(rollup_df[col].describe())  # noqa: TRY400 -- a detail line; the traceback is logged on the line above
                 raise
     # Reorder defensible space columns so each zone groups together in a predictable order:
     # primary_roof zones (ascending zoneId) first, then aggregate zones.

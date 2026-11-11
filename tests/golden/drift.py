@@ -84,7 +84,7 @@ def main() -> None:
     assert api_key, "the drift check needs API_KEY"
     try:
         _run(args, api_key)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- redact the API key from any failure's traceback before exiting
         raise SystemExit(traceback.format_exc().replace(api_key, "APIKEYREMOVED")) from None
 
 

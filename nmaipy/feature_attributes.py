@@ -435,7 +435,7 @@ def calculate_roof_age_years(
         as_of = parse_date(str(as_of_date))
         years = (as_of - install).days / 365.25
         return round(years, 1)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return None
 
 

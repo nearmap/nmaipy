@@ -173,7 +173,7 @@ def file_exists(path: str) -> bool:
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             return fs.exists(path)
-        except Exception as e:  # transient S3/network error — retry
+        except Exception as e:  # noqa: BLE001 -- transient S3/network errors vary by backend; retried, then re-raised
             last_exc = e
             if attempt < _S3_READ_RETRIES:
                 time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
@@ -212,7 +212,7 @@ def validate_parquet(path: str, min_rows: int = 0) -> bool:
         except (pa.ArrowInvalid, FileNotFoundError):
             # Genuinely corrupt/truncated, or genuinely absent — retrying won't help.
             return False
-        except Exception as e:  # transient read error — retry before giving up
+        except Exception as e:  # noqa: BLE001 -- transient read errors vary by backend; retried, then reported
             last_exc = e
             if attempt < _S3_READ_RETRIES:
                 time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
@@ -256,7 +256,7 @@ def glob_files(directory: str, pattern: str) -> list[str]:
             # fsspec glob returns paths without the s3:// prefix
             results = fs.glob(full_pattern)
             return ["s3://" + r for r in results]
-        except Exception as e:  # transient S3/network error — retry
+        except Exception as e:  # noqa: BLE001 -- transient S3/network errors vary by backend; retried, then re-raised
             last_exc = e
             if attempt < _S3_READ_RETRIES:
                 time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))

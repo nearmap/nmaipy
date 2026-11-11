@@ -385,7 +385,7 @@ class DamageConflationExporter(BaseExporter):
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
         except Exception as e:
-            logger.error(f"Chunk {chunk_id} failed: {e}")
+            logger.error(f"Chunk {chunk_id} failed: {e}")  # noqa: TRY400 -- the traceback is printed to stderr on the next line
             traceback.print_exc()
             raise
 
@@ -580,8 +580,8 @@ def main():
             api_warmup_interval_seconds=args.api_warmup_interval,
         )
         exporter.run()
-    except Exception as e:
-        logger.error(f"Export failed: {e}")
+    except Exception as e:  # noqa: BLE001 -- CLI entry point: report any failure and exit 1
+        logger.error(f"Export failed: {e}")  # noqa: TRY400 -- the traceback is printed to stderr on the next line
         traceback.print_exc()
         sys.exit(1)
 

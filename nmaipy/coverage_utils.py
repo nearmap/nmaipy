@@ -180,7 +180,7 @@ def _post_cat_events_at_point(lat, lon, since=None, until=None, apikey=None, bea
         url += f"&until={until}"
     response = _get_all_survey_pages(url, _COVERAGE_PAGE_SIZE, apikey=apikey, bearer_token=bearer_token)
     if isinstance(response, int):
-        raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")
+        raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")  # noqa: TRY004 -- an int response is the failed request's HTTP status, not a wrong argument type
 
     events = {}
     for survey in response.get("surveys", []):
@@ -275,7 +275,7 @@ def event_boundary(event_id, since=None, until=None, apikey=None, bearer_token=N
     )
     response = _get_all_survey_pages(url, _COVERAGE_PAGE_SIZE, apikey=apikey, bearer_token=bearer_token)
     if isinstance(response, int):
-        raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")
+        raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")  # noqa: TRY004 -- an int response is the failed request's HTTP status, not a wrong argument type
 
     boundaries = []
     for survey in response["surveys"]:
@@ -379,7 +379,7 @@ def get_survey_resource_id_from_survey_id_query(resources):
     """
     if len(resources) == 1:
         return resources[0]["id"]
-    raise Exception("More than one resource returned from survey_id query")
+    raise ValueError("More than one resource returned from survey_id query")
 
 
 def get_survey_resource_id_from_standard_coverage(resources):

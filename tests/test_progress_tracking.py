@@ -12,8 +12,6 @@ import threading
 import time
 from typing import Any
 
-import pytest
-
 from nmaipy.api_common import PROGRESS_BATCH_SIZE, BaseApiClient
 
 
@@ -186,13 +184,9 @@ def test_progress_counters_picklable():
     progress_counters = manager.dict({"total": 10, "completed": 0, "lock": manager.Lock()})
 
     # Verify it can be pickled (required for passing to worker processes on macOS)
-    try:
-        pickled = pickle.dumps(progress_counters)
-        unpickled = pickle.loads(pickled)
-        assert unpickled["total"] == 10
-        assert unpickled["completed"] == 0
-    except Exception as e:
-        pytest.fail(f"Progress counters should be picklable: {e}")
+    unpickled = pickle.loads(pickle.dumps(progress_counters))
+    assert unpickled["total"] == 10
+    assert unpickled["completed"] == 0
 
 
 def _writer_blast(progress_counters, num_threads, increments_per_thread):

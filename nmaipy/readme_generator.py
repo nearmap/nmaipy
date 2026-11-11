@@ -100,7 +100,7 @@ class ReadmeGenerator:
             try:
                 self._config = storage.read_json(config_path)
                 return self._config
-            except Exception:
+            except (OSError, ValueError):
                 pass
         self._config = {}
         return self._config
@@ -276,14 +276,14 @@ class ReadmeGenerator:
             try:
                 df = pd.read_csv(rollup_csv, nrows=0)
                 return set(df.columns)
-            except Exception:
+            except (OSError, ValueError):
                 pass
 
         if rollup_parquet is not None and rollup_parquet:
             try:
                 schema = pq.read_schema(rollup_parquet)
                 return set(schema.names)
-            except Exception:
+            except (OSError, ValueError):
                 pass
 
         return set()

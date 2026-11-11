@@ -304,17 +304,17 @@ def _overlay_meta(base: ColumnMeta, entry: dict) -> ColumnMeta:
 def _validate(payload: dict) -> None:
     """Basic shape validation. Raises ValueError with a friendly message on bad input."""
     if not isinstance(payload, dict):
-        raise ValueError("column_metadata.json: top-level value must be an object/dict.")
+        raise ValueError("column_metadata.json: top-level value must be an object/dict.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     for required in ("exact_matches", "patterns"):
         if required not in payload:
             raise ValueError(f"column_metadata.json: missing required top-level key '{required}'.")
     if not isinstance(payload["exact_matches"], dict):
-        raise ValueError("column_metadata.json: 'exact_matches' must be an object (column name → metadata).")
+        raise ValueError("column_metadata.json: 'exact_matches' must be an object (column name → metadata).")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     if not isinstance(payload["patterns"], list):
-        raise ValueError("column_metadata.json: 'patterns' must be a list of pattern objects.")
+        raise ValueError("column_metadata.json: 'patterns' must be a list of pattern objects.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     for i, pattern in enumerate(payload["patterns"]):
         if not isinstance(pattern, dict):
-            raise ValueError(f"column_metadata.json: patterns[{i}] must be an object.")
+            raise ValueError(f"column_metadata.json: patterns[{i}] must be an object.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
         if "regex" not in pattern:
             raise ValueError(f"column_metadata.json: patterns[{i}] is missing 'regex'.")
         try:
@@ -432,13 +432,13 @@ def _validate_exact_only(payload: dict, *, source: str) -> None:
     if not payload:
         return
     if not isinstance(payload, dict):
-        raise ValueError(f"{source}: top-level value must be an object/dict.")
+        raise ValueError(f"{source}: top-level value must be an object/dict.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     if "exact_matches" not in payload:
         # Missing exact_matches is benign for these files (they may carry
         # only metadata like _doc). Treat as empty.
         return
     if not isinstance(payload["exact_matches"], dict):
-        raise ValueError(f"{source}: 'exact_matches' must be an object (column name → metadata).")
+        raise ValueError(f"{source}: 'exact_matches' must be an object (column name → metadata).")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
 
 
 def reload_metadata() -> None:

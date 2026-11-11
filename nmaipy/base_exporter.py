@@ -21,7 +21,6 @@ import shutil
 import sys
 import tempfile
 import time
-import traceback
 import warnings
 
 # resource is a Unix-only stdlib module; on Windows we set the attribute to None
@@ -69,7 +68,7 @@ def resource_postfix() -> str:
         used_gb, total_gb = get_memory_info_cgroup_aware()
         cpu_pct, _ = get_cpu_info_cgroup_aware()
         return f"{used_gb:.1f}/{total_gb:.1f}GB | CPU {cpu_pct:.0f}%"
-    except Exception:
+    except Exception:  # noqa: BLE001 -- progress display only; a failed resource probe must not stop the export
         return ""
 
 
@@ -200,7 +199,7 @@ class BaseExporter(ABC):
             import nmaipy
 
             nmaipy_version = getattr(nmaipy, "__version__", "unknown")
-        except Exception:
+        except ImportError:
             nmaipy_version = "unknown"
 
         # Build metadata
@@ -222,7 +221,7 @@ class BaseExporter(ABC):
         try:
             storage.write_json(config_path, full_config, indent=2, default=str)
             self.logger.debug(f"Saved export config to {config_path}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- the config file is informational; a failed write is logged and the export continues
             self.logger.warning(f"Could not save export config: {e}")
 
     @abstractmethod
@@ -398,7 +397,7 @@ class BaseExporter(ABC):
                     # this serial loop pays with no concurrency to mask it.
                     with storage.open_file(f, "rb") as fh:
                         parts.append(reader(fh))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- an unreadable chunk file is logged and skipped; the other chunks still combine
                     self.logger.warning(f"Chunk {chunk_id}: failed to read {prefix} file {f}: {e}. Skipping.")
         if not parts:
             if geo:
@@ -728,16 +727,14 @@ class BaseExporter(ABC):
                             )
                             pbar.refresh()
 
-                        except Exception as e:
+                        except Exception:
                             chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
                             chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
                             completed_jobs += 1
-                            self.logger.error(
+                            self.logger.exception(
                                 f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} "
-                                f"(index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, "
-                                f"Error: {e}"
+                                f"(index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}"
                             )
-                            self.logger.error(f"Traceback: {traceback.format_exc()}")
                             executor.shutdown(wait=False)
                             raise
                         finally:
@@ -822,10 +819,10 @@ class BaseExporter(ABC):
                     latency_stats = result.get("latency_stats")
                     if latency_stats is not None:
                         all_latency_stats.append(latency_stats)
-            except Exception as e:
+            except Exception:
                 chunk_info = job_to_chunk.get(job, ("unknown", -1, -1, -1))
                 chunk_id = chunk_info[0]
-                self.logger.error(f"Chunk {chunk_id} failed: {e}")
+                self.logger.exception(f"Chunk {chunk_id} failed")
                 raise
         return all_latency_stats
 
@@ -855,7 +852,7 @@ class BaseExporter(ABC):
                 fd_count = len(list(fd_dir.iterdir()))
             else:
                 fd_count = "unknown"
-        except Exception:
+        except OSError:
             fd_count = "unknown"
 
         self.logger.error("BrokenProcessPool diagnostic info:")

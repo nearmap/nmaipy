@@ -187,7 +187,7 @@ def _read_parquet_chunks_parallel(
             if geo:
                 try:
                     df = gpd.read_parquet(f)
-                except Exception:
+                except Exception:  # noqa: BLE001 -- a non-geo chunk falls back to pandas, which raises if it also fails
                     f.seek(0)
                     df = pd.read_parquet(f)
             else:
@@ -963,8 +963,8 @@ def _stream_merge_chunks_to_parquet(
             idx = futures[future]
             try:
                 schemas[idx] = future.result()
-            except Exception as e:
-                logger.error(f"Failed to read schema from {chunk_paths[idx]}: {e}")
+            except Exception:
+                logger.exception(f"Failed to read schema from {chunk_paths[idx]}")
 
     valid_paths = [chunk_paths[i] for i, s in enumerate(schemas) if s is not None]
     valid_read_paths = [read_paths[i] for i, s in enumerate(schemas) if s is not None]
@@ -1024,8 +1024,8 @@ def _stream_merge_chunks_to_parquet(
                     last_resource_update = now
             try:
                 table = future.result()
-            except Exception as e:
-                logger.error(f"Failed reading {valid_paths[i]}: {e}")
+            except Exception:
+                logger.exception(f"Failed reading {valid_paths[i]}")
                 continue
             data_reads_succeeded += 1
             table = _reconcile_table_schema(table, target)
@@ -1404,7 +1404,7 @@ def _compute_all_per_class_data(
                     # duplicate row would inherit whichever parcel was flattened
                     # last. See consumers in _compute_feature_class_data.
                     roof_attrs_cache_chunk[(roof_aoi, row["feature_id"])] = attrs
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets no cached attributes
                     _log.debug(f"Could not flatten roof attrs: {e}")
             del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
 
@@ -1441,7 +1441,7 @@ def _compute_all_per_class_data(
                 buildings_linked=buildings_linked_chunk,
                 aoi_geometries=aoi_geometries,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- one class's failure must not stop the other classes' files
             _log.error(f"Per-class export failed for {desc}: {e}")
             return None
         if flat_df is None:
@@ -1798,7 +1798,7 @@ def _compute_feature_class_data(
                             children_projected=child_proj_by_aoi.get(roof_aoi),
                         )
                         attr_records.append(attrs)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets empty attribute columns
                         logger.debug(f"Could not flatten roof attributes for feature: {e}")
                         attr_records.append({})
                 logger.debug(
@@ -1815,7 +1815,7 @@ def _compute_feature_class_data(
                 if len(attr_df.columns) > 0:
                     df_parts.append(attr_df.reset_index(drop=True))
                     added_cols.update(attr_df.columns)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- best-effort roof attribute flatten; a failure leaves the columns out
             logger.debug(f"Could not flatten roof attributes: {e}")
 
         # Resolve best RSI per roof.
@@ -1945,7 +1945,7 @@ def _compute_feature_class_data(
                 # By position: class_features keeps the chunk's index labels.
                 df_parts.append(pd.DataFrame({k: v.to_numpy() for k, v in bldg_batch.items()}, index=range(n_rows)))
                 added_cols.update(bldg_batch.keys())
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- best-effort building attribute flatten; a failure leaves the columns out
             logger.debug(f"Could not flatten building attributes: {e}")
 
         # Use pre-computed roof-to-building linkage if available, otherwise compute now.
@@ -2009,7 +2009,7 @@ def _compute_feature_class_data(
                                 children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
                             )
                             roof_attrs[(roof_aoi, row["feature_id"])] = attrs
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets no linked attributes
                             logger.debug(f"Could not flatten building-linked roof attributes: {e}")
                     logger.debug(
                         f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
@@ -2088,7 +2088,7 @@ def _compute_feature_class_data(
                                 if rsi_vals:
                                     min_vals[i] = min(rsi_vals)
                                     max_vals[i] = max(rsi_vals)
-                            except Exception:
+                            except (ValueError, TypeError, AttributeError, KeyError):
                                 continue
 
                         if "roof_spotlight_index_min" not in added_cols:
@@ -2233,7 +2233,7 @@ def _compute_feature_class_data(
                             if bldg_ri_batch:
                                 df_parts.append(pd.DataFrame(bldg_ri_batch, index=range(n_rows)))
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- best-effort roof-to-building linkage; a failure leaves the linked columns out
                 logger.debug(f"Could not link roofs to buildings: {e}")
 
     # --- Section E: Building lifecycle damage ---
@@ -2573,7 +2573,7 @@ def cleanup_process_feature_api():
     if _process_feature_api is not None:
         try:
             _process_feature_api.cleanup()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- best-effort cleanup; must never raise
             pass
         _process_feature_api = None
 
@@ -2921,7 +2921,7 @@ def cleanup_thread_sessions(executor):
                 if hasattr(thread._local, "session"):
                     try:
                         thread._local.session.close()
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 -- best-effort session close during executor teardown
                         pass
 
 
@@ -3187,7 +3187,7 @@ class NearmapAIExporter(BaseExporter):
             return None
         try:
             prev = storage.read_json(prev_path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- an unreadable previous config disables the fast path; the export runs in full
             self.logger.warning(f"Could not read previous export_config.json: {e}")
             return None
         if not isinstance(prev, dict):
@@ -3309,8 +3309,8 @@ class NearmapAIExporter(BaseExporter):
                 idx = futures[future]
                 try:
                     chunk_schemas[idx] = future.result()
-                except Exception as e:
-                    self.logger.error(f"Failed to read schema from {feature_paths[idx]}: {e}")
+                except Exception:
+                    self.logger.exception(f"Failed to read schema from {feature_paths[idx]}")
 
         valid_indices = {i for i, s in enumerate(chunk_schemas) if s is not None}
         valid_schemas = [s for s in chunk_schemas if s is not None]
@@ -3386,8 +3386,8 @@ class NearmapAIExporter(BaseExporter):
                 future = prefetch_futures.pop(i)
                 try:
                     table = future.result()
-                except Exception as e:
-                    self.logger.error(f"Failed to read {feature_paths[i]}: {e}")
+                except Exception:
+                    self.logger.exception(f"Failed to read {feature_paths[i]}")
                     if next_submit_idx < total:
                         if next_submit_idx in valid_indices:
                             prefetch_futures[next_submit_idx] = executor.submit(
@@ -3804,14 +3804,14 @@ class NearmapAIExporter(BaseExporter):
             def write_chunk_file(writer, data, path, **kwargs):
                 try:
                     writer(data, path, **kwargs)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- recorded via record_failure, which withholds the chunk's rollup
                     record_failure(f"writing {storage.basename(path)}", e)
 
             def save_latency_stats(latency_stats, **kwargs):
                 # Diagnostics, written after the rollup, so a failure is only logged.
                 try:
                     save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id, **kwargs)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- latency stats are diagnostic; a failed write is only logged
                     self.logger.warning(f"Chunk {chunk_id}: failed writing latency stats: {_describe_exception(e)}")
 
             # Get additional parcel attributes from parcel geometry
@@ -3958,7 +3958,7 @@ class NearmapAIExporter(BaseExporter):
                         f"Chunk {chunk_id}: Roof Age API returned {len(roof_age_gdf)} roof instances, "
                         f"{len(roof_age_errors_df)} errors"
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- a Roof Age failure marks the chunk's AOIs as roof age errors and continues
                     logger.warning(f"Chunk {chunk_id}: Roof Age API query failed: {e}")
                     # Mark all AOIs as failed for roof age
                     roof_age_errors_df = pd.DataFrame(
@@ -4418,7 +4418,7 @@ class NearmapAIExporter(BaseExporter):
                         final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
                     else:
                         final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- recorded via record_failure, which withholds the chunk's rollup
                     record_failure("preparing features", e)
                     final_features_df = None  # half-prepared: nothing may be written from it
                 _t_features_prep = time.monotonic()
@@ -4498,7 +4498,7 @@ class NearmapAIExporter(BaseExporter):
                             del per_class_results[_completed_cid]
                     _t_per_class_writes = time.monotonic()
                     del chunk_gdf, per_class_results
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- recorded via record_failure, which withholds the chunk's rollup
                     record_failure("computing per-class files", e)
 
             # Write rollup LAST — it serves as the chunk completion marker, so only
@@ -4526,7 +4526,7 @@ class NearmapAIExporter(BaseExporter):
                         final_df = gpd.GeoDataFrame(final_df, geometry="geometry", crs=API_CRS)
 
                     storage.write_parquet(final_df, outfile)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- recorded via record_failure, which withholds the chunk's rollup
                     record_failure(f"writing {storage.basename(outfile)}", e)
             if failed_outputs:
                 self.logger.error(
@@ -4551,7 +4551,7 @@ class NearmapAIExporter(BaseExporter):
                         f"{c}={int(final_df[c].fillna(False).astype(bool).sum())}" for c in sorted(_skip_cols)
                     )
                     self.logger.info(f"CHUNK_SKIPS chunk_id={chunk_id} rows={len(final_df)} {_skip_counts}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- diagnostic log line only; must not fail the chunk
                 self.logger.debug(f"Chunk {chunk_id}: skip-counter log failed (non-blocking): {e}")
 
             # Per-phase timings, appended to the latency parquet via extra_columns
@@ -4597,8 +4597,8 @@ class NearmapAIExporter(BaseExporter):
             self.logger.debug(f"Finished saving chunk {chunk_id}")
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
-        except Exception as e:
-            self.logger.error(f"Error processing chunk {chunk_id}: {e}")
+        except Exception:
+            self.logger.exception(f"Error processing chunk {chunk_id}")
             raise
         finally:
             # Clean up API clients to close network connections
@@ -4606,14 +4606,14 @@ class NearmapAIExporter(BaseExporter):
                 try:
                     feature_api.cleanup()
                     del feature_api
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 -- best-effort cleanup in finally; must not mask the chunk's result
                     pass
 
             if roof_age_api is not None:
                 try:
                     roof_age_api.cleanup()
                     del roof_age_api
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 -- best-effort cleanup in finally; must not mask the chunk's result
                     pass
 
             # Clear GeoPandas/Shapely/GEOS caches and thread-local storage
@@ -4630,10 +4630,10 @@ class NearmapAIExporter(BaseExporter):
                     if hasattr(pyproj, "_datadir"):
                         # Clear proj data directory cache
                         pyproj._datadir.clear_data_dir()
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 -- best-effort cleanup in finally; must not mask the chunk's result
                     pass
 
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 -- best-effort cleanup in finally; must not mask the chunk's result
                 pass
 
     def _collect_rollup_chunk_paths(self, num_chunks: int) -> list[str]:
@@ -4870,7 +4870,7 @@ class NearmapAIExporter(BaseExporter):
                 _write_class_descriptions(merged)
                 FEATURE_CLASS_DESCRIPTIONS.update(api_descriptions)
                 self.logger.info("Updated class_descriptions.json from API")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- refreshing the bundled class descriptions is optional; a failure is logged
                 self.logger.debug(f"Could not update class_descriptions.json: {e}")
 
         # Filter out deprecated classes from rollups
@@ -5209,7 +5209,7 @@ class NearmapAIExporter(BaseExporter):
         try:
             written = DataDictionaryGenerator(output_dir=self.final_path).generate_and_save()
             self.logger.info(f"Generated {len(written)} data dictionary file(s).")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- dictionaries are optional; a failure is logged and the export completes
             self.logger.warning(f"Data dictionary generation warning: {e}")
 
         # README must be the LAST file written — _run_inner uses its presence
@@ -5220,7 +5220,7 @@ class NearmapAIExporter(BaseExporter):
             readme_gen = ReadmeGenerator(output_dir=self.final_path)
             readme_path = readme_gen.generate_and_save()
             self.logger.info(f"Generated README: {storage.basename(str(readme_path))}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- README generation is optional; a failure is logged and the export completes
             self.logger.warning(f"README generation warning: {e}")
 
 

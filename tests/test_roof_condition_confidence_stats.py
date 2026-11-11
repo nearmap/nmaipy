@@ -274,10 +274,10 @@ def test_handles_missing_rccs_gracefully():
         if isinstance(attrs, str):
             try:
                 attrs = json.loads(attrs.replace("'", '"'))
-            except:
+            except json.JSONDecodeError:
                 try:
                     attrs = ast.literal_eval(attrs)
-                except:
+                except (ValueError, SyntaxError):
                     attrs = []
         roof["attributes"] = attrs if isinstance(attrs, list) else []
     else:
