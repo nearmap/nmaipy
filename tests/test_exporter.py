@@ -661,8 +661,14 @@ class TestExporter:
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
 
-            with caplog.at_level(logging.WARNING, logger="nmaipy"):
-                exporter._stream_and_convert_features(feature_paths, output_path)
+            # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+            nmaipy_logger = logging.getLogger("nmaipy")
+            nmaipy_logger.addHandler(caplog.handler)
+            try:
+                with caplog.at_level(logging.WARNING, logger="nmaipy"):
+                    exporter._stream_and_convert_features(feature_paths, output_path)
+            finally:
+                nmaipy_logger.removeHandler(caplog.handler)
 
             # Should NOT produce per-chunk warning messages about schema casting
             warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
