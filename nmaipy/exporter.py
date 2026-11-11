@@ -1543,10 +1543,10 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
 
     # Add aoi_id from index or column
     if class_features.index.name == AOI_ID_COLUMN_NAME:
-        initial_batch[AOI_ID_COLUMN_NAME] = class_features.index.to_numpy()
+        initial_batch[AOI_ID_COLUMN_NAME] = class_features.index.values  # noqa: PD011 -- keeps pandas extension arrays intact
         added_cols.add(AOI_ID_COLUMN_NAME)
     elif AOI_ID_COLUMN_NAME in class_features.columns:
-        initial_batch[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].to_numpy()
+        initial_batch[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].values  # noqa: PD011 -- keeps pandas extension arrays intact
         added_cols.add(AOI_ID_COLUMN_NAME)
 
     # Add metadata columns (address fields, coordinates, etc.) if present
@@ -1567,12 +1567,12 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
         metadata_cols = metadata_cols + [c for c in aoi_columns if c not in metadata_cols]
     for col in metadata_cols:
         if col in class_features.columns and col not in added_cols:
-            initial_batch[col] = class_features[col].to_numpy()
+            initial_batch[col] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
             added_cols.add(col)
 
     # Add standard columns
     if "feature_id" in class_features.columns:
-        initial_batch["feature_id"] = class_features["feature_id"].to_numpy()
+        initial_batch["feature_id"] = class_features["feature_id"].values  # noqa: PD011 -- keeps pandas extension arrays intact
         added_cols.add("feature_id")
     initial_batch["class_id"] = class_id
     added_cols.add("class_id")
@@ -1587,20 +1587,20 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
         and class_id in PRIMARY_FEATURE_CLASS_IDS
         and "is_primary" not in added_cols
     ):
-        initial_batch["is_primary"] = class_features["is_primary"].to_numpy()
+        initial_batch["is_primary"] = class_features["is_primary"].values  # noqa: PD011 -- keeps pandas extension arrays intact
         added_cols.add("is_primary")
 
     # Confidence is universal across Feature API classes; roof instances use
     # trust_score instead.
     if class_id != ROOF_INSTANCE_CLASS_ID and "confidence" in class_features.columns:
-        initial_batch["confidence"] = class_features["confidence"].to_numpy()
+        initial_batch["confidence"] = class_features["confidence"].values  # noqa: PD011 -- keeps pandas extension arrays intact
         added_cols.add("confidence")
 
     # Fidelity is API-populated only on structural building/roof classes
     # (see CLASSES_WITH_FIDELITY in constants.py). Other classes inherit a
     # NaN-filled fidelity column from the chunk-level pd.concat.
     if class_id in CLASSES_WITH_FIDELITY and "fidelity" in class_features.columns:
-        initial_batch["fidelity"] = class_features["fidelity"].to_numpy()
+        initial_batch["fidelity"] = class_features["fidelity"].values  # noqa: PD011 -- keeps pandas extension arrays intact
         added_cols.add("fidelity")
 
     # Add area fields (vectorized) - skip if already added.
@@ -1617,14 +1617,14 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
         ]
     for col in area_cols:
         if col in class_features.columns and col not in added_cols:
-            initial_batch[col] = class_features[col].to_numpy()
+            initial_batch[col] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
             added_cols.add(col)
 
     # Add date fields (vectorized) - not applicable to roof instances
     if class_id != ROOF_INSTANCE_CLASS_ID:
         for col in ["survey_date", "mesh_date"]:
             if col in class_features.columns and col not in added_cols:
-                initial_batch[col] = class_features[col].to_numpy()
+                initial_batch[col] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                 added_cols.add(col)
 
     convert_bool_columns_to_yn(initial_batch)
@@ -1638,7 +1638,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
         # Add roof instance linkage columns (parent_id = parent roof, parent_iou = IoU with parent)
         for col in ["parent_id", "parent_iou"]:
             if col in class_features.columns and col not in added_cols:
-                ri_batch[col] = class_features[col].to_numpy()
+                ri_batch[col] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                 added_cols.add(col)
 
         # Add roof_age_ prefix to Roof Age API columns. Iterate the canonical
@@ -1651,19 +1651,19 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
             if col in class_features.columns:
                 dst = f"roof_age_{col}"
                 if dst not in added_cols:
-                    ri_batch[dst] = class_features[col].to_numpy()
+                    ri_batch[dst] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                     added_cols.add(dst)
             if col == "map_browser_url":
                 years_col = "roof_age_years_as_of_date"
                 if years_col in class_features.columns and years_col not in added_cols:
-                    ri_batch[years_col] = class_features[years_col].to_numpy()
+                    ri_batch[years_col] = class_features[years_col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                     added_cols.add(years_col)
         # Sweep any remaining roof_age_* columns not covered above (e.g. cached
         # variants or future additions); preserves source order for them.
         for col in class_features.columns:
             if col in added_cols or not col.startswith("roof_age_"):
                 continue
-            ri_batch[col] = class_features[col].to_numpy()
+            ri_batch[col] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
             added_cols.add(col)
 
         convert_bool_columns_to_yn(ri_batch)
@@ -1681,7 +1681,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
             "child_roof_instance_count",
         ]:
             if col in class_features.columns and col not in added_cols:
-                roof_linkage_batch[col] = class_features[col].to_numpy()
+                roof_linkage_batch[col] = class_features[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                 added_cols.add(col)
 
         if roof_linkage_batch:
@@ -1751,7 +1751,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                     ri_mapped = ri_lookup.reindex(ri_keys).reset_index(drop=True)
                     ri_mapped_batch = {}
                     for col in ri_mapped.columns:
-                        ri_mapped_batch[col] = ri_mapped[col].to_numpy()
+                        ri_mapped_batch[col] = ri_mapped[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                         added_cols.add(col)
                     convert_bool_columns_to_yn(ri_mapped_batch)
                     if ri_mapped_batch:
@@ -1966,7 +1966,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                     "child_roof_count",
                 ]:
                     if col in buildings_linked.columns and col not in added_cols:
-                        bldg_linkage_batch[col] = buildings_linked[col].to_numpy()
+                        bldg_linkage_batch[col] = buildings_linked[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                         added_cols.add(col)
                 if bldg_linkage_batch:
                     df_parts.append(pd.DataFrame(bldg_linkage_batch, index=range(n_rows)))
@@ -2050,7 +2050,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                     )
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
-                            roof_attr_batch[col] = mapped[col].to_numpy()
+                            roof_attr_batch[col] = mapped[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                             added_cols.add(col)
 
                     # Add min/max resolved RSI across all child roofs.
@@ -2234,7 +2234,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                             bldg_ri_batch = {}
                             for col in ri_mapped.columns:
                                 if col not in added_cols:
-                                    bldg_ri_batch[col] = ri_mapped[col].to_numpy()
+                                    bldg_ri_batch[col] = ri_mapped[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                                     added_cols.add(col)
                             convert_bool_columns_to_yn(bldg_ri_batch)
                             if bldg_ri_batch:
@@ -2254,7 +2254,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
             damage_batch = {}
             for col in flat_damage_df.columns:
                 if col not in added_cols:
-                    damage_batch[col] = flat_damage_df[col].to_numpy()
+                    damage_batch[col] = flat_damage_df[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                     added_cols.add(col)
             if damage_batch:
                 df_parts.append(pd.DataFrame(damage_batch, index=range(n_rows)))
@@ -2363,7 +2363,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
                         if col not in added_cols and col not in _EXCLUDE_RSI and not _is_resolved_score_col(col):
-                            roof_attr_batch[col] = mapped[col].to_numpy()
+                            roof_attr_batch[col] = mapped[col].values  # noqa: PD011 -- keeps pandas extension arrays intact
                             added_cols.add(col)
                     if roof_attr_batch:
                         df_parts.append(pd.DataFrame(roof_attr_batch, index=range(n_rows)))

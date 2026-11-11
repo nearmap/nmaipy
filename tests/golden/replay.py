@@ -55,15 +55,15 @@ _REAL_CONNECT = socket.socket.connect
 _ACTIVE_MOCKS: list[responses.RequestsMock] = []
 
 
-def run_case(case: str, out_dir: Path) -> Path:
+def run_case(case: str, out_dir: Path, aoi_file: Path | None = None) -> Path:
     """Export a golden case offline into `out_dir` (markers and API cache under it too) and return its `final/`.
 
     Fails when the fake was not installed in a worker, when a request had no answer, or when the export rewrote
-    `nmaipy/class_descriptions.json`.
+    `nmaipy/class_descriptions.json`. `aoi_file` replaces the case's own AOI file.
     """
     marker_dir = out_dir / "markers"
     marker_dir.mkdir(parents=True)
-    aoi_file = write_aois(case, out_dir / "aois.csv")
+    aoi_file = aoi_file or write_aois(case, out_dir / "aois.csv")
     with pytest.MonkeyPatch.context() as m, _class_descriptions_unchanged():
         _go_offline(m)
         m.setattr("nmaipy.base_exporter.ProcessPoolExecutor", executor_with(install_fake, case, str(marker_dir)))

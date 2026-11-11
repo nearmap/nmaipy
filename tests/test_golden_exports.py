@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 import geopandas as gpd
+import pandas as pd
 import pytest
 from shapely.geometry import Polygon, mapping
 
@@ -258,3 +259,19 @@ def _cache_path(kind: str, cache_dir: Path) -> str:
         api = DamageConflationApi(event_id="00000000-0000-0000-0000-000000000000", api_key="dummy", cache_dir=cache_dir)
         path = api._get_cache_path(api._build_cache_key(aoi=SQUARE))
     return str(Path(path).relative_to(cache_dir))
+
+
+def test_nullable_input_columns_survive_per_class_files(tmp_path: Path) -> None:
+    """User columns with pandas extension dtypes and nulls reach the per-class files as they are (GeoParquet input)."""
+    aois = pd.read_csv(write_aois("us", tmp_path / "aois.csv")).dropna(subset=["geometry"])
+    aois_gdf = gpd.GeoDataFrame(aois[["aoi_id"]], geometry=gpd.GeoSeries.from_wkt(aois["geometry"]), crs="EPSG:4326")
+    aois_gdf["year_built"] = pd.array([3000, None] * len(aois_gdf), dtype="Int64")[: len(aois_gdf)]
+    aois_gdf["flag"] = pd.array([True, None] * len(aois_gdf), dtype="boolean")[: len(aois_gdf)]
+    aoi_file = tmp_path / "aois.parquet"
+    aois_gdf.to_parquet(aoi_file)
+    final = run_case("us", tmp_path / "run", aoi_file=aoi_file)
+    for name in ("building", "roof", "roof_instance"):
+        per_class = pd.read_csv(final / f"{name}.csv", dtype=str)
+        assert not per_class.empty, f"{name}.csv has no rows"
+        assert set(per_class["year_built"].dropna()) == {"3000"}, f"{name}: Int64 column changed"
+        assert set(per_class["flag"].dropna()) <= {"True", "true", "TRUE"}, f"{name}: boolean column converted"
