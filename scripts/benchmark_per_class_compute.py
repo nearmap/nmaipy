@@ -60,10 +60,10 @@ def _summarise_chunk(chunk_gdf: gpd.GeoDataFrame) -> None:
     if "class_id" in chunk_gdf.columns:
         n_classes = chunk_gdf["class_id"].nunique()
         print(f"distinct classes   : {n_classes}")
-        if ROOF_ID in chunk_gdf["class_id"].values:
+        if ROOF_ID in chunk_gdf["class_id"].array:
             n_roofs = (chunk_gdf["class_id"] == ROOF_ID).sum()
             print(f"roof rows          : {n_roofs:,}")
-        if BUILDING_NEW_ID in chunk_gdf["class_id"].values:
+        if BUILDING_NEW_ID in chunk_gdf["class_id"].array:
             n_buildings = (chunk_gdf["class_id"] == BUILDING_NEW_ID).sum()
             print(f"building rows      : {n_buildings:,}")
     print()

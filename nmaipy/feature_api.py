@@ -1215,7 +1215,7 @@ class FeatureApi(GriddedApiClient):
                 gdf = gdf.drop(columns=["clipped_geometry"])
             gdf = gdf.set_crs(cls.SOURCE_CRS)
         else:
-            df["geometry"] = gpd.GeoSeries([None] * len(df), crs=cls.SOURCE_CRS).values
+            df["geometry"] = gpd.GeoSeries([None] * len(df), crs=cls.SOURCE_CRS).array
             gdf = gpd.GeoDataFrame(df, geometry="geometry", crs=cls.SOURCE_CRS)
 
         # belongs_to_parcel always exists here (it is in ``columns``, so a response

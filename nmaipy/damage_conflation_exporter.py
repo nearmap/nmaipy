@@ -131,7 +131,7 @@ def filter_buildings_to_aoi(
     intersection_sqm = buildings.intersection(aoi_per_building).area
     ratio = intersection_sqm / buildings.area
     keep = (ratio >= min_ratio) | (intersection_sqm >= min_intersection_sqm) | ratio.isna()
-    return features_gdf[keep.values]
+    return features_gdf[keep.to_numpy()]
 
 
 def parse_arguments():

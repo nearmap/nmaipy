@@ -21,7 +21,7 @@ class TestSelectPrimaryByNearest:
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
         gdf = gdf.set_crs("EPSG:4326")
         # Pre-project to EPSG:3857 for select_primary_by_nearest
-        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.values
+        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.array
         return gdf
 
     def test_containment_selects_feature_containing_target(self):
@@ -338,7 +338,7 @@ class TestSelectPrimaryOptimal:
         """Create a test GeoDataFrame from feature definitions with pre-projected geometry."""
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
         gdf = gdf.set_crs("EPSG:4326")
-        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.values
+        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.array
         return gdf
 
     def test_uses_nearest_when_feature_contains_target(self):

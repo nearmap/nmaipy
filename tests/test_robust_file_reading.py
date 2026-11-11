@@ -225,7 +225,7 @@ class TestRobustFileReading:
             assert result.loc[101, "street_number"] == "10A"
 
             # Both should be same type
-            assert type(result.loc[1, "street_number"]) == type(result.loc[101, "street_number"])
+            assert type(result.loc[1, "street_number"]) is type(result.loc[101, "street_number"])
 
         finally:
             Path(csv_path).unlink()

@@ -101,7 +101,7 @@ def test_progress_counters_with_process_pool():
 
         # Wait for all to complete
         for future in futures:
-            assert future.result() == True
+            assert future.result() is True
 
     # Verify counters
     assert progress_counters["completed"] == 20
@@ -146,7 +146,7 @@ def test_progress_counters_with_gridding():
 
         # Wait for all to complete
         for future in futures:
-            assert future.result() == True
+            assert future.result() is True
 
     # Verify counters: total should have grown by 10 due to "gridding"
     assert progress_counters["completed"] == 10
@@ -172,7 +172,7 @@ def test_progress_counters_concurrent_access():
 
         # Wait for all to complete
         for future in futures:
-            assert future.result() == True
+            assert future.result() is True
 
     # Verify no increments were lost due to race conditions
     assert progress_counters["completed"] == 100
@@ -393,7 +393,7 @@ def test_progress_counters_with_skipped_work():
             futures.append(future)
 
         for future in futures:
-            assert future.result() == True
+            assert future.result() is True
 
     # Verify: should show 100% completion for the remaining work
     assert progress_counters["completed"] == 10

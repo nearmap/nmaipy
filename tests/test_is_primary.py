@@ -48,11 +48,11 @@ class TestAddIsPrimaryColumn:
 
         assert "is_primary" in result.columns, "is_primary column should be added"
         # feat-a is primary for aoi-1
-        assert result[result["feature_id"] == "feat-a"]["is_primary"].iloc[0] == True
+        assert result[result["feature_id"] == "feat-a"]["is_primary"].iloc[0]
         # feat-b is NOT primary for aoi-1
-        assert result[result["feature_id"] == "feat-b"]["is_primary"].iloc[0] == False
+        assert not result[result["feature_id"] == "feat-b"]["is_primary"].iloc[0]
         # feat-c is primary for aoi-2
-        assert result[result["feature_id"] == "feat-c"]["is_primary"].iloc[0] == True
+        assert result[result["feature_id"] == "feat-c"]["is_primary"].iloc[0]
 
     def test_multiple_classes(self):
         """Verify each class type (Roof, Building, Roof Instance) marks correctly."""
@@ -112,8 +112,8 @@ class TestAddIsPrimaryColumn:
         roof_row = result[result["class_id"] == ROOF_ID].iloc[0]
         building_row = result[result["class_id"] == BUILDING_ID].iloc[0]
 
-        assert roof_row["is_primary"] == True, "Roof with matching ID should be primary"
-        assert building_row["is_primary"] == False, "Building with same ID should NOT be primary"
+        assert roof_row["is_primary"], "Roof with matching ID should be primary"
+        assert not building_row["is_primary"], "Building with same ID should NOT be primary"
 
     def test_empty_rollup_none(self):
         """rollup_df=None returns all is_primary=False."""
@@ -130,7 +130,7 @@ class TestAddIsPrimaryColumn:
         result = _add_is_primary_column(features_gdf, None)
 
         assert "is_primary" in result.columns
-        assert result["is_primary"].iloc[0] == False
+        assert not result["is_primary"].iloc[0]
 
     def test_empty_rollup_dataframe(self):
         """Empty rollup DataFrame returns all is_primary=False."""
@@ -149,7 +149,7 @@ class TestAddIsPrimaryColumn:
         result = _add_is_primary_column(features_gdf, rollup_df)
 
         assert "is_primary" in result.columns
-        assert result["is_primary"].iloc[0] == False
+        assert not result["is_primary"].iloc[0]
 
     def test_missing_feature_id_column(self):
         """Missing feature_id in features returns all is_primary=False."""
@@ -170,7 +170,7 @@ class TestAddIsPrimaryColumn:
         result = _add_is_primary_column(features_gdf, rollup_df)
 
         assert "is_primary" in result.columns
-        assert result["is_primary"].iloc[0] == False
+        assert not result["is_primary"].iloc[0]
 
     def test_missing_class_id_column(self):
         """Missing class_id in features returns all is_primary=False."""
@@ -191,7 +191,7 @@ class TestAddIsPrimaryColumn:
         result = _add_is_primary_column(features_gdf, rollup_df)
 
         assert "is_primary" in result.columns
-        assert result["is_primary"].iloc[0] == False
+        assert not result["is_primary"].iloc[0]
 
     def test_no_matching_primary_ids(self):
         """Rollup has primary IDs but none match features."""
@@ -283,8 +283,8 @@ class TestAddIsPrimaryColumn:
         result = _add_is_primary_column(features_gdf, rollup_df)
 
         # Feature 12345 should match "12345" after string conversion
-        assert result[result["feature_id"] == "12345"]["is_primary"].iloc[0] == True
-        assert result[result["feature_id"] == "67890"]["is_primary"].iloc[0] == False
+        assert result[result["feature_id"] == "12345"]["is_primary"].iloc[0]
+        assert not result[result["feature_id"] == "67890"]["is_primary"].iloc[0]
 
     def test_building_lifecycle_pool_and_construction_classes(self):
         """Verify building_lifecycle, swimming_pool, and building_under_construction are marked primary."""
@@ -340,5 +340,5 @@ class TestAddIsPrimaryColumn:
 
         result = _add_is_primary_column(features_gdf, rollup_df)
 
-        assert result[result[AOI_ID_COLUMN_NAME] == "aoi-1"]["is_primary"].iloc[0] == True
-        assert result[result[AOI_ID_COLUMN_NAME] == "aoi-2"]["is_primary"].iloc[0] == False
+        assert result[result[AOI_ID_COLUMN_NAME] == "aoi-1"]["is_primary"].iloc[0]
+        assert not result[result[AOI_ID_COLUMN_NAME] == "aoi-2"]["is_primary"].iloc[0]

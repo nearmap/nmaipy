@@ -192,7 +192,7 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
 
     total = 0.0
     skipped = 0
-    for child in children.values:
+    for child in children.array:
         if child is None or child.is_empty:
             continue
         try:
@@ -319,7 +319,7 @@ def calculate_child_feature_attributes(
                 matching_projected[mask], parent_projected, class_id=class_id
             )
             if "confidence" in matching_features.columns:
-                conf = matching_features["confidence"].values[mask.values]
+                conf = matching_features["confidence"].to_numpy()[mask.to_numpy()]
                 valid = conf[pd.notna(conf)]
                 if len(valid) > 0:
                     max_confidence = float(valid.max())
@@ -447,10 +447,10 @@ def link_roof_instances_to_roofs(
             continue
 
         # Build spatial index for roofs
-        roof_geoms = aoi_roofs.geometry.values
+        roof_geoms = aoi_roofs.geometry.array
         roof_tree = STRtree(roof_geoms)
-        roof_df_indices = aoi_roofs.index.values
-        roof_feature_ids = aoi_roofs["feature_id"].values
+        roof_df_indices = aoi_roofs.index.to_numpy()
+        roof_feature_ids = aoi_roofs["feature_id"].array
 
         # Build mapping from roof df index to position in arrays
         roof_idx_to_pos = {idx: pos for pos, idx in enumerate(roof_df_indices)}
@@ -502,8 +502,8 @@ def link_roof_instances_to_roofs(
 
             # Assign parent to roof instance (only if IoU meets threshold)
             if best_roof_idx is not None and best_iou >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id
-                ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)
+                ri_gdf.loc[ri_idx, "parent_id"] = best_roof_feature_id
+                ri_gdf.loc[ri_idx, "parent_iou"] = round(best_iou, 4)
 
         # For each roof, sort instances by IoU and assign primary
         for roof_df_idx, instances in roof_to_instances.items():
@@ -520,12 +520,12 @@ def link_roof_instances_to_roofs(
             sorted_instances = sorted(instances, key=instance_sort_key)
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
-            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
-            rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
+            rf_gdf.loc[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
+            rf_gdf.loc[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
             # Only assign primary if IoU meets threshold - below that we don't trust the match
             if sorted_instances[0]["iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]
-                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]
+                rf_gdf.loc[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]
+                rf_gdf.loc[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -634,10 +634,10 @@ def link_roofs_to_buildings(
             continue
 
         # Build spatial index for buildings
-        bldg_geoms = aoi_buildings.geometry.values
+        bldg_geoms = aoi_buildings.geometry.array
         bldg_tree = STRtree(bldg_geoms)
-        bldg_df_indices = aoi_buildings.index.values
-        bldg_feature_ids = aoi_buildings["feature_id"].values
+        bldg_df_indices = aoi_buildings.index.to_numpy()
+        bldg_feature_ids = aoi_buildings["feature_id"].array
 
         # For each building, collect all matching roofs with IoU
         bldg_to_roofs = {idx: [] for idx in bldg_df_indices}
@@ -683,8 +683,8 @@ def link_roofs_to_buildings(
 
             # Assign parent to roof (only if IoU meets threshold)
             if best_bldg_idx is not None and best_iou >= min_iou_threshold:
-                rf_gdf.at[rf_idx, "parent_building_id"] = best_bldg_feature_id
-                rf_gdf.at[rf_idx, "parent_building_iou"] = round(best_iou, 4)
+                rf_gdf.loc[rf_idx, "parent_building_id"] = best_bldg_feature_id
+                rf_gdf.loc[rf_idx, "parent_building_iou"] = round(best_iou, 4)
 
         # For each building, sort roofs by IoU and assign primary
         for bldg_df_idx, roofs in bldg_to_roofs.items():
@@ -695,12 +695,12 @@ def link_roofs_to_buildings(
             sorted_roofs = sorted(roofs, key=lambda x: -x["iou"])
 
             # Assign to building (JSON-serialize list for parquet compatibility)
-            bldg_gdf.at[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)
-            bldg_gdf.at[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)
+            bldg_gdf.loc[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)
+            bldg_gdf.loc[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)
             # Only assign primary if IoU meets threshold
             if sorted_roofs[0]["iou"] >= min_iou_threshold:
-                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]
-                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]
+                bldg_gdf.loc[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]
+                bldg_gdf.loc[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]
 
     # Restore aoi_id as index
     rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -1390,7 +1390,7 @@ def feature_attributes(
             else None
         )
         area_vals = []
-        areas = roof_features[area_col].values if area_col else None
+        areas = roof_features[area_col].to_numpy() if area_col else None
         for i, feature_id in enumerate(roof_features["feature_id"]):
             rf = _parent_lookup.get(feature_id) or {}
             resolved_rsi = extract_rsi_from_feature(rf)
@@ -1427,7 +1427,7 @@ def feature_attributes(
             if "clipped_area_sqm" in roof_features.columns
             else None
         )
-        areas = roof_features[area_col].values if area_col else None
+        areas = roof_features[area_col].to_numpy() if area_col else None
 
         # Resolve all scores for each roof once (roof first, BL fallback via linked BN).
         per_roof_scores = []
@@ -1610,7 +1610,7 @@ def parcel_rollup(
                 geometry=df[geom_col].values,
                 crs=features_gdf.crs or API_CRS,
             )
-            df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.values
+            df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.array
             geometry_projected_col = "_geometry_projected"
 
     # Build parent lookup once for the whole chunk, scoped per AOI: in parcelMode

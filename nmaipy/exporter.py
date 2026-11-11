@@ -709,7 +709,7 @@ def _link_roof_instances(roof_age_gdf: gpd.GeoDataFrame, roofs_gdf: gpd.GeoDataF
     if not aoi_geometries:
         return parcels.link_roof_instances_to_roofs(roof_age_gdf, roofs_gdf)
     link_roofs_gdf = roofs_gdf.copy()
-    link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries, "Roof Age link").values
+    link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries, "Roof Age link").array
     roof_instances_linked, roofs_linked = parcels.link_roof_instances_to_roofs(roof_age_gdf, link_roofs_gdf)
     # The whole outlines go back by position, which link_roof_instances_to_roofs guarantees. Check the rows
     # still line up by (aoi_id, feature_id), since a feature_id repeats when a roof spans AOIs, rather than
@@ -718,7 +718,7 @@ def _link_roof_instances(roof_age_gdf: gpd.GeoDataFrame, roofs_gdf: gpd.GeoDataF
         raise RuntimeError(
             "link_roof_instances_to_roofs reordered or changed the roofs; their whole outlines can't be restored"
         )
-    roofs_linked["geometry"] = roofs_gdf.geometry.values
+    roofs_linked["geometry"] = roofs_gdf.geometry.array
     return roof_instances_linked, roofs_linked
 
 
@@ -1243,9 +1243,9 @@ def _aoi_id_values(df):
     multiparcel collision this keying exists to prevent.
     """
     if AOI_ID_COLUMN_NAME in df.columns:
-        return df[AOI_ID_COLUMN_NAME].values
+        return df[AOI_ID_COLUMN_NAME].array
     if df.index.name == AOI_ID_COLUMN_NAME:
-        return df.index.values
+        return df.index.array
     raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot key roof attributes per parcel")
 
 
@@ -1348,7 +1348,7 @@ def _compute_all_per_class_data(
         # Children are only read for a roof in their own AOI.
         roof_aois = _aoi_id_values(roof_features_chunk) if len(roof_features_chunk) > 0 else []
         in_roof_aoi = pd.Index(_aoi_id_values(chunk_gdf)).isin(roof_aois)
-        non_roof_chunk = chunk_gdf[(chunk_gdf["class_id"] != ROOF_ID).values & in_roof_aoi]
+        non_roof_chunk = chunk_gdf[(chunk_gdf["class_id"] != ROOF_ID).to_numpy() & in_roof_aoi]
 
         # Pre-compute IoU-based Roof → Building(New) linkage for RSI BL fallback.
         # Roof's API parent_id points to Building(Deprecated) which is filtered out;
@@ -1552,10 +1552,10 @@ def _compute_feature_class_data(
 
     # Add aoi_id from index or column
     if class_features.index.name == AOI_ID_COLUMN_NAME:
-        initial_batch[AOI_ID_COLUMN_NAME] = class_features.index.values
+        initial_batch[AOI_ID_COLUMN_NAME] = class_features.index.to_numpy()
         added_cols.add(AOI_ID_COLUMN_NAME)
     elif AOI_ID_COLUMN_NAME in class_features.columns:
-        initial_batch[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].values
+        initial_batch[AOI_ID_COLUMN_NAME] = class_features[AOI_ID_COLUMN_NAME].to_numpy()
         added_cols.add(AOI_ID_COLUMN_NAME)
 
     # Add metadata columns (address fields, coordinates, etc.) if present
@@ -1575,12 +1575,12 @@ def _compute_feature_class_data(
         metadata_cols = metadata_cols + [c for c in aoi_columns if c not in metadata_cols]
     for col in metadata_cols:
         if col in class_features.columns and col not in added_cols:
-            initial_batch[col] = class_features[col].values
+            initial_batch[col] = class_features[col].to_numpy()
             added_cols.add(col)
 
     # Add standard columns
     if "feature_id" in class_features.columns:
-        initial_batch["feature_id"] = class_features["feature_id"].values
+        initial_batch["feature_id"] = class_features["feature_id"].to_numpy()
         added_cols.add("feature_id")
     initial_batch["class_id"] = class_id
     added_cols.add("class_id")
@@ -1595,14 +1595,14 @@ def _compute_feature_class_data(
         and class_id in PRIMARY_FEATURE_CLASS_IDS
         and "is_primary" not in added_cols
     ):
-        initial_batch["is_primary"] = class_features["is_primary"].values
+        initial_batch["is_primary"] = class_features["is_primary"].to_numpy()
         added_cols.add("is_primary")
 
     # Confidence is universal across Feature API classes; roof instances use
     # trust_score instead.
     if class_id != ROOF_INSTANCE_CLASS_ID:
         if "confidence" in class_features.columns:
-            initial_batch["confidence"] = class_features["confidence"].values
+            initial_batch["confidence"] = class_features["confidence"].to_numpy()
             added_cols.add("confidence")
 
     # Fidelity is API-populated only on structural building/roof classes
@@ -1610,7 +1610,7 @@ def _compute_feature_class_data(
     # NaN-filled fidelity column from the chunk-level pd.concat.
     if class_id in CLASSES_WITH_FIDELITY:
         if "fidelity" in class_features.columns:
-            initial_batch["fidelity"] = class_features["fidelity"].values
+            initial_batch["fidelity"] = class_features["fidelity"].to_numpy()
             added_cols.add("fidelity")
 
     # Add area fields (vectorized) - skip if already added.
@@ -1627,14 +1627,14 @@ def _compute_feature_class_data(
         ]
     for col in area_cols:
         if col in class_features.columns and col not in added_cols:
-            initial_batch[col] = class_features[col].values
+            initial_batch[col] = class_features[col].to_numpy()
             added_cols.add(col)
 
     # Add date fields (vectorized) - not applicable to roof instances
     if class_id != ROOF_INSTANCE_CLASS_ID:
         for col in ["survey_date", "mesh_date"]:
             if col in class_features.columns and col not in added_cols:
-                initial_batch[col] = class_features[col].values
+                initial_batch[col] = class_features[col].to_numpy()
                 added_cols.add(col)
 
     convert_bool_columns_to_yn(initial_batch)
@@ -1648,7 +1648,7 @@ def _compute_feature_class_data(
         # Add roof instance linkage columns (parent_id = parent roof, parent_iou = IoU with parent)
         for col in ["parent_id", "parent_iou"]:
             if col in class_features.columns and col not in added_cols:
-                ri_batch[col] = class_features[col].values
+                ri_batch[col] = class_features[col].to_numpy()
                 added_cols.add(col)
 
         # Add roof_age_ prefix to Roof Age API columns. Iterate the canonical
@@ -1661,19 +1661,19 @@ def _compute_feature_class_data(
             if col in class_features.columns:
                 dst = f"roof_age_{col}"
                 if dst not in added_cols:
-                    ri_batch[dst] = class_features[col].values
+                    ri_batch[dst] = class_features[col].to_numpy()
                     added_cols.add(dst)
             if col == "map_browser_url":
                 years_col = "roof_age_years_as_of_date"
                 if years_col in class_features.columns and years_col not in added_cols:
-                    ri_batch[years_col] = class_features[years_col].values
+                    ri_batch[years_col] = class_features[years_col].to_numpy()
                     added_cols.add(years_col)
         # Sweep any remaining roof_age_* columns not covered above (e.g. cached
         # variants or future additions); preserves source order for them.
         for col in class_features.columns:
             if col in added_cols or not col.startswith("roof_age_"):
                 continue
-            ri_batch[col] = class_features[col].values
+            ri_batch[col] = class_features[col].to_numpy()
             added_cols.add(col)
 
         convert_bool_columns_to_yn(ri_batch)
@@ -1691,7 +1691,7 @@ def _compute_feature_class_data(
             "child_roof_instance_count",
         ]:
             if col in class_features.columns and col not in added_cols:
-                roof_linkage_batch[col] = class_features[col].values
+                roof_linkage_batch[col] = class_features[col].to_numpy()
                 added_cols.add(col)
 
         if roof_linkage_batch:
@@ -1757,7 +1757,7 @@ def _compute_feature_class_data(
                     ri_mapped = ri_lookup.reindex(ri_keys).reset_index(drop=True)
                     ri_mapped_batch = {}
                     for col in ri_mapped.columns:
-                        ri_mapped_batch[col] = ri_mapped[col].values
+                        ri_mapped_batch[col] = ri_mapped[col].to_numpy()
                         added_cols.add(col)
                     convert_bool_columns_to_yn(ri_mapped_batch)
                     if ri_mapped_batch:
@@ -1823,7 +1823,7 @@ def _compute_feature_class_data(
         # Overwrites roof_spotlight_index/confidence with the resolved value.
         try:
             bl_in_features = (
-                BUILDING_LIFECYCLE_ID in features_gdf["class_id"].values if features_gdf is not None else False
+                BUILDING_LIFECYCLE_ID in features_gdf["class_id"].array if features_gdf is not None else False
             )
             if bl_in_features and "roof_spotlight_index" in class_features.columns:
                 roof_records_for_fp = _dataframe_to_records_with_index(class_features)
@@ -1969,7 +1969,7 @@ def _compute_feature_class_data(
                     "child_roof_count",
                 ]:
                     if col in buildings_linked.columns and col not in added_cols:
-                        bldg_linkage_batch[col] = buildings_linked[col].values
+                        bldg_linkage_batch[col] = buildings_linked[col].to_numpy()
                         added_cols.add(col)
                 if bldg_linkage_batch:
                     df_parts.append(pd.DataFrame(bldg_linkage_batch, index=range(n_rows)))
@@ -2044,7 +2044,7 @@ def _compute_feature_class_data(
                     )
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
-                            roof_attr_batch[col] = mapped[col].values
+                            roof_attr_batch[col] = mapped[col].to_numpy()
                             added_cols.add(col)
 
                     # Add min/max resolved RSI across all child roofs.
@@ -2106,7 +2106,7 @@ def _compute_feature_class_data(
                 # For each building: resolve via primary child roof (roof's own RSI first,
                 # then BL fallback via Building(New) → BL parent_id), same logic as per-roof.
                 if roof_attrs:
-                    pcr_ids = buildings_linked["primary_child_roof_id"].values
+                    pcr_ids = buildings_linked["primary_child_roof_id"].to_numpy()
                     bn_aois = _aoi_id_values(buildings_linked)
                     bl_records = _dataframe_to_records_with_index(buildings_linked)
 
@@ -2136,7 +2136,7 @@ def _compute_feature_class_data(
 
                 # Resolve best scores per building (same pattern as RSI).
                 if roof_attrs:
-                    pcr_ids_for_scores = buildings_linked["primary_child_roof_id"].values
+                    pcr_ids_for_scores = buildings_linked["primary_child_roof_id"].to_numpy()
                     bn_aois_for_scores = _aoi_id_values(buildings_linked)
                     bn_records_for_scores = _dataframe_to_records_with_index(buildings_linked)
 
@@ -2227,7 +2227,7 @@ def _compute_feature_class_data(
                             bldg_ri_batch = {}
                             for col in ri_mapped.columns:
                                 if col not in added_cols:
-                                    bldg_ri_batch[col] = ri_mapped[col].values
+                                    bldg_ri_batch[col] = ri_mapped[col].to_numpy()
                                     added_cols.add(col)
                             convert_bool_columns_to_yn(bldg_ri_batch)
                             if bldg_ri_batch:
@@ -2247,7 +2247,7 @@ def _compute_feature_class_data(
             damage_batch = {}
             for col in flat_damage_df.columns:
                 if col not in added_cols:
-                    damage_batch[col] = flat_damage_df[col].values
+                    damage_batch[col] = flat_damage_df[col].to_numpy()
                     added_cols.add(col)
             if damage_batch:
                 df_parts.append(pd.DataFrame(damage_batch, index=range(n_rows)))
@@ -2319,7 +2319,7 @@ def _compute_feature_class_data(
 
                 # Build linkage columns; each BL row looks up its own parcel's chain
                 bl_aois = _aoi_id_values(class_features)
-                bl_fids = class_features["feature_id"].values
+                bl_fids = class_features["feature_id"].array
                 bl_linkage_batch = {}
                 primary_ids = [bl_primary_roof.get((aoi, fid)) for aoi, fid in zip(bl_aois, bl_fids)]
                 child_counts = [len(bl_to_roofs.get((aoi, fid), [])) for aoi, fid in zip(bl_aois, bl_fids)]
@@ -2354,7 +2354,7 @@ def _compute_feature_class_data(
                     roof_attr_batch = {}
                     for col in sorted(mapped.columns):
                         if col not in added_cols and col not in _EXCLUDE_RSI and not _is_resolved_score_col(col):
-                            roof_attr_batch[col] = mapped[col].values
+                            roof_attr_batch[col] = mapped[col].to_numpy()
                             added_cols.add(col)
                     if roof_attr_batch:
                         df_parts.append(pd.DataFrame(roof_attr_batch, index=range(n_rows)))
@@ -2465,7 +2465,7 @@ def _compute_feature_class_data(
 
         df_parts.append(
             pd.DataFrame(
-                {"link": links.values},
+                {"link": links.to_numpy()},
                 index=range(n_rows),
             )
         )
@@ -4108,7 +4108,7 @@ class NearmapAIExporter(BaseExporter):
                                 features_gdf.loc[
                                     roofs_with_age_mask,
                                     "primary_child_roof_age_years_as_of_date",
-                                ] = age_years.values
+                                ] = age_years.to_numpy()
                                 logger.debug(
                                     f"Chunk {chunk_id}: Calculated roof age in years for {roofs_with_age_mask.sum()} roofs"
                                 )
@@ -4122,7 +4122,7 @@ class NearmapAIExporter(BaseExporter):
                                 features_gdf.loc[roof_instance_mask, "as_of_date"],
                             )
                             if age_years is not None:
-                                features_gdf.loc[roof_instance_mask, "roof_age_years_as_of_date"] = age_years.values
+                                features_gdf.loc[roof_instance_mask, "roof_age_years_as_of_date"] = age_years.to_numpy()
                                 logger.debug(
                                     f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
                                 )
@@ -4766,7 +4766,9 @@ class NearmapAIExporter(BaseExporter):
             data = pd.concat(frames)
         # A column all-null in some chunk (e.g. an all-404 one) is object there, and concat widens it to
         # object everywhere; re-infer those.
-        object_columns = [c for c, dtype in data.dtypes.items() if dtype == object and c != "geometry"]
+        object_columns = [
+            c for c, dtype in data.dtypes.items() if pd.api.types.is_object_dtype(dtype) and c != "geometry"
+        ]
         if object_columns:
             data[object_columns] = data[object_columns].convert_dtypes()
         return _pin_float_coverage_columns(data)

@@ -530,7 +530,7 @@ class TestExporter:
                 packs=["building"],
                 save_features=False,
             )
-            assert exporter_no_features.save_features == False
+            assert exporter_no_features.save_features is False
 
             # With features
             exporter_with_features = AOIExporter(
@@ -540,7 +540,7 @@ class TestExporter:
                 packs=["building"],
                 save_features=True,
             )
-            assert exporter_with_features.save_features == True
+            assert exporter_with_features.save_features is True
 
     def test_stream_and_convert_features_schema_mismatch(self):
         """Test that _stream_and_convert_features handles schema mismatches correctly.
