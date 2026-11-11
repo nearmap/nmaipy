@@ -236,16 +236,13 @@ class TestInflightCoalescing:
 
         aoi = _square(-111.926, 33.414)
         outcomes = []
-        with patch("requests.Session.post", new=fake_post):
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = [
-                    pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(2)
-                ]
-                for f in futures:
-                    try:
-                        outcomes.append(("ok", f.result()))
-                    except AIFeatureAPIError:
-                        outcomes.append(("error", None))
+        with patch("requests.Session.post", new=fake_post), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(2)]
+            for f in futures:
+                try:
+                    outcomes.append(("ok", f.result()))
+                except AIFeatureAPIError:
+                    outcomes.append(("error", None))
 
         assert post_count[0] == 2
         statuses = sorted(status for status, _ in outcomes)
@@ -276,17 +273,14 @@ class TestInflightCoalescing:
         aoi = _square(-111.926, 33.414)
         statuses = []
         t0 = time.monotonic()
-        with patch("requests.Session.post", new=fake_post):
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = [
-                    pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(4)
-                ]
-                for f in futures:
-                    try:
-                        f.result()
-                        statuses.append("ok")
-                    except AIFeatureAPIError:
-                        statuses.append("error")
+        with patch("requests.Session.post", new=fake_post), ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(4)]
+            for f in futures:
+                try:
+                    f.result()
+                    statuses.append("ok")
+                except AIFeatureAPIError:
+                    statuses.append("error")
         elapsed = time.monotonic() - t0
 
         # Between 2 and 4 fetches: normally all four threads fetch, but a worker

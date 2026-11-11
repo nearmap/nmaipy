@@ -123,9 +123,9 @@ def test_gen_hurricane_score_data(cache_directory: Path):
         has_hurricane_score = False
 
         # Check both possible field names
-        if "hurricane_score" in row.index and pd.notna(row.get("hurricane_score")):
-            has_hurricane_score = True
-        elif "hurricaneScore" in row.index and pd.notna(row.get("hurricaneScore")):
+        if ("hurricane_score" in row.index and pd.notna(row.get("hurricane_score"))) or (
+            "hurricaneScore" in row.index and pd.notna(row.get("hurricaneScore"))
+        ):
             has_hurricane_score = True
 
         if has_hurricane_score:

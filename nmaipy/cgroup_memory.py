@@ -78,7 +78,7 @@ def get_cgroup_memory_limit_bytes() -> int | None:
                 if limit > 1e18:
                     return None
                 return limit
-        except (IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Could not read cgroup v2 memory limit: {e}")
 
     # Try cgroup v1 (older K8s versions)
@@ -90,7 +90,7 @@ def get_cgroup_memory_limit_bytes() -> int | None:
                 if limit > 1e18:
                     return None
                 return limit
-        except (IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Could not read cgroup v1 memory limit: {e}")
 
     return None
@@ -110,7 +110,7 @@ def get_cgroup_memory_usage_bytes() -> int | None:
         try:
             with open(CGROUP_V2_MEMORY_CURRENT) as f:
                 return int(f.read().strip())
-        except (IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Could not read cgroup v2 memory usage: {e}")
 
     # Try cgroup v1
@@ -118,7 +118,7 @@ def get_cgroup_memory_usage_bytes() -> int | None:
         try:
             with open(CGROUP_V1_MEMORY_USAGE) as f:
                 return int(f.read().strip())
-        except (IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Could not read cgroup v1 memory usage: {e}")
 
     return None
@@ -148,7 +148,7 @@ def _read_memory_stat_field(stat_path: str, field: str) -> int | None:
                 parts = line.split()
                 if len(parts) == 2 and parts[0] == field:
                     return int(parts[1])
-    except (IOError, ValueError) as e:
+    except (OSError, ValueError) as e:
         logger.debug(f"Could not read {field} from {stat_path}: {e}")
     return None
 
@@ -284,7 +284,7 @@ def get_cgroup_cpu_limit() -> float | None:
                     if max_val == "max":
                         return None  # Unlimited
                     return int(max_val) / int(period)
-        except (IOError, ValueError, ZeroDivisionError) as e:
+        except (OSError, ValueError, ZeroDivisionError) as e:
             logger.debug(f"Could not read cgroup v2 CPU limit: {e}")
 
     # Try cgroup v1
@@ -299,7 +299,7 @@ def get_cgroup_cpu_limit() -> float | None:
                 with open(CGROUP_V1_CPU_PERIOD) as f:
                     period = int(f.read().strip())
             return quota / period
-        except (IOError, ValueError, ZeroDivisionError) as e:
+        except (OSError, ValueError, ZeroDivisionError) as e:
             logger.debug(f"Could not read cgroup v1 CPU limit: {e}")
 
     return None
@@ -321,7 +321,7 @@ def _get_cgroup_cpu_usage_ns() -> int | None:
                 for line in f:
                     if line.startswith("usage_usec"):
                         return int(line.split()[1]) * 1000  # usec -> ns
-        except (IOError, ValueError, IndexError) as e:
+        except (OSError, ValueError, IndexError) as e:
             logger.debug(f"Could not read cgroup v2 CPU usage: {e}")
 
     # Try cgroup v1: cpuacct.usage is total nanoseconds
@@ -329,7 +329,7 @@ def _get_cgroup_cpu_usage_ns() -> int | None:
         try:
             with open(CGROUP_V1_CPUACCT_USAGE) as f:
                 return int(f.read().strip())
-        except (IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Could not read cgroup v1 CPU usage: {e}")
 
     return None

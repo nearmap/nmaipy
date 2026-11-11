@@ -112,9 +112,9 @@ def test_gen_defensible_space_data(cache_directory: Path):
         has_defensible_space = False
 
         # Check both possible field names
-        if "defensible_space" in row.index and pd.notna(row.get("defensible_space")):
-            has_defensible_space = True
-        elif "defensibleSpace" in row.index and pd.notna(row.get("defensibleSpace")):
+        if ("defensible_space" in row.index and pd.notna(row.get("defensible_space"))) or (
+            "defensibleSpace" in row.index and pd.notna(row.get("defensibleSpace"))
+        ):
             has_defensible_space = True
 
         if has_defensible_space:

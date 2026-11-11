@@ -340,7 +340,7 @@ def test_attributes_list_handling():
                 assert isinstance(flattened, dict), "Flattened result should be a dict"
 
                 # Check that internalClassId is not in flattened keys
-                for key in flattened.keys():
+                for key in flattened:
                     assert "internalClassId" not in key, f"Key {key} should not contain internalClassId"
 
                 # Check that components are JSON strings

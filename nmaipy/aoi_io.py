@@ -281,15 +281,14 @@ def read_from_file(
 
     if "geometry" not in parcels_gdf:
         logger.warning("Input file has no AOI geometries - some operations will not work.")
-    else:
-        if not isinstance(parcels_gdf, gpd.GeoDataFrame):
-            # If from a tabular data source, try to convert to a GeoDataFrame (requires a geometry column)
-            geometry = gpd.GeoSeries.from_wkt(parcels_gdf.geometry.fillna("POLYGON(EMPTY)"))
-            parcels_gdf = gpd.GeoDataFrame(
-                parcels_gdf,
-                geometry=geometry,
-                crs=source_crs,
-            )
+    elif not isinstance(parcels_gdf, gpd.GeoDataFrame):
+        # If from a tabular data source, try to convert to a GeoDataFrame (requires a geometry column)
+        geometry = gpd.GeoSeries.from_wkt(parcels_gdf.geometry.fillna("POLYGON(EMPTY)"))
+        parcels_gdf = gpd.GeoDataFrame(
+            parcels_gdf,
+            geometry=geometry,
+            crs=source_crs,
+        )
 
     # The API takes per-AOI cutoffs as YYYY-MM-DD strings; see normalise_date_column.
     for col in (SINCE_COL_NAME, UNTIL_COL_NAME):

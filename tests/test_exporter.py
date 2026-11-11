@@ -1288,7 +1288,7 @@ class TestPerClassChunkGlobFiltering:
     so the test breaks if the naming convention changes.
     """
 
-    @pytest.fixture()
+    @pytest.fixture
     def per_class_cnames(self):
         """Build {class_id: cname} for all whitelisted per-class file classes."""
         return {cid: _description_to_cname(FEATURE_CLASS_DESCRIPTIONS[cid]) for cid in PER_CLASS_FILE_CLASS_IDS}

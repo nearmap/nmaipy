@@ -628,9 +628,8 @@ def test_bulk_query_with_errors(roof_age_api):
                     geometry=[aoi],
                     crs=API_CRS,
                 )
-            else:
-                # Raise an error
-                raise RoofAgeAPIError(None, "test_url", message="Test error")
+            # Raise an error
+            raise RoofAgeAPIError(None, "test_url", message="Test error")
 
         mock_get.side_effect = side_effect
 

@@ -56,9 +56,9 @@ class DataDictionaryGenerator:
 
         # Resolve the actual directory containing the AI-data files.
         potential_final = storage.join_path(self.output_dir, "final")
-        if not self._is_s3 and Path(potential_final).exists() and Path(potential_final).is_dir():
-            self.final_dir = potential_final
-        elif self._is_s3 and storage.glob_files(potential_final, "*"):
+        if (not self._is_s3 and Path(potential_final).exists() and Path(potential_final).is_dir()) or (
+            self._is_s3 and storage.glob_files(potential_final, "*")
+        ):
             self.final_dir = potential_final
         else:
             self.final_dir = self.output_dir

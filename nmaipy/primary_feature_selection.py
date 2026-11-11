@@ -393,7 +393,7 @@ def select_primary(
     if method == "largest" or method == "largest_intersection":
         return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
-    elif method == "nearest":
+    if method == "nearest":
         if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
             logger.debug("For 'nearest' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
@@ -419,7 +419,7 @@ def select_primary(
             distance_tolerance=distance_tolerance,
         )
 
-    elif method == "optimal":
+    if method == "optimal":
         if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
             logger.debug("For 'optimal' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
@@ -447,7 +447,6 @@ def select_primary(
             distance_tolerance=distance_tolerance,
         )
 
-    else:
-        raise ValueError(
-            f"Invalid selection method '{method}'. Must be 'largest', 'largest_intersection', 'nearest', or 'optimal'"
-        )
+    raise ValueError(
+        f"Invalid selection method '{method}'. Must be 'largest', 'largest_intersection', 'nearest', or 'optimal'"
+    )

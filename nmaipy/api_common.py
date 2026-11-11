@@ -395,19 +395,13 @@ class AIFeatureAPIError(APIError):
     Maintains backward compatibility with existing code.
     """
 
-    pass
-
 
 class RoofAgeAPIError(APIError):
     """Error responses specific to the Roof Age API."""
 
-    pass
-
 
 class DamageConflationAPIError(APIError):
     """Error responses specific to the Damage Conflation API."""
-
-    pass
 
 
 class APIRequestSizeError(APIError):
@@ -508,7 +502,7 @@ class _InflightEntry:
     serializing behind the lock and fetch independently.
     """
 
-    __slots__ = ("lock", "refcount", "fetch_failed")
+    __slots__ = ("fetch_failed", "lock", "refcount")
 
     def __init__(self):
         self.lock = threading.Lock()

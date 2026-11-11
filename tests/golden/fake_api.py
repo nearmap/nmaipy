@@ -243,7 +243,9 @@ class FakeApi:
     def _classes(self) -> dict:
         kinds = {}
         for pack in vocabulary()["packs"].values():
-            kinds |= {c: "Attribute" for c in pack["attributeClasses"]} | {c: "Feature" for c in pack["featureClasses"]}
+            kinds |= dict.fromkeys(pack["attributeClasses"], "Attribute") | dict.fromkeys(
+                pack["featureClasses"], "Feature"
+            )
         current = {s.system_version for s in self.world.surveys}
         return {
             "classes": [

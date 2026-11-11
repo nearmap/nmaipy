@@ -55,7 +55,7 @@ warnings.filterwarnings("ignore", message=".*Geometry is in a geographic CRS.*ce
 import atexit
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 import signal
 import time
 
@@ -347,7 +347,7 @@ def _add_missing_columns(df: pd.DataFrame, columns: list[str], fill=None) -> pd.
     missing = [col for col in columns if col not in df.columns]
     if not missing:
         return df
-    additions = pd.DataFrame({col: fill for col in missing}, index=range(len(df)))
+    additions = pd.DataFrame(dict.fromkeys(missing, fill), index=range(len(df)))
     result = pd.concat([df.reset_index(drop=True), additions], axis=1)
     result.index = df.index
     return result
@@ -3454,38 +3454,37 @@ class NearmapAIExporter(BaseExporter):
 
                         # Cast first chunk to match promoted schema
                         table = _cast_table_to_schema(table, reference_schema)
-                    else:
-                        # Reconcile schema differences column-by-column.
-                        # Null-type columns (from all-null chunks) are promoted silently.
-                        # Only genuine type mismatches that lose data are warned.
-                        if table.schema != reference_schema:
-                            arrays = []
-                            type_warnings = []
-                            for field in reference_schema:
-                                if field.name in table.column_names:
-                                    col = table.column(field.name)
-                                    if col.type == field.type:
-                                        arrays.append(col)
-                                    elif col.type == pa.null():
-                                        arrays.append(pa.nulls(len(table), type=field.type))
-                                    else:
-                                        try:
-                                            arrays.append(col.cast(field.type))
-                                        except (
-                                            pa.ArrowInvalid,
-                                            pa.ArrowNotImplementedError,
-                                        ):
-                                            type_warnings.append(f"'{field.name}' ({col.type}->{field.type})")
-                                            arrays.append(pa.nulls(len(table), type=field.type))
-                                else:
+                    # Reconcile schema differences column-by-column.
+                    # Null-type columns (from all-null chunks) are promoted silently.
+                    # Only genuine type mismatches that lose data are warned.
+                    elif table.schema != reference_schema:
+                        arrays = []
+                        type_warnings = []
+                        for field in reference_schema:
+                            if field.name in table.column_names:
+                                col = table.column(field.name)
+                                if col.type == field.type:
+                                    arrays.append(col)
+                                elif col.type == pa.null():
                                     arrays.append(pa.nulls(len(table), type=field.type))
+                                else:
+                                    try:
+                                        arrays.append(col.cast(field.type))
+                                    except (
+                                        pa.ArrowInvalid,
+                                        pa.ArrowNotImplementedError,
+                                    ):
+                                        type_warnings.append(f"'{field.name}' ({col.type}->{field.type})")
+                                        arrays.append(pa.nulls(len(table), type=field.type))
+                            else:
+                                arrays.append(pa.nulls(len(table), type=field.type))
 
-                            table = pa.Table.from_arrays(arrays, schema=reference_schema)
-                            if type_warnings:
-                                self.logger.warning(
-                                    f"Chunk {i}: Incompatible columns replaced with nulls: {', '.join(type_warnings)}"
-                                )
-                            schema_promotion_count += 1
+                        table = pa.Table.from_arrays(arrays, schema=reference_schema)
+                        if type_warnings:
+                            self.logger.warning(
+                                f"Chunk {i}: Incompatible columns replaced with nulls: {', '.join(type_warnings)}"
+                            )
+                        schema_promotion_count += 1
                     # Sort by class_id for compression locality (contiguous class
                     # values dictionary/RLE-encode well) and for class pushdown in
                     # the oversized-chunk case, but cap rows per group explicitly —
@@ -3542,9 +3541,8 @@ class NearmapAIExporter(BaseExporter):
 
         if pqwriter is not None:
             return local_write_path
-        else:
-            self.logger.warning("No feature data found to write")
-            return None
+        self.logger.warning("No feature data found to write")
+        return None
 
     def _merge_per_class_chunks(
         self,
@@ -3771,7 +3769,7 @@ class NearmapAIExporter(BaseExporter):
         _t_per_class_compute = None
         _t_per_class_writes = None
 
-        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_time = datetime.now(UTC).isoformat()
         chunk_start_monotonic = time.monotonic()
 
         try:
@@ -4003,7 +4001,7 @@ class NearmapAIExporter(BaseExporter):
                 write_chunk_file(_write_errors_parquet, feature_api_errors_df, outfile_errors)
                 if len(roof_age_errors_df) > 0:
                     write_chunk_file(storage.write_parquet, roof_age_errors_df, outfile_roof_age_errors)
-                chunk_end_time = datetime.now(timezone.utc).isoformat()
+                chunk_end_time = datetime.now(UTC).isoformat()
                 total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
                 latency_stats = collect_latency_stats_from_apis(
                     [feature_api, roof_age_api],
@@ -4586,7 +4584,7 @@ class NearmapAIExporter(BaseExporter):
                     "rollup_write_s": _t_rollup_write - _tp7,
                 }
 
-            chunk_end_time = datetime.now(timezone.utc).isoformat()
+            chunk_end_time = datetime.now(UTC).isoformat()
             total_duration_ms = (time.monotonic() - chunk_start_monotonic) * 1000
             latency_stats = collect_latency_stats_from_apis(
                 [feature_api, roof_age_api],
@@ -4810,18 +4808,17 @@ class NearmapAIExporter(BaseExporter):
                     "outputs from the cached chunks."
                 )
                 return
-            else:
-                changed = ", ".join(f"{k} ({prev!r} -> {cur!r})" for k, prev, cur in config_diff)
-                self.logger.info(
-                    f"README.md present at {readme_path} but export config has changed "
-                    f"since the prior run ({changed}). Rebuilding."
-                )
-                # Remove the stale sentinel now: __init__ has already overwritten
-                # export_config.json with the current params, so if this rebuild
-                # dies before re-writing README.md, a re-invocation would see an
-                # empty config diff plus the old README and incorrectly fast-path
-                # back to the previous config's output.
-                storage.remove_file(readme_path)
+            changed = ", ".join(f"{k} ({prev!r} -> {cur!r})" for k, prev, cur in config_diff)
+            self.logger.info(
+                f"README.md present at {readme_path} but export config has changed "
+                f"since the prior run ({changed}). Rebuilding."
+            )
+            # Remove the stale sentinel now: __init__ has already overwritten
+            # export_config.json with the current params, so if this rebuild
+            # dies before re-writing README.md, a re-invocation would see an
+            # empty config diff plus the old README and incorrectly fast-path
+            # back to the previous config's output.
+            storage.remove_file(readme_path)
 
         # Process a single AOI file
         aoi_path = self.aoi_file
@@ -5242,7 +5239,7 @@ def main():
             resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
             new_soft, new_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
             logger.info(f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}")
-        except ValueError as e:
+        except ValueError:
             # If desired limit is too high, try setting to hard limit
             logger.warning(f"Could not set file descriptor limit to {desired}, trying hard limit {hard}")
             try:

@@ -89,12 +89,11 @@ def get_payload(request_string, apikey=None, timeout=DEFAULT_TIMEOUT, bearer_tok
     if response.ok:
         logger.debug(f"Status Code: {response.status_code} ({response.reason})")
         return response.json()
-    elif response.status_code == FORBIDDEN_403:
+    if response.status_code == FORBIDDEN_403:
         logger.debug(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
         return FORBIDDEN_403
-    else:
-        logger.error(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
-        return response.status_code
+    logger.error(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
+    return response.status_code
 
 
 def poly2coordstring(poly):
@@ -364,16 +363,14 @@ def get_surveys_from_point(
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
-        elif coverage_type == AI_COVERAGE:
+        if coverage_type == AI_COVERAGE:
             return ai_coverage_response_to_dataframe(response), response
-        else:
-            raise ValueError(f"Unknown coverage type {coverage_type}")
-    elif response == FORBIDDEN_403:
+        raise ValueError(f"Unknown coverage type {coverage_type}")
+    if response == FORBIDDEN_403:
         logger.debug(f"Unauthorised area request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
         return None, None
-    else:
-        logger.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
-        return None, None
+    logger.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
+    return None, None
 
 
 def get_survey_resource_id_from_survey_id_query(resources):
@@ -382,8 +379,7 @@ def get_survey_resource_id_from_survey_id_query(resources):
     """
     if len(resources) == 1:
         return resources[0]["id"]
-    else:
-        raise Exception("More than one resource returned from survey_id query")
+    raise Exception("More than one resource returned from survey_id query")
 
 
 def get_survey_resource_id_from_standard_coverage(resources):
@@ -392,8 +388,7 @@ def get_survey_resource_id_from_standard_coverage(resources):
     """
     if "aifeatures" in resources:
         return resources["aifeatures"][-1]["id"]
-    else:
-        return None
+    return None
 
 
 def std_coverage_response_to_dataframe(survey_response):
@@ -403,10 +398,9 @@ def std_coverage_response_to_dataframe(survey_response):
     df_survey = pd.DataFrame(survey_response["surveys"])
     if len(df_survey) == 0:
         return df_survey
-    else:
-        for resource_type in ["tiles", "3d", "aifeatures"]:
-            df_survey[resource_type] = df_survey["resources"].apply(lambda d: resource_type in d)
-        return df_survey
+    for resource_type in ["tiles", "3d", "aifeatures"]:
+        df_survey[resource_type] = df_survey["resources"].apply(lambda d: resource_type in d)
+    return df_survey
 
 
 def ai_coverage_response_to_dataframe(response):
@@ -417,8 +411,7 @@ def ai_coverage_response_to_dataframe(response):
         df_coverage = pd.DataFrame(response["results"])
         # df_coverage = df_coverage.drop(columns="classes")
         return df_coverage
-    else:
-        return None
+    return None
 
 
 def threaded_get_coverage_from_point_results(
@@ -631,8 +624,7 @@ def get_coverage_from_points(
     if len(df_coverage) > 0:
         df_coverage = pd.concat(df_coverage)
         return df_coverage
-    else:
-        return None
+    return None
 
 
 def threaded_get_coverage_from_survey_ids(
@@ -683,12 +675,11 @@ def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT, b
     response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
         return id_check_response_to_dataframe(response), response  # noqa: F821 (see NOTE above)
-    elif response == FORBIDDEN_403:
+    if response == FORBIDDEN_403:
         logger.debug(f"Unauthorised area request at {survey_id=} with code {response}")
         return None, None
-    else:
-        logger.error(f"Failed request at {survey_id=} with code {response}")
-        return None, None
+    logger.error(f"Failed request at {survey_id=} with code {response}")
+    return None, None
 
 
 def get_coverage_from_survey_ids(
@@ -776,5 +767,4 @@ def get_coverage_from_survey_ids(
     if len(df_coverage) > 0:
         df_coverage = pd.concat(df_coverage)
         return df_coverage
-    else:
-        return None
+    return None

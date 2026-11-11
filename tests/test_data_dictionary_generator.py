@@ -399,7 +399,7 @@ class TestJsonConfig:
     def test_round_trip_edit_appears_in_output(self, tmp_path, monkeypatch):
         """Editing the JSON, reloading, and regenerating reflects the change."""
         # Load real config, mutate one description, write it to a temp file, point loader at it.
-        import importlib.resources as resources
+        from importlib import resources
 
         with resources.files("nmaipy.data").joinpath("column_metadata.json").open() as fh:
             payload = json.load(fh)

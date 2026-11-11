@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover — Windows
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -205,7 +205,7 @@ class BaseExporter(ABC):
 
         # Build metadata
         metadata = {
-            "export_started_at": datetime.now(timezone.utc).isoformat(),
+            "export_started_at": datetime.now(UTC).isoformat(),
             "nmaipy_version": nmaipy_version,
             "python_version": platform.python_version(),
             "platform": platform.platform(),
@@ -244,7 +244,6 @@ class BaseExporter(ABC):
         Raises:
             Any exceptions should be raised to be caught by run_parallel()
         """
-        pass
 
     @abstractmethod
     def get_chunk_output_file(self, chunk_id: str) -> str:
@@ -259,7 +258,6 @@ class BaseExporter(ABC):
         Returns:
             Path to the chunk's main output file (string, may be S3 URI)
         """
-        pass
 
     def is_chunk_output_complete(self, path: str) -> bool:
         """
@@ -331,8 +329,7 @@ class BaseExporter(ABC):
                 if storage.file_exists(outfile):
                     if self.is_chunk_output_complete(outfile):
                         return (i, batch, True, None)
-                    else:
-                        return (i, batch, False, chunk_id)
+                    return (i, batch, False, chunk_id)
                 return (i, batch, False, None)
 
             cache_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
@@ -526,18 +523,17 @@ class BaseExporter(ABC):
 
                                         if active_jobs < max_concurrent:
                                             break
-                                        else:
-                                            # At capacity for current warmup stage - update progress while waiting
-                                            if pbar is not None and progress_counters is not None:
-                                                chunks_completed = chunks_submitted - active_jobs
-                                                self._update_pbar_during_warmup(
-                                                    pbar,
-                                                    progress_counters,
-                                                    chunks_submitted,
-                                                    len(chunks_to_process),
-                                                    chunks_completed,
-                                                )
-                                            time.sleep(1.0)
+                                        # At capacity for current warmup stage - update progress while waiting
+                                        if pbar is not None and progress_counters is not None:
+                                            chunks_completed = chunks_submitted - active_jobs
+                                            self._update_pbar_during_warmup(
+                                                pbar,
+                                                progress_counters,
+                                                chunks_submitted,
+                                                len(chunks_to_process),
+                                                chunks_completed,
+                                            )
+                                        time.sleep(1.0)
 
                                 self.logger.debug(
                                     f"Submitting chunk {chunk_id} with {len(batch)} AOIs "

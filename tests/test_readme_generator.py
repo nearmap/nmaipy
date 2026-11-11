@@ -135,17 +135,17 @@ class TestHasRsiColumns:
     """Tests for RSI column detection."""
 
     def test_has_rsi_columns_with_index(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_spotlight_index", "other_col"}
         assert gen._has_rsi_columns(columns) is True
 
     def test_has_rsi_columns_with_confidence(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_spotlight_index_confidence", "other_col"}
         assert gen._has_rsi_columns(columns) is True
 
     def test_has_rsi_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"aoi_id", "mesh_date", "roof_count"}
         assert gen._has_rsi_columns(columns) is False
 
@@ -154,17 +154,17 @@ class TestHasRoofAgeColumns:
     """Tests for roof age column detection."""
 
     def test_has_roof_age_columns_with_installation_date(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_age_installation_date", "other_col"}
         assert gen._has_roof_age_columns(columns) is True
 
     def test_has_roof_age_columns_with_years(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_age_years_as_of_date", "other_col"}
         assert gen._has_roof_age_columns(columns) is True
 
     def test_has_roof_age_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"aoi_id", "mesh_date", "roof_count"}
         assert gen._has_roof_age_columns(columns) is False
 
@@ -173,17 +173,17 @@ class TestHasRccsColumns:
     """Tests for Roof Condition Confidence Stats (RCCS) column detection."""
 
     def test_has_rccs_columns_with_default_bin(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_structural_damage_confidence_stats_default_bin_0", "other_col"}
         assert gen._has_rccs_columns(columns) is True
 
     def test_has_rccs_columns_with_extreme_bin(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_zinc_staining_confidence_stats_extreme_bin_2", "other_col"}
         assert gen._has_rccs_columns(columns) is True
 
     def test_has_rccs_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         # `*_confidence` alone is not RCCS — only the histogram bin suffix counts.
         columns = {"aoi_id", "roof_count", "structural_damage_confidence"}
         assert gen._has_rccs_columns(columns) is False
@@ -193,7 +193,7 @@ class TestGenerateRccsSection:
     """The RCCS section recovers component names from scoped column names."""
 
     def test_strips_primary_roof_scope(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_structural_damage_confidence_stats_default_bin_0"}
         section = gen._generate_rccs_section(columns)
         assert "- `structural_damage`" in section
@@ -202,7 +202,7 @@ class TestGenerateRccsSection:
         # Regression: short-first scope iteration would match ``primary_roof_``
         # on a ``primary_roof_instance_…`` column and record component
         # ``instance_structural_damage`` instead of ``structural_damage``.
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {
             "primary_roof_instance_structural_damage_confidence_stats_default_bin_0",
             "primary_building_lifecycle_structural_damage_confidence_stats_extreme_bin_2",
@@ -217,7 +217,7 @@ class TestGenerateRccsSection:
         assert "age_zinc_staining" not in section
 
     def test_strips_low_conf_prefix(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_low_conf_roof_ponding_confidence_stats_extreme_bin_1"}
         section = gen._generate_rccs_section(columns)
         assert "- `roof_ponding`" in section
@@ -268,17 +268,17 @@ class TestHasAddressQueryColumns:
     """Tests for address/query column detection."""
 
     def test_has_address_query_columns_with_street_address(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"streetAddress", "city", "state", "zip"}
         assert gen._has_address_query_columns(columns) is True
 
     def test_has_address_query_columns_with_query_lat(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"query_aoi_lat", "query_aoi_lon"}
         assert gen._has_address_query_columns(columns) is True
 
     def test_has_address_query_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"aoi_id", "mesh_date", "roof_count"}
         assert gen._has_address_query_columns(columns) is False
 

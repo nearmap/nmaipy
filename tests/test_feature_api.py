@@ -1231,12 +1231,9 @@ class TestEmptyBody502Handling:
         """At the get_features_gdf level, an empty-body 502 attempts gridding"""
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 
-        with patch("requests.Session.post", return_value=self._mock_502_response()):
-            with patch("time.sleep"):
-                with patch.object(api, "_attempt_gridding", return_value=(None, None, None, None)) as mock_grid:
-                    api.get_features_gdf(
-                        geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
-                    )
+        with patch("requests.Session.post", return_value=self._mock_502_response()), patch("time.sleep"):
+            with patch.object(api, "_attempt_gridding", return_value=(None, None, None, None)) as mock_grid:
+                api.get_features_gdf(geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi")
 
         mock_grid.assert_called_once()
 
@@ -1245,12 +1242,11 @@ class TestEmptyBody502Handling:
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
         response = self._mock_502_response(text='{"message": "upstream application error"}')
 
-        with patch("requests.Session.post", return_value=response):
-            with patch("time.sleep"):
-                with patch.object(api, "_attempt_gridding") as mock_grid:
-                    _, _, error, _ = api.get_features_gdf(
-                        geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
-                    )
+        with patch("requests.Session.post", return_value=response), patch("time.sleep"):
+            with patch.object(api, "_attempt_gridding") as mock_grid:
+                _, _, error, _ = api.get_features_gdf(
+                    geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
+                )
 
         mock_grid.assert_not_called()
         assert error is not None

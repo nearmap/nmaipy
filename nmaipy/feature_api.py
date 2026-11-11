@@ -539,9 +539,7 @@ class FeatureApi(GriddedApiClient):
         Handle errors returned from the feature API
         """
         clean_request_string = self._clean_api_key(request_string)
-        if response is None:
-            raise AIFeatureAPIError(response, clean_request_string)
-        elif not response.ok:
+        if response is None or not response.ok:
             raise AIFeatureAPIError(response, clean_request_string)
 
     def _write_to_cache(self, path, payload):
@@ -704,7 +702,7 @@ class FeatureApi(GriddedApiClient):
                     raise ValueError(f"Invalid region '{region}'. Must be one of: {valid_regions}")
                 url += f"&country={region_lower.upper()}"
             for field in ADDRESS_FIELDS:
-                if field in address_fields and address_fields[field]:
+                if address_fields.get(field):
                     # URL-encode address values to handle spaces, apostrophes, etc.
                     encoded_value = quote(str(address_fields[field]))
                     url += f"&{field}={encoded_value}"
@@ -728,7 +726,7 @@ class FeatureApi(GriddedApiClient):
     def _strip_empty_query(url: str) -> str:
         """Collapse the "?&" (or trailing lone "?") left by bearer mode's empty apikey."""
         url = url.replace("?&", "?", 1)
-        return url[:-1] if url.endswith("?") else url
+        return url.removesuffix("?")
 
     def get_features(
         self,
@@ -978,12 +976,11 @@ class FeatureApi(GriddedApiClient):
                         base = CHUNKED_ENCODING_RETRY_DELAY * (2 ** min(retry_attempt + 1, 16))
                         time.sleep(random.uniform(0, min(BACKOFF_MAX, base)))  # Full jitter backoff (min avg ~1s)
                         continue
-                    else:
-                        # Exhausted all retries, log error and fall back to size error
-                        logger.error(
-                            f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size error to trigger gridding: {e}"
-                        )
-                        raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
+                    # Exhausted all retries, log error and fall back to size error
+                    logger.error(
+                        f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size error to trigger gridding: {e}"
+                    )
+                    raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url))
 
             # Use explicit None check to handle edge case of 0ms response time
             response_time_seconds = response_time_ms / 1000 if response_time_ms is not None else 0
@@ -1038,44 +1035,43 @@ class FeatureApi(GriddedApiClient):
                 if self.cache_dir is not None:
                     self._write_to_cache(cache_path, data)
                 return data
+            try:
+                status_code = response.status_code
+            except requests.exceptions.ChunkedEncodingError:
+                status_code = ""
+            try:
+                text = response.text
+            except requests.exceptions.ChunkedEncodingError:
+                text = ""
+
+            # Clean up cache if we're overwriting
+            if self.overwrite_cache and cache_path:
+                storage.remove_file(cache_path)
+
+            # An empty-body 502 is the API gateway timing out the backend (it answers at its
+            # 60s limit with no payload), which the client read timeout can never catch.
+            # urllib3 has already exhausted its transient retries by this point, so escalate
+            # to gridding like a 504. A 502 with an error payload keeps standard handling.
+            if status_code in AIFeatureAPIRequestSizeError.status_codes or (
+                status_code == HTTPStatus.BAD_GATEWAY and not text
+            ):
+                logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
+                raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
+            if status_code == HTTPStatus.BAD_REQUEST:
+                try:
+                    error_data = json.loads(text)
+                    error_code = error_data.get("code", "")
+                    if error_code in AIFeatureAPIRequestSizeError.error_codes:
+                        logger.debug(f"Raising AIFeatureAPIRequestSizeError from error code {error_code=}")
+                        raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
+                # Check for other errors
+                self._handle_response_errors(response, request_info)
             else:
-                try:
-                    status_code = response.status_code
-                except requests.exceptions.ChunkedEncodingError:
-                    status_code = ""
-                try:
-                    text = response.text
-                except requests.exceptions.ChunkedEncodingError:
-                    text = ""
-
-                # Clean up cache if we're overwriting
-                if self.overwrite_cache and cache_path:
-                    storage.remove_file(cache_path)
-
-                # An empty-body 502 is the API gateway timing out the backend (it answers at its
-                # 60s limit with no payload), which the client read timeout can never catch.
-                # urllib3 has already exhausted its transient retries by this point, so escalate
-                # to gridding like a 504. A 502 with an error payload keeps standard handling.
-                if status_code in AIFeatureAPIRequestSizeError.status_codes or (
-                    status_code == HTTPStatus.BAD_GATEWAY and not text
-                ):
-                    logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
-                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
-                elif status_code == HTTPStatus.BAD_REQUEST:
-                    try:
-                        error_data = json.loads(text)
-                        error_code = error_data.get("code", "")
-                        if error_code in AIFeatureAPIRequestSizeError.error_codes:
-                            logger.debug(f"Raising AIFeatureAPIRequestSizeError from error code {error_code=}")
-                            raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
-                    except (json.JSONDecodeError, KeyError):
-                        pass
-
-                    # Check for other errors
-                    self._handle_response_errors(response, request_info)
-                else:
-                    # Handle other HTTP errors
-                    self._handle_response_errors(response, request_info)
+                # Handle other HTTP errors
+                self._handle_response_errors(response, request_info)
 
     @staticmethod
     def add_location_marker_to_link(link: str) -> str:
@@ -1085,8 +1081,7 @@ class FeatureApi(GriddedApiClient):
         location_marker_string = "?locationMarker"
         if location_marker_string in link:
             return link
-        else:
-            return link + location_marker_string
+        return link + location_marker_string
 
     @classmethod
     def payload_gdf(
@@ -1173,7 +1168,7 @@ class FeatureApi(GriddedApiClient):
                 feature["multiparcel_feature"] = False
 
                 # If clippedGeometry exists, use it and mark as multiparcel feature
-                if "clippedGeometry" in feature and feature["clippedGeometry"]:
+                if feature.get("clippedGeometry"):
                     feature["geometry"] = feature["clippedGeometry"]
                     feature["multiparcel_feature"] = True
 
@@ -1377,7 +1372,7 @@ class FeatureApi(GriddedApiClient):
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": None,
-                "message": f"Gridding failed: {str(grid_error)}",
+                "message": f"Gridding failed: {grid_error!s}",
                 "text": str(grid_error)[:200],
                 "request": "Gridding failed",
                 "failure_type": "grid",

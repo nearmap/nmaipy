@@ -371,7 +371,7 @@ def _get_feature_value(feature, key):
     """
     if isinstance(feature, dict):
         return feature.get(key)
-    elif isinstance(feature, pd.Series):
+    if isinstance(feature, pd.Series):
         if key in feature.index:
             val = feature.get(key)
             # Handle NaN values
@@ -430,12 +430,11 @@ def calculate_roof_age_years(
             install = pd.to_datetime(installation_date, errors="coerce")
             as_of = pd.to_datetime(as_of_date, errors="coerce")
             return ((as_of - install).dt.days / 365.25).round(1)
-        else:
-            # Scalar calculation
-            install = parse_date(str(installation_date))
-            as_of = parse_date(str(as_of_date))
-            years = (as_of - install).days / 365.25
-            return round(years, 1)
+        # Scalar calculation
+        install = parse_date(str(installation_date))
+        as_of = parse_date(str(as_of_date))
+        years = (as_of - install).days / 365.25
+        return round(years, 1)
     except Exception:
         return None
 
@@ -1022,7 +1021,7 @@ def flatten_roof_instance_attributes(
         """Get value from dict or Series."""
         if isinstance(roof_instance, dict):
             return roof_instance.get(key)
-        elif isinstance(roof_instance, pd.Series):
+        if isinstance(roof_instance, pd.Series):
             if key in roof_instance.index:
                 return roof_instance.get(key)
         return None

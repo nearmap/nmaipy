@@ -303,9 +303,8 @@ def test_non_timeout_connection_error_propagates():
         )
     )
 
-    with patch("requests.Session.post", side_effect=refused):
-        with pytest.raises(requests.exceptions.ConnectionError):
-            api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
+    with patch("requests.Session.post", side_effect=refused), pytest.raises(requests.exceptions.ConnectionError):
+        api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
     assert api._timeout_count == 0
 
 

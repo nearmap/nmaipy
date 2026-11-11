@@ -119,8 +119,7 @@ def join_path(base: str, *parts: str) -> str:
         for part in parts:
             result = result + "/" + part.strip("/")
         return result
-    else:
-        return str(Path(base).joinpath(*parts))
+    return str(Path(base).joinpath(*parts))
 
 
 def ensure_directory(path: str) -> None:
@@ -282,8 +281,7 @@ def open_file(path: str, mode: str = "r", **kwargs):
     if is_s3_path(path):
         fs = _get_s3_filesystem()
         return fs.open(path, mode, **kwargs)
-    else:
-        return open(path, mode, **kwargs)
+    return open(path, mode, **kwargs)
 
 
 def pyarrow_read_paths(paths: list[str]) -> tuple[list[str], pa_fs.FileSystem | None]:
@@ -351,8 +349,7 @@ def file_size(path: str) -> int:
     if is_s3_path(path):
         fs = _get_s3_filesystem()
         return fs.size(path)
-    else:
-        return Path(path).stat().st_size
+    return Path(path).stat().st_size
 
 
 def _parse_s3_uri(uri: str) -> tuple:
@@ -385,9 +382,8 @@ def upload_file(local_path: str, remote_path: str) -> None:
             key,
             Config=config,
         )
-    else:
-        if str(local_path) != str(remote_path):
-            shutil.copy2(str(local_path), str(remote_path))
+    elif str(local_path) != str(remote_path):
+        shutil.copy2(str(local_path), str(remote_path))
 
 
 def remove_file(path: str) -> None:
@@ -487,9 +483,8 @@ def read_json(path: str, compressed: bool = False) -> dict:
         in their own try/except.
     """
     if compressed:
-        with open_file(path, "rb") as raw_f:
-            with gzip.GzipFile(fileobj=raw_f) as gz_f:
-                return orjson.loads(gz_f.read())
+        with open_file(path, "rb") as raw_f, gzip.GzipFile(fileobj=raw_f) as gz_f:
+            return orjson.loads(gz_f.read())
     else:
         with open_file(path, "rb") as f:
             return orjson.loads(f.read())
@@ -518,9 +513,8 @@ def write_json(
     """
     payload = json_dumps_bytes(data, default=default, indent=indent)
     if compressed:
-        with open_file(path, "wb") as raw_f:
-            with gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
-                gz_f.write(payload)
+        with open_file(path, "wb") as raw_f, gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
+            gz_f.write(payload)
     else:
         with open_file(path, "wb") as f:
             f.write(payload)
@@ -559,11 +553,10 @@ def write_parquet(data, path: str, **kwargs) -> None:
                 pq.write_table(data, f, **kwargs)
             else:
                 data.to_parquet(f, **kwargs)
+    elif isinstance(data, pa.Table):
+        pq.write_table(data, path, **kwargs)
     else:
-        if isinstance(data, pa.Table):
-            pq.write_table(data, path, **kwargs)
-        else:
-            data.to_parquet(path, **kwargs)
+        data.to_parquet(path, **kwargs)
 
 
 def basename(path: str) -> str:
@@ -578,5 +571,4 @@ def basename(path: str) -> str:
     """
     if is_s3_path(path):
         return path.rstrip("/").rsplit("/", 1)[-1]
-    else:
-        return Path(path).name
+    return Path(path).name

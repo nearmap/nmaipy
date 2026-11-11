@@ -22,7 +22,7 @@ Note: The Roof Age API is currently available for US properties only.
 """
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 import sys
 import time
@@ -365,7 +365,7 @@ class RoofAgeExporter(BaseExporter):
         BaseExporter.configure_worker_logging(self.log_level)
         logger = log.get_logger()
 
-        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_time = datetime.now(UTC).isoformat()
         chunk_start_monotonic = time.monotonic()
 
         try:
@@ -380,7 +380,7 @@ class RoofAgeExporter(BaseExporter):
             # Check if chunk already processed
             if storage.file_exists(outfile_metadata) and storage.validate_parquet(outfile_metadata):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
-                return
+                return None
 
             logger.debug(f"Chunk {chunk_id}: Processing {len(aoi_gdf)} AOIs")
 
@@ -422,7 +422,7 @@ class RoofAgeExporter(BaseExporter):
             if latency_stats is not None:
                 latency_stats["chunk_id"] = chunk_id
                 latency_stats["start_time"] = chunk_start_time
-                latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
+                latency_stats["end_time"] = datetime.now(UTC).isoformat()
                 latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
                 save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
 

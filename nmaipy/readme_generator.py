@@ -4,11 +4,11 @@ Generates customer-facing documentation based on actual files and columns
 present in an export directory, rather than using a static template.
 """
 
+from collections.abc import Iterable
 from datetime import datetime
 import json
 import logging
 from pathlib import Path
-from collections.abc import Iterable
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -84,9 +84,9 @@ class ReadmeGenerator:
         # Determine the actual final directory
         # Check if output_dir/final exists, otherwise assume output_dir is the final dir
         potential_final = storage.join_path(self.output_dir, "final")
-        if not self._is_s3 and Path(potential_final).exists() and Path(potential_final).is_dir():
-            self.final_dir = potential_final
-        elif self._is_s3 and storage.glob_files(potential_final, "*"):
+        if (not self._is_s3 and Path(potential_final).exists() and Path(potential_final).is_dir()) or (
+            self._is_s3 and storage.glob_files(potential_final, "*")
+        ):
             self.final_dir = potential_final
         else:
             self.final_dir = self.output_dir
@@ -669,8 +669,7 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
                     if prefix.startswith(scope):
                         prefix = prefix[len(scope) :]
                         break
-                if prefix.startswith("low_conf_"):
-                    prefix = prefix[len("low_conf_") :]
+                prefix = prefix.removeprefix("low_conf_")
                 components.add(prefix)
                 break
 

@@ -104,7 +104,7 @@ def extract_coords_for_cache(request_string: str) -> tuple[str, str]:
         >>> # Returns: ("-74", "41")
     """
     # Extract query parameters
-    r = request_string.split("?")[-1]
+    r = request_string.rsplit("?", maxsplit=1)[-1]
     dic = dict([token.split("=") for token in r.split("&")])
 
     # Get first lon/lat from polygon coordinates
