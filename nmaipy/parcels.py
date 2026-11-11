@@ -496,8 +496,8 @@ def link_roof_instances_to_roofs(
 
             # Assign parent to roof instance (only if IoU meets threshold)
             if best_roof_idx is not None and best_iou >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                ri_gdf.loc[ri_idx, "parent_id"] = best_roof_feature_id
-                ri_gdf.loc[ri_idx, "parent_iou"] = round(best_iou, 4)
+                ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
         # For each roof, sort instances by IoU and assign primary
         for roof_df_idx, instances in roof_to_instances.items():
@@ -514,12 +514,12 @@ def link_roof_instances_to_roofs(
             sorted_instances = sorted(instances, key=instance_sort_key)
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
-            rf_gdf.loc[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
-            rf_gdf.loc[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
+            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+            rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
             # Only assign primary if IoU meets threshold - below that we don't trust the match
             if sorted_instances[0]["iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                rf_gdf.loc[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]
-                rf_gdf.loc[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -677,8 +677,8 @@ def link_roofs_to_buildings(
 
             # Assign parent to roof (only if IoU meets threshold)
             if best_bldg_idx is not None and best_iou >= min_iou_threshold:
-                rf_gdf.loc[rf_idx, "parent_building_id"] = best_bldg_feature_id
-                rf_gdf.loc[rf_idx, "parent_building_iou"] = round(best_iou, 4)
+                rf_gdf.at[rf_idx, "parent_building_id"] = best_bldg_feature_id  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                rf_gdf.at[rf_idx, "parent_building_iou"] = round(best_iou, 4)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
         # For each building, sort roofs by IoU and assign primary
         for bldg_df_idx, roofs in bldg_to_roofs.items():
@@ -689,12 +689,12 @@ def link_roofs_to_buildings(
             sorted_roofs = sorted(roofs, key=lambda x: -x["iou"])
 
             # Assign to building (JSON-serialize list for parquet compatibility)
-            bldg_gdf.loc[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)
-            bldg_gdf.loc[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)
+            bldg_gdf.at[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+            bldg_gdf.at[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
             # Only assign primary if IoU meets threshold
             if sorted_roofs[0]["iou"] >= min_iou_threshold:
-                bldg_gdf.loc[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]
-                bldg_gdf.loc[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
     # Restore aoi_id as index
     rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
