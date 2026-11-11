@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 import shutil
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import boto3
 from boto3.s3.transfer import TransferConfig

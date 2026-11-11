@@ -9,7 +9,7 @@ can handle. Otherwise the response is kept and the skipped scores stay null.
 import geopandas as gpd
 import pytest
 import requests
-from shapely.geometry import Polygon, box, mapping
+from shapely.geometry import box, mapping
 
 from nmaipy.api_common import AIFeatureAPIError
 from nmaipy.constants import REALTIME_SKIP_GRID_SIZE_DEGREES, REALTIME_SKIP_RETRY_DELAY_SECONDS, ROOF_ID

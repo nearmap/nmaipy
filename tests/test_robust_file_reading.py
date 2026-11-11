@@ -6,7 +6,7 @@ import tempfile
 import geopandas as gpd
 import pandas as pd
 import pytest
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 
 from nmaipy import parcels
 from nmaipy.constants import AOI_ID_COLUMN_NAME

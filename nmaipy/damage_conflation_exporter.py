@@ -24,7 +24,7 @@ Example usage:
 """
 
 import argparse
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 import sys
 import time
 import traceback

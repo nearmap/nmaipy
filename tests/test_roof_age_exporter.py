@@ -5,7 +5,6 @@ Note: Tests that require mocking the API must mock at the process_chunk level
 since the exporter uses multiprocessing, and mocks don't cross process boundaries.
 """
 
-import json
 import os
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -16,8 +15,8 @@ import pytest
 from shapely.geometry import Polygon
 
 from nmaipy import parcels, storage
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, UNTIL_COL_NAME
-from nmaipy.roof_age_exporter import RoofAgeExporter
+from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, UNTIL_COL_NAME, format_no_cutoff_error
+from nmaipy.roof_age_exporter import RoofAgeExporter, parse_arguments
 
 
 @pytest.fixture
@@ -109,8 +108,6 @@ def test_exporter_rejects_bulk_until_with_a0(test_aoi_file, test_output_dir):
 
 def test_format_no_cutoff_error_canonicalises_flag():
     """The helper renders a consistent dashed flag whether the caller passes `until` or `--until`."""
-    from nmaipy.constants import format_no_cutoff_error
-
     bare = format_no_cutoff_error(flag="until")
     dashed = format_no_cutoff_error(flag="--until")
     assert bare == dashed, "Helper must render identically for `until` and `--until` callers"
@@ -153,8 +150,6 @@ def test_exporter_allows_until_with_latest(test_aoi_file, test_output_dir):
 
 def test_exporter_rejects_per_aoi_until_with_a0(tmp_path, parcels_2_gdf):
     """A per-AOI 'until' column with values must be rejected when dataset is A.0."""
-    from nmaipy.constants import UNTIL_COL_NAME
-
     aoi_path = tmp_path / "with_until.geojson"
     gdf = parcels_2_gdf.head(2).copy()
     gdf[UNTIL_COL_NAME] = ["2020-01-01", "2020-06-30"]
@@ -231,8 +226,6 @@ def test_exporter_propagates_dataset_to_api(test_aoi_file, test_output_dir):
 
 def test_exporter_argparse_rejects_until_with_a0(monkeypatch):
     """The argparse layer must reject --until when --roof-age-dataset resolves to A.0."""
-    from nmaipy.roof_age_exporter import parse_arguments
-
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -255,8 +248,6 @@ def test_exporter_argparse_rejects_until_with_a0(monkeypatch):
 
 def test_exporter_argparse_rejects_since_with_a0(monkeypatch):
     """The argparse layer must reject --since when --roof-age-dataset resolves to A.0."""
-    from nmaipy.roof_age_exporter import parse_arguments
-
     monkeypatch.setattr(
         "sys.argv",
         [

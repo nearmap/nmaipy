@@ -11,7 +11,6 @@ keyed on its cell id, so no request leaves the process.
 import logging
 
 import geopandas as gpd
-import pandas as pd
 import pytest
 from shapely.geometry import Polygon, box
 

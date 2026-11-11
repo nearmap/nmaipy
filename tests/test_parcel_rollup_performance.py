@@ -23,7 +23,7 @@ import pytest
 from shapely.wkt import loads as wkt_loads
 
 from nmaipy import parcels
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, LAT_LONG_CRS, ROOF_INSTANCE_CLASS_ID
+from nmaipy.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, ROOF_INSTANCE_CLASS_ID
 from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -103,10 +103,6 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
         pytest.skip(f"Perf fixture not generated yet — run test_gen_perf_fixture first: {PERF_FIXTURE}")
 
     # --- Load fixture (pre-saved API responses) ---
-    import ast
-
-    from shapely.wkt import loads as wkt_loads
-
     raw_df = pd.read_csv(PERF_FIXTURE)
 
     # Reconstruct features_gdf from the saved CSV (same pattern as conftest fixtures)

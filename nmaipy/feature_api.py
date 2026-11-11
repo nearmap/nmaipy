@@ -6,17 +6,14 @@ from http import HTTPStatus
 import json
 import logging
 import math
-import os
 from pathlib import Path
 import random
 import time
-from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunparse
 import uuid
 import warnings
 
 import geopandas as gpd
-import numpy as np
 import orjson
 import pandas as pd
 import requests
@@ -30,19 +27,14 @@ from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,
     AIFeatureAPIError,
-    APIError,
     APIGridError,
     APIRequestSizeError,
     GriddedApiClient,
-    RetryRequest,
-    clean_api_key_from_string,
-    format_error_message,
     generate_curl_command,
     is_read_timeout_error,
 )
 from nmaipy.constants import (
     ADDRESS_FIELDS,
-    AOI_EXCEEDS_MAX_SIZE,
     AOI_ID_COLUMN_NAME,
     API_CRS,
     AREA_CRS,
@@ -53,16 +45,14 @@ from nmaipy.constants import (
     LAT_LONG_CRS,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     MAX_RETRIES,
-    POLYGON_TOO_COMPLEX,
     READ_TIMEOUT_SECONDS,
     REALTIME_SKIP_GRID_SIZE_DEGREES,
     REALTIME_SKIP_RETRY_DELAY_SECONDS,
     SINCE_COL_NAME,
     SLOW_REQUEST_THRESHOLD_SECONDS,
-    SQUARED_METERS_TO_SQUARED_FEET,
     SURVEY_RESOURCE_ID_COL_NAME,
     THREAD_STARTUP_JITTER_SECONDS,
-    TIMEOUT_SECONDS,
+    TIMEOUT_SECONDS,  # noqa: F401 -- re-export
     UNTIL_COL_NAME,
 )
 from nmaipy.feature_attributes import INCLUDE_FIELD_MAPPINGS

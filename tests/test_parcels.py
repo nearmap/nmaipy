@@ -23,7 +23,6 @@ from nmaipy.constants import (
     ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
     VEG_MEDHIGH_ID,
-    WATER_BODY_ID,
 )
 from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi

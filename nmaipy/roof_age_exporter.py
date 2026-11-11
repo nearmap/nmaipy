@@ -22,8 +22,7 @@ Note: The Roof Age API is currently available for US properties only.
 """
 
 import argparse
-from datetime import UTC, datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 import sys
 import time
 import traceback

@@ -16,7 +16,6 @@ and operates purely on geometric and attribute criteria.
 """
 
 from functools import lru_cache
-from typing import Optional, Union
 
 import geopandas as gpd
 import pandas as pd

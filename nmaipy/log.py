@@ -1,6 +1,5 @@
 import logging
 import sys
-from typing import Optional, Union
 
 
 def get_logger() -> logging.Logger:

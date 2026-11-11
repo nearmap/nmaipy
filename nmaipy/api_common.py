@@ -11,7 +11,6 @@ This module provides common functionality used across different API clients:
 
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
-import gzip
 import hashlib
 from http import HTTPStatus
 from itertools import takewhile
@@ -23,7 +22,7 @@ from pathlib import Path
 import random
 import re
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 import weakref
 
 from dotenv import load_dotenv

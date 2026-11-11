@@ -13,6 +13,7 @@ from shapely.geometry import Polygon, box, shape
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
+from nmaipy.feature_attributes import _flatten_defensible_space, _flatten_include_params
 from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
 
 data_directory = Path(__file__).parent / "data"
@@ -536,8 +537,6 @@ class TestSkipDetection:
         return {"feature_id": "r", "class_id": ROOF_ID, "attributes": [], **includes}
 
     def test_per_roof_defensible_space_skipped_true(self):
-        from nmaipy.feature_attributes import _flatten_defensible_space
-
         flat = {}
         _flatten_defensible_space(
             {"defensibleSpace": {"skipped": True, "modelVersion": "1.0.0"}},
@@ -549,8 +548,6 @@ class TestSkipDetection:
         assert not any(k.startswith("defensible_space_zone_") for k in flat)
 
     def test_per_roof_defensible_space_skipped_false_when_zones_present(self):
-        from nmaipy.feature_attributes import _flatten_defensible_space
-
         flat = {}
         _flatten_defensible_space(
             {
@@ -580,8 +577,6 @@ class TestSkipDetection:
     def test_per_roof_defensible_space_skip_column_absent_when_include_not_requested(self):
         # No defensibleSpace key on the feature → the function returns early
         # and no *_skipped column is emitted.
-        from nmaipy.feature_attributes import _flatten_defensible_space
-
         flat = {}
         _flatten_defensible_space({}, flat, country="us")
         assert "defensible_space_skipped" not in flat
@@ -590,8 +585,6 @@ class TestSkipDetection:
         # `hurricaneScore` is a known include with a snake_key in INCLUDE_FIELD_MAPPINGS.
         # When the API returns skipped:true, the *_skipped column is True and no
         # score-field columns are emitted.
-        from nmaipy.feature_attributes import _flatten_include_params
-
         flat = {}
         _flatten_include_params({"hurricaneScore": {"skipped": True, "modelVersion": "2.1.0"}}, flat)
         assert flat["hurricane_score_skipped"] is True
@@ -601,8 +594,6 @@ class TestSkipDetection:
         assert score_field_cols == []
 
     def test_include_param_skip_false_when_evaluated(self):
-        from nmaipy.feature_attributes import _flatten_include_params
-
         flat = {}
         _flatten_include_params(
             {
@@ -619,8 +610,6 @@ class TestSkipDetection:
         assert flat["hurricane_vulnerability_score"] == 4
 
     def test_include_param_no_column_when_include_absent(self):
-        from nmaipy.feature_attributes import _flatten_include_params
-
         flat = {}
         _flatten_include_params({}, flat)
         assert "hurricane_score_skipped" not in flat

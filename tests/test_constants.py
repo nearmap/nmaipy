@@ -1,7 +1,5 @@
 """Tests for constants validation."""
 
-import uuid
-
 import pytest
 
 from nmaipy.constants import (

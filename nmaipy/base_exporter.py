@@ -13,7 +13,6 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 """
 
 import concurrent.futures
-import json
 import multiprocessing
 import os
 import platform
@@ -32,9 +31,9 @@ except ImportError:  # pragma: no cover — Windows
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -42,6 +41,7 @@ import pandas as pd
 import psutil
 from tqdm import tqdm
 
+import nmaipy
 from nmaipy import log, storage
 from nmaipy.cgroup_memory import (
     get_cgroup_cpu_limit,
@@ -195,12 +195,7 @@ class BaseExporter(ABC):
             config: Dictionary of export parameters
             config_name: Name of the config file (default: export_config.json)
         """
-        try:
-            import nmaipy
-
-            nmaipy_version = getattr(nmaipy, "__version__", "unknown")
-        except ImportError:
-            nmaipy_version = "unknown"
+        nmaipy_version = getattr(nmaipy, "__version__", "unknown")
 
         # Build metadata
         metadata = {

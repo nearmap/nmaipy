@@ -6,8 +6,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from nmaipy.constants import ROOF_ID
 from nmaipy.parcels import flatten_roof_attributes
 

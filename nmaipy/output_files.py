@@ -12,7 +12,6 @@ lives in one place.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from nmaipy import storage
 from nmaipy.column_metadata import PER_CLASS_LABELS

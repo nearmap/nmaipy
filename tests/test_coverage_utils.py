@@ -176,7 +176,6 @@ def test_get_coverage_from_points_rejects_missing_id_col(tmp_path):
         geometry=[Point(151.0, -33.0)],
         crs="EPSG:4326",
     )
-    import pytest
 
     with pytest.raises(ValueError, match="id_col is required"):
         cu.get_coverage_from_points(points, api_key="KEY", coverage_chunk_cache_dir=str(tmp_path / "cov1"))

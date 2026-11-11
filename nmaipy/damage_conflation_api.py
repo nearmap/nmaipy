@@ -31,7 +31,6 @@ internal pyaiutils wrapper.
 import concurrent.futures
 import hashlib
 import time
-from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import pandas as pd

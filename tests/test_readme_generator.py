@@ -6,6 +6,7 @@ customer-facing documentation based on actual export files and columns.
 
 import json
 from pathlib import Path
+import re
 from unittest.mock import patch
 
 import pyarrow as pa
@@ -13,9 +14,13 @@ import pyarrow.parquet as pq
 
 from nmaipy import storage
 from nmaipy.__version__ import __version__
+from nmaipy.column_metadata import ColumnMeta
 from nmaipy.readme_generator import (
     ADDRESS_QUERY_COLUMNS,
     COMMON_COLUMNS,
+    DEFENSIBLE_SPACE_ZONE_COLUMNS,
+    DOMINANT_ROOF_MATERIAL_COLUMNS,
+    DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
     ReadmeGenerator,
@@ -300,13 +305,6 @@ class TestColumnMetadataTables:
 
     def test_column_dicts_are_columnmeta_instances(self):
         """Each entry is a ColumnMeta dataclass with required fields populated."""
-        from nmaipy.column_metadata import ColumnMeta
-        from nmaipy.readme_generator import (
-            DEFENSIBLE_SPACE_ZONE_COLUMNS,
-            DOMINANT_ROOF_MATERIAL_COLUMNS,
-            DOMINANT_ROOF_TYPES_COLUMNS,
-        )
-
         for label, columns in (
             ("COMMON_COLUMNS", COMMON_COLUMNS),
             ("ADDRESS_QUERY_COLUMNS", ADDRESS_QUERY_COLUMNS),
@@ -401,8 +399,6 @@ class TestColumnMetadataTables:
         customers as a literal placeholder. Routing rendering through
         ``column_metadata.lookup_column`` fixes it; this test guards the fix.
         """
-        import re
-
         # Realistic exporter output: rollup with roof age + RSI columns plus per-class files.
         (tmp_path / "rollup.csv").write_text(
             "aoi_id,link,roof_spotlight_index,roof_age_installation_date,"
@@ -864,14 +860,12 @@ class TestGenerateAndSaveAtomicWrite:
         """If the move step fails (simulated), README.md must not exist —
         only the .tmp file. Next run sees no README and rebuilds normally,
         rather than fast-pathing on a phantom complete marker."""
-        from nmaipy import storage as storage_module
-
         (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
 
         def fail_move(src, dst):
             raise OSError("simulated failure during move")
 
-        monkeypatch.setattr(storage_module, "move_file", fail_move)
+        monkeypatch.setattr(storage, "move_file", fail_move)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         try:

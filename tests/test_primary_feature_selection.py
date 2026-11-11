@@ -1,13 +1,11 @@
 """Tests for primary feature selection utilities."""
 
 import geopandas as gpd
-import pandas as pd
 import pytest
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 
 from nmaipy.primary_feature_selection import (
     select_primary,
-    select_primary_by_largest,
     select_primary_by_nearest,
     select_primary_optimal,
 )

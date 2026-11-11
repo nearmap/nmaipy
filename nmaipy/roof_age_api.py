@@ -33,9 +33,7 @@ import concurrent.futures
 import hashlib
 import json
 from pathlib import Path
-import re
 import time
-from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import pandas as pd
@@ -53,7 +51,6 @@ from nmaipy.constants import (
     MAX_RETRIES,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
-    ROOF_AGE_DEFAULT_PAGE_LIMIT,
     ROOF_AGE_DEFAULT_RESOURCE_ID,
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,

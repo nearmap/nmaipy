@@ -12,7 +12,6 @@ and select "primary" features for detailed attribute extraction.
 
 import json
 import re
-from typing import Union
 import warnings
 
 import geopandas as gpd
@@ -52,8 +51,6 @@ from nmaipy.feature_attributes import (
     DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
     PERIL_SCORE_OUTPUT_COLUMNS,
-    RESOLVED_DYNAMIC_PREFIXES,
-    RESOLVED_SCORE_OUTPUT_COLUMNS,
     RSI_OUTPUT_COLUMNS,
     TRUE_STRING,
     _flatten_defensible_space,

@@ -34,6 +34,8 @@ from nmaipy.constants import (
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    SINCE_COL_NAME,
+    UNTIL_COL_NAME,
     resolve_roof_age_dataset,
 )
 from nmaipy.exporter import export_feature_class
@@ -203,8 +205,6 @@ def test_roof_age_api_bulk_reads_per_aoi_until_column(test_aoi_nj):
 
     Mirrors feature_api.py's pattern: the bulk default is overridden when the row has a non-empty string.
     """
-    from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, UNTIL_COL_NAME
-
     api = RoofAgeApi(api_key="t", resource_id="abc", until_as_of_date="2020-01-01", threads=1)
 
     aoi_gdf = gpd.GeoDataFrame(
@@ -230,8 +230,6 @@ def test_roof_age_api_bulk_reads_per_aoi_until_column(test_aoi_nj):
 
 def test_roof_age_api_bulk_reads_per_aoi_since_column(test_aoi_nj):
     """get_roof_age_bulk picks up a 'since' column on the input GeoDataFrame and forwards it per-row."""
-    from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, SINCE_COL_NAME
-
     api = RoofAgeApi(api_key="t", resource_id="abc", since_as_of_date="2018-01-01", threads=1)
 
     aoi_gdf = gpd.GeoDataFrame(

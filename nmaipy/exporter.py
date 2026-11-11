@@ -11,8 +11,6 @@ import cProfile
 import gc
 from http import HTTPStatus
 import json
-import logging
-import multiprocessing
 import pstats
 import re
 import sys
@@ -25,9 +23,12 @@ try:
 except ImportError:  # pragma: no cover — Windows
     resource = None
 
+import atexit
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, date, datetime
 from pathlib import Path
-import traceback
-from typing import Dict, List, Optional
+import signal
+import time
 import warnings
 
 import geopandas as gpd
@@ -35,31 +36,11 @@ import numpy as np
 import orjson
 import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pyproj
 import shapely
 import shapely.geometry
 from tqdm import tqdm
-
-warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
-# The exporter computes geometry centroids in EPSG:4326 to feed mapbrowser URL
-# pins (see export_feature_class). For building-sized features the geographic-vs-
-# projected centroid bias is decimetric — invisible at the URL's zoom level — so
-# this warning is cosmetic. Suppression must be module-level: the in-flight
-# `with warnings.catch_warnings(): ...` form around the centroid call is not
-# thread-safe (Python docs), and concurrent ThreadPoolExecutor workers in the
-# flatten path were racing on warnings.filters, leaking this warning per export.
-warnings.filterwarnings("ignore", message=".*Geometry is in a geographic CRS.*centroid.*")
-
-import atexit
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from concurrent.futures.process import BrokenProcessPool
-from datetime import UTC, date, datetime, timezone
-import signal
-import time
-
-import psutil
 
 from nmaipy import log, parcels, storage
 from nmaipy.__version__ import __version__
@@ -83,7 +64,6 @@ from nmaipy.constants import (
     AREA_CRS,
     BUILDING_LIFECYCLE_ID,
     BUILDING_NEW_ID,
-    BUILDING_STYLE_CLASS_IDS,
     CLASSES_WITH_FIDELITY,
     DEFAULT_URL_ROOT,
     DEPRECATED_CLASS_IDS,
@@ -125,7 +105,6 @@ from nmaipy.feature_attributes import (
     TRUE_STRING,
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
-    flatten_building_attributes,
     flatten_pool_attributes,
     flatten_roof_attributes,
     is_resolved_score_column,
@@ -141,6 +120,16 @@ from nmaipy.parcels import (
 )
 from nmaipy.readme_generator import ReadmeGenerator
 from nmaipy.roof_age_api import RoofAgeApi
+
+warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*")
+# The exporter computes geometry centroids in EPSG:4326 to feed mapbrowser URL
+# pins (see export_feature_class). For building-sized features the geographic-vs-
+# projected centroid bias is decimetric — invisible at the URL's zoom level — so
+# this warning is cosmetic. Suppression must be module-level: the in-flight
+# `with warnings.catch_warnings(): ...` form around the centroid call is not
+# thread-safe (Python docs), and concurrent ThreadPoolExecutor workers in the
+# flatten path were racing on warnings.filters, leaking this warning per export.
+warnings.filterwarnings("ignore", message=".*Geometry is in a geographic CRS.*centroid.*")
 
 
 def _read_parquet_chunks_parallel(

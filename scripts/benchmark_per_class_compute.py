@@ -30,7 +30,6 @@ from nmaipy.constants import (
     BUILDING_NEW_ID,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_ID,
-    ROOF_INSTANCE_CLASS_ID,
 )
 from nmaipy.exporter import (
     _add_is_primary_column,

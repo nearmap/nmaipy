@@ -501,7 +501,7 @@ def refresh_class_descriptions(api_key: str | None = None):
     Preserves synthetic entries (e.g. Roof Instance from Roof Age API) that aren't
     returned by the Feature API.
     """
-    from nmaipy.feature_api import FeatureApi
+    from nmaipy.feature_api import FeatureApi  # noqa: PLC0415 -- import cycle: feature_api imports constants
 
     api = FeatureApi(api_key=api_key or os.environ.get("API_KEY"))
     classes_df = api.get_feature_classes()

@@ -16,7 +16,7 @@ Feature Classes:
 
 import ast
 import json
-from typing import Any, Dict, List, Optional, Union, overload
+from typing import Any, overload
 
 from dateutil.parser import parse as parse_date
 import geopandas as gpd
@@ -726,7 +726,7 @@ def flatten_roof_attributes(
     """
     # Circular import: feature_attributes.py <-> parcels.py
     # This must remain a function-level import to break the cycle.
-    from nmaipy.parcels import calculate_child_feature_attributes
+    from nmaipy.parcels import calculate_child_feature_attributes  # noqa: PLC0415 -- import cycle: parcels imports feature_attributes
 
     flattened = {}
 

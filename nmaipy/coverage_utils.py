@@ -2,7 +2,6 @@ import concurrent.futures
 import os
 from pathlib import Path
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
@@ -12,7 +11,7 @@ from shapely.ops import unary_union
 from tqdm import tqdm
 from urllib3.util.retry import Retry
 
-from nmaipy import (  # noqa: F401 — import side effect: installs APIKeyFilter on the "nmaipy" / urllib3 / requests loggers.
+from nmaipy import (  # noqa: F401 -- import side effect: installs APIKeyFilter on the "nmaipy" / urllib3 / requests loggers.
     api_common,
     log,
 )
@@ -674,7 +673,7 @@ def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT, b
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
     response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
-        return id_check_response_to_dataframe(response), response  # noqa: F821 (see NOTE above)
+        return id_check_response_to_dataframe(response), response  # noqa: F821 -- dead path, see NOTE above  # ty: ignore[unresolved-reference] -- dead path
     if response == FORBIDDEN_403:
         logger.debug(f"Unauthorised area request at {survey_id=} with code {response}")
         return None, None

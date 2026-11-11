@@ -2,14 +2,8 @@
 
 import gzip
 import json
-import os
-from pathlib import Path
-import shutil
-import tempfile
 
 import geopandas as gpd
-import pandas as pd
-import pyarrow.parquet as pq
 import pytest
 
 from nmaipy.constants import CLASS_1054_POLE, ROOF_ID, TRAMPOLINE_ID

@@ -12,14 +12,14 @@ from nmaipy.parcels import build_parent_lookup_by_aoi
 
 def test_connected_class_ids_still_imports_with_a_warning():
     with pytest.warns(DeprecationWarning, match="CONNECTED_CLASS_IDS is deprecated"):
-        from nmaipy.constants import CONNECTED_CLASS_IDS
+        from nmaipy.constants import CONNECTED_CLASS_IDS  # noqa: PLC0415 -- must run inside pytest.warns
     assert VEG_WOODY_COMPOSITE_ID in CONNECTED_CLASS_IDS
     assert ROOF_ID not in CONNECTED_CLASS_IDS
 
 
 def test_unknown_constant_still_raises():
     with pytest.raises(ImportError):
-        from nmaipy.constants import NOT_A_CONSTANT  # noqa: F401
+        from nmaipy.constants import NOT_A_CONSTANT  # noqa: F401, PLC0415 -- the import is the statement under test
 
 
 def test_connected_class_ids_argument_is_accepted_with_a_warning_and_ignored():

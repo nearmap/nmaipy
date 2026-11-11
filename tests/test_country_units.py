@@ -26,7 +26,6 @@ from nmaipy.constants import (
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     SOLAR_ID,
-    SQUARED_METERS_TO_SQUARED_FEET,
     country_area_suffix,
     wrong_unit_area_columns,
 )

@@ -18,6 +18,7 @@ the standalone Roof Age exporter is intentionally out of scope):
 
 from __future__ import annotations
 
+from importlib import resources
 import json
 from pathlib import Path
 
@@ -27,7 +28,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from nmaipy import column_metadata as cm
-from nmaipy.column_metadata import ColumnMeta, lookup_column, reload_metadata
+from nmaipy.column_metadata import lookup_column, reload_metadata
 from nmaipy.data_dictionary_generator import _DD_COLUMNS, DataDictionaryGenerator
 
 
@@ -400,8 +401,6 @@ class TestJsonConfig:
     def test_round_trip_edit_appears_in_output(self, tmp_path, monkeypatch):
         """Editing the JSON, reloading, and regenerating reflects the change."""
         # Load real config, mutate one description, write it to a temp file, point loader at it.
-        from importlib import resources
-
         with resources.files("nmaipy.data").joinpath("column_metadata.json").open() as fh:
             payload = json.load(fh)
         payload["exact_matches"]["aoi_id"]["description"] = "EDITED IN TEST"
@@ -410,17 +409,16 @@ class TestJsonConfig:
 
         # Force loader to use the custom path.
         reload_metadata()
-        from nmaipy import column_metadata as col_mod
 
-        col_mod.load_metadata.cache_clear()
-        original = col_mod.load_metadata
+        cm.load_metadata.cache_clear()
+        original = cm.load_metadata
 
         def _patched(json_path=None):
             return original(str(custom_path))
 
-        monkeypatch.setattr(col_mod, "load_metadata", _patched)
+        monkeypatch.setattr(cm, "load_metadata", _patched)
 
-        meta = col_mod.lookup_column("aoi_id")
+        meta = cm.lookup_column("aoi_id")
         assert "EDITED IN TEST" in meta.description
 
     def test_malformed_json_raises_friendly_error(self, tmp_path):

@@ -6,8 +6,6 @@ These examples show how to extract different types of Nearmap AI features
 for various analysis scenarios.
 """
 
-import os
-
 from nmaipy.exporter import NearmapAIExporter
 
 # Make sure you have your API key set

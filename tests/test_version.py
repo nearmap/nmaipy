@@ -4,8 +4,6 @@ from pathlib import Path
 import re
 import tomllib
 
-import pytest
-
 from nmaipy import __version__, __version_info__
 
 

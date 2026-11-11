@@ -11,6 +11,13 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
+from nmaipy.constants import (
+    CLASSES_WITH_FIDELITY,
+    PRIMARY_FEATURE_CLASS_IDS,
+    PRIMARY_FEATURE_COLUMN_TO_CLASS,
+    ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
+)
 from nmaipy.exporter import AOIExporter
 
 # Every test here runs an export against the real API.
@@ -445,12 +452,6 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
     primary_*_feature_id IDs in the rollup. Per-class outputs use Y/N strings
     for boolean columns (see convert_bool_columns_to_yn).
     """
-    from nmaipy.constants import (
-        CLASSES_WITH_FIDELITY,
-        PRIMARY_FEATURE_CLASS_IDS,
-        PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    )
-
     exporter = AOIExporter(
         aoi_file=str(test_aoi_with_features),
         output_dir=str(integration_test_dir),
@@ -576,9 +577,6 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
 
     This test ensures consistency across all export formats.
     """
-    from datetime import datetime
-
-    from nmaipy.constants import ROOF_ID, ROOF_INSTANCE_CLASS_ID
 
     # Run exporter with roof age enabled
     exporter = AOIExporter(
@@ -750,7 +748,6 @@ def test_rsi_in_rollup_and_per_class_exports(integration_test_dir, test_us_aoi_f
 
     This exercises resolve_footprint_rsi() in the per-class export path.
     """
-    from nmaipy.constants import BUILDING_NEW_ID, ROOF_ID
 
     exporter = AOIExporter(
         aoi_file=str(test_us_aoi_for_rsi),

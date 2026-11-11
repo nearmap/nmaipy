@@ -12,7 +12,6 @@ import sys
 import tempfile
 
 from dotenv import load_dotenv
-import geopandas as gpd
 import pandas as pd
 from pyogrio.errors import DataSourceError
 import pytest

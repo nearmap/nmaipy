@@ -6,7 +6,6 @@ present in an export directory, rather than using a static template.
 
 from collections.abc import Iterable
 from datetime import datetime
-import json
 import logging
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from nmaipy.__version__ import __version__
 from nmaipy.column_metadata import (
     ADDRESS_QUERY_COLUMNS,
     COMMON_COLUMNS,
-    DEFENSIBLE_SPACE_ZONE_COLUMNS,
+    DEFENSIBLE_SPACE_ZONE_COLUMNS,  # noqa: F401 -- re-export
     DOMINANT_ROOF_MATERIAL_COLUMNS,
     DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,

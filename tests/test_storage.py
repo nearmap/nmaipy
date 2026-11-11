@@ -5,7 +5,6 @@ Tests cover both local filesystem operations (using tmp_path) and S3 operations
 (mocking the cached S3 filesystem to avoid requiring real AWS credentials).
 """
 
-import gzip
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch

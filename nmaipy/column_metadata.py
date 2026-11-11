@@ -15,12 +15,11 @@ Usage::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from importlib import resources
 import json
 import re
-from typing import Optional
 
 from nmaipy.constants import RETIRED_ROOF_SHAPE_DESCRIPTIONS
 
