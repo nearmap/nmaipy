@@ -39,11 +39,11 @@ from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
 def test_clip_roof_geoms_to_aoi_yields_clipped_parent(clipped_roof):
     """`_clip_roof_geoms_to_aoi` returns the parcel-clipped roof, not the whole outline."""
     roof_gdf = gpd.GeoDataFrame([clipped_roof.roof_row()], geometry="geometry", crs=API_CRS)
-    clipped = _clip_roof_geoms_to_aoi(roof_gdf, {"parcel-a": clipped_roof.parcel})
+    clipped = _clip_roof_geoms_to_aoi(roof_gdf, {"parcel-a": clipped_roof.parcel}, "test")
     assert clipped_roof.proj_area_sqft(clipped.iloc[0]) == pytest.approx(clipped_roof.clipped_sqft, rel=1e-6)
 
     # No AOI geometry available for this AOI → original (whole) outline kept.
-    unchanged = _clip_roof_geoms_to_aoi(roof_gdf, {})
+    unchanged = _clip_roof_geoms_to_aoi(roof_gdf, {}, "test")
     assert clipped_roof.proj_area_sqft(unchanged.iloc[0]) == pytest.approx(clipped_roof.unclipped_sqft, rel=1e-6)
 
 

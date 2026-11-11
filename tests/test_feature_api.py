@@ -1262,8 +1262,8 @@ class TestEmptyBody502Handling:
 class TestTruncatedJsonLogging:
     """A 200 whose body fails to parse is gridded either way; only the log level differs.
 
-    A truncated body is the expected sign of an over-large response and logs at debug, so a
-    burst of them doesn't flood the log. Any other parse error keeps its warning, since it
+    A truncated body, an empty one included, is the expected sign of an over-large response and
+    logs at debug, so a burst of them doesn't flood the log. Any other parse error keeps its warning, since it
     may be a payload stdlib json accepted but orjson rejects, masquerading as a size error.
     """
 
@@ -1283,10 +1283,12 @@ class TestTruncatedJsonLogging:
         "content, expected_level",
         [
             (b'{"features": [{"id": "abc", "geometry": {"type": "Poly', logging.DEBUG),
+            (b"", logging.DEBUG),
+            (b" \r\n", logging.DEBUG),
             (b'{"features": [], "value": NaN}', logging.WARNING),
             (b'\xef\xbb\xbf{"features": []}', logging.WARNING),
         ],
-        ids=["truncated", "nan-literal", "bom"],
+        ids=["truncated", "empty", "whitespace-only", "nan-literal", "bom"],
     )
     def test_parse_error_grids_and_logs_at_expected_level(self, caplog, content, expected_level):
         """Every unparseable 200 raises a size error; only non-truncation errors warn."""

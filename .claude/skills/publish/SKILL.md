@@ -43,8 +43,13 @@ Execute these steps in order, stopping if any step fails:
    - Get the diff since the last release tag: `git diff $(git describe --tags --abbrev=0)..HEAD`
    - Use the code-reviewer agent to review all changes
    - Focus on: correctness, breaking changes, security issues, missing tests
-   - Report any concerns to the user and ask whether to proceed
    - This catches issues that may have bypassed proper PR review
+   - **Stop until the user has decided on every finding.**
+     - Put every finding the review returns to the user, not just the ones you judge serious. Give each its concrete failure scenario and your recommendation, and ask whether to fix it before publishing. Name the findings in the question itself, because the question dialog can hide earlier text.
+     - The reviewer's verdict ("nothing blocks" or similar) informs the user's decision; it doesn't replace it. Don't sort findings into blockers and follow-ups yourself, and don't leave any as "follow-ups".
+     - Fix the findings the user wants fixed, with tests. If the release is on a branch that hasn't merged yet, fix them on that branch. Otherwise, open a PR to main, and once it merges, pull main (or merge it into the release branch).
+     - After fixing, start again from step 1, so the clean-repo check runs again too. A findings decision lasts for the whole release: on a rerun, raise only new findings, or ones whose code the fix changed, and don't re-ask about findings the user already accepted.
+     - Don't go on to step 6, or build anything, until each finding is either fixed or explicitly accepted by the user as it is.
 
 6. **Determine release path**
    - If on a feature branch (not main/master): create the PR to main and wait for it to merge.

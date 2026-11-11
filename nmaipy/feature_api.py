@@ -1011,13 +1011,14 @@ class FeatureApi(GriddedApiClient):
                     data = orjson.loads(response.content)
                 except orjson.JSONDecodeError as e:
                     # A truncated body is the expected sign of an over-large response:
-                    # grid it, logging at debug like the other size-error triggers. Any
-                    # other parse error is treated the same way but logged visibly,
-                    # because orjson also rejects payloads stdlib accepted (NaN/Infinity
-                    # literals, BOM, invalid UTF-8) and those would masquerade as size
-                    # errors. A body cut inside a multi-byte UTF-8 character reports as
-                    # invalid UTF-8, so the rare non-ASCII truncation still warns.
-                    if e.msg == ORJSON_TRUNCATED_MSG:
+                    # grid it, logging at debug like the other size-error triggers. An
+                    # empty body is one truncated at its first byte. Any other parse
+                    # error is treated the same way but logged visibly, because orjson
+                    # also rejects payloads stdlib accepted (NaN/Infinity literals, BOM,
+                    # invalid UTF-8) and those would masquerade as size errors. A body
+                    # cut inside a multi-byte UTF-8 character reports as invalid UTF-8,
+                    # so the rare non-ASCII truncation still warns.
+                    if e.msg == ORJSON_TRUNCATED_MSG or not response.content.strip():
                         logger.debug(
                             f"Truncated JSON on 200 response ({len(response.content)} bytes) - "
                             f"treating as size error to trigger gridding: {e}"
