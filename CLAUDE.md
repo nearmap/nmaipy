@@ -103,7 +103,7 @@ The documentation site at https://nearmap.github.io/nmaipy/ is built with MyST f
 pixi run docs
 ```
 
-Preview it with `python -m http.server -d docs/_build/html`. The `Docs` workflow (`.github/workflows/docs.yml`) builds the site on pull requests and deploys it to GitHub Pages from `main`.
+Preview it with `python -m http.server -d docs/_build/html`. The `Docs` workflow (`.github/workflows/docs.yml`) builds the site on pull requests and deploys it to GitHub Pages from `main` when the repository variable `PAGES_ENABLED` is `true`.
 
 ### Export Data
 
