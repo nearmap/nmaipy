@@ -358,3 +358,20 @@ def test_retry_log_drops_every_query_parameter_in_key_mode(caplog):
     assert "causing retry" in logged
     for secret in ("streetAddress", "zip=", "SECRETKEY"):
         assert secret not in logged, f"{secret} reached the retry log"
+
+
+def test_retry_log_drops_the_query_in_bearer_mode(caplog):
+    url = "https://api.example.test/features.json?streetAddress=12%20Example%20Street&zip=07001"
+    retry = RetryRequest(total=5, status_forcelist=[503], allowed_methods=None)
+    nmaipy_logger = logging.getLogger("nmaipy")
+    nmaipy_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="nmaipy"):
+            retry.increment("POST", url, response=urllib3.HTTPResponse(status=503))
+    finally:
+        nmaipy_logger.removeHandler(caplog.handler)
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "causing retry" in logged
+    for private in ("streetAddress", "zip="):
+        assert private not in logged, f"{private} reached the retry log"

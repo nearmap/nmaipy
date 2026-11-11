@@ -294,8 +294,8 @@ class RetryRequest(Retry):
 
                 # Clean URL of API key for logging
                 clean_url = url
-                if url and "apikey=" in url:
-                    clean_url = url.split("?", 1)[0] + "?apikey=***"
+                if url:
+                    clean_url = url.split("?", 1)[0] + ("?apikey=***" if "apikey=" in url else "")
 
                 logger.info(f"{reason} causing retry {len(result.history)} of request {clean_url}")
 
@@ -304,7 +304,7 @@ class RetryRequest(Retry):
 
 def _cache_error_text(e: Exception) -> str:
     """Describe a cache failure without the cache path, which can hold an address or zip code."""
-    if isinstance(e, OSError):
+    if isinstance(e, OSError) and e.strerror is not None:
         return f"{type(e).__name__}: {e.strerror}"
     return type(e).__name__
 

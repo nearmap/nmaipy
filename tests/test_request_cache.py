@@ -21,7 +21,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from nmaipy import storage
-from nmaipy.api_common import AIFeatureAPIError
+from nmaipy.api_common import AIFeatureAPIError, _cache_error_text
 from nmaipy.feature_api import FeatureApi
 
 
@@ -348,3 +348,11 @@ class TestTolerantCacheWrite:
         assert "Failed to write cache entry" in logged
         assert "07081" not in logged, "the zip code in the cache path was logged"
         assert "Springfield" not in logged, "the city in the cache path was logged"
+
+
+def test_cache_error_text_never_falls_back_to_the_message():
+    assert _cache_error_text(PermissionError("Access Denied")) == "PermissionError"
+    assert (
+        _cache_error_text(FileNotFoundError(2, "No such file or directory", "/c/07001.json"))
+        == "FileNotFoundError: No such file or directory"
+    )
