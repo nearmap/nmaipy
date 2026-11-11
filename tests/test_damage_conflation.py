@@ -52,7 +52,7 @@ EXPECTED_COLUMNS = {
 def milton_features(data_directory: Path):
     """All features from the real Hurricane Milton conflation response."""
     fixture_path = data_directory / "test_damage_conflation_milton_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)["features"]
 
 
@@ -236,5 +236,5 @@ def test_conflation_rollup_carries_event_metadata(rollup_inputs, milton_response
 @pytest.fixture
 def milton_response(data_directory: Path):
     fixture_path = data_directory / "test_damage_conflation_milton_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)

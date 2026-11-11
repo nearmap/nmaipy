@@ -48,7 +48,7 @@ DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.9
 def select_primary_by_largest(
     gdf: gpd.GeoDataFrame,
     area_col: str = "area",
-    secondary_area_col: Optional[str] = None,
+    secondary_area_col: str | None = None,
 ) -> pd.Series:
     """
     Select the primary feature based on largest area.
@@ -95,12 +95,12 @@ def select_primary_by_nearest(
     target_lon: float,
     geometry_projected_col: str,
     projected_crs: str,
-    confidence_col: Optional[str] = "confidence",
+    confidence_col: str | None = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     area_col: str = "area",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
     distance_tolerance: float = NEAREST_TOLERANCE_METERS,
-) -> Optional[pd.Series]:
+) -> pd.Series | None:
     """
     Select the primary feature based on containment or proximity to a target point.
 
@@ -216,7 +216,7 @@ def select_primary_by_nearest(
 
 def _select_best_by_confidence(
     gdf: gpd.GeoDataFrame,
-    confidence_col: Optional[str],
+    confidence_col: str | None,
     high_confidence_threshold: float,
 ) -> int:
     """Select the best feature index, preferring high-confidence features."""
@@ -232,7 +232,7 @@ def _select_best_by_confidence(
 def _select_best_by_confidence_and_distance(
     gdf: gpd.GeoDataFrame,
     distances: pd.Series,
-    confidence_col: Optional[str],
+    confidence_col: str | None,
     high_confidence_threshold: float,
 ) -> int:
     """Select the best feature index, preferring high-confidence then nearest."""
@@ -253,8 +253,8 @@ def select_primary_optimal(
     geometry_projected_col: str,
     projected_crs: str,
     area_col: str = "area",
-    secondary_area_col: Optional[str] = None,
-    confidence_col: Optional[str] = "confidence",
+    secondary_area_col: str | None = None,
+    confidence_col: str | None = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     geometry_col: str = "geometry",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
@@ -331,17 +331,17 @@ def select_primary(
     gdf: gpd.GeoDataFrame,
     method: str = "largest",
     area_col: str = "area",
-    secondary_area_col: Optional[str] = None,
-    target_lat: Optional[float] = None,
-    target_lon: Optional[float] = None,
-    confidence_col: Optional[str] = "confidence",
+    secondary_area_col: str | None = None,
+    target_lat: float | None = None,
+    target_lon: float | None = None,
+    confidence_col: str | None = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     geometry_col: str = "geometry",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
     distance_tolerance: float = NEAREST_TOLERANCE_METERS,
-    geometry_projected_col: Optional[str] = None,
-    projected_crs: Optional[str] = None,
-) -> Optional[pd.Series]:
+    geometry_projected_col: str | None = None,
+    projected_crs: str | None = None,
+) -> pd.Series | None:
     """
     Convenience function to select primary feature using specified method.
 

@@ -303,7 +303,7 @@ class TestExporter:
         data_features = []
         errors = []
 
-        for cp in chunk_path.glob(f"rollup_*.parquet"):
+        for cp in chunk_path.glob("rollup_*.parquet"):
             data.append(pd.read_parquet(cp))
 
         outpath = final_path / f"{tag}.csv"
@@ -312,7 +312,7 @@ class TestExporter:
         data.to_csv(outpath, index=True)
 
         outpath_errors = final_path / f"{tag}_feature_api_errors.csv"
-        for cp in chunk_path.glob(f"feature_api_errors_*.parquet"):
+        for cp in chunk_path.glob("feature_api_errors_*.parquet"):
             errors.append(pd.read_parquet(cp))
         if len(errors) > 0:
             errors = pd.concat(errors)
@@ -320,7 +320,7 @@ class TestExporter:
             errors = pd.DataFrame()
         errors.to_csv(outpath_errors, index=True)
 
-        for cp in [p for p in chunk_path.glob(f"features_*.parquet")]:
+        for cp in [p for p in chunk_path.glob("features_*.parquet")]:
             data_features.append(gpd.read_parquet(cp))
         data_features = pd.concat(data_features)
         if len(data_features) > 0:
@@ -677,7 +677,7 @@ class TestExporter:
                 f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
             )
             assert not any("Incompatible columns" in m for m in warning_msgs), (
-                f"Null-type promotions should not produce incompatible column warnings"
+                "Null-type promotions should not produce incompatible column warnings"
             )
 
             # Verify data is correct

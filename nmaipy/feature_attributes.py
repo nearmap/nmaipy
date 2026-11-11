@@ -403,9 +403,9 @@ def calculate_roof_age_years(
 
 
 def calculate_roof_age_years(
-    installation_date: Union[pd.Series, str, None],
-    as_of_date: Union[pd.Series, str, None],
-) -> Union[pd.Series, float, None]:
+    installation_date: pd.Series | str | None,
+    as_of_date: pd.Series | str | None,
+) -> pd.Series | float | None:
     """
     Calculate roof age in years from installation date to as-of date.
 
@@ -533,7 +533,7 @@ def _extract_building_3d_from_attribute_list(attribute_list: list) -> dict:
     return result
 
 
-def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
+def flatten_building_attributes(buildings: list[dict], country: str) -> dict:
     """
     Flatten building attributes from Feature API.
 
@@ -605,7 +605,7 @@ _DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
 DOMINANT_MATERIAL_MIN_RATIO = 0.5
 
 
-def _get_component_stats(component: dict, recalc_attrs: Optional[dict], country: str) -> dict:
+def _get_component_stats(component: dict, recalc_attrs: dict | None, country: str) -> dict:
     """Get ratio, area, confidence, class_id for a component from the best available source.
 
     Uses recalc_attrs (clipped geometry intersection) when available,
@@ -631,7 +631,7 @@ def _get_component_stats(component: dict, recalc_attrs: Optional[dict], country:
     }
 
 
-def _build_dominant_columns(components: list, recalc_attrs: Optional[dict], country: str, attr_key: str) -> dict:
+def _build_dominant_columns(components: list, recalc_attrs: dict | None, country: str, attr_key: str) -> dict:
     """Build dominant summary columns for a roof attribute type.
 
     Selects the dominant component by highest ratio, applies UNKNOWN rules,
@@ -692,7 +692,7 @@ def _build_dominant_columns(components: list, recalc_attrs: Optional[dict], coun
 
 
 def flatten_roof_attributes(
-    roofs: List[dict],
+    roofs: list[dict],
     country: str,
     child_features: gpd.GeoDataFrame = None,
     parent_projected=None,
@@ -850,7 +850,7 @@ def flatten_roof_attributes(
 
 
 def flatten_building_lifecycle_damage_attributes(
-    building_lifecycles: List[dict],
+    building_lifecycles: list[dict],
 ) -> dict:
     """
     Flatten building lifecycle damage attributes from Feature API.
@@ -942,7 +942,7 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
         Flattened dict: ``area_sqm``, ``area_sqft``, ``confidence``, ``hilbert_id``,
         and the ``damage_event_*`` / ``damage_pre_event_*`` column families.
     """
-    flattened: Dict[str, Any] = {}
+    flattened: dict[str, Any] = {}
 
     flattened["area_sqm"] = properties.get("areaSqm")
     flattened["area_sqft"] = properties.get("areaSqft")
@@ -982,7 +982,7 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
 
 
 def flatten_roof_instance_attributes(
-    roof_instance: Union[dict, pd.Series],
+    roof_instance: dict | pd.Series,
     country: str,
     prefix: str = "",
 ) -> dict:

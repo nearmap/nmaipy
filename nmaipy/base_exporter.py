@@ -184,7 +184,7 @@ class BaseExporter(ABC):
             self._local_staging_dir = None
             self._local_final_staging = None
 
-    def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
+    def _save_config(self, config: dict[str, Any], config_name: str = "export_config.json"):
         """
         Save export configuration to the final output directory.
 
@@ -275,7 +275,7 @@ class BaseExporter(ABC):
 
     def split_into_chunks(
         self, aoi_gdf: gpd.GeoDataFrame, check_cache: bool = True
-    ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int, int]:
+    ) -> tuple[list[tuple[int, gpd.GeoDataFrame]], int, int, int]:
         """
         Split a GeoDataFrame into chunks for parallel processing.
 
@@ -413,11 +413,11 @@ class BaseExporter(ABC):
 
     def run_parallel(
         self,
-        chunks_to_process: List[Tuple[int, gpd.GeoDataFrame]],
+        chunks_to_process: list[tuple[int, gpd.GeoDataFrame]],
         initial_aoi_count: int,
         use_progress_tracking: bool = True,
         **process_chunk_kwargs,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Process chunks in parallel using ProcessPoolExecutor.
 
@@ -606,7 +606,7 @@ class BaseExporter(ABC):
     def _update_pbar_during_warmup(
         self,
         pbar: tqdm,
-        progress_counters: Dict[str, Any],
+        progress_counters: dict[str, Any],
         chunks_submitted: int,
         total_chunks: int,
         chunks_completed: int,
@@ -634,13 +634,13 @@ class BaseExporter(ABC):
 
     def _monitor_progress_with_tqdm(
         self,
-        jobs: List[concurrent.futures.Future],
-        job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
-        progress_counters: Dict[str, Any],
+        jobs: list[concurrent.futures.Future],
+        job_to_chunk: dict[concurrent.futures.Future, tuple[str, int, Any, Any]],
+        progress_counters: dict[str, Any],
         num_jobs: int,
         executor: ProcessPoolExecutor,
-        pbar: Optional[tqdm] = None,
-    ) -> List[Dict[str, Any]]:
+        pbar: tqdm | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Monitor job progress with dynamic tqdm progress bar.
 
@@ -786,9 +786,9 @@ class BaseExporter(ABC):
 
     def _monitor_progress_simple(
         self,
-        jobs: List[concurrent.futures.Future],
-        job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
-    ) -> List[Dict[str, Any]]:
+        jobs: list[concurrent.futures.Future],
+        job_to_chunk: dict[concurrent.futures.Future, tuple[str, int, Any, Any]],
+    ) -> list[dict[str, Any]]:
         """
         Simple progress monitoring with tqdm over completed jobs.
 
@@ -849,7 +849,7 @@ class BaseExporter(ABC):
         except Exception:
             fd_count = "unknown"
 
-        self.logger.error(f"BrokenProcessPool diagnostic info:")
+        self.logger.error("BrokenProcessPool diagnostic info:")
 
         # Log cgroup info if in container
         if is_running_in_container():

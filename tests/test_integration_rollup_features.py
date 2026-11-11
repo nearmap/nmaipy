@@ -298,11 +298,11 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
 
     # 3. Verify rollup chunks were created
     rollup_chunks = list(chunk_dir.glob("rollup_*.parquet"))
-    assert len(rollup_chunks) > 0, f"Should have created rollup chunks"
+    assert len(rollup_chunks) > 0, "Should have created rollup chunks"
 
     # 4. Verify feature chunks were created
     feature_chunks = list(chunk_dir.glob("features_*.parquet"))
-    assert len(feature_chunks) > 0, f"Should have created feature chunks"
+    assert len(feature_chunks) > 0, "Should have created feature chunks"
 
     # 5. Verify chunk features match consolidated features
     chunk_features = []
@@ -419,7 +419,7 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
         f"Should have at least one include parameter in features. Columns: {features_gdf.columns.tolist()}"
     )
 
-    assert len(deserialized_successfully) > 0, f"Should successfully deserialize at least one include parameter"
+    assert len(deserialized_successfully) > 0, "Should successfully deserialize at least one include parameter"
 
 
 @pytest.mark.integration

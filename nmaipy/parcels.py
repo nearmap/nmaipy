@@ -921,7 +921,7 @@ def feature_attributes(
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
-    parcel_geom: Union[MultiPolygon, Polygon, None],
+    parcel_geom: MultiPolygon | Polygon | None,
     primary_decision: str,
     primary_lat: float = None,
     primary_lon: float = None,

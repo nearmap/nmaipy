@@ -26,7 +26,7 @@ def hurricane_score_payload():
     if not raw_payload_file.exists():
         pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_hurricane_score_data first.")
 
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 

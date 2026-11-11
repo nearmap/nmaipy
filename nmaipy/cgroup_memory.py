@@ -42,8 +42,8 @@ CGROUP_V2_CPU_STAT = "/sys/fs/cgroup/cpu.stat"
 CGROUP_V1_CPUACCT_USAGE = "/sys/fs/cgroup/cpuacct/cpuacct.usage"
 
 # Module-level state for computing CPU usage deltas
-_prev_cgroup_cpu_usage_ns: Optional[float] = None
-_prev_cgroup_cpu_time: Optional[float] = None
+_prev_cgroup_cpu_usage_ns: float | None = None
+_prev_cgroup_cpu_time: float | None = None
 
 
 def is_running_in_container() -> bool:
@@ -56,7 +56,7 @@ def is_running_in_container() -> bool:
     return os.path.exists(CGROUP_V2_MEMORY_MAX) or os.path.exists(CGROUP_V1_MEMORY_LIMIT)
 
 
-def get_cgroup_memory_limit_bytes() -> Optional[int]:
+def get_cgroup_memory_limit_bytes() -> int | None:
     """
     Get the container's memory limit from cgroup files.
 
@@ -68,7 +68,7 @@ def get_cgroup_memory_limit_bytes() -> Optional[int]:
     # Try cgroup v2 first (newer K8s versions)
     if os.path.exists(CGROUP_V2_MEMORY_MAX):
         try:
-            with open(CGROUP_V2_MEMORY_MAX, "r") as f:
+            with open(CGROUP_V2_MEMORY_MAX) as f:
                 value = f.read().strip()
                 if value == "max":
                     # "max" means no limit set
@@ -84,7 +84,7 @@ def get_cgroup_memory_limit_bytes() -> Optional[int]:
     # Try cgroup v1 (older K8s versions)
     if os.path.exists(CGROUP_V1_MEMORY_LIMIT):
         try:
-            with open(CGROUP_V1_MEMORY_LIMIT, "r") as f:
+            with open(CGROUP_V1_MEMORY_LIMIT) as f:
                 limit = int(f.read().strip())
                 # Check if effectively unlimited (very large number, often 9223372036854771712)
                 if limit > 1e18:
@@ -96,7 +96,7 @@ def get_cgroup_memory_limit_bytes() -> Optional[int]:
     return None
 
 
-def get_cgroup_memory_usage_bytes() -> Optional[int]:
+def get_cgroup_memory_usage_bytes() -> int | None:
     """
     Get the container's current memory usage from cgroup files.
 
@@ -108,7 +108,7 @@ def get_cgroup_memory_usage_bytes() -> Optional[int]:
     # Try cgroup v2 first
     if os.path.exists(CGROUP_V2_MEMORY_CURRENT):
         try:
-            with open(CGROUP_V2_MEMORY_CURRENT, "r") as f:
+            with open(CGROUP_V2_MEMORY_CURRENT) as f:
                 return int(f.read().strip())
         except (IOError, ValueError) as e:
             logger.debug(f"Could not read cgroup v2 memory usage: {e}")
@@ -116,7 +116,7 @@ def get_cgroup_memory_usage_bytes() -> Optional[int]:
     # Try cgroup v1
     if os.path.exists(CGROUP_V1_MEMORY_USAGE):
         try:
-            with open(CGROUP_V1_MEMORY_USAGE, "r") as f:
+            with open(CGROUP_V1_MEMORY_USAGE) as f:
                 return int(f.read().strip())
         except (IOError, ValueError) as e:
             logger.debug(f"Could not read cgroup v1 memory usage: {e}")
@@ -124,7 +124,7 @@ def get_cgroup_memory_usage_bytes() -> Optional[int]:
     return None
 
 
-def _read_memory_stat_field(stat_path: str, field: str) -> Optional[int]:
+def _read_memory_stat_field(stat_path: str, field: str) -> int | None:
     """
     Read a single ``key value`` field (in bytes) from a cgroup memory.stat file.
 
@@ -143,7 +143,7 @@ def _read_memory_stat_field(stat_path: str, field: str) -> Optional[int]:
     if not os.path.exists(stat_path):
         return None
     try:
-        with open(stat_path, "r") as f:
+        with open(stat_path) as f:
             for line in f:
                 parts = line.split()
                 if len(parts) == 2 and parts[0] == field:
@@ -153,7 +153,7 @@ def _read_memory_stat_field(stat_path: str, field: str) -> Optional[int]:
     return None
 
 
-def get_cgroup_inactive_file_bytes() -> Optional[int]:
+def get_cgroup_inactive_file_bytes() -> int | None:
     """
     Get the reclaimable file-backed page cache (inactive_file) from cgroup files.
 
@@ -170,7 +170,7 @@ def get_cgroup_inactive_file_bytes() -> Optional[int]:
     return _read_memory_stat_field(CGROUP_V1_MEMORY_STAT, "total_inactive_file")
 
 
-def get_cgroup_working_set_bytes() -> Optional[int]:
+def get_cgroup_working_set_bytes() -> int | None:
     """
     Get the container's working-set memory in bytes.
 
@@ -192,7 +192,7 @@ def get_cgroup_working_set_bytes() -> Optional[int]:
     return max(0, usage - inactive)
 
 
-def get_cgroup_memory_limit_gb() -> Optional[float]:
+def get_cgroup_memory_limit_gb() -> float | None:
     """
     Get the container's memory limit in GB.
 
@@ -205,7 +205,7 @@ def get_cgroup_memory_limit_gb() -> Optional[float]:
     return limit_bytes / (1024**3)
 
 
-def get_cgroup_memory_usage_gb() -> Optional[float]:
+def get_cgroup_memory_usage_gb() -> float | None:
     """
     Get the container's current memory usage in GB.
 
@@ -221,7 +221,7 @@ def get_cgroup_memory_usage_gb() -> Optional[float]:
     return usage_bytes / (1024**3)
 
 
-def get_cgroup_working_set_gb() -> Optional[float]:
+def get_cgroup_working_set_gb() -> float | None:
     """
     Get the container's working-set memory in GB (the OOM-relevant figure).
 
@@ -237,7 +237,7 @@ def get_cgroup_working_set_gb() -> Optional[float]:
     return working_set_bytes / (1024**3)
 
 
-def get_memory_info_cgroup_aware() -> Tuple[float, float]:
+def get_memory_info_cgroup_aware() -> tuple[float, float]:
     """
     Get memory usage and total, respecting cgroup limits when in a container.
 
@@ -263,7 +263,7 @@ def get_memory_info_cgroup_aware() -> Tuple[float, float]:
     return (used_gb, total_gb)
 
 
-def get_cgroup_cpu_limit() -> Optional[float]:
+def get_cgroup_cpu_limit() -> float | None:
     """
     Get the container's CPU limit from cgroup files.
 
@@ -276,7 +276,7 @@ def get_cgroup_cpu_limit() -> Optional[float]:
     # Try cgroup v2 first
     if os.path.exists(CGROUP_V2_CPU_MAX):
         try:
-            with open(CGROUP_V2_CPU_MAX, "r") as f:
+            with open(CGROUP_V2_CPU_MAX) as f:
                 value = f.read().strip()
                 parts = value.split()
                 if len(parts) == 2:
@@ -290,13 +290,13 @@ def get_cgroup_cpu_limit() -> Optional[float]:
     # Try cgroup v1
     if os.path.exists(CGROUP_V1_CPU_QUOTA):
         try:
-            with open(CGROUP_V1_CPU_QUOTA, "r") as f:
+            with open(CGROUP_V1_CPU_QUOTA) as f:
                 quota = int(f.read().strip())
             if quota == -1:
                 return None  # Unlimited
             period = 100000  # Default period
             if os.path.exists(CGROUP_V1_CPU_PERIOD):
-                with open(CGROUP_V1_CPU_PERIOD, "r") as f:
+                with open(CGROUP_V1_CPU_PERIOD) as f:
                     period = int(f.read().strip())
             return quota / period
         except (IOError, ValueError, ZeroDivisionError) as e:
@@ -305,7 +305,7 @@ def get_cgroup_cpu_limit() -> Optional[float]:
     return None
 
 
-def _get_cgroup_cpu_usage_ns() -> Optional[int]:
+def _get_cgroup_cpu_usage_ns() -> int | None:
     """
     Get the cgroup's total CPU usage in nanoseconds.
 
@@ -317,7 +317,7 @@ def _get_cgroup_cpu_usage_ns() -> Optional[int]:
     # Try cgroup v2: cpu.stat has "usage_usec <value>" line
     if os.path.exists(CGROUP_V2_CPU_STAT):
         try:
-            with open(CGROUP_V2_CPU_STAT, "r") as f:
+            with open(CGROUP_V2_CPU_STAT) as f:
                 for line in f:
                     if line.startswith("usage_usec"):
                         return int(line.split()[1]) * 1000  # usec -> ns
@@ -327,7 +327,7 @@ def _get_cgroup_cpu_usage_ns() -> Optional[int]:
     # Try cgroup v1: cpuacct.usage is total nanoseconds
     if os.path.exists(CGROUP_V1_CPUACCT_USAGE):
         try:
-            with open(CGROUP_V1_CPUACCT_USAGE, "r") as f:
+            with open(CGROUP_V1_CPUACCT_USAGE) as f:
                 return int(f.read().strip())
         except (IOError, ValueError) as e:
             logger.debug(f"Could not read cgroup v1 CPU usage: {e}")
@@ -335,7 +335,7 @@ def _get_cgroup_cpu_usage_ns() -> Optional[int]:
     return None
 
 
-def _get_cgroup_cpu_percent(cpu_count: float) -> Optional[float]:
+def _get_cgroup_cpu_percent(cpu_count: float) -> float | None:
     """
     Compute cgroup CPU utilization as a percentage of allocated CPUs.
 
@@ -371,7 +371,7 @@ def _get_cgroup_cpu_percent(cpu_count: float) -> Optional[float]:
     return min(cpu_pct, 100.0)
 
 
-def get_cpu_info_cgroup_aware() -> Tuple[float, float]:
+def get_cpu_info_cgroup_aware() -> tuple[float, float]:
     """
     Get CPU usage percentage and effective CPU count, respecting cgroup limits.
 

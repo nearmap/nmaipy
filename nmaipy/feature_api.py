@@ -116,7 +116,7 @@ AIFeatureAPIRequestSizeError = APIRequestSizeError
 
 def is_class_returnable_at_version(
     availability,
-    system_version: Optional[str],
+    system_version: str | None,
     alpha: bool = False,
     beta: bool = False,
 ) -> bool:
@@ -157,13 +157,13 @@ _SKIPPABLE_INCLUDE_COLUMNS = {
 }
 
 
-def _response_has_include_skips(features_gdf) -> Tuple[bool, List[str]]:
+def _response_has_include_skips(features_gdf) -> tuple[bool, list[str]]:
     """Return (any_skipped, names) for includes the API returned as ``{"skipped": true}`` on any feature.
 
     Runs on ``payload_gdf`` output, where each include column still holds the API's raw dict; the
     ``*_skipped`` columns only exist after flattening. Names are those ``<snake_key>_skipped`` columns.
     """
-    skipped: List[str] = []
+    skipped: list[str] = []
     if features_gdf is not None and len(features_gdf) > 0:
         for col, snake_key in _SKIPPABLE_INCLUDE_COLUMNS.items():
             if col not in features_gdf.columns:
@@ -204,31 +204,31 @@ class FeatureApi(GriddedApiClient):
 
     def __init__(
         self,
-        api_key: Optional[str] = API_KEY,
-        bulk_mode: Optional[bool] = True,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
-        alpha: Optional[bool] = False,
-        beta: Optional[bool] = False,
-        prerelease: Optional[bool] = False,
-        only3d: Optional[bool] = False,
-        prefer3d: Optional[bool] = False,
-        url_root: Optional[str] = "api.nearmap.com/ai/features/v4/bulk",
-        system_version_prefix: Optional[str] = "gen6-",
-        system_version: Optional[str] = None,
-        aoi_grid_min_pct: Optional[int] = 100,
-        aoi_grid_inexact: Optional[bool] = False,
-        parcel_mode: Optional[bool] = True,
+        api_key: str | None = API_KEY,
+        bulk_mode: bool | None = True,
+        cache_dir: Path | None = None,
+        overwrite_cache: bool | None = False,
+        compress_cache: bool | None = False,
+        threads: int | None = 10,
+        alpha: bool | None = False,
+        beta: bool | None = False,
+        prerelease: bool | None = False,
+        only3d: bool | None = False,
+        prefer3d: bool | None = False,
+        url_root: str | None = "api.nearmap.com/ai/features/v4/bulk",
+        system_version_prefix: str | None = "gen6-",
+        system_version: str | None = None,
+        aoi_grid_min_pct: int | None = 100,
+        aoi_grid_inexact: bool | None = False,
+        parcel_mode: bool | None = True,
         maxretry: int = MAX_RETRIES,
-        rapid: Optional[bool] = False,
-        order: Optional[str] = None,
-        exclude_tiles_with_occlusion: Optional[bool] = False,
-        progress_counters: Optional[dict] = None,
-        grid_size: Optional[float] = GRID_SIZE_DEGREES,
-        regrid_on_skip: Optional[bool] = None,
-        bearer_token: Optional[str] = None,
+        rapid: bool | None = False,
+        order: str | None = None,
+        exclude_tiles_with_occlusion: bool | None = False,
+        progress_counters: dict | None = None,
+        grid_size: float | None = GRID_SIZE_DEGREES,
+        regrid_on_skip: bool | None = None,
+        bearer_token: str | None = None,
         retry_on_realtime_skip: bool = True,
     ):
         """
@@ -362,7 +362,7 @@ class FeatureApi(GriddedApiClient):
         with super()._session_scope(status_forcelist=status_forcelist) as session:
             yield session
 
-    def _get_feature_api_results_as_data(self, base_url: str) -> Tuple[requests.Response, Dict]:
+    def _get_feature_api_results_as_data(self, base_url: str) -> tuple[requests.Response, dict]:
         """
         Return a result from one of the base URLS (such as packs or classes)
         """
@@ -381,14 +381,14 @@ class FeatureApi(GriddedApiClient):
                 )
             return response, response.json()
 
-    def get_packs(self) -> Dict[str, List[str]]:
+    def get_packs(self) -> dict[str, list[str]]:
         """
         Get packs with class IDs
         """
         response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
-    def get_feature_classes(self, packs: List[str] = None) -> pd.DataFrame:
+    def get_feature_classes(self, packs: list[str] = None) -> pd.DataFrame:
         """
         Get the feature class IDs and descriptions as a dataframe.
 
@@ -599,18 +599,18 @@ class FeatureApi(GriddedApiClient):
     def _create_post_request(
         self,
         base_url: str,
-        geometry: Union[Polygon, MultiPolygon],
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
-        region: Optional[str] = None,
-        param_dic: Optional[Dict[str, str]] = None,
+        geometry: Polygon | MultiPolygon,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        address_fields: dict[str, str] | None = None,
+        survey_resource_id: str | None = None,
+        region: str | None = None,
+        param_dic: dict[str, str] | None = None,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[str, dict, bool]:
+    ) -> tuple[str, dict, bool]:
         """
         Create parameters for a POST request with given parameters
         base_url: Typically self.FEATURES_URL
@@ -732,17 +732,17 @@ class FeatureApi(GriddedApiClient):
 
     def get_features(
         self,
-        geometry: Union[Polygon, MultiPolygon],
+        geometry: Polygon | MultiPolygon,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        address_fields: dict[str, str] | None = None,
+        survey_resource_id: str | None = None,
         in_gridding_mode: bool = False,
-        param_dic: Optional[Dict[str, str]] = None,
+        param_dic: dict[str, str] | None = None,
         disable_parcel_mode: bool = False,
         refresh_cache: bool = False,
     ):
@@ -783,17 +783,17 @@ class FeatureApi(GriddedApiClient):
 
     def _get_results(
         self,
-        geometry: Union[Polygon, MultiPolygon],
+        geometry: Polygon | MultiPolygon,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        address_fields: dict[str, str] | None = None,
+        survey_resource_id: str | None = None,
         in_gridding_mode: bool = False,
-        param_dic: Optional[Dict[str, str]] = None,
+        param_dic: dict[str, str] | None = None,
         disable_parcel_mode: bool = False,
         refresh_cache: bool = False,
     ):
@@ -872,7 +872,7 @@ class FeatureApi(GriddedApiClient):
         # long-timeout failure serially, once per duplicate.
         return self._fetch_results(url, body, cache_path, in_gridding_mode)
 
-    def _read_cached_response(self, cache_path: Optional[str]) -> Optional[Dict]:
+    def _read_cached_response(self, cache_path: str | None) -> dict | None:
         """
         Return the cached response for cache_path, or None if there is nothing usable:
         cache disabled, overwrite mode, entry absent, or entry unreadable (logged).
@@ -890,7 +890,7 @@ class FeatureApi(GriddedApiClient):
             logger.error(f"Error loading cache file {cache_path}: {e}")
         return None
 
-    def _fetch_results(self, url: str, body: dict, cache_path: Optional[str], in_gridding_mode: bool):
+    def _fetch_results(self, url: str, body: dict, cache_path: str | None, in_gridding_mode: bool):
         """
         POST the request to the live API, parse the response, and cache it.
 
@@ -1092,9 +1092,9 @@ class FeatureApi(GriddedApiClient):
     def payload_gdf(
         cls,
         payload: dict,
-        aoi_id: Optional[str] = None,
-        parcel_mode: Optional[bool] = False,
-    ) -> Tuple[gpd.GeoDataFrame, dict]:
+        aoi_id: str | None = None,
+        parcel_mode: bool | None = False,
+    ) -> tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a feature API response dictionary.
 
@@ -1231,19 +1231,19 @@ class FeatureApi(GriddedApiClient):
 
     def _attempt_gridding(
         self,
-        geometry: Union[Polygon, MultiPolygon],
+        geometry: Polygon | MultiPolygon,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
-        aoi_grid_inexact: Optional[bool] = None,
-        reason: Optional[str] = None,
-        grid_size: Optional[float] = None,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        aoi_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        survey_resource_id: str | None = None,
+        aoi_grid_inexact: bool | None = None,
+        reason: str | None = None,
+        grid_size: float | None = None,
+    ) -> tuple[gpd.GeoDataFrame | None, dict | None, dict | None, pd.DataFrame | None]:
         """
         Helper method to attempt gridding large AOIs and handle the common pattern of gridding,
         combining results, and creating metadata.
@@ -1387,21 +1387,21 @@ class FeatureApi(GriddedApiClient):
 
     def get_features_gdf(
         self,
-        geometry: Union[Polygon, MultiPolygon],
+        geometry: Polygon | MultiPolygon,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        address_fields: Optional[Dict[str, str]] = None,
-        survey_resource_id: Optional[str] = None,
-        fail_hard_regrid: Optional[bool] = False,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        aoi_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        address_fields: dict[str, str] | None = None,
+        survey_resource_id: str | None = None,
+        fail_hard_regrid: bool | None = False,
         in_gridding_mode: bool = False,
-        param_dic: Optional[Dict[str, str]] = None,
+        param_dic: dict[str, str] | None = None,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[dict], Optional[dict], Optional[pd.DataFrame]]:
+    ) -> tuple[gpd.GeoDataFrame | None, dict | None, dict | None, pd.DataFrame | None]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
@@ -1428,7 +1428,7 @@ class FeatureApi(GriddedApiClient):
         """
         if geometry is None and address_fields is None:
             raise ValueError(
-                f"Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
+                "Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
             )
 
         # Spread the chunk-start burst: sleep once per thread before its first AOI request.
@@ -1702,20 +1702,20 @@ class FeatureApi(GriddedApiClient):
 
     def get_features_gdf_gridded(
         self,
-        geometry: Union[Polygon, MultiPolygon],
+        geometry: Polygon | MultiPolygon,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        aoi_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        survey_resource_id: Optional[str] = None,
-        aoi_grid_inexact: Optional[bool] = False,
-        grid_size: Optional[float] = GRID_SIZE_DEGREES,
-        reason: Optional[str] = None,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        aoi_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        survey_resource_id: str | None = None,
+        aoi_grid_inexact: bool | None = False,
+        grid_size: float | None = GRID_SIZE_DEGREES,
+        reason: str | None = None,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, dict]:
         """
         Get feature data for an AOI. If a cache is configured, the cache will be checked before using the API.
         Data is returned as a GeoDataframe with response metadata and error information (if any occurred).
@@ -1899,17 +1899,17 @@ class FeatureApi(GriddedApiClient):
         self,
         gdf: gpd.GeoDataFrame,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        since_bulk: Optional[str] = None,
-        until_bulk: Optional[str] = None,
-        survey_resource_id_bulk: Optional[str] = None,
-        max_allowed_error_pct: Optional[int] = 100,
-        fail_hard_regrid: Optional[bool] = False,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        since_bulk: str | None = None,
+        until_bulk: str | None = None,
+        survey_resource_id_bulk: str | None = None,
+        max_allowed_error_pct: int | None = 100,
+        fail_hard_regrid: bool | None = False,
         in_gridding_mode: bool = False,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame | None, pd.DataFrame | None, pd.DataFrame]:
         """
         Get features data for many AOIs.
 
@@ -1960,16 +1960,16 @@ class FeatureApi(GriddedApiClient):
         self,
         gdf: gpd.GeoDataFrame,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        since_bulk: Optional[str] = None,
-        until_bulk: Optional[str] = None,
-        survey_resource_id_bulk: Optional[str] = None,
-        max_allowed_error_pct: Optional[int] = 100,
-        fail_hard_regrid: Optional[bool] = False,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        since_bulk: str | None = None,
+        until_bulk: str | None = None,
+        survey_resource_id_bulk: str | None = None,
+        max_allowed_error_pct: int | None = 100,
+        fail_hard_regrid: bool | None = False,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame | None, pd.DataFrame | None, pd.DataFrame]:
         """Two-pass prefer3d orchestrator: 3D-only, then 2D fallback.
 
         Per-AOI fallback handles the common case where most AOIs have 3D coverage and
@@ -2146,17 +2146,17 @@ class FeatureApi(GriddedApiClient):
         self,
         gdf: gpd.GeoDataFrame,
         region: str,
-        packs: Optional[List[str]] = None,
-        classes: Optional[List[str]] = None,
-        include: Optional[List[str]] = None,
-        since_bulk: Optional[str] = None,
-        until_bulk: Optional[str] = None,
-        survey_resource_id_bulk: Optional[str] = None,
-        max_allowed_error_pct: Optional[int] = 100,
-        fail_hard_regrid: Optional[bool] = False,
+        packs: list[str] | None = None,
+        classes: list[str] | None = None,
+        include: list[str] | None = None,
+        since_bulk: str | None = None,
+        until_bulk: str | None = None,
+        survey_resource_id_bulk: str | None = None,
+        max_allowed_error_pct: int | None = 100,
+        fail_hard_regrid: bool | None = False,
         in_gridding_mode: bool = False,
         disable_parcel_mode: bool = False,
-    ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[pd.DataFrame], pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame | None, pd.DataFrame | None, pd.DataFrame]:
         """Single-pass bulk feature fetch — see ``get_features_gdf_bulk`` for the
         public, prefer3d-aware wrapper.
 

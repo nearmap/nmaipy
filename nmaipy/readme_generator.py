@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
 
 import pandas as pd
 import pyarrow.parquet as pq

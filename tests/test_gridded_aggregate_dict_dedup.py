@@ -36,7 +36,7 @@ def defensible_space_payload():
     raw_payload_file = data_directory / "test_defensible_space_raw_payload.json"
     if not raw_payload_file.exists():
         pytest.skip(f"Raw payload file {raw_payload_file} does not exist.")
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 

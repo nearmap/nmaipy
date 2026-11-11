@@ -28,7 +28,7 @@ def roof_condition_confidence_stats_payload():
             f"Raw payload file {raw_payload_file} does not exist. Run test_gen_roof_condition_confidence_stats_data first."
         )
 
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 

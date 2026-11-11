@@ -12,7 +12,7 @@ def get_logger() -> logging.Logger:
     return logger
 
 
-def configure_logger(log_level: Optional[Union[int, str]] = logging.INFO):
+def configure_logger(log_level: int | str | None = logging.INFO):
     """
     Configure logger
     """

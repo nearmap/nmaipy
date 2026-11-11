@@ -193,7 +193,7 @@ class _CompiledPattern:
     template: ColumnMeta
 
 
-def _format_scope_phrase(scope_prefix: Optional[str]) -> str:
+def _format_scope_phrase(scope_prefix: str | None) -> str:
     """Return the human-readable phrase for a scope prefix.
 
     Empty/None → the parcel-wide phrase ("across the entire parcel").
@@ -212,7 +212,7 @@ def _substitute(
     class_label: str = "",
     class_label_primary: str = "",
     scope_phrase_override: str = "",
-    extra_groups: Optional[dict[str, str]] = None,
+    extra_groups: dict[str, str] | None = None,
 ) -> str:
     """Substitute templated placeholders.
 
@@ -325,9 +325,9 @@ def _validate(payload: dict) -> None:
 
 @lru_cache(maxsize=1)
 def load_metadata(
-    json_path: Optional[str] = None,
-    spec_raw_fields_path: Optional[str] = None,
-    overrides_path: Optional[str] = None,
+    json_path: str | None = None,
+    spec_raw_fields_path: str | None = None,
+    overrides_path: str | None = None,
 ) -> tuple[dict[str, ColumnMeta], tuple[_CompiledPattern, ...], dict[str, str], dict[str, str]]:
     """Load and validate the three-file column metadata stack.
 
@@ -398,7 +398,7 @@ def _is_model_input_field(entry: dict) -> bool:
     return entry.get("_spec_ref", "").split(".", 1)[0].endswith("ModelInputFeatures")
 
 
-def _read_json(json_path: Optional[str], package: str, default_filename: str) -> dict:
+def _read_json(json_path: str | None, package: str, default_filename: str) -> dict:
     """Read a JSON file from an explicit path or the bundled package data."""
     if json_path is None:
         with resources.files(package).joinpath(default_filename).open("r", encoding="utf-8") as fh:
@@ -407,7 +407,7 @@ def _read_json(json_path: Optional[str], package: str, default_filename: str) ->
         return json.load(fh)
 
 
-def _read_json_optional(json_path: Optional[str], package: str, default_filename: str) -> dict:
+def _read_json_optional(json_path: str | None, package: str, default_filename: str) -> dict:
     """Read a JSON file like :func:`_read_json`, but return ``{}`` if absent.
 
     Used for the spec-sourced and overrides layers, which older installs
@@ -450,7 +450,7 @@ def lookup_column(
     name: str,
     area_unit: str = "",
     class_label: str = "feature",
-    extras: Optional[dict[str, str]] = None,
+    extras: dict[str, str] | None = None,
 ) -> ColumnMeta:
     """Resolve a column name to its ColumnMeta.
 
@@ -603,8 +603,8 @@ def _scope_stripped_lookup(
     area_unit: str,
     scope_prefix: str,
     class_label: str = "feature",
-    extras: Optional[dict[str, str]] = None,
-) -> Optional[ColumnMeta]:
+    extras: dict[str, str] | None = None,
+) -> ColumnMeta | None:
     """If ``remainder`` is in ``exact_matches``, return its meta with scope phrase appended.
 
     Also tries ``roof_age_<remainder>`` for child/instance scope prefixes, since the
@@ -624,7 +624,7 @@ def _scope_stripped_lookup(
             if ra_templated != f"roof_age_{remainder}":
                 candidates.append(ra_templated)
 
-    base: Optional[ColumnMeta] = None
+    base: ColumnMeta | None = None
     for candidate in candidates:
         if candidate in exact:
             base = exact[candidate]
@@ -672,7 +672,7 @@ def _instantiate(
     class_label: str = "",
     class_label_primary: str = "",
     scope_phrase_override: str = "",
-    extra_groups: Optional[dict[str, str]] = None,
+    extra_groups: dict[str, str] | None = None,
 ) -> ColumnMeta:
     """Render templates in a ColumnMeta against the given context."""
     kw = dict(

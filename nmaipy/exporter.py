@@ -144,13 +144,13 @@ from nmaipy.roof_age_api import RoofAgeApi
 
 
 def _read_parquet_chunks_parallel(
-    paths: List[str],
+    paths: list[str],
     max_workers: int = PARALLEL_READ_WORKERS,
     desc: str = "Reading chunks",
     logger=None,
     strict: bool = True,
     geo: bool = True,
-) -> List[pd.DataFrame]:
+) -> list[pd.DataFrame]:
     """
     Read parquet files in parallel using threads, with a tqdm progress bar.
 
@@ -883,7 +883,7 @@ def _safe_unlink(path: str) -> None:
 
 
 def _stream_merge_chunks_to_parquet(
-    chunk_paths: List[str],
+    chunk_paths: list[str],
     output_path: str,
     *,
     scan_workers: int,
@@ -1081,7 +1081,7 @@ def _parquet_to_csv_streaming(parquet_path: str, csv_path: str) -> None:
         pd.read_parquet(parquet_path).to_csv(csv_path, index=False)
 
 
-def _staged_file_needs_upload(local_size: int, remote_size: Optional[int]) -> bool:
+def _staged_file_needs_upload(local_size: int, remote_size: int | None) -> bool:
     """Whether a staged output file must be (re)uploaded to S3.
 
     True unless an object of identical size already exists at the destination
@@ -3265,7 +3265,7 @@ class NearmapAIExporter(BaseExporter):
         self,
         feature_paths: list,
         outpath_features: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Stream feature chunks directly to a geoparquet file.
         This approach avoids loading all chunks into memory simultaneously.
@@ -4561,7 +4561,7 @@ class NearmapAIExporter(BaseExporter):
             # Per-phase timings, appended to the latency parquet via extra_columns
             # below. Linear-chain fallback: each timer falls back to the previous so
             # skipped phases contribute 0s rather than corrupting later deltas.
-            phase_timings: Dict[str, float] = {}
+            phase_timings: dict[str, float] = {}
             if _t_rollup_start is not None:
                 _tp0 = _t_rollup_start
                 _tp1 = _t_rollup_end if _t_rollup_end is not None else _tp0
@@ -4640,7 +4640,7 @@ class NearmapAIExporter(BaseExporter):
             except Exception:
                 pass
 
-    def _collect_rollup_chunk_paths(self, num_chunks: int) -> List[str]:
+    def _collect_rollup_chunk_paths(self, num_chunks: int) -> list[str]:
         """
         Return every chunk's rollup file, exiting 1 if any chunk has none.
 
@@ -4706,7 +4706,7 @@ class NearmapAIExporter(BaseExporter):
             sys.exit(1)
         return rollup_paths_to_read
 
-    def _fail_if_nothing_exported(self, rollup_frames: List[pd.DataFrame], num_chunks: int) -> None:
+    def _fail_if_nothing_exported(self, rollup_frames: list[pd.DataFrame], num_chunks: int) -> None:
         """Exit 1 when no AOI succeeded: a misconfigured request 404s everywhere, just like a coverage gap."""
         success_columns = ["feature_api_success", "roof_age_api_success"]
         any_success = any((df[c] == "Y").any() for df in rollup_frames for c in success_columns if c in df.columns)
@@ -4718,7 +4718,7 @@ class NearmapAIExporter(BaseExporter):
             )
             sys.exit(1)
 
-    def _fail_if_rollup_rows_missing(self, rollup_paths: List[str], n_rows: int, n_aois: int) -> None:
+    def _fail_if_rollup_rows_missing(self, rollup_paths: list[str], n_rows: int, n_aois: int) -> None:
         """Exit 1 unless the rollup has one row per input AOI, naming any zero-row chunks left by nmaipy <= 5.1.8."""
         if n_rows == n_aois:
             return

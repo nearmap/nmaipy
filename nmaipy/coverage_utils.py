@@ -342,7 +342,7 @@ def get_surveys_from_point(
             f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&resources=tiles:Vert,aifeatures,3d"
         )
         if include_disaster:
-            url += f"&include=disaster"
+            url += "&include=disaster"
     elif coverage_type == AI_COVERAGE:
         url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}"
         if has_3d:

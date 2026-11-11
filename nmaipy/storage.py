@@ -98,7 +98,7 @@ def _get_s3_filesystem():
     return _s3_filesystem_cache[pid]
 
 
-def is_s3_path(path: Union[str, Path]) -> bool:
+def is_s3_path(path: str | Path) -> bool:
     """Check if a path is an S3 URI."""
     return str(path).startswith("s3://")
 
@@ -170,7 +170,7 @@ def file_exists(path: str) -> bool:
         return Path(path).exists()
 
     fs = _get_s3_filesystem()
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             return fs.exists(path)
@@ -204,7 +204,7 @@ def validate_parquet(path: str, min_rows: int = 0) -> bool:
     Returns:
         True if the file has a valid parquet footer with at least ``min_rows`` rows, False otherwise.
     """
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             with open_file(path, "rb") as f:
@@ -226,7 +226,7 @@ def validate_parquet(path: str, min_rows: int = 0) -> bool:
     return False
 
 
-def glob_files(directory: str, pattern: str) -> List[str]:
+def glob_files(directory: str, pattern: str) -> list[str]:
     """
     Glob for files in a directory. Works for both local and S3.
 
@@ -249,7 +249,7 @@ def glob_files(directory: str, pattern: str) -> List[str]:
 
     fs = _get_s3_filesystem()
     full_pattern = join_path(directory, pattern)
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             # Force a fresh listing — never trust a possibly-stale dircache here.
@@ -286,7 +286,7 @@ def open_file(path: str, mode: str = "r", **kwargs):
         return open(path, mode, **kwargs)
 
 
-def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.FileSystem]]:
+def pyarrow_read_paths(paths: list[str]) -> tuple[list[str], pa_fs.FileSystem | None]:
     """Resolve same-scheme parquet paths for pyarrow readers sharing ONE filesystem.
 
     For s3:// URIs, returns scheme-stripped "bucket/key" paths plus a single
@@ -433,7 +433,7 @@ def move_file(src: str, dst: str) -> None:
         os.replace(src, dst)
 
 
-def json_dumps_bytes(data: Any, default=None, indent: Optional[int] = None) -> bytes:
+def json_dumps_bytes(data: Any, default=None, indent: int | None = None) -> bytes:
     """
     Serialize data to JSON bytes via orjson (5-10x faster than stdlib json on
     the multi-MB API payloads that dominate cache writes).
@@ -465,7 +465,7 @@ def json_dumps_bytes(data: Any, default=None, indent: Optional[int] = None) -> b
     return orjson.dumps(data, default=default, option=option)
 
 
-def read_json(path: str, compressed: bool = False) -> Dict:
+def read_json(path: str, compressed: bool = False) -> dict:
     """
     Read a JSON file, optionally gzip-compressed. Works for both local and S3.
 
@@ -499,7 +499,7 @@ def write_json(
     path: str,
     data: Any,
     compressed: bool = False,
-    indent: Optional[int] = None,
+    indent: int | None = None,
     default=None,
 ) -> None:
     """

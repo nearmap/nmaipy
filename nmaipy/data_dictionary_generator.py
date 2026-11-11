@@ -179,7 +179,7 @@ class DataDictionaryGenerator:
         area_unit: str,
         extras: dict[str, str],
         input_columns: set[str],
-    ) -> Optional[str]:
+    ) -> str | None:
         columns = self._read_columns(filepath)
         rows = [self._row_for_column(name, area_unit, class_label, extras, input_columns) for name in columns]
         if not rows:

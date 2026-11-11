@@ -29,7 +29,7 @@ EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"  # Hurricane Milton
 @pytest.fixture
 def milton_response(data_directory: Path):
     fixture_path = data_directory / "test_damage_conflation_milton_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)
 
 

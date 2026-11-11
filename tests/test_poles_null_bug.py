@@ -110,7 +110,7 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
         with gzip.open(payload_file, "rt") as f:
             payload = json.load(f)
     else:
-        with open(payload_file, "r") as f:
+        with open(payload_file) as f:
             payload = json.load(f)
 
     # Minimum expected features - these may increase over time as imagery updates

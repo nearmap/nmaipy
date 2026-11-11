@@ -69,7 +69,7 @@ def test_aoi_nj():
 def test_roof_age_response(data_directory):
     """Load the test roof age API response from fixture file"""
     fixture_path = data_directory / "test_roof_age_nj_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)
 
 
@@ -78,7 +78,7 @@ def test_roof_age_fl_response(data_directory):
     """Real Fort Myers FL API response: roofs with multi-element
     relevantPermitsDetails and a populated assessorDataDetails."""
     fixture_path = data_directory / "test_roof_age_fl_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)
 
 

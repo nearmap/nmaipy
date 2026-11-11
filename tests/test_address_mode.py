@@ -136,7 +136,7 @@ def test_single_address_export(single_address_csv, tmp_path):
     assert "class_id" in df_features.columns or "description" in df_features.columns, "No class information in features"
 
     # Verify we got building features
-    assert len(df_features) > 0, f"No features found (expected building features)"
+    assert len(df_features) > 0, "No features found (expected building features)"
 
 
 @pytest.mark.live_api

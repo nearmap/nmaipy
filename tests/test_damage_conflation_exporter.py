@@ -24,7 +24,7 @@ EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"
 
 @pytest.fixture
 def milton_response(data_directory: Path):
-    with open(data_directory / "test_damage_conflation_milton_response.json", "r") as f:
+    with open(data_directory / "test_damage_conflation_milton_response.json") as f:
         return json.load(f)
 
 

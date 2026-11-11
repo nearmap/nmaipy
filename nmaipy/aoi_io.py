@@ -61,12 +61,12 @@ def normalise_date_column(values: pd.Series) -> pd.Series:
     return values.map(normalise)
 
 
-def blank_date_to_none(value: Optional[str]) -> Optional[str]:
+def blank_date_to_none(value: str | None) -> str | None:
     """A bulk date cutoff that is empty or blank text means no cutoff: return ``None`` for it, else ``value``."""
     return None if isinstance(value, str) and not value.strip() else value
 
 
-def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, until: Optional[str] = None) -> None:
+def validate_date_cutoffs(aoi_df: pd.DataFrame, since: str | None = None, until: str | None = None) -> None:
     """Raise ``ValueError`` unless every date cutoff is a ``YYYY-MM-DD`` date and no AOI's since is after its until.
 
     Args:
@@ -112,9 +112,7 @@ def validate_date_cutoffs(aoi_df: pd.DataFrame, since: Optional[str] = None, unt
         raise ValueError(f"{int(inverted.sum())} AOI(s) have a since date after their until date, e.g. {sample}")
 
 
-def prepare_date_cutoffs(
-    aoi_df: pd.DataFrame, since: Optional[str] = None, until: Optional[str] = None
-) -> pd.DataFrame:
+def prepare_date_cutoffs(aoi_df: pd.DataFrame, since: str | None = None, until: str | None = None) -> pd.DataFrame:
     """Return ``aoi_df`` with its per-AOI ``since``/``until`` normalised, after validating every cutoff.
 
     For frames handed straight to a bulk query rather than read with ``read_from_file``. The caller's frame is not
@@ -140,7 +138,7 @@ def prepare_date_cutoffs(
     return aoi_df
 
 
-def _path_suffix(path: Union[str, Path]) -> str:
+def _path_suffix(path: str | Path) -> str:
     """Return the lowercased extension of ``path``.
 
     Strips off any query string (``?key=val``) and fragment (``#x``) so that
@@ -152,7 +150,7 @@ def _path_suffix(path: Union[str, Path]) -> str:
     return s.rsplit(".", 1)[-1].lower() if "." in s else ""
 
 
-def read_header_columns(path: Union[str, Path]) -> set[str]:
+def read_header_columns(path: str | Path) -> set[str]:
     """Return the set of column names from an AOI file by reading only its header.
 
     Mirrors the format support of :func:`read_from_file` (CSV/PSV/TSV with WKT,
@@ -175,11 +173,11 @@ def read_header_columns(path: Union[str, Path]) -> set[str]:
 
 
 def read_from_file(
-    path: Union[str, Path],
-    drop_empty: Optional[bool] = True,
-    id_column: Optional[str] = AOI_ID_COLUMN_NAME,
-    source_crs: Optional[str] = LAT_LONG_CRS,
-    target_crs: Optional[str] = LAT_LONG_CRS,
+    path: str | Path,
+    drop_empty: bool | None = True,
+    id_column: str | None = AOI_ID_COLUMN_NAME,
+    source_crs: str | None = LAT_LONG_CRS,
+    target_crs: str | None = LAT_LONG_CRS,
 ) -> gpd.GeoDataFrame:
     """
     Read AOI/parcel data from a file. Supported formats are:
@@ -258,21 +256,21 @@ def read_from_file(
         # This preserves explicit dtypes that may have been carefully specified
         try:
             parcels_gdf = gpd.read_parquet(path)
-            logger.info(f"Read geoparquet file with geometry using geopandas")
+            logger.info("Read geoparquet file with geometry using geopandas")
         except (ValueError, Exception) as e:
             # Handle both "Missing geo metadata" and other parquet reading issues
             if "Missing geo metadata" in str(e) or "geo" in str(e).lower():
                 # Non-geo parquet file - read with pandas to preserve explicit dtypes
-                logger.info(f"Reading non-geo parquet file with pandas (preserves explicit dtypes)")
+                logger.info("Reading non-geo parquet file with pandas (preserves explicit dtypes)")
                 parcels_gdf = pd.read_parquet(path)
             else:
                 # Unknown error - try pandas as fallback
                 logger.warning(f"geopandas read failed with: {e}. Trying pandas fallback.")
                 try:
                     parcels_gdf = pd.read_parquet(path)
-                    logger.info(f"Successfully read parquet with pandas fallback")
+                    logger.info("Successfully read parquet with pandas fallback")
                 except Exception as e2:
-                    logger.error(f"Both geopandas and pandas failed to read parquet file")
+                    logger.error("Both geopandas and pandas failed to read parquet file")
                     raise e2
 
     elif suffix in ("geojson", "gpkg"):
@@ -282,7 +280,7 @@ def read_from_file(
         raise NotImplementedError(f"Source format not supported: {suffix=}")
 
     if "geometry" not in parcels_gdf:
-        logger.warning(f"Input file has no AOI geometries - some operations will not work.")
+        logger.warning("Input file has no AOI geometries - some operations will not work.")
     else:
         if not isinstance(parcels_gdf, gpd.GeoDataFrame):
             # If from a tabular data source, try to convert to a GeoDataFrame (requires a geometry column)

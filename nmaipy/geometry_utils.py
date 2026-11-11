@@ -51,7 +51,7 @@ def polygon_to_coordstring(poly: Polygon) -> str:
 
 def clip_features_to_polygon(
     feature_poly_series: gpd.GeoSeries,
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     region: str,
 ) -> gpd.GeoDataFrame:
     """
@@ -84,7 +84,7 @@ def clip_features_to_polygon(
     return gdf_clip
 
 
-def extract_coords_for_cache(request_string: str) -> Tuple[str, str]:
+def extract_coords_for_cache(request_string: str) -> tuple[str, str]:
     """
     Extract lon/lat coordinates from a request string for cache organization.
 
@@ -150,7 +150,7 @@ def create_grid(df: gpd.GeoDataFrame, cell_size: float) -> gpd.GeoDataFrame:
     return grid
 
 
-def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: float) -> gpd.GeoDataFrame:
+def split_geometry_into_grid(geometry: Polygon | MultiPolygon, cell_size: float) -> gpd.GeoDataFrame:
     """
     Split a large geometry into a grid of smaller cells.
 

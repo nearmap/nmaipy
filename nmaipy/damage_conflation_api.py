@@ -91,16 +91,16 @@ class DamageConflationApi(BaseApiClient):
     def __init__(
         self,
         event_id: str,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[str] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
+        api_key: str | None = None,
+        cache_dir: str | None = None,
+        overwrite_cache: bool | None = False,
+        compress_cache: bool | None = False,
+        threads: int | None = 10,
         maxretry: int = MAX_RETRIES,
-        url_root: Optional[str] = None,
+        url_root: str | None = None,
         country: str = "us",
-        progress_counters: Optional[dict] = None,
-        bearer_token: Optional[str] = None,
+        progress_counters: dict | None = None,
+        bearer_token: str | None = None,
     ):
         """
         Initialize Damage Conflation API client.
@@ -198,7 +198,7 @@ class DamageConflationApi(BaseApiClient):
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
         return storage.join_path(qualifier_dir, f"{key_hash}{extension}")
 
-    def _load_from_cache(self, cache_key: str) -> Optional[Dict]:
+    def _load_from_cache(self, cache_key: str) -> dict | None:
         """Load a cached response via the event-scoped path layout."""
         if self.cache_dir is None or self.overwrite_cache:
             return None
@@ -211,7 +211,7 @@ class DamageConflationApi(BaseApiClient):
             logger.warning(f"Failed to load from cache: {e}")
             return None
 
-    def _save_to_cache(self, cache_key: str, data: Dict) -> None:
+    def _save_to_cache(self, cache_key: str, data: dict) -> None:
         """Save a response via the event-scoped path layout."""
         if self.cache_dir is None:
             return
@@ -221,7 +221,7 @@ class DamageConflationApi(BaseApiClient):
         except Exception as e:
             logger.warning(f"Failed to save to cache: {e}")
 
-    def _build_cache_key(self, aoi: Optional[Polygon] = None, address: Optional[Dict[str, str]] = None) -> str:
+    def _build_cache_key(self, aoi: Polygon | None = None, address: dict[str, str] | None = None) -> str:
         """Cache key identifying the request geometry/address (event lives in the path)."""
         if aoi is not None:
             return f"damageconflation_aoi_{aoi.wkt}"
@@ -237,11 +237,11 @@ class DamageConflationApi(BaseApiClient):
     # ------------------------------------------------------------------ requests
     def _build_request_payload(
         self,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
-        cursor: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> Dict:
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
         """
         Build the JSON request body for the Damage Conflation API.
 
@@ -257,7 +257,7 @@ class DamageConflationApi(BaseApiClient):
         if aoi is None and address is None:
             raise ValueError("Must specify either aoi or address")
 
-        payload: Dict = {}
+        payload: dict = {}
         if aoi is not None:
             payload["aoi"] = mapping(aoi)
         else:
@@ -276,18 +276,18 @@ class DamageConflationApi(BaseApiClient):
     def _fetch_all_pages(
         self,
         url: str,
-        params: Dict,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
-        limit: Optional[int] = None,
-    ) -> Dict:
+        params: dict,
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
+        limit: int | None = None,
+    ) -> dict:
         """
         Fetch all pages for a query, following ``nextCursor`` until exhausted.
 
         Returns a merged response dict (first-page top-level metadata + all features).
         Raises DamageConflationAPIError on HTTP error or an error body.
         """
-        all_features: List[dict] = []
+        all_features: list[dict] = []
         cursor = None
         page_count = 0
         first_page_metadata = None
@@ -347,7 +347,7 @@ class DamageConflationApi(BaseApiClient):
         merged["features"] = all_features
         return merged
 
-    def _parse_response(self, response_data: Dict, aoi_id: str) -> gpd.GeoDataFrame:
+    def _parse_response(self, response_data: dict, aoi_id: str) -> gpd.GeoDataFrame:
         """
         Parse a (merged) Damage Conflation response into a GeoDataFrame.
 
@@ -396,7 +396,7 @@ class DamageConflationApi(BaseApiClient):
         aoi: Polygon,
         aoi_id: str,
         file_format: str = "geojson",
-        limit: Optional[int] = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
+        limit: int | None = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
     ) -> gpd.GeoDataFrame:
         """
         Get conflated damage for an area of interest, handling pagination.
@@ -430,10 +430,10 @@ class DamageConflationApi(BaseApiClient):
 
     def get_damage_by_address(
         self,
-        address: Dict[str, str],
+        address: dict[str, str],
         aoi_id: str,
         file_format: str = "geojson",
-        limit: Optional[int] = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
+        limit: int | None = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
     ) -> gpd.GeoDataFrame:
         """
         Get conflated damage for a property address, handling pagination.
@@ -465,7 +465,7 @@ class DamageConflationApi(BaseApiClient):
     def get_damage_bulk(
         self,
         aoi_gdf: gpd.GeoDataFrame,
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Get conflated damage for multiple AOIs in parallel.
 

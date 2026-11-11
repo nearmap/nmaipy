@@ -445,9 +445,9 @@ class APIGridError(Exception):
         self,
         status_code_error_mode,
         message="",
-        grid_cells: Optional[int] = None,
-        grid_cells_answered: Optional[int] = None,
-        answered_area_fraction: Optional[float] = None,
+        grid_cells: int | None = None,
+        grid_cells_answered: int | None = None,
+        answered_area_fraction: float | None = None,
     ):
         self.status_code = status_code_error_mode
         self.text = "Gridding and re-requesting failed on one or more grid cell queries."
@@ -530,13 +530,13 @@ class BaseApiClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
+        api_key: str | None = None,
+        cache_dir: Path | None = None,
+        overwrite_cache: bool | None = False,
+        compress_cache: bool | None = False,
+        threads: int | None = 10,
         maxretry: int = MAX_RETRIES,
-        bearer_token: Optional[str] = None,
+        bearer_token: str | None = None,
     ):
         """
         Initialize base API client.
@@ -566,15 +566,15 @@ class BaseApiClient:
         # _InflightEntry. Guarded by _inflight_guard; bounded because each
         # entry is dropped when its last in-flight request leaves, so the map
         # can never exceed this client's thread count.
-        self._inflight_requests: Dict[str, _InflightEntry] = {}
+        self._inflight_requests: dict[str, _InflightEntry] = {}
         self._inflight_guard = threading.Lock()
 
         # Progress-counter plumbing. `progress_counters` is overridden by
         # subclasses that accept it as a constructor arg. The registry holds
         # one (buffer, lock) tuple per thread that has called
         # `_increment_progress`; `flush_progress()` drains them.
-        self.progress_counters: Optional[dict] = None
-        self._progress_buffers: List = []
+        self.progress_counters: dict | None = None
+        self._progress_buffers: list = []
         self._progress_buffers_registry_lock = threading.Lock()
 
         # A bearer token authenticates via an Authorization header and takes precedence
@@ -613,7 +613,7 @@ class BaseApiClient:
         if self.cache_dir is not None:
             storage.ensure_directory(self.cache_dir)
         elif overwrite_cache:
-            raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
+            raise ValueError("No cache dir specified, but overwrite cache set to True.")
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -881,7 +881,7 @@ class BaseApiClient:
         extension = ".json.gz" if self.compress_cache else ".json"
         return storage.join_path(self.cache_dir, f"{key_hash}{extension}")
 
-    def _load_from_cache(self, cache_key: str) -> Optional[Dict]:
+    def _load_from_cache(self, cache_key: str) -> dict | None:
         """
         Load data from cache if it exists and cache is enabled.
 
@@ -904,7 +904,7 @@ class BaseApiClient:
             logger.warning(f"Failed to load from cache: {e}")
             return None
 
-    def _save_to_cache(self, cache_key: str, data: Dict) -> None:
+    def _save_to_cache(self, cache_key: str, data: dict) -> None:
         """
         Save data to cache.
 
@@ -922,7 +922,7 @@ class BaseApiClient:
             logger.warning(f"Failed to save to cache: {e}")
 
     @contextlib.contextmanager
-    def _coalesce_inflight(self, cache_path: Optional[str]):
+    def _coalesce_inflight(self, cache_path: str | None):
         """
         Serialize concurrent fetches that share a cache entry (in-flight coalescing).
 
@@ -1053,7 +1053,7 @@ class BaseApiClient:
             text = text.replace(self.bearer_token, "REMOVED")
         return text
 
-    def get_latency_stats(self) -> Optional[Dict[str, Any]]:
+    def get_latency_stats(self) -> dict[str, Any] | None:
         """
         Calculate latency statistics for this API client instance.
 
@@ -1121,12 +1121,12 @@ class BaseApiClient:
 
 
 def collect_latency_stats_from_apis(
-    api_clients: List[Optional["BaseApiClient"]],
+    api_clients: list[Optional["BaseApiClient"]],
     chunk_id: str,
     chunk_start_time: str,
     chunk_end_time: str,
     total_duration_ms: float,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Collect and combine latency statistics from multiple API clients.
 
@@ -1233,16 +1233,16 @@ class GriddedApiClient(BaseApiClient):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
+        api_key: str | None = None,
+        cache_dir: Path | None = None,
+        overwrite_cache: bool | None = False,
+        compress_cache: bool | None = False,
+        threads: int | None = 10,
         maxretry: int = MAX_RETRIES,
         grid_cell_size: float = 0.002,
         max_aoi_area_sqm: float = 1_000_000,
-        max_concurrent_gridding: Optional[int] = None,
-        bearer_token: Optional[str] = None,
+        max_concurrent_gridding: int | None = None,
+        bearer_token: str | None = None,
     ):
         """
         Initialize GriddedApiClient.
@@ -1374,7 +1374,7 @@ def format_error_message(request_string: str, response: requests.Response) -> st
 # =============================================================================
 
 
-def percentile_from_histogram(hist: np.ndarray, buckets: List[float], percentile: float) -> float:
+def percentile_from_histogram(hist: np.ndarray, buckets: list[float], percentile: float) -> float:
     """
     Compute percentile from histogram via linear interpolation.
 
@@ -1417,8 +1417,8 @@ def percentile_from_histogram(hist: np.ndarray, buckets: List[float], percentile
 
 
 def compute_global_latency_stats(
-    chunk_stats: List[Dict], n_bootstrap: int = 1000, seed: Optional[int] = 42
-) -> Dict[str, Any]:
+    chunk_stats: list[dict], n_bootstrap: int = 1000, seed: int | None = 42
+) -> dict[str, Any]:
     """
     Compute global latency statistics from per-chunk stats with bootstrap confidence intervals.
 
@@ -1492,7 +1492,7 @@ def compute_global_latency_stats(
     }
 
 
-def _get_latency_bucket_names() -> List[str]:
+def _get_latency_bucket_names() -> list[str]:
     """Get histogram bucket column names based on LATENCY_BUCKETS."""
     bucket_names = []
     for i in range(len(LATENCY_BUCKETS) - 1):
@@ -1505,7 +1505,7 @@ def _get_latency_bucket_names() -> List[str]:
     return bucket_names
 
 
-def _stats_to_row(stats: Dict) -> Dict:
+def _stats_to_row(stats: dict) -> dict:
     """Convert a latency stats dict to a flat row dict for DataFrame."""
     if stats is None:
         return None
@@ -1547,7 +1547,7 @@ def _stats_to_row(stats: Dict) -> Dict:
 
 # Per-phase chunk-processing timings (seconds) appended to latency rows via
 # `save_chunk_latency_stats(..., extra_columns=...)` from exporter closeout.
-CHUNK_PHASE_TIMING_COLUMNS: List[str] = [
+CHUNK_PHASE_TIMING_COLUMNS: list[str] = [
     "parcel_rollup_s",
     "post_rollup_merge_s",
     "prep_merges_s",
@@ -1561,7 +1561,7 @@ CHUNK_PHASE_TIMING_COLUMNS: List[str] = [
 ]
 
 
-def _get_latency_csv_columns() -> List[str]:
+def _get_latency_csv_columns() -> list[str]:
     """Get the ordered list of columns for latency CSV files."""
     bucket_names = _get_latency_bucket_names()
     return (
@@ -1573,7 +1573,7 @@ def _get_latency_csv_columns() -> List[str]:
     )
 
 
-def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
+def write_latency_csv(chunk_stats: list[dict], csv_path) -> None:
     """
     Write per-chunk latency statistics to a CSV file using pandas.
 
@@ -1592,9 +1592,7 @@ def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
     df.to_csv(csv_path, index=False)
 
 
-def save_chunk_latency_stats(
-    stats: Dict, chunk_path: Path, chunk_id: str, extra_columns: Optional[Dict] = None
-) -> None:
+def save_chunk_latency_stats(stats: dict, chunk_path: Path, chunk_id: str, extra_columns: dict | None = None) -> None:
     """
     Save latency stats for a single chunk to a sidecar parquet file.
 
@@ -1622,7 +1620,7 @@ def save_chunk_latency_stats(
     storage.write_parquet(df, outfile, index=False)
 
 
-def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List[Dict]:
+def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> list[dict]:
     """
     Combine per-chunk latency parquet files into a final CSV and return stats list.
 
@@ -1682,7 +1680,7 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
     return stats_list
 
 
-def log_request_cache_summary(logger_, chunk_stats: List[Dict]) -> None:
+def log_request_cache_summary(logger_, chunk_stats: list[dict]) -> None:
     """
     Log the overall request-cache hit rate for an export closeout.
 
@@ -1702,7 +1700,7 @@ def log_request_cache_summary(logger_, chunk_stats: List[Dict]) -> None:
     )
 
 
-def read_latency_csv(csv_path) -> List[Dict]:
+def read_latency_csv(csv_path) -> list[dict]:
     """
     Read latency stats from a CSV file and convert to list of dicts.
 
