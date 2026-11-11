@@ -57,7 +57,7 @@ import signal
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import psutil
 
@@ -570,6 +570,21 @@ def _flatten_damage(damage_obj):
     return flat_dict
 
 
+def _json_default(value):
+    """``json.dumps`` default for the nested values pyarrow hands back: arrays, numpy scalars and dates.
+
+    Anything else raises, as ``json.dumps`` does without a default, so an unexpected type fails the
+    chunk's features preparation instead of being written as its ``str()``.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, date):  # datetime and pd.Timestamp are dates too
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _group_children_by_aoi(
     non_roof_features: gpd.GeoDataFrame,
     features_gdf: gpd.GeoDataFrame,
@@ -599,9 +614,18 @@ def _group_children_by_aoi(
     return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
 
 
+def _intersection_or_none(geom, clip_geom):
+    """``geom ∩ clip_geom``, or None when ``geom`` is None or GEOS cannot compute the intersection."""
+    try:
+        return shapely.intersection(geom, clip_geom)
+    except shapely.errors.GEOSException:
+        return None
+
+
 def _clip_roof_geoms_to_aoi(
     parent_gdf: gpd.GeoDataFrame,
     aoi_geometries: dict,
+    purpose: str,
 ) -> "gpd.GeoSeries":
     """Clip each roof (parent) geometry to its own AOI/parcel polygon.
 
@@ -623,6 +647,14 @@ def _clip_roof_geoms_to_aoi(
     roofs arrive pre-clipped (``clippedGeometry``) and their slight-overhang
     (belongs-to-parcel) roofs are deliberately analysed whole-roof.
 
+    A roof GEOS can't clip, usually an invalid one, keeps its whole outline, and the
+    rest of its AOI's roofs are still clipped. A roof with no geometry is left as it is.
+
+    Args:
+        parent_gdf: Roofs to clip, keyed by aoi_id (index or column), with a feature_id column.
+        aoi_geometries: aoi_id -> AOI polygon in API_CRS, for gridded AOIs only.
+        purpose: What the clip is for, named in the warning when a roof can't be clipped.
+
     Returns a GeoSeries aligned (by position and index) with ``parent_gdf``.
     """
     aoi_vals = _aoi_id_values(parent_gdf)
@@ -639,26 +671,56 @@ def _clip_roof_geoms_to_aoi(
             continue
         sub = gpd.GeoSeries([geoms[p] for p in positions], crs=crs)
         try:
-            clipped = sub.intersection(clip_geom)
-        except Exception as e:
-            # Defensive: a topology error on one AOI must not abort the whole
-            # chunk. Keep the unclipped outline(s) for this AOI — this
-            # reintroduces whole-roof component magnitudes for the AOI, so
-            # warn rather than debug.
+            clipped = list(sub.intersection(clip_geom))
+        except shapely.errors.GEOSException as e:
+            # One roof GEOS can't clip fails the whole vectorized call, so clip this AOI's roofs one
+            # at a time: only the roofs that fail keep their whole outline. Warn, because each of
+            # those is used whole where the clip was meant to apply.
+            clipped = [_intersection_or_none(g, clip_geom) for g in sub]
+            failed = [p for p, g, c in zip(positions, sub, clipped) if g is not None and c is None]
+            failed_ids = parent_gdf["feature_id"].iloc[failed].tolist()
             logger.warning(
-                "Roof→parcel clip failed for AOI %s (%d roof(s)): %s; keeping unclipped outline(s).",
-                aoi_id,
+                "%s: could not clip %d of %d roof(s) to AOI %s (%s); keeping their whole outline(s). "
+                "Feature IDs: %s",
+                purpose,
+                len(failed),
                 len(positions),
+                aoi_id,
                 e,
+                failed_ids[:5] + (["..."] if len(failed_ids) > 5 else []),
             )
-            continue
-        for k, p in enumerate(positions):
-            c = clipped.iloc[k]
-            # Keep the original outline if the intersection is empty/invalid
+        for p, c in zip(positions, clipped):
+            # Keep the original outline if the intersection is empty or failed
             # rather than blanking the parent (an empty parent disables recalc).
             if c is not None and not c.is_empty:
                 geoms[p] = c
     return gpd.GeoSeries(geoms, index=parent_gdf.index, crs=crs)
+
+
+def _roof_row_keys(roofs: pd.DataFrame) -> pd.MultiIndex:
+    """Each roof row's (aoi_id, feature_id), in row order, wherever aoi_id lives (index or column)."""
+    return pd.MultiIndex.from_arrays([_aoi_id_values(roofs), roofs["feature_id"].to_numpy()])
+
+
+def _link_roof_instances(roof_age_gdf: gpd.GeoDataFrame, roofs_gdf: gpd.GeoDataFrame, aoi_geometries: dict) -> tuple:
+    """``parcels.link_roof_instances_to_roofs``, comparing gridded AOIs' roofs by their AOI-clipped outline.
+
+    Roof Age instances are pre-cut to lots. The returned roofs keep their whole outline.
+    """
+    if not aoi_geometries:
+        return parcels.link_roof_instances_to_roofs(roof_age_gdf, roofs_gdf)
+    link_roofs_gdf = roofs_gdf.copy()
+    link_roofs_gdf["geometry"] = _clip_roof_geoms_to_aoi(roofs_gdf, aoi_geometries, "Roof Age link").values
+    roof_instances_linked, roofs_linked = parcels.link_roof_instances_to_roofs(roof_age_gdf, link_roofs_gdf)
+    # The whole outlines go back by position, which link_roof_instances_to_roofs guarantees. Check the rows
+    # still line up by (aoi_id, feature_id), since a feature_id repeats when a roof spans AOIs, rather than
+    # risk a roof getting another's outline.
+    if not _roof_row_keys(roofs_linked).equals(_roof_row_keys(roofs_gdf)):
+        raise RuntimeError(
+            "link_roof_instances_to_roofs reordered or changed the roofs; their whole outlines can't be restored"
+        )
+    roofs_linked["geometry"] = roofs_gdf.geometry.values
+    return roof_instances_linked, roofs_linked
 
 
 def _batch_project_geometries(
@@ -690,7 +752,7 @@ def _batch_project_geometries(
     projected_crs = AREA_CRS[country.lower()]
     parent_geom = parent_gdf.geometry
     if aoi_geometries:
-        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries)
+        parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries, "Roof component recalculation")
     parent_projected = parent_geom.to_crs(projected_crs)
     child_proj_by_aoi = {}
     for aoi_id, children in child_by_aoi.items():
@@ -3816,6 +3878,23 @@ class NearmapAIExporter(BaseExporter):
                 gridded_mask = metadata_df["gridded"].eq(True)
                 gridded_aoi_ids = set(metadata_df.index[gridded_mask])
 
+            # aoi_id -> AOI polygon, for GRIDDED AOIs only: their roof outlines are whole
+            # (parcelMode off), so the component recalculation and the Roof Age link clip
+            # roofs to the AOI. parcelMode AOIs keep the API's clippedGeometry.
+            aoi_geometries = None
+            if gridded_aoi_ids and isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
+                # Keyed as _clip_roof_geoms_to_aoi keys the roofs; no aoi_id, no clip.
+                try:
+                    aoi_ids = _aoi_id_values(aoi_gdf)
+                except ValueError:
+                    aoi_ids = None
+                if aoi_ids is not None:
+                    aoi_geometries = {
+                        aid: geom
+                        for aid, geom in zip(aoi_ids, aoi_gdf.geometry)
+                        if geom is not None and aid in gridded_aoi_ids
+                    }
+
             # Filter out deprecated feature classes. RSI resolution now uses IoU-based
             # Roof → Building(New) → BL linkage rather than the API's parent_id chain
             # through Building(Deprecated), so no unfiltered reference is needed.
@@ -3977,8 +4056,8 @@ class NearmapAIExporter(BaseExporter):
                     logger.debug(
                         f"Chunk {chunk_id}: Linking {len(roof_age_gdf)} roof instances to {len(roofs_gdf)} roofs"
                     )
-                    roof_age_gdf_linked, roofs_gdf_linked = parcels.link_roof_instances_to_roofs(
-                        roof_age_gdf, roofs_gdf
+                    roof_age_gdf_linked, roofs_gdf_linked = _link_roof_instances(
+                        roof_age_gdf, roofs_gdf, aoi_geometries
                     )
 
                     # Update features_gdf with linked data
@@ -4247,6 +4326,12 @@ class NearmapAIExporter(BaseExporter):
                 raise ValueError(error_msg)
             del merged2  # wrapper cleanup; array buffers are shared with final_features_df
 
+            # The merges leave aoi_id in the index; make it a column now. The features
+            # save and the per-class export both read this frame, and the per-class
+            # export groups child features by the aoi_id column.
+            if final_features_df.index.name == AOI_ID_COLUMN_NAME:
+                final_features_df = final_features_df.reset_index()
+
             # aoi_geometry was converted to WKT before the merge (above) — no
             # second pass needed here.
 
@@ -4325,10 +4410,12 @@ class NearmapAIExporter(BaseExporter):
                         # Build a boolean mask of cells that actually need
                         # json.dumps, then map only those positions. NaN/None
                         # cells are left untouched (already valid for parquet).
+                        # _json_default converts what an input AOI column can nest:
+                        # arrays, numpy scalars and dates (ISO strings).
                         mask = s.map(lambda v: isinstance(v, (dict, list, np.ndarray)))
                         if mask.any():
                             final_features_df.loc[mask, col] = s[mask].map(
-                                lambda v: json.dumps(v.tolist() if isinstance(v, np.ndarray) else v)
+                                lambda v: json.dumps(v, default=_json_default)
                             )
 
                     # Ensure it's a proper GeoDataFrame before saving to parquet
@@ -4336,10 +4423,6 @@ class NearmapAIExporter(BaseExporter):
                         final_features_df = gpd.GeoDataFrame(final_features_df, geometry="geometry", crs=API_CRS)
                     else:
                         final_features_df = final_features_df.set_crs(API_CRS, allow_override=True)
-
-                    # Reset index to preserve aoi_id as a column (needed for building-roof linking)
-                    if final_features_df.index.name == AOI_ID_COLUMN_NAME:
-                        final_features_df = final_features_df.reset_index()
                 except Exception as e:
                     record_failure("preparing features", e)
                     final_features_df = None  # half-prepared: nothing may be written from it
@@ -4377,35 +4460,6 @@ class NearmapAIExporter(BaseExporter):
                     aoi_input_columns = [
                         c for c in aoi_gdf.columns if c not in system_columns and c not in ADDRESS_FIELDS
                     ]
-
-                    # Map aoi_id -> parcel geometry (API_CRS) so clipped-roof
-                    # component recalculation can clip the roof parent to its
-                    # parcel. Restricted to GRIDDED AOIs only: gridding disables
-                    # parcelMode, so those rows store the whole (unclipped) roof
-                    # outline against a parcel-clipped area — without the clip the
-                    # recomputed component areas come out at whole-roof magnitude.
-                    # Non-gridded parcelMode AOIs are deliberately excluded:
-                    # multiparcel roofs are already clipped (clippedGeometry) and
-                    # slight-overhang (belongs-to-parcel) roofs must keep
-                    # whole-roof analysis. Cheap map build (one entry per AOI).
-                    aoi_geometries = None
-                    if gridded_aoi_ids and isinstance(aoi_gdf, gpd.GeoDataFrame) and "geometry" in aoi_gdf.columns:
-                        # Key by _aoi_id_values (the same derivation the consumer
-                        # _clip_roof_geoms_to_aoi uses on the roof rows) so the map
-                        # keys match regardless of whether aoi_id is the index or a
-                        # column. If aoi_id can't be resolved, leave the map None so
-                        # the clip degrades to a no-op rather than silently
-                        # mis-keying every AOI.
-                        try:
-                            aoi_ids = _aoi_id_values(aoi_gdf)
-                        except ValueError:
-                            aoi_ids = None
-                        if aoi_ids is not None:
-                            aoi_geometries = {
-                                aid: geom
-                                for aid, geom in zip(aoi_ids, aoi_gdf.geometry)
-                                if geom is not None and aid in gridded_aoi_ids
-                            }
 
                     _t_per_class_start = time.monotonic()
                     per_class_results = _compute_all_per_class_data(

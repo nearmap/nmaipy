@@ -69,6 +69,10 @@ from nmaipy.feature_attributes import INCLUDE_FIELD_MAPPINGS
 
 logger = log.get_logger()
 
+# orjson's JSONDecodeError.msg for a body that ends mid-document, i.e. a truncated response.
+# Matched as text because orjson exposes no error code; a test pins the wording.
+ORJSON_TRUNCATED_MSG = "unexpected end of data"
+
 
 # Deprecated aliases — prefer APIGridError/APIRequestSizeError from api_common
 AIFeatureAPIGridError = APIGridError
@@ -1006,14 +1010,24 @@ class FeatureApi(GriddedApiClient):
                     # orjson is 5-10x faster than stdlib on multi-MB payloads.
                     data = orjson.loads(response.content)
                 except orjson.JSONDecodeError as e:
-                    # Usually a truncated over-large response, so treat as a size
-                    # error to trigger gridding — but log visibly, because orjson
-                    # also rejects payloads stdlib accepted (NaN/Infinity literals,
-                    # BOM, invalid UTF-8) and those would masquerade as size errors.
-                    logger.warning(
-                        f"JSON parse error on 200 response ({len(response.content)} bytes) - "
-                        f"treating as size error to trigger gridding: {e}"
-                    )
+                    # A truncated body is the expected sign of an over-large response:
+                    # grid it, logging at debug like the other size-error triggers. An
+                    # empty body is one truncated at its first byte. Any other parse
+                    # error is treated the same way but logged visibly, because orjson
+                    # also rejects payloads stdlib accepted (NaN/Infinity literals, BOM,
+                    # invalid UTF-8) and those would masquerade as size errors. A body
+                    # cut inside a multi-byte UTF-8 character reports as invalid UTF-8,
+                    # so the rare non-ASCII truncation still warns.
+                    if e.msg == ORJSON_TRUNCATED_MSG or not response.content.strip():
+                        logger.debug(
+                            f"Truncated JSON on 200 response ({len(response.content)} bytes) - "
+                            f"treating as size error to trigger gridding: {e}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Non-truncation JSON parse error on 200 response ({len(response.content)} bytes) - "
+                            f"treating as size error to trigger gridding: {e}"
+                        )
                     raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url))
                 except Exception as e:
                     # Treat JSON parsing errors as size errors to trigger gridding

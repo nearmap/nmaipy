@@ -379,6 +379,9 @@ def link_roof_instances_to_roofs(
                 - primary_child_roof_age_feature_id: feature_id of best matching instance (None if IoU below threshold)
                 - primary_child_roof_age_iou: IoU score with primary instance
                 - child_roof_instances: List of dicts [{feature_id, iou}, ...] ordered by IoU desc
+        Both frames keep their input row order; when neither input is empty they are indexed by
+        aoi_id. Callers rely on the order (``exporter._link_roof_instances`` restores roof outlines
+        by position).
 
     Example:
         >>> ri_linked, roofs_linked = link_roof_instances_to_roofs(roof_instances, roofs)
