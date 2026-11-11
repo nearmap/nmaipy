@@ -863,8 +863,8 @@ class TestFeatureAPI:
             assert "SECRET" not in record.msg, f"Secret not removed from: {test_input}"
             assert "REMOVED" in record.msg, f"REMOVED not added to: {test_input}"
 
-    def test_clean_api_key_with_url_parsing(self):
-        """Test that _clean_api_key properly handles various URL formats using urllib.parse"""
+    def test_redact_api_key_with_url_parsing(self):
+        """Test that _redact_api_key properly handles various URL formats using urllib.parse"""
         api = FeatureApi(api_key="TEST_SECRET_KEY_123")
 
         # Test cases with different URL formats
@@ -912,7 +912,7 @@ class TestFeatureAPI:
         ]
 
         for input_url, _ in test_cases:
-            result = api._clean_api_key(input_url)
+            result = api._redact_api_key(input_url)
             # Check that the API key is not in the result
             assert "TEST_SECRET_KEY_123" not in result, f"API key not removed from: {input_url}"
             # For URL cases, check structure is preserved

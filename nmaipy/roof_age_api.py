@@ -153,7 +153,7 @@ class RoofAgeApi(BaseApiClient):
         self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_PATH}/{resource_id}"
 
         logger.debug(
-            f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, "
+            f"Initialized RoofAgeApi with base_url: {self._redact_api_key(self.base_url)}, "
             f"resource_id: {resource_id}, until_as_of_date: {until_as_of_date}, "
             f"since_as_of_date: {since_as_of_date}, bulk_mode: {bulk_mode}"
         )
@@ -514,7 +514,7 @@ class RoofAgeApi(BaseApiClient):
 
                 if not response.ok:
                     error_msg = f"Failed to get roof age data (page {page_count})"
-                    raise RoofAgeAPIError(response, self._clean_api_key(url), message=error_msg)
+                    raise RoofAgeAPIError(response, self._redact_api_key(url), message=error_msg)
 
                 response_data = response.json()
 
@@ -594,7 +594,7 @@ class RoofAgeApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         if self.bulk_mode:
             params["bulk"] = "true"
 
@@ -664,7 +664,7 @@ class RoofAgeApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         if self.bulk_mode:
             params["bulk"] = "true"
 

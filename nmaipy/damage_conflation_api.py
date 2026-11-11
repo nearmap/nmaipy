@@ -146,10 +146,7 @@ class DamageConflationApi(BaseApiClient):
             url_root = DAMAGE_CONFLATION_URL_ROOT
         # POST {base_url}.geojson -> /ai/damage/v2/events/{event_id}/latest.geojson
         # base_url contains no secret: the API key is only ever sent as a `?apikey=`
-        # query param at request time, never embedded here. So it is logged directly
-        # rather than routed through _clean_api_key — doing so would feed an api-key
-        # named sanitizer into the log, which CodeQL flags as clear-text logging of a
-        # secret (a false positive, since there is no secret to clean).
+        # query param at request time, never embedded here. So it is logged directly.
         self.base_url = f"https://{url_root}/{DAMAGE_CONFLATION_EVENTS_PATH}/{event_id}/latest"
 
         logger.debug(f"Initialized DamageConflationApi with base_url: {self.base_url}, event_id: {event_id}")
@@ -304,7 +301,7 @@ class DamageConflationApi(BaseApiClient):
                 if not response.ok:
                     raise DamageConflationAPIError(
                         response,
-                        self._clean_api_key(url),
+                        self._redact_api_key(url),
                         message=f"Failed to get damage conflation data (page {page_count})",
                     )
 
@@ -314,7 +311,7 @@ class DamageConflationApi(BaseApiClient):
             if isinstance(response_data, dict) and "error" in response_data:
                 raise DamageConflationAPIError(
                     None,
-                    self._clean_api_key(url),
+                    self._redact_api_key(url),
                     message=f"{response_data.get('error')} (code: {response_data.get('code', 'UNKNOWN')})",
                 )
 
@@ -330,7 +327,7 @@ class DamageConflationApi(BaseApiClient):
                 if page_count >= DAMAGE_CONFLATION_MAX_PAGES:
                     raise DamageConflationAPIError(
                         None,
-                        self._clean_api_key(url),
+                        self._redact_api_key(url),
                         message=(
                             f"Pagination exceeded {DAMAGE_CONFLATION_MAX_PAGES} pages "
                             f"({len(all_features)} features so far) without exhausting nextCursor "
@@ -372,7 +369,7 @@ class DamageConflationApi(BaseApiClient):
             if geometry is None:
                 raise DamageConflationAPIError(
                     None,
-                    self._clean_api_key(self.base_url),
+                    self._redact_api_key(self.base_url),
                     message=f"Feature missing 'geometry' for {aoi_id} (feature id: {feature.get('id')})",
                 )
             geometries.append(shape(geometry))
@@ -423,7 +420,7 @@ class DamageConflationApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         response_data = self._fetch_all_pages(url=url, params=params, aoi=aoi, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)
@@ -457,7 +454,7 @@ class DamageConflationApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         response_data = self._fetch_all_pages(url=url, params=params, address=address, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)

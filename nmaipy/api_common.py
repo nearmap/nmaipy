@@ -459,7 +459,7 @@ class APIGridError(Exception):
         return f"APIGridError: {self.status_code} - {self.message}"
 
 
-def clean_api_key_from_string(text: str) -> str:
+def redact_api_key_from_string(text: str) -> str:
     """
     Remove API keys from a string for safe logging.
 
@@ -481,6 +481,9 @@ def clean_api_key_from_string(text: str) -> str:
         flags=re.IGNORECASE,
     )
     return re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", text, flags=re.IGNORECASE)
+
+
+clean_api_key_from_string = redact_api_key_from_string  # previous name, kept for existing callers
 
 
 # Per-thread batching cap for `_increment_progress`. Increments accumulate in
@@ -1031,7 +1034,11 @@ class BaseApiClient:
         storage.ensure_directory(cache_subdir)
         return storage.join_path(cache_subdir, f"{key_hash}{extension}")
 
-    def _clean_api_key(self, text: str) -> str:
+    def _auth_params(self) -> dict[str, str]:
+        """Query parameters that authenticate a request: the apikey, or none in bearer mode."""
+        return {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
+
+    def _redact_api_key(self, text: str) -> str:
         """
         Remove API keys and bearer tokens from text for safe logging.
 
@@ -1041,7 +1048,7 @@ class BaseApiClient:
         Returns:
             String with credentials replaced with 'REMOVED'
         """
-        text = clean_api_key_from_string(text)
+        text = redact_api_key_from_string(text)
         # Catch a raw token that lacks the "Bearer " prefix the regex keys on.
         if self.bearer_token is not None and self.bearer_token:
             text = text.replace(self.bearer_token, "REMOVED")
@@ -1313,7 +1320,7 @@ def generate_curl_command(url: str, body: dict | None = None, method: str = "POS
         >>> print(cmd)  # API key will be replaced with 'APIKEYREMOVED'
     """
     # Clean the API key from the URL
-    clean_url = clean_api_key_from_string(url)
+    clean_url = redact_api_key_from_string(url)
 
     if method == "POST" and body is not None and body:
         # Format the JSON body nicely
@@ -1359,7 +1366,7 @@ def format_error_message(request_string: str, response: requests.Response) -> st
         >>> msg = format_error_message(url, response)
         >>> logger.error(msg)
     """
-    clean_request = clean_api_key_from_string(request_string)
+    clean_request = redact_api_key_from_string(request_string)
     return f"\n{clean_request=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
 

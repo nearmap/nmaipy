@@ -359,18 +359,16 @@ class FeatureApi(GriddedApiClient):
         Return a result from one of the base URLS (such as packs or classes)
         """
         with self._session_scope() as session:
-            # In bearer mode the apikey param is omitted (auth is the session header).
-            query_params = [] if self.bearer_token is not None and self.bearer_token else [f"apikey={self.api_key}"]
+            query_params = []
             if self.alpha:
                 query_params.append("alpha=true")
             if self.beta:
                 query_params.append("beta=true")
             request_string = f"{base_url}?{'&'.join(query_params)}" if query_params else base_url
-            response = session.get(request_string, timeout=session._timeout)
+            response = session.get(request_string, params=self._auth_params(), timeout=session._timeout)
             if not response.ok:
-                raise RuntimeError(
-                    f"\n{self._clean_api_key(request_string)=}\n\n{response.status_code=}\n\n{response.text}\n\n"
-                )
+                clean_request_string = self._redact_api_key(self._with_redacted_apikey(request_string))
+                raise RuntimeError(f"\n{clean_request_string=}\n\n{response.status_code=}\n\n{response.text}\n\n")
             return response, response.json()
 
     def get_packs(self) -> dict[str, list[str]]:
@@ -408,7 +406,7 @@ class FeatureApi(GriddedApiClient):
 
         return df_classes
 
-    def _clean_api_key(self, text: str) -> str:
+    def _redact_api_key(self, text: str) -> str:
         """
         Remove the API key from a request string using proper URL parsing.
         This ensures URL-encoded API keys are also properly redacted.
@@ -460,15 +458,17 @@ class FeatureApi(GriddedApiClient):
 
         return result
 
-    def _request_cache_path(self, request_string: str) -> str:
+    def _with_redacted_apikey(self, url: str) -> str:
         """
-        Hash a request string to create a cache path.
+        Return url with a redacted apikey parameter at the front of its query, as logs and cache keys show it.
+
+        The apikey is sent in the request params, never in url. Cache keys still include the
+        redacted parameter where the url once carried it, so existing cache entries stay valid.
         """
-        request_string = self._clean_api_key(request_string)
-        request_hash = hashlib.md5(request_string.encode(), usedforsecurity=False).hexdigest()
-        lon, lat = geometry_utils.extract_coords_for_cache(request_string)
-        ext = "json.gz" if self.compress_cache else "json"
-        return storage.join_path(self.cache_dir, lon, lat, f"{request_hash}.{ext}")
+        if (self.bearer_token is not None and self.bearer_token) or "apikey=" in url:
+            return url
+        base, _, query = url.partition("?")
+        return f"{base}?apikey=APIKEYREMOVED&{query}" if query else f"{base}?apikey=APIKEYREMOVED"
 
     def _post_request_cache_path(self, url: str, body: dict) -> str:
         """
@@ -477,8 +477,7 @@ class FeatureApi(GriddedApiClient):
         Uses lon/lat based caching for geometry queries, or country/state/city/zip
         based caching for address-only queries (shared with Roof Age API).
         """
-        # Clean API key from URL
-        clean_url = self._clean_api_key(url)
+        clean_url = self._redact_api_key(self._with_redacted_apikey(url))
 
         # Convert body to a stable string representation for cache key.
         # Deliberately stdlib json, not orjson: stdlib's default separators
@@ -530,7 +529,7 @@ class FeatureApi(GriddedApiClient):
         """
         Handle errors returned from the feature API
         """
-        clean_request_string = self._clean_api_key(request_string)
+        clean_request_string = self._redact_api_key(request_string)
         if response is None or not response.ok:
             raise AIFeatureAPIError(response, clean_request_string)
 
@@ -570,7 +569,7 @@ class FeatureApi(GriddedApiClient):
                 except OSError as e:
                     if attempt == 1:
                         raise
-                    logger.debug(f"Cache write to {path} failed ({e}), re-creating cache dir and retrying")
+                    logger.debug(f"Cache write failed ({e}), re-creating cache dir and retrying")
                 finally:
                     temp_path.unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; failures are counted and logged in batches
@@ -580,7 +579,7 @@ class FeatureApi(GriddedApiClient):
             with self._lock:
                 self._cache_write_failures += 1
                 n = self._cache_write_failures
-            msg = f"Failed to write cache entry {path} - continuing without caching it ({n} failures so far): {e}"
+            msg = f"Failed to write cache entry - continuing without caching it ({n} failures so far): {e}"
             if n <= 3 or n % 1000 == 0:
                 logger.warning(msg)
             else:
@@ -619,9 +618,9 @@ class FeatureApi(GriddedApiClient):
         if survey_resource_id is not None:
             url = f"{self.FEATURES_SURVEY_RESOURCE_URL}/{survey_resource_id}/features.json"
 
-        # Bearer mode omits the apikey but still opens the query with "?" so the
+        # The apikey is sent in the request params; the query opens with "?" so the
         # "&param" appends below stay well-formed (the "?&" is collapsed at the end).
-        url = f"{url}?" if self.bearer_token is not None and self.bearer_token else f"{url}?apikey={self.api_key}"
+        url = f"{url}?"
 
         # Create request body - only include 'aoi' in the body
         body = {}
@@ -709,14 +708,11 @@ class FeatureApi(GriddedApiClient):
         # With POST requests, we always get the exact geometry processed
         exact = True
 
-        if self.bearer_token is not None and self.bearer_token:
-            url = self._strip_empty_query(url)
-
-        return url, body, exact
+        return self._strip_empty_query(url), body, exact
 
     @staticmethod
     def _strip_empty_query(url: str) -> str:
-        """Collapse the "?&" (or trailing lone "?") left by bearer mode's empty apikey."""
+        """Collapse the "?&" (or trailing lone "?") left by opening the query before its first parameter."""
         url = url.replace("?&", "?", 1)
         return url.removesuffix("?")
 
@@ -874,10 +870,10 @@ class FeatureApi(GriddedApiClient):
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
         except EOFError as e:
-            logger.error(f"Error loading compressed cache file {cache_path}.")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
+            logger.error("Error loading compressed cache file.")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
             logger.error(f"Error: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
         except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
-            logger.error(f"Error loading cache file {cache_path}: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
+            logger.error(f"Error loading cache file: {e}")  # noqa: TRY400 -- a cache miss, not a failure; a traceback per entry would flood the log
         return None
 
     def _fetch_results(self, url: str, body: dict, cache_path: str | None, in_gridding_mode: bool):
@@ -896,6 +892,7 @@ class FeatureApi(GriddedApiClient):
             # are treated as size errors to trigger gridding (the response may be too large).
             response = None
             request_info = None
+            logged_url = self._with_redacted_apikey(url)
             response_time_ms = None
 
             # Track this as a cache miss (we're making an API call)
@@ -911,13 +908,15 @@ class FeatureApi(GriddedApiClient):
                 try:
                     headers = {"Content-Type": "application/json"}
                     t1 = time.monotonic()  # Start timing for THIS attempt
-                    response = session.post(url, json=body, headers=headers, timeout=session._timeout)
+                    response = session.post(
+                        url, params=self._auth_params(), json=body, headers=headers, timeout=session._timeout
+                    )
                     response_time_ms = (time.monotonic() - t1) * 1e3  # End timing immediately after response
 
                     # Record per-attempt latency for statistics
                     self._latencies.append(response_time_ms)
 
-                    request_info = f"{url} with body {json.dumps(body)}"  # For error reporting
+                    request_info = f"{logged_url} with body {json.dumps(body)}"  # For error reporting
                     # (urllib3 in-transport retries are counted via RetryRequest.on_retry —
                     # requests' response.history only records redirects, never retries.)
 
@@ -956,7 +955,7 @@ class FeatureApi(GriddedApiClient):
                             }
 
                     response = TimeoutAs504Response()
-                    request_info = f"{url} (timed out after {READ_TIMEOUT_SECONDS}s)"
+                    request_info = f"{logged_url} (timed out after {READ_TIMEOUT_SECONDS}s)"
                     break  # Exit retry loop and handle as 504 below
                 except requests.exceptions.ChunkedEncodingError as e:
                     if max_attempts is None or retry_attempt < max_attempts - 1:
@@ -974,13 +973,13 @@ class FeatureApi(GriddedApiClient):
                         f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size "
                         f"error to trigger gridding: {e}"
                     )
-                    raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url)) from e
+                    raise AIFeatureAPIRequestSizeError(None, self._redact_api_key(logged_url)) from e
 
             # Use explicit None check to handle edge case of 0ms response time
             response_time_seconds = response_time_ms / 1000 if response_time_ms is not None else 0
 
             # Log response at debug level (can be enabled when diagnosing issues)
-            sanitized_url = self._clean_api_key(url)
+            sanitized_url = self._redact_api_key(logged_url)
             logger.debug(
                 f"Response from {sanitized_url} in {response_time_seconds:.1f}s (status: "
                 f"{response.status_code if response else 'unknown'})"
@@ -988,7 +987,7 @@ class FeatureApi(GriddedApiClient):
 
             # Log slow successful requests (failures go in errors CSV)
             if response.ok and response_time_seconds > SLOW_REQUEST_THRESHOLD_SECONDS:
-                sanitized_url = self._clean_api_key(url)
+                sanitized_url = self._redact_api_key(logged_url)
                 # Add geometry as GeoJSON if available in body
                 geom_info = ""
                 if body and "aoi" in body:
@@ -1020,11 +1019,11 @@ class FeatureApi(GriddedApiClient):
                             f"Non-truncation JSON parse error on 200 response ({len(response.content)} bytes) - "
                             f"treating as size error to trigger gridding: {e}"
                         )
-                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url)) from e
+                    raise AIFeatureAPIRequestSizeError(response, self._redact_api_key(logged_url)) from e
                 except Exception as e:
                     # Treat JSON parsing errors as size errors to trigger gridding
                     logger.debug(f"JSON parsing error - treat as size error to try again with a gridded approach: {e}")
-                    raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(url)) from e
+                    raise AIFeatureAPIRequestSizeError(response, self._redact_api_key(logged_url)) from e
 
                 # Save to cache if configured
                 if self.cache_dir is not None:
@@ -1051,14 +1050,14 @@ class FeatureApi(GriddedApiClient):
                 status_code == HTTPStatus.BAD_GATEWAY and not text
             ):
                 logger.debug(f"Raising AIFeatureAPIRequestSizeError from status code {status_code=}")
-                raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
+                raise AIFeatureAPIRequestSizeError(response, self._redact_api_key(request_info))
             if status_code == HTTPStatus.BAD_REQUEST:
                 try:
                     error_data = json.loads(text)
                     error_code = error_data.get("code", "")
                     if error_code in AIFeatureAPIRequestSizeError.error_codes:
                         logger.debug(f"Raising AIFeatureAPIRequestSizeError from error code {error_code=}")
-                        raise AIFeatureAPIRequestSizeError(response, self._clean_api_key(request_info))
+                        raise AIFeatureAPIRequestSizeError(response, self._redact_api_key(request_info))
                 except (json.JSONDecodeError, KeyError):
                     pass
 
@@ -1642,9 +1641,10 @@ class FeatureApi(GriddedApiClient):
                     survey_resource_id=survey_resource_id,
                     disable_parcel_mode=disable_parcel_mode,
                 )
-                logger.debug(f"Failed request URL: {self._clean_api_key(url)}")
+                logged_url = self._with_redacted_apikey(url)
+                logger.debug(f"Failed request URL: {self._redact_api_key(logged_url)}")
                 logger.debug("To reproduce this request, use the following curl command:")
-                logger.debug(generate_curl_command(url, body, method="POST", timeout=READ_TIMEOUT_SECONDS))
+                logger.debug(generate_curl_command(logged_url, body, method="POST", timeout=READ_TIMEOUT_SECONDS))
             features_gdf = None
             metadata = None
             error = {
@@ -1671,9 +1671,10 @@ class FeatureApi(GriddedApiClient):
                     survey_resource_id=survey_resource_id,
                     disable_parcel_mode=disable_parcel_mode,
                 )
-                logger.debug(f"Timeout on request URL: {self._clean_api_key(url)}")
+                logged_url = self._with_redacted_apikey(url)
+                logger.debug(f"Timeout on request URL: {self._redact_api_key(logged_url)}")
                 logger.debug("To reproduce this request, use the following curl command:")
-                logger.debug(generate_curl_command(url, body, method="POST", timeout=READ_TIMEOUT_SECONDS))
+                logger.debug(generate_curl_command(logged_url, body, method="POST", timeout=READ_TIMEOUT_SECONDS))
             features_gdf = None
             metadata = None
             error = {
