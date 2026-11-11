@@ -13,7 +13,7 @@
    "fidelity": "float64",
    "geometry": "geometry",
    "ground_height_ft": "float64",
-   "has_3d_attributes": "empty",
+   "has_3d_attributes": "string",
    "height_ft": "float64",
    "is_primary": "string",
    "link": "string",
