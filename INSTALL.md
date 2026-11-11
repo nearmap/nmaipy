@@ -1,125 +1,42 @@
 # Installation Guide for nmaipy
 
-## Quick Start (Recommended)
+## Installing nmaipy
 
-### For Data Scientists using Conda
-
-```bash
-# Create a new environment with all dependencies
-conda env create -f environment-minimal.yaml
-conda activate nmaipy
-```
-
-### For Python users with pip
+nmaipy is published on PyPI and conda-forge. Install it into your own environment with either:
 
 ```bash
-pip install -e .
+pip install nmaipy
 ```
-
-## Detailed Installation Options
-
-### 1. Conda Installation (Recommended for Data Scientists)
-
-#### Option A: Minimal Installation
-Only core dependencies needed to run nmaipy:
 
 ```bash
-conda env create -f environment-minimal.yaml
-conda activate nmaipy
+conda install -c conda-forge nmaipy
 ```
 
-#### Option B: Full Installation
-Includes development tools and notebook support:
-
-```bash
-conda env create -f environment.yaml
-conda activate nmaipy
-```
-
-#### Option C: Install into Existing Conda Environment
-
-```bash
-# Activate your environment
-conda activate your-env-name
-
-# Install dependencies
-conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
-
-# Install nmaipy
-pip install -e .
-```
-
-### 2. Pip Installation
-
-#### Basic Installation
-```bash
-pip install -e .
-```
-
-#### With Notebook Support
-```bash
-pip install -e ".[notebooks]"
-```
-
-#### For Development
-```bash
-pip install -e ".[dev]"
-```
-
-#### All Extras
-```bash
-pip install -e ".[dev,notebooks]"
-```
-
-### 3. Production Installation
-
-For production deployments without development dependencies:
-
-```bash
-pip install .
-```
-
-### 4. Building a Conda Package (Advanced)
-
-For system administrators who want to create a redistributable conda package:
-
-```bash
-# Build the package
-conda build conda.recipe
-
-# Install locally
-conda install --use-local nmaipy
-```
+conda-forge is recommended when you also work with other geospatial packages, as it ships GEOS, GDAL and PROJ as managed binary dependencies.
 
 ## Verifying Installation
 
 After installation, verify nmaipy is working:
 
-```python
+```bash
 python -c "from nmaipy.exporter import NearmapAIExporter; print('nmaipy installed successfully')"
 ```
 
-## Troubleshooting
+## Development Setup
 
-### Missing Dependencies
-
-If you get import errors, ensure all dependencies are installed:
+Contributors use [pixi](https://pixi.sh) (0.83 or newer), which builds a locked conda-forge environment from `pyproject.toml` and `pixi.lock`:
 
 ```bash
-# For conda
-conda install -c conda-forge geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
-
-# For pip
-pip install geopandas pandas numpy pyarrow psutil pyproj python-dotenv requests rtree shapely stringcase tqdm fsspec s3fs
+curl -fsSL https://pixi.sh/install.sh | sh
+git clone https://github.com/nearmap/nmaipy.git
+cd nmaipy
+pixi install
+pixi run test
 ```
 
-### GEOS/GDAL Issues
+See [CLAUDE.md](CLAUDE.md) for the available environments and tasks.
 
-If you encounter GEOS or GDAL errors, conda installation is recommended as it handles these C dependencies automatically:
-
-```bash
-conda install -c conda-forge geopandas
-```
+## Configuration
 
 ### API Key Setup
 

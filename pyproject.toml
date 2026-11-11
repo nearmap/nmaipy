@@ -1,13 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
 
 [project]
 name = "nmaipy"
 dynamic = ["version"]
 description = "Nearmap AI Python Library for extracting AI features from aerial imagery"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     {name = "Nearmap AI Systems", email = "ai.systems@nearmap.com"}
 ]
@@ -18,10 +19,11 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -46,38 +48,20 @@ dependencies = [
     "tqdm>=4.67.1",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "black",
-    "isort",
-    "pytest",
-    "responses",
-    "build",
-    "twine",
-]
-notebooks = [
-    "ipykernel",
-    "matplotlib",
-]
-
 [project.urls]
 Homepage = "https://github.com/nearmap/nmaipy"
 Documentation = "https://github.com/nearmap/nmaipy#readme"
 Repository = "https://github.com/nearmap/nmaipy.git"
 "Bug Tracker" = "https://github.com/nearmap/nmaipy/issues"
 
-[tool.setuptools]
-packages = ["nmaipy", "nmaipy.data"]
+[tool.hatch.version]
+path = "nmaipy/__version__.py"
 
-[tool.setuptools.package-data]
-nmaipy = ["class_descriptions.json"]
-"nmaipy.data" = ["column_metadata.json", "spec_raw_fields.json", "column_metadata_overrides.json"]
+[tool.hatch.build.targets.wheel]
+packages = ["nmaipy"]
 
-[tool.setuptools.package-dir]
-"" = "."
-
-[tool.setuptools.dynamic]
-version = {attr = "nmaipy.__version__.__version__"}
+[tool.hatch.build.targets.sdist]
+include = ["/nmaipy"]
 
 [tool.black]
 line-length = 120
@@ -86,3 +70,77 @@ target-version = ['py312']
 [tool.isort]
 profile = "black"
 line_length = 120
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
+preview = ["pixi-build"]
+requires-pixi = ">=0.83"
+
+[tool.pixi.package]
+name = "nmaipy"
+# pixi-build cannot read hatchling's dynamic version; bump_version.py keeps this equal to nmaipy/__version__.py
+version = "5.5.2"
+
+[tool.pixi.package.build.backend]
+name = "pixi-build-python"
+version = "*"
+channels = ["https://prefix.dev/pixi-build-backends", "https://prefix.dev/conda-forge"]
+
+[tool.pixi.package.build.config]
+ignore-pypi-mapping = false
+# the mapping service picks geopandas-base (no pyogrio) and pyarrow-core (no Parquet)
+pypi-conda-map = { geopandas = "geopandas", pyarrow = "pyarrow" }
+
+[tool.pixi.dependencies]
+nmaipy = { path = "." }
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.pixi.feature.py314.dependencies]
+python = "3.14.*"
+
+[tool.pixi.feature.test.dependencies]
+pytest = "*"
+responses = "*"
+
+[tool.pixi.feature.test.tasks]
+test = "pytest -m 'not live_api'"
+
+[tool.pixi.feature.notebooks.dependencies]
+ipykernel = "*"
+matplotlib-base = "*"
+
+[tool.pixi.feature.build.dependencies]
+python-build = "*"
+twine = "*"
+
+[tool.pixi.feature.build.tasks]
+build = "rm -rf dist && python -m build && twine check --strict dist/*"
+
+[tool.pixi.feature.lint.dependencies]
+black = "*"
+isort = "*"
+
+[tool.pixi.feature.lint.tasks]
+lint = "black --check nmaipy tests && isort --check-only nmaipy tests"
+format = "black nmaipy tests && isort nmaipy tests"
+
+[tool.pixi.feature.docs.dependencies]
+mystmd = "*"
+
+[tool.pixi.feature.docs.tasks]
+# mystmd does not copy assets referenced from the custom stylesheet
+docs = { cmd = "rm -rf _build/html && myst build --html --strict && cp -r _static/fonts _build/html/fonts", cwd = "docs" }
+
+[tool.pixi.environments]
+default = { features = ["py314", "test", "build", "notebooks"], solve-group = "py314" }
+py312 = { features = ["py312", "test"], solve-group = "py312" }
+py313 = { features = ["py313", "test"], solve-group = "py313" }
+py314 = { features = ["py314", "test"], solve-group = "py314" }
+lint = { features = ["py314", "lint"], no-default-feature = true }
+docs = { features = ["py314", "docs"], no-default-feature = true }
