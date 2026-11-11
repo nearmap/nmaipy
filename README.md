@@ -1,5 +1,7 @@
 # nmaipy - Nearmap AI Python Library
 
+[![PyPI](https://img.shields.io/pypi/v/nmaipy.svg)](https://pypi.org/project/nmaipy/) [![conda-forge](https://img.shields.io/conda/vn/conda-forge/nmaipy.svg)](https://anaconda.org/conda-forge/nmaipy)
+
 Extract building footprints, vegetation, damage assessments, roof condition, and other AI features from Nearmap's aerial imagery using simple Python code.
 
 **Supported countries:** `au` (Australia), `us` (United States), `nz` (New Zealand), `ca` (Canada)
@@ -406,7 +408,7 @@ By default, gridded AOIs require **every cell to succeed** (`aoi_grid_min_pct=10
 2. **Tune chunk size**: `chunk_size` (default 500) groups AOIs per parallel work unit. Smaller = finer parallelism and cheaper resume; larger = lower overhead.
 3. **Cache API responses**: `cache_dir` persists API responses to a directory. Re-runs with the same parameters reuse the cache. Defaults to `{output_dir}/cache/`.
 4. **Filter by date**: `since` / `until` restrict to specific time periods and reduce data volume.
-5. **Fast-path re-invocation**: if `final/README.md` and `export_config.json` already exist and the config matches the current call, the exporter returns in ~1s instead of rebuilding. The settings a resume may change (see [Output Data](#output-data-1)) are ignored when comparing configs.
+5. **Fast-path re-invocation**: if `final/README.md` and `export_config.json` already exist and the config matches the current call, the exporter returns in ~1s instead of rebuilding. The settings a resume may change (see [Output Data](#output-data)) are ignored when comparing configs.
 
 ## Command Line Interface
 

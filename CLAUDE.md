@@ -4,41 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Environment Setup
 
-To set up the environment for nmaipy, use conda with the provided environment.yaml file:
+The development environment is managed by [pixi](https://pixi.sh) from the `[tool.pixi.*]` tables in `pyproject.toml`, locked in `pixi.lock`. Every package, including nmaipy itself (built by pixi-build from `[project.dependencies]`), comes from conda-forge; nothing is installed from PyPI. The old `nmaipy` conda environment is no longer used.
+
+From a fresh clone:
 
 ```bash
-conda env create -f environment.yaml
-conda activate nmaipy
+conda deactivate                                # if the old nmaipy conda env is active
+curl -fsSL https://pixi.sh/install.sh | sh      # install pixi (0.83 or newer); then open a new shell
+pixi install                                    # create the default environment in .pixi/
+pixi run test                                   # run the offline test suite
 ```
 
-Alternatively, you can install the package with development dependencies:
+On Windows, install pixi with `powershell -ExecutionPolicy ByPass -c "irm -useb https://pixi.sh/install.ps1 | iex"`. Once nothing else needs it, the old environment can be removed with `conda env remove -n nmaipy`.
 
-```bash
-pip install -e ".[dev]"
-```
+Run any command inside an environment with `pixi run <cmd>` (e.g. `pixi run python nmaipy/exporter.py ...`), or start a shell with it activated with `pixi shell`. Pick a non-default environment with `-e <env>`.
+
+Environments:
+- `default` — Python 3.14 with test, build (`python-build`, `twine`) and notebook (`ipykernel`, `matplotlib-base`) tools
+- `py312`, `py313`, `py314` — the test environment on each supported Python version
+- `lint` — `black` and `isort` only
+- `docs` — `mystmd`, for the documentation site
 
 ## Key Commands
 
 ### Running Tests
 
-Run all tests (excluding live API tests):
+Run all tests (excluding live API tests; the `test` task runs `pytest -m "not live_api"`):
 ```bash
-pytest -m "not live_api"
+pixi run test
+```
+
+Run them on a specific Python version:
+```bash
+pixi run -e py312 test
 ```
 
 Run all tests including live API (requires `API_KEY` env var):
 ```bash
-pytest
+pixi run pytest
 ```
 
 Run a specific test file:
 ```bash
-pytest tests/test_parcels.py
+pixi run pytest tests/test_parcels.py
 ```
 
 Run a specific test:
 ```bash
-pytest tests/test_parcels.py::test_function_name
+pixi run pytest tests/test_parcels.py::test_function_name
 ```
 
 #### End-to-End Testing
@@ -50,7 +63,7 @@ End-to-end tests against the live API are a critical way to validate new feature
 
 To run an end-to-end test (requires `API_KEY`), choose parameters appropriate to the feature being tested — packs, flags, country, etc. will vary by context. Example:
 ```bash
-python nmaipy/exporter.py \
+pixi run python nmaipy/exporter.py \
     --aoi-file tests/data/test_parcels_2.csv \
     --output-dir data/my_test_output \
     --country us \
@@ -69,7 +82,7 @@ Output directly to a subfolder under `data/` so files can be reviewed in the IDE
 - `unit` — unit tests
 - `slow` — long-running tests
 
-Deselect markers with `-m`, e.g.: `pytest -m "not live_api and not slow"`
+Deselect markers with `-m`, e.g.: `pixi run pytest -m "not live_api and not slow"`
 
 #### Golden fixtures
 
@@ -82,17 +95,24 @@ python -m tests.golden.compare LEFT RIGHT  # diff two exports (e.g. old versus n
 
 ### Code Formatting
 
-Format code with black:
+Format code with black and sort imports with isort:
 ```bash
-black nmaipy tests
+pixi run format
 ```
 
-Sort imports with isort:
+Check formatting without changing files:
 ```bash
-isort nmaipy tests
+pixi run lint
 ```
 
-Note: `ruff` is also available in the conda environment for linting.
+### Documentation Site
+
+The documentation site is built with MyST from `docs/` (`docs/index.md` includes `README.md`; the theme overrides live in `docs/_static/custom.css`). Build it into `docs/_build/html`:
+```bash
+pixi run docs
+```
+
+Preview it with `python -m http.server -d docs/_build/html`. The `Docs` workflow (`.github/workflows/docs.yml`) builds the site on pull requests and deploys it to GitHub Pages from `main` when the repository variable `PAGES_ENABLED` is `true`.
 
 ### Export Data
 
@@ -220,7 +240,7 @@ When adding new columns derived from API descriptions, always use the programmat
 - **Multiparcel consequence (parcelMode)**: two AOIs that intersect the same feature from the same survey each get a row with the *same* `feature_id`, but per-parcel values differ between the rows. The API returns that parcel's `clippedGeometry` / `clippedArea*` and computes the includes (RSI, hurricane score, defensible space) on **that parcel's clip**. Its `attributes` (component areas and ratios, …) stay whole-feature, so nmaipy's flattening recomputes them per clip from child features (see "parcelMode response semantics" below). The row identity in any multi-AOI frame is therefore `(aoi_id, feature_id)`, never `feature_id` alone.
 
 Code implications (see PR #210 for the bug class this prevents):
-- Any chunk-level (multi-AOI) cross-row structure must be keyed by `(aoi_id, feature_id)` (e.g. `roof_attrs_cache`) or scoped per AOI as `{aoi_id: {feature_id: …}}` (`build_parent_lookup_by_aoi`, `roof_to_building_lookup`), with each consumer taking its row's own parcel sub-dict.
+- Any chunk-level (multi-AOI) cross-row structure must be keyed by `(aoi_id, feature_id)` (e.g. `roof_attrs_cache`) or scoped per AOI as `{aoi_id: {feature_id: …}}` (`_build_parent_lookup_by_aoi`, `roof_to_building_lookup`), with each consumer taking its row's own parcel sub-dict.
 - `build_parent_lookup` (flat, fid-keyed) is only valid for a single AOI's features.
 - Parent-chain traversal and IoU linkage never cross parcels — per-AOI scoping preserves that invariant by construction, and a chain that is broken within a parcel must yield null rather than borrow another parcel's clip value.
 - Deduplication by bare `feature_id` is only correct within one AOI and one survey (the gridded-query merge case).
@@ -253,6 +273,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 - For a multiparcel roof the stored geometry is the clip, so the result is the per-parcel value. It matches the API's own per-parcel `treeOverhangRatio` in `hurricaneScore` exactly.
 - For a slight-overhang roof the stored geometry is the whole outline, so the result reproduces the whole-roof value.
 - Gridded AOIs run with parcelMode off, so the stored outline is clipped to the AOI first: by `_clip_roof_geoms_to_aoi` for the per-class files and inline in `parcel_rollup` (`clip_roof_to_parcel`) for the rollup. The includes stay whole-roof there, so the recomputed ratio no longer matches them.
+- The Roof Age link (`exporter._link_roof_instances`) compares a gridded AOI's roofs by that same clipped outline, since Roof Age instances are cut per lot. The exported roof keeps its whole outline.
 - Grid cells run with parcelMode off by design. Gridding is meant for very large areas, where discrete objects crossing the outer boundary matter little, while parcelMode would treat each cell as a parcel and cut features at the internal grid lines. An AOI whose realtime scores the API skips is first requested once more, unchanged, after `REALTIME_SKIP_RETRY_DELAY_SECONDS` (the retry bypasses the cache, which holds the skipped response). If it still skips and spans more than one `REALTIME_SKIP_GRID_SIZE_DEGREES` cell, it is gridded at that size, since each cell is a request the scorer can handle (the large-parcel, many-roofs case). Both steps are `retry_on_realtime_skip` / `--no-retry-on-realtime-skip`; `regrid_on_skip` is a deprecated alias. Those cells are pinned to the first response's survey; if the grid fails, the AOI keeps its response (skipped scores null), and a successful grid keeps its parcel-level aggregate.
 - Includes are passed through unchanged.
 
@@ -410,8 +431,8 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 
 ### Configuration Files
 
-- **pyproject.toml**: Package metadata, dependencies, build config. Python >=3.12 required.
-- **environment.yaml** / **environment-minimal.yaml**: Conda environment specifications.
+- **pyproject.toml**: Package metadata and dependencies, the hatchling build config, and the pixi workspace, package and environments. Python >=3.12 required.
+- **pixi.lock**: Locked conda-forge solve for every pixi environment. Regenerate with `pixi lock` after changing `pyproject.toml`; never edit by hand.
 
 ### Data Flow
 

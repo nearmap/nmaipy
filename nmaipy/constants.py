@@ -158,7 +158,9 @@ DAMAGE_CONFLATION_RAW_RATING_KEYS = ("Affected", "Destroyed", "Major", "Minor", 
 # Maximum number of retry attempts for failed requests
 # Uses full jitter backoff: sleep = uniform(0, min(BACKOFF_MAX, BACKOFF_FACTOR * 2^n))
 # Retry delays are approximately: 0s, 0-1s, 0-2s, 0-4s, 0-8s, 0-16s, 0-32s, 0-60s (capped), ...
-MAX_RETRIES = 10
+# 20 retries wait about 7 minutes on average before giving up (at most about 14). That covers
+# a backend that needs minutes to recover, e.g. a realtime scorer starting from cold.
+MAX_RETRIES = 20
 
 # Exponential backoff multiplier for retries
 # Full jitter formula: sleep = uniform(0, min(BACKOFF_MAX, BACKOFF_FACTOR * 2^(retry_number - 1)))

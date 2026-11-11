@@ -86,6 +86,10 @@ These are two different kinds of per-roof data, with different clipping behaviou
 
   For slight-overhang and fully inside roofs they are whole-roof values, identical to parcelMode off.
 
+A component's whole-roof `ratio` sits on the roof feature at `attributes[]` (the entry whose `description` is e.g. "Roof material", "Roof types" or "Roof overhang attributes") → `components[]` (e.g. "Tree Overhang") → `ratio` [live].
+
+**Per-lot component ratio from basic fields.** Σ `clippedAreaSqm` of the component's child features (`parentId` = the roof's `id`, e.g. `description` "Tree Overhang") ÷ the roof's `clippedAreaSqm` [live]. On 21 bundled NJ lots, each split through its largest roof (November 2026, `building` and `roof_char` packs), it matched nmaipy's `tree_overhang_ratio` and `hurricaneScore.modelInputFeatures.treeOverhangRatio` within 0.002 on all 27 halves with a multiparcel roof. With parcelMode off it gave the same per-lot figures within 0.001, while the hurricane figure was whole-roof. Use this calculation to explain per-lot values on a multiparcel roof: it needs no score includes. It hasn't been checked on slight-overhang roofs, which the API analyses whole.
+
 For example, `hurricaneScore.modelInputFeatures.treeOverhangRatio` is the clipped part's tree overhang ratio for a multiparcel roof, and the whole roof's ratio otherwise.
 
 nmaipy flattens includes into columns such as `roof_spotlight_index`, `hurricane_vulnerability_score` and `hurricane_vulnerability_model_input_tree_overhang_ratio`, passing the values through unchanged [nmaipy].
@@ -143,7 +147,7 @@ Only the `components` lists are recomputed. Includes and pitch pass through unch
 - **Nothing is filtered by `belongsToParcel`.** Features crossing the AOI's outer boundary are kept, neighbours' roofs included, and so are low-confidence features a parcelMode query would flag `false` (section 2). They count in `<class>_count` and `<class>_total_area_*` (whole object), but only their in-AOI part counts in `<class>_total_clipped_area_*`.
 - **`belongs_to_parcel` is null on every row** (the API sends no such field without parcelMode), and **`multiparcel_feature` is always N** (no feature gets `clippedGeometry`). Discrete features keep their whole outlines.
 - **Includes describe whole roofs.** RSI, the peril scores and per-roof defensible space are the parcelMode-off, whole-roof values. The parcel-level `aggregate_defensible_space_*` columns are null, except on an AOI gridded after an include skip, which keeps the aggregate from its first, parcelMode response.
-- **Roof components are recomputed on the in-AOI part.** nmaipy clips each roof's outline to the AOI before recomputing its components: in the rollup's `primary_roof_*` columns (`parcels.parcel_rollup`, `clip_roof_to_parcel`) and in the per-class files (`exporter._clip_roof_geoms_to_aoi`). So `tree_overhang_ratio` describes the roof's in-AOI part while the includes describe the whole roof, and on a gridded AOI the two no longer match as they do for a parcelMode roof (section 5).
+- **Roof components are recomputed on the in-AOI part.** nmaipy clips each roof's outline to the AOI before recomputing its components: in the rollup's `primary_roof_*` columns (`parcels.parcel_rollup`, `clip_roof_to_parcel`) and in the per-class files (`exporter._clip_roof_geoms_to_aoi`). So `tree_overhang_ratio` describes the roof's in-AOI part while the includes describe the whole roof, and on a gridded AOI the two no longer match as they do for a parcelMode roof (section 5). The Roof Age instance link compares the same clipped outline (`exporter._link_roof_instances`).
 - **The primary feature is still the largest by `clipped_area`,** so a neighbour's roof wins only if most of the in-AOI roof area is its.
 
 `geometry_utils.combine_features_from_grid` merges the cells per `feature_id`:

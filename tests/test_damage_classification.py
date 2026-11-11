@@ -3,13 +3,16 @@
 # TODO: Replace fabricated test data with cached real API data (see project MEMORY.md)
 
 import os
+from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon
+from shapely.wkt import loads
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, BUILDING_LIFECYCLE_ID
+from nmaipy.feature_api import FeatureApi
 from nmaipy.parcels import (
     feature_attributes,
     flatten_building_lifecycle_damage_attributes,
@@ -283,15 +286,9 @@ class TestDamageClassification:
     @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
     def test_damage_classification_api_basic(self, cache_directory):
         """Test basic damage classification API call with Hurricane Beryl data."""
-        import os
-        from pathlib import Path
-
-        from shapely.wkt import loads
-
-        from nmaipy.feature_api import FeatureApi
-
-        # Test data - 900x900m area from Houston affected by Hurricane Beryl
-        TEST_AREA_WKT = "POLYGON ((-95.78126757509912 29.55035811820608, -95.78148993878693 29.55847120996382, -95.79076953781752 29.558276436626358, -95.79054643462453 29.55016340881871, -95.78126757509912 29.55035811820608))"
+        # A 200 m box in Houston affected by Hurricane Beryl, holding about 18 buildings. The damage include
+        # is scored per Building lifecycle feature at request time, so a small AOI keeps that work light.
+        TEST_AREA_WKT = "POLYGON ((-95.78702 29.55332, -95.78502 29.55332, -95.78502 29.55532, -95.78702 29.55532, -95.78702 29.55332))"
         test_area_geometry = loads(TEST_AREA_WKT)
 
         # Parameters for damage classification

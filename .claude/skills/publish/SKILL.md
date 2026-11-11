@@ -11,7 +11,7 @@ Execute the full release workflow for nmaipy.
 
 - Branch: !`git branch --show-current`
 - Git status: !`git status --short`
-- Current version: !`python -c "from nmaipy import __version__; print(__version__)"`
+- Current version: !`pixi run python -c "from nmaipy import __version__; print(__version__)"`
 - Latest GitHub release: !`gh release list --limit 1 2>/dev/null || echo "No releases found"`
 - Latest git tag: !`git describe --tags --abbrev=0 2>/dev/null || echo "No tags found"`
 
@@ -28,12 +28,12 @@ Execute these steps in order, stopping if any step fails:
    - If version hasn't been bumped, stop and ask user to update version first
 
 3. **Enforce code formatting**
-   - Run `black -l 120 nmaipy/ tests/` and `isort nmaipy/ tests/`
+   - Run `pixi run format` (black and isort, configured in `pyproject.toml`)
    - If any files were reformatted, stage them and present a suggested commit message for user review
    - This ensures consistent formatting before release
 
 4. **Run test suite (including live API)**
-   - Run `pytest` (all tests, including live API — requires `API_KEY` env var) and verify all tests pass
+   - Run `pixi run pytest` (all tests, including live API — requires `API_KEY` env var) and verify all tests pass
    - A release must pass the full test suite, not just the non-live subset
    - If tests fail, attempt to fix failures where appropriate (obvious bugs, missing imports, etc.)
    - Stage any fixes and present a suggested commit message for user review
@@ -43,8 +43,13 @@ Execute these steps in order, stopping if any step fails:
    - Get the diff since the last release tag: `git diff $(git describe --tags --abbrev=0)..HEAD`
    - Use the code-reviewer agent to review all changes
    - Focus on: correctness, breaking changes, security issues, missing tests
-   - Report any concerns to the user and ask whether to proceed
    - This catches issues that may have bypassed proper PR review
+   - **Stop until the user has decided on every finding.**
+     - Put every finding the review returns to the user, not just the ones you judge serious. Give each its concrete failure scenario and your recommendation, and ask whether to fix it before publishing. Name the findings in the question itself, because the question dialog can hide earlier text.
+     - The reviewer's verdict ("nothing blocks" or similar) informs the user's decision; it doesn't replace it. Don't sort findings into blockers and follow-ups yourself, and don't leave any as "follow-ups".
+     - Fix the findings the user wants fixed, with tests. If the release is on a branch that hasn't merged yet, fix them on that branch. Otherwise, open a PR to main, and once it merges, pull main (or merge it into the release branch).
+     - After fixing, start again from step 1, so the clean-repo check runs again too. A findings decision lasts for the whole release: on a rerun, raise only new findings, or ones whose code the fix changed, and don't re-ask about findings the user already accepted.
+     - Don't go on to step 6, or build anything, until each finding is either fixed or explicitly accepted by the user as it is.
 
 6. **Determine release path**
    - If on a feature branch (not main/master): create the PR to main and wait for it to merge.
@@ -52,10 +57,8 @@ Execute these steps in order, stopping if any step fails:
    - Always build, tag, and release from an up-to-date `main` — never from the feature branch.
 
 7. **Build and publish to PyPI**
-   - Clean old builds: `rm -rf dist/ build/ *.egg-info`
-   - Build: `python -m build`
-   - Verify: `twine check dist/*`
-   - Upload: `twine upload dist/*`
+   - Build: `pixi run build` (clears `dist/`, builds the sdist and wheel, and runs `twine check --strict`)
+   - Upload: `pixi run twine upload dist/*`
 
 8. **Write release notes** (do this *before* pushing the tag, so they're ready to apply in step 10)
    - Review all changes since last release: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
@@ -117,6 +120,10 @@ Execute these steps in order, stopping if any step fails:
      The recipe's `pip_check: true` test fails CI when a declared dep is missing, so a red CI
      on the bot PR usually means a `run:` dep needs adding.
 
+   - **Reconcile the build backend.** nmaipy builds with hatchling. If the recipe's
+     `requirements.host` still lists `setuptools` and `wheel`, replace them with
+     `hatchling >=1.27` in the same push.
+
    - **Merge on green CI.** You must be a listed maintainer
      (`extra.recipe-maintainers` — currently `mbewley`, `bretttully`).
 
@@ -132,4 +139,4 @@ Report the final status with links to:
 - conda-forge feedstock PR (note whether dependency edits were needed). This is
   asynchronous and may still be open/pending when the rest of the release is done.
 
-**Note:** After the tag is pushed, the Release Validation workflow runs automatically: it runs tests, verifies the tag matches the version, **creates the GitHub release** (empty notes, `prerelease: false`) and attaches the build artifacts, then verifies the version is live on PyPI (with `--pre`, so pre-releases are found). Step 10 finalizes the notes and pre-release flag on the release this workflow creates.
+**Note:** After the tag is pushed, the Release Validation workflow runs automatically: it runs tests, verifies the tag matches the version, **creates the GitHub release** (empty notes, `prerelease: false`) and attaches the build artifacts, then verifies the version is live on PyPI. Step 10 finalizes the notes and pre-release flag on the release this workflow creates.

@@ -2,6 +2,7 @@
 
 Evidence tags:
 - **[API]**: shown by bundled responses in nmaipy's `tests/data/` (`test_roof_age_fl_response.json`, `test_roof_age_nj_response.json`) or by the code that handles them.
+- **[live]**: checked against the live Roof Age API in November 2026, on two rowhouse blocks and on bundled New Jersey parcels (`tests/data/test_parcels_2.csv`) split through their main roof.
 - **[nmaipy]**: nmaipy's behaviour (`roof_age_api.py`, `roof_age_exporter.py`, `parcels.link_roof_instances_to_roofs`, `feature_attributes.flatten_roof_instance_attributes`).
 - **[inferred]**: not shown directly.
 
@@ -64,6 +65,7 @@ Evidence tags:
 
 Matching happens within each AOI only, by IoU (intersection area / union area).
 
+- [live] **Instances are cut per lot, not at the AOI.** Roof Age cuts instances to its own parcels, which can differ slightly from the AOI sent. A rowhouse row that the Feature API returns as one roof comes back as one instance per lot. An AOI that splits a house gets the house's whole instance, and an instance overlapping the AOI only partly is still returned.
 - **Instance → roof:** an instance's `parent_id` is the roof with the highest IoU, if IoU ≥ 0.005.
 - **Roof → instances:**
   - `child_roof_instances` lists **every** overlapping instance (IoU > 0), sorted `roof`-kind first, then by IoU.
@@ -73,7 +75,8 @@ Matching happens within each AOI only, by IoU (intersection area / union area).
 - [inferred] **Consequences of matching each way independently:**
   - An instance's parent can be roof A while roof B lists it as primary.
   - Several instances can attach to one roof.
-  - A multiparcel roof's Feature API geometry is the parcel clip while instances are not clipped, so IoU for shared structures is lower.
+  - A whole roof outline spanning several lots (a rowhouse row with parcelMode off) scores each lot's instance at roughly that lot's share of the roof, so its primary instance is the largest overlapping lot.
+- [nmaipy] **Gridded AOIs** (parcelMode off, whole outlines) are linked by the roof outline clipped to the AOI, the same clip as the component recalculation (`exporter._link_roof_instances`). A roof crossing the AOI boundary then links to the lot inside the AOI. The exported roof keeps its whole outline.
 - [nmaipy] **Per-class files:**
   - `roof.csv` carries the link columns and `primary_child_roof_age_*`.
   - `building.csv` follows building → primary child roof → that roof's instance.

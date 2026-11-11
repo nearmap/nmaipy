@@ -1,6 +1,8 @@
 """Tests for version management."""
 
 import re
+import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -32,3 +34,9 @@ class TestVersion:
         base_version = re.match(r"^(\d+\.\d+\.\d+)", __version__).group(1)
         version_from_tuple = ".".join(str(x) for x in __version_info__)
         assert version_from_tuple == base_version, f"Version mismatch: base={base_version}, tuple={version_from_tuple}"
+
+    def test_pixi_package_version_matches(self):
+        """Test that pyproject.toml's [tool.pixi.package] version equals __version__."""
+        pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+        pixi_version = pyproject["tool"]["pixi"]["package"]["version"]
+        assert pixi_version == __version__, f"pixi package version {pixi_version} != __version__ {__version__}"
