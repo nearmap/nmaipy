@@ -1,0 +1,26 @@
+column_name,description,allowed_values,dtype,source,min,max,precision,example
+aoi_id,Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).,,string \| int,input data,,,,
+area_sqft,"Area of the roof age instance, in square feet.",,float,base ai model,0,,,12.8
+class_id,The unique ID for the class of this feature.,,UUID,model metadata,,,,5a5cb214-eee3-4fdd-bfce-d21e9793cf6a
+description,A description of the class of this feature.,,string,model metadata,,,,Roof
+feature_id,Feature ID of the roof age instance.,,UUID,base ai model,,,,
+is_primary,Whether this feature is the parcel's primary feature for its class — selected by the largest-intersection strategy (see README → Primary Feature Selection).,Y | N,binary,base ai model,N,Y,,
+link,"URL to view this row in Nearmap MapBrowser. Per-class files (roof, building, etc.) frame the URL on each feature's centroid; the rollup frames it on the parcel.",,URL,image metadata,,,,
+parent_id,"Feature ID of this feature's parent in the API hierarchy. For the new Building class, this points to the Building Lifecycle ancestor.",,UUID,base ai model,,,,
+parent_iou,IoU (Intersection over Union) score with the parent feature (≥0.005 to assign).,,float,base ai model,0.0,1.0,,
+roof_age_after_installation_capture_date,First capture after roof installation.,,date,roof age model,,,,
+roof_age_as_of_date,"Reference date for age calculation. When --until is set, this is the requested cutoff (clamped to the dataset's nearest snapshot date).",,date,roof age model,,,,
+roof_age_assessor_data,Whether assessor records (year built) were used in determining roof age.,Y | N,binary,roof age model,N,Y,,
+roof_age_before_installation_capture_date,Last capture before roof installation.,,date,roof age model,,,,
+roof_age_evidence_type,How age was determined (numeric code; see evidence_type_legend in README.md).,0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,int,roof age model,0,8,,
+roof_age_evidence_type_description,Human-readable evidence type description.,,string,roof age model,,,,
+roof_age_installation_date,Estimated roof installation date.,,date,roof age model,,,,
+roof_age_kind,Type of estimate. One of `roof` (roof section) or `parcel` (property-level). Parcel-level estimates are only provided when no imagery is available.,roof | parcel,string,roof age model,,,,
+roof_age_map_browser_url,URL to view roof age timeline in MapBrowser.,,URL,roof age model,,,,
+roof_age_max_capture_date,Latest imagery capture date analyzed.,,date,roof age model,,,,
+roof_age_min_capture_date,Earliest imagery capture date analyzed.,,date,roof age model,,,,
+roof_age_model_version,Version of the roof age prediction model used.,,string,model metadata,A.0,,,
+roof_age_number_of_captures,Number of images analyzed.,,int,roof age model,0,,,
+roof_age_relevant_permits,Whether relevant building permits were used in determining roof age.,Y | N,binary,roof age model,N,Y,,
+roof_age_trust_score,Reliability of age estimate (higher = more reliable).,,int,roof age model,0,100,,
+roof_age_years_as_of_date,Calculated roof age in years (as_of_date − installation_date).,,float,roof age model,0,,,

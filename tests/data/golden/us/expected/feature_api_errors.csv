@@ -1,0 +1,8 @@
+column,u403,u404
+aoi_id,u403,u404
+failure_type,standard,standard
+geometry,"POLYGON ((-100.5 40.5017966, -100.4996456 40.5017966, -100.4996456 40.5020661, -100.5 40.5020661, -100.5 40.5017966))","POLYGON ((-100.5 40.5089831, -100.4996456 40.5089831, -100.4996456 40.5092526, -100.5 40.5092526, -100.5 40.5089831))"
+message,Not authorized for this synthetic area,No synthetic survey matches this request
+request,https://api.nearmap.com/ai/features/v4/bulk/features.json?apikey=APIKEYREMOVED&parcelMode=true&until=2025-03-18&packs=building%2Cbuilding_char%2Cpool%2Croof_char%2Croof_cond%2Csolar%2Csurfaces%2Cvegetation+with+body+%7B%22aoi%22%3A+%7B%22type%22%3A+%22Polygon%22%2C+%22coordinates%22%3A+%5B%5B%5B-100.5%2C+40.5017966%5D%2C+%5B-100.4996456%2C+40.5017966%5D%2C+%5B-100.4996456%2C+40.5020661%5D%2C+%5B-100.5%2C+40.5020661%5D%2C+%5B-100.5%2C+40.5017966%5D%5D%5D%7D%7D,https://api.nearmap.com/ai/features/v4/bulk/features.json?apikey=APIKEYREMOVED&parcelMode=true&until=2025-03-18&packs=building%2Cbuilding_char%2Cpool%2Croof_char%2Croof_cond%2Csolar%2Csurfaces%2Cvegetation+with+body+%7B%22aoi%22%3A+%7B%22type%22%3A+%22Polygon%22%2C+%22coordinates%22%3A+%5B%5B%5B-100.5%2C+40.5089831%5D%2C+%5B-100.4996456%2C+40.5089831%5D%2C+%5B-100.4996456%2C+40.5092526%5D%2C+%5B-100.5%2C+40.5092526%5D%2C+%5B-100.5%2C+40.5089831%5D%5D%5D%7D%7D
+status_code,403,404
+text,"{""message"":""Not authorized for this synthetic area""}","{""message"":""No synthetic survey matches this request""}"

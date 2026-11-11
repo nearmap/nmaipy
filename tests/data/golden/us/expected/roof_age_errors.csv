@@ -1,0 +1,4 @@
+column,u4,u403,u404
+aoi_id,u4,u403,u404
+message,RoofAgeAPIError: 404 - No synthetic roof instances here,RoofAgeAPIError: 404 - No synthetic roof instances here,RoofAgeAPIError: 404 - No synthetic roof instances here
+status_code,404,404,404

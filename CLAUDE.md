@@ -84,6 +84,15 @@ Output directly to a subfolder under `data/` so files can be reviewed in the IDE
 
 Deselect markers with `-m`, e.g.: `pixi run pytest -m "not live_api and not slow"`
 
+#### Golden fixtures
+
+`tests/test_golden_exports.py` runs the full exporter offline against an in-process synthetic fake of the Feature and Roof Age APIs, compares every file in `final/` by value against stored outputs, and pins the `export_config.json` keys and the API cache layout. See `tests/data/golden/README.md`.
+```bash
+python -m tests.golden.regenerate          # re-baseline expected outputs after an intended change (offline)
+python -m tests.golden.drift               # check the fake against the live API (needs API_KEY)
+python -m tests.golden.compare LEFT RIGHT  # diff two exports (e.g. old versus new code on the same input)
+```
+
 ### Code Formatting
 
 Format code with black and sort imports with isort:
