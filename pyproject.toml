@@ -50,7 +50,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/nearmap/nmaipy"
-Documentation = "https://nearmap.github.io/nmaipy/"
+Documentation = "https://github.com/nearmap/nmaipy#readme"
 Repository = "https://github.com/nearmap/nmaipy.git"
 "Bug Tracker" = "https://github.com/nearmap/nmaipy/issues"
 

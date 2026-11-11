@@ -98,7 +98,7 @@ pixi run lint
 
 ### Documentation Site
 
-The documentation site at https://nearmap.github.io/nmaipy/ is built with MyST from `docs/` (`docs/index.md` includes `README.md`; the theme overrides live in `docs/_static/custom.css`). Build it into `docs/_build/html`:
+The documentation site is built with MyST from `docs/` (`docs/index.md` includes `README.md`; the theme overrides live in `docs/_static/custom.css`). Build it into `docs/_build/html`:
 ```bash
 pixi run docs
 ```
