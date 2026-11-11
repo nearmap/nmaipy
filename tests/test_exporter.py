@@ -65,7 +65,7 @@ class TestResolvePrefetchWorkers:
     """
 
     @pytest.mark.parametrize(
-        "processes,expected",
+        ("processes", "expected"),
         [
             (1, 2),  # round(1.5) -> 2, equals the floor — minimum valid input
             (2, 3),  # round(3.0) -> 3
@@ -192,9 +192,13 @@ class TestAddMissingColumns:
         # Sanity: the naive per-column approach DOES warn on a wide frame, so the regression
         # assertion below is meaningful (it fails if anyone reverts to that loop).
         naive = self._fragmented_frame()
-        with pytest.warns(pd.errors.PerformanceWarning):
+
+        def add_columns_one_by_one() -> None:
             for col in self.META_COLUMNS:
                 naive[col] = None
+
+        with pytest.warns(pd.errors.PerformanceWarning):
+            add_columns_one_by_one()
 
         # The helper must add the same columns to an equally-wide frame without warning.
         df = self._fragmented_frame()
@@ -456,14 +460,11 @@ class TestExporter:
             )
 
             # The validation happens during run(), not initialization
-            # So we need to mock the API call to test validation
-            with patch.object(exporter, "process_chunk") as mock_process:
-                with pytest.raises(Exception) as exc_info:
-                    exporter.run()
+            with pytest.raises(SystemExit):
+                exporter.run()
 
-                # Check that an appropriate error was raised
-                # The exact error depends on implementation
-                assert exc_info.value is not None
+            errors = pd.read_parquet(next(Path(exporter.chunk_path).glob("feature_api_errors_*.parquet")))
+            assert errors["message"].str.contains("Invalid region 'invalid'").all(), errors["message"].tolist()
 
     @pytest.mark.parametrize("chunk_size", [1, 10, 100])
     def test_aoi_exporter_chunk_sizes(self, chunk_size):
@@ -1437,7 +1438,8 @@ class TestStreamMergeChunksToParquet:
         assert rows == 3
 
         meta = pq.read_schema(out).metadata
-        assert meta is not None and b"geo" in meta
+        assert meta is not None
+        assert b"geo" in meta
         geo = json.loads(meta[b"geo"])
         assert geo["version"] == "1.0.0"
         assert geo["primary_column"] == "geometry"
@@ -1602,7 +1604,7 @@ class TestStreamMergeChunksToParquet:
 
         threads_before = threading.active_count()
         monkeypatch.setattr("nmaipy.exporter.pq.ParquetWriter", FailingWriter)
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="simulated disk full"):
             _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=2)
 
         assert not Path(out).exists(), "truncated parquet must not be left at output_path"
@@ -1789,7 +1791,8 @@ class TestMergePerClassChunks:
         assert Path(roof_parquet).exists()
         rgdf = gpd.read_parquet(roof_parquet)
         assert len(rgdf) == 3
-        assert rgdf.crs is not None and rgdf.crs.to_epsg() == pyproj.CRS(API_CRS).to_epsg()
+        assert rgdf.crs is not None
+        assert rgdf.crs.to_epsg() == pyproj.CRS(API_CRS).to_epsg()
         assert rgdf.geometry.is_valid.all()
 
         # Staging dir removed after a clean local merge.
@@ -2032,7 +2035,8 @@ class TestCoverageGapChunks:
         self._run_all_failed_chunk(exporter, [404, 404])
         mixed = pd.read_parquet(chunk_path / "rollup_0001.parquet")
         all_404 = pd.read_parquet(chunk_path / "rollup_0000.parquet")
-        assert mixed.loc["p1", "feature_api_success"] == "Y" and mixed.loc["p1", "building_count"] == 1
+        assert mixed.loc["p1", "feature_api_success"] == "Y"
+        assert mixed.loc["p1", "building_count"] == 1
         assert set(all_404.columns) <= set(mixed.columns)
         assert mixed.loc["p2", list(set(mixed.columns) - set(all_404.columns))].isna().all()
         # Per-chunk convert_dtypes can spell a null as None or <NA>, so compare null-ness and the non-null values.
@@ -2172,7 +2176,7 @@ class TestCoverageGapChunks:
         return Path(exporter.chunk_path)
 
     @pytest.mark.parametrize(
-        "feature_kind,roof_age_kind,expected_feature,expected_roof_age",
+        ("feature_kind", "roof_age_kind", "expected_feature", "expected_roof_age"),
         [
             ("404", "answered", ["N", "N"], ["Y", "Y"]),  # no survey coverage, but Roof Age has an answer
             ("answered", "403", ["Y", "Y"], ["N", "N"]),  # no Roof Age access: N rows, not a failed export
@@ -2188,7 +2192,7 @@ class TestCoverageGapChunks:
         assert list(rollup["roof_age_api_success"]) == expected_roof_age
 
     @pytest.mark.parametrize(
-        "feature_kind,roof_age_kind",
+        ("feature_kind", "roof_age_kind"),
         [
             ("answered", "503"),  # Roof Age outage must not become permanent N rows
             ("answered", "raises"),  # nor a Roof Age client failure
@@ -2653,8 +2657,10 @@ def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
 
     cast = _cast_all_null_object_columns([typed, gap])
 
-    assert str(cast[1]["area"].dtype) == "Float64" and str(cast[1]["flag"].dtype) == "boolean"
-    assert cast[1]["np_bool"].dtype == object and cast[1]["np_bool"].isna().all(), "None must not become False"
+    assert str(cast[1]["area"].dtype) == "Float64"
+    assert str(cast[1]["flag"].dtype) == "boolean"
+    assert cast[1]["np_bool"].dtype == object, "None must not become False"
+    assert cast[1]["np_bool"].isna().all(), "None must not become False"
     merged = pd.concat(cast, ignore_index=True)
     assert str(merged["area"].dtype) == "Float64", merged["area"].dtype
     assert merged["area"].isna().tolist() == [False, False, True, True]
@@ -2768,7 +2774,7 @@ class TestPacksAndClasses:
             )
 
     @pytest.mark.parametrize(
-        "classes, unknown",
+        ("classes", "unknown"),
         [
             (["not-a-class-id"], ["not-a-class-id"]),
             ([f"{ROOF_ID},{BUILDING_NEW_ID}"], [f"{ROOF_ID},{BUILDING_NEW_ID}"]),

@@ -42,8 +42,10 @@ _STD_RESPONSE = {
 def test_std_coverage_response_to_dataframe_adds_resource_flags():
     df = cu.std_coverage_response_to_dataframe(_STD_RESPONSE)
     assert list(df["id"]) == ["s1", "s2"]
-    assert df.loc[0, "aifeatures"] and not df.loc[1, "aifeatures"]
-    assert df.loc[0, "3d"] and not df.loc[1, "3d"]
+    assert df.loc[0, "aifeatures"]
+    assert not df.loc[1, "aifeatures"]
+    assert df.loc[0, "3d"]
+    assert not df.loc[1, "3d"]
     assert df["tiles"].all()
 
 
@@ -109,7 +111,8 @@ def test_get_surveys_from_point_standard_paginates():
         df, resp = cu.get_surveys_from_point(151.0, -33.0, None, None, "KEY", cu.STANDARD_COVERAGE, limit=2)
     assert list(df["id"]) == ["s1", "s2", "s3"]
     assert len(urls) == 2, f"expected two page requests, got {urls}"
-    assert urls[1].count("limit=") == 1 and "&limit=2&offset=2" in urls[1], urls[1]
+    assert urls[1].count("limit=") == 1, urls[1]
+    assert "&limit=2&offset=2" in urls[1], urls[1]
 
 
 def test_get_surveys_from_point_ai_single_request():
@@ -118,7 +121,8 @@ def test_get_surveys_from_point_ai_single_request():
     with patch.object(cu, "get_payload", side_effect=fake):
         df, _ = cu.get_surveys_from_point(151.0, -33.0, None, None, "KEY", cu.AI_COVERAGE)
     assert list(df["id"]) == ["r1", "r2"]
-    assert len(urls) == 1 and "offset=" not in urls[0], urls
+    assert len(urls) == 1, urls
+    assert "offset=" not in urls[0], urls
 
 
 def test_get_all_survey_pages_raises_instead_of_truncating(monkeypatch):
@@ -202,7 +206,8 @@ def test_get_coverage_from_points_standard_tolerant(tmp_path):
     # one row per (unit × survey): 2 units × 2 surveys
     assert len(out) == 4
     assert set(out.index.unique()) == {"u1", "u2"}
-    assert "survey_resource_id" in out.columns and "tags" in out.columns  # tolerant projection kept tags
+    assert "survey_resource_id" in out.columns
+    assert "tags" in out.columns  # tolerant projection kept tags
     assert pd.api.types.is_datetime64_any_dtype(out["captureDate"])
     # s1 has an aifeatures resource id; s2 does not
     s1 = out[out["survey_id"] == "s1"].iloc[0]
@@ -272,7 +277,9 @@ def test_event_boundary_unions_only_tagged_surveys(coverage_boundary_response):
     )
     with patch.object(cu, "get_payload", return_value=coverage_boundary_response):
         boundary = cu.event_boundary(MILTON_EVENT_ID, since="2024-10-08", until="2024-10-25", apikey="k")
-    assert isinstance(boundary, (Polygon, MultiPolygon)) and boundary.is_valid and boundary.area > 0
+    assert isinstance(boundary, (Polygon, MultiPolygon))
+    assert boundary.is_valid
+    assert boundary.area > 0
     assert boundary.equals(expected)  # only tagged surveys contributed
     # the fixture's non-event survey adds area -> proves the defensive client-side tag filter excludes it
     assert with_untagged.area > boundary.area
@@ -295,7 +302,8 @@ def test_discover_event_returns_id_and_boundary(coverage_point_response, coverag
     with patch.object(cu, "get_payload", side_effect=fake_get_payload):
         event_id, boundary = cu.discover_event(27.742889, -82.754961, apikey="k")
     assert event_id == MILTON_EVENT_ID
-    assert isinstance(boundary, (Polygon, MultiPolygon)) and boundary.area > 0
+    assert isinstance(boundary, (Polygon, MultiPolygon))
+    assert boundary.area > 0
 
 
 @pytest.mark.live_api
@@ -306,7 +314,8 @@ def test_discover_event_live():
         pytest.skip("API_KEY not set")
     event_id, boundary = cu.discover_event(lat=27.742889, lon=-82.754961)
     assert event_id == MILTON_EVENT_ID
-    assert isinstance(boundary, (Polygon, MultiPolygon)) and boundary.area > 0
+    assert isinstance(boundary, (Polygon, MultiPolygon))
+    assert boundary.area > 0
 
 
 def test_event_boundary_paginates_offset(coverage_boundary_response):

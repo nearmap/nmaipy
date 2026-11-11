@@ -425,7 +425,9 @@ class TestRobustFileReading:
         finally:
             Path(parquet_path).unlink()
 
-    @pytest.mark.parametrize("suffix,driver,date_typed", [("geojson", "GeoJSON", False), ("gpkg", "GPKG", True)])
+    @pytest.mark.parametrize(
+        ("suffix", "driver", "date_typed"), [("geojson", "GeoJSON", False), ("gpkg", "GPKG", True)]
+    )
     def test_since_until_come_back_as_date_strings(self, tmp_path, suffix, driver, date_typed):
         """GeoJSON readers parse YYYY-MM-DD text, and GeoPackage readers a date-typed field, as datetimes, which
         the exporters reject; read_from_file must return them as strings, keeping nulls null."""

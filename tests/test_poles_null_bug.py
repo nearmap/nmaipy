@@ -22,7 +22,7 @@ def test_output_dir(tmp_path):
     output_dir = tmp_path / "poles_test_output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    yield output_dir
+    return output_dir
 
     # Cleanup happens automatically with tmp_path
 

@@ -202,7 +202,7 @@ def test_invalid_region_validation():
     geometry = Point(0, 0).buffer(0.001)
 
     # Test with invalid region code
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="Invalid region") as exc_info:
         api._create_post_request(
             base_url=api.FEATURES_URL,
             geometry=geometry,

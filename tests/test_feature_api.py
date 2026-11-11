@@ -634,9 +634,8 @@ class TestFeatureAPI:
 
     def test_unknown_pack(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match=r"Unknown packs: .*'foobar'"):
             feature_api.get_feature_classes(packs=["solar", "foobar"])
-        assert "foobar" in str(excinfo.value)
 
     def test_packs(self, cache_directory: Path):
         """
@@ -997,18 +996,16 @@ class TestFeatureAPI:
         with patch("requests.Session.post") as mock_post:
             mock_post.side_effect = requests.exceptions.ReadTimeout("Read timed out")
 
-            try:
-                # This should catch the timeout and treat it as a 504
-                result = api._get_results(
+            # This should catch the timeout and treat it as a 504
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
+                api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                # Should not reach here
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # This is expected - read timeouts should trigger gridding like 504s
-                assert e.status_code == HTTPStatus.GATEWAY_TIMEOUT, f"Expected 504, got {e.status_code}"
+            # This is expected - read timeouts should trigger gridding like 504s
+            e = exc_info.value
+            assert e.status_code == HTTPStatus.GATEWAY_TIMEOUT, f"Expected 504, got {e.status_code}"
 
     def test_timeout_logging_with_debug(self):
         """Test that timeout errors generate debug logs with curl commands"""
@@ -1051,19 +1048,18 @@ class TestFeatureAPI:
             # Simulate ChunkedEncodingError that triggers exception
             mock_post.side_effect = requests.exceptions.ChunkedEncodingError("Test error")
 
-            try:
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
-                    f"API key found in exception request_string: {e.request_string}"
-                )
-                assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
+            # Check that the stored request_string doesn't contain the API key
+            e = exc_info.value
+            assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                f"API key found in exception request_string: {e.request_string}"
+            )
+            assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
         # Test case 2: 504 status code leading to exception
         with patch("requests.Session.post") as mock_post:
@@ -1073,19 +1069,18 @@ class TestFeatureAPI:
             mock_response.text = "Gateway Timeout"
             mock_post.return_value = mock_response
 
-            try:
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
-                    f"API key found in exception request_string: {e.request_string}"
-                )
-                assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
+            # Check that the stored request_string doesn't contain the API key
+            e = exc_info.value
+            assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                f"API key found in exception request_string: {e.request_string}"
+            )
+            assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
         # Test case 3: JSON parsing error leading to exception (successful
         # responses are parsed from raw bytes via orjson)
@@ -1095,19 +1090,18 @@ class TestFeatureAPI:
             mock_response.content = b"not valid json {"
             mock_post.return_value = mock_response
 
-            try:
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
-                    f"API key found in exception request_string: {e.request_string}"
-                )
-                assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
+            # Check that the stored request_string doesn't contain the API key
+            e = exc_info.value
+            assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                f"API key found in exception request_string: {e.request_string}"
+            )
+            assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
     def test_max_allowed_error_count_uses_floor_not_round(self):
         """
@@ -1275,7 +1269,7 @@ class TestTruncatedJsonLogging:
         )
 
     @pytest.mark.parametrize(
-        "content, expected_level",
+        ("content", "expected_level"),
         [
             (b'{"features": [{"id": "abc", "geometry": {"type": "Poly', logging.DEBUG),
             (b"", logging.DEBUG),
@@ -1444,7 +1438,7 @@ if __name__ == "__main__":
     sys.exit(pytest.main([current_file]))
 
 
-@pytest.mark.parametrize("maxretry,expected_posts", [(0, 1), (2, 3)])
+@pytest.mark.parametrize(("maxretry", "expected_posts"), [(0, 1), (2, 3)])
 def test_chunked_encoding_retry_loop_honours_maxretry(maxretry, expected_posts):
     """The client-side ChunkedEncodingError loop must spend the configured budget
     (1 initial attempt + maxretry retries), not the package constant."""

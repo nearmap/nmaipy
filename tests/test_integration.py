@@ -13,6 +13,7 @@ import tempfile
 from dotenv import load_dotenv
 import geopandas as gpd
 import pandas as pd
+from pyogrio.errors import DataSourceError
 import pytest
 
 from nmaipy.exporter import AOIExporter
@@ -229,7 +230,7 @@ class TestIntegration:
             )
 
             # Should raise an error when trying to run
-            with pytest.raises(Exception):
+            with pytest.raises(DataSourceError, match="No such file or directory"):
                 exporter.run()
 
     @pytest.mark.integration
@@ -248,7 +249,7 @@ class TestIntegration:
             )
 
             # Should handle invalid GeoJSON gracefully
-            with pytest.raises(Exception):
+            with pytest.raises(DataSourceError, match="not recognized as being in a supported file format"):
                 exporter.run()
 
 

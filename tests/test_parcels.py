@@ -508,7 +508,7 @@ class TestParcels:
                 assert expected[k] == actual[k], f"Expected {k} to be {expected[k]}, got {actual[k]}"
         for k in actual:
             if k not in expected:
-                assert False, f"Unexpected key {k} in actual result: {actual[k]}"
+                pytest.fail(f"Unexpected key {k} in actual result: {actual[k]}")
 
     def test_rollup(self, parcels_2_gdf, features_2_gdf, parcels_gdf, features_gdf):
         classes_df = pd.DataFrame(

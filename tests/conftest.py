@@ -44,7 +44,7 @@ def cleanup_test_artifacts():
     shutil.rmtree(processed_dir, ignore_errors=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def cache_directory() -> Path:
     """
     Provides a cache directory for each test function.
@@ -59,7 +59,7 @@ def cache_directory() -> Path:
     shutil.rmtree(output_dir, ignore_errors=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def processed_output_directory() -> Path:
     """
     Provides a processed output directory for each test function.

@@ -115,7 +115,8 @@ def test_process_chunk_writes_features_and_metadata(tmp_path, chunk_inputs):
 
     feats = Path(exporter.chunk_path) / "damage_features_0000.parquet"
     meta = Path(exporter.chunk_path) / "metadata_0000.parquet"
-    assert feats.exists() and meta.exists()
+    assert feats.exists()
+    assert meta.exists()
     result = gpd.read_parquet(feats)
     assert len(result) == len(features_gdf)
     for col in ("feature_id", "damage_event_rating", "event_uuid"):
@@ -253,7 +254,8 @@ def test_save_outputs_writes_consolidated_errors(tmp_path, chunk_inputs):
     errs = Path(exporter.final_path) / "damage_errors.csv"
     assert errs.exists()
     out = pd.read_csv(errs)
-    assert "status_code" in out.columns and "message" in out.columns
+    assert "status_code" in out.columns
+    assert "message" in out.columns
     assert (out["status_code"] == 429).any()
 
 

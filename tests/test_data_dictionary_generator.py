@@ -132,7 +132,7 @@ class TestGenericPatterns:
     """Each suffix family produces the expected dtype/source default."""
 
     @pytest.mark.parametrize(
-        "name, dtype, expect_min",
+        ("name", "dtype", "expect_min"),
         [
             ("tile_area_sqft", "float", "0"),
             ("metal_area_sqm", "float", "0"),
@@ -154,7 +154,8 @@ class TestGenericPatterns:
         meta = lookup_column("solar_present", area_unit="sqft")
         assert meta.dtype == "binary"
         assert meta.allowed_values == "Y | N"
-        assert meta.min == "N" and meta.max == "Y"
+        assert meta.min == "N"
+        assert meta.max == "Y"
 
     def test_confidence_includes_null_caveat(self):
         meta = lookup_column("tile_confidence", area_unit="sqft")
@@ -162,7 +163,7 @@ class TestGenericPatterns:
         assert "Null when the corresponding area is 0" in meta.description
 
     @pytest.mark.parametrize(
-        "name, bin_type, expected_bin_idx",
+        ("name", "bin_type", "expected_bin_idx"),
         [
             ("primary_roof_structural_damage_confidence_stats_default_bin_0", "default", "0"),
             ("primary_roof_structural_damage_confidence_stats_default_bin_17", "default", "17"),
@@ -182,7 +183,7 @@ class TestGenericPatterns:
         assert f"bin {expected_bin_idx}" in meta.description
 
     @pytest.mark.parametrize(
-        "name, expected_scope_phrase, expected_class_phrase",
+        ("name", "expected_scope_phrase", "expected_class_phrase"),
         [
             # Regression: short-first alternation in the regex would let
             # ``primary_roof_`` match a ``primary_roof_instance_`` column,
@@ -425,22 +426,22 @@ class TestJsonConfig:
     def test_malformed_json_raises_friendly_error(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text("{not: valid json")
+        cm.load_metadata.cache_clear()
         with pytest.raises(json.JSONDecodeError):
-            cm.load_metadata.cache_clear()
             cm.load_metadata(str(bad))
 
     def test_missing_required_key_raises_friendly_error(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text(json.dumps({"exact_matches": {}}))  # missing 'patterns'
+        cm.load_metadata.cache_clear()
         with pytest.raises(ValueError, match="patterns"):
-            cm.load_metadata.cache_clear()
             cm.load_metadata(str(bad))
 
     def test_invalid_pattern_regex_raises_friendly_error(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text(json.dumps({"exact_matches": {}, "patterns": [{"regex": "(unclosed"}]}))
+        cm.load_metadata.cache_clear()
         with pytest.raises(ValueError, match="regex is invalid"):
-            cm.load_metadata.cache_clear()
             cm.load_metadata(str(bad))
 
 

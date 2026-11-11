@@ -292,7 +292,8 @@ def test_roof_age_api_cache_separated_by_until_as_of_date(test_aoi_nj, cache_dir
     none_path = api._get_cache_path(cache_key, until_as_of_date=None)
     p2020 = api._get_cache_path(cache_key, until_as_of_date="2020-01-01")
     p2021 = api._get_cache_path(cache_key, until_as_of_date="2021-01-01")
-    assert none_path != p2020 != p2021 and none_path != p2021
+    assert none_path != p2020 != p2021
+    assert none_path != p2021
 
 
 def test_roof_age_api_cache_separated_by_since_as_of_date(test_aoi_nj, cache_directory):
@@ -302,7 +303,8 @@ def test_roof_age_api_cache_separated_by_since_as_of_date(test_aoi_nj, cache_dir
     none_path = api._get_cache_path(cache_key, since_as_of_date=None)
     p2018 = api._get_cache_path(cache_key, since_as_of_date="2018-01-01")
     p2019 = api._get_cache_path(cache_key, since_as_of_date="2019-01-01")
-    assert none_path != p2018 != p2019 and none_path != p2019
+    assert none_path != p2018 != p2019
+    assert none_path != p2019
 
 
 def test_roof_age_api_missing_key():

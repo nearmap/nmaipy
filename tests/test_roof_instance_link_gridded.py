@@ -114,7 +114,7 @@ def test_an_invalid_roof_keeps_its_outline_without_unclipping_the_rest_of_its_ao
 
 
 @pytest.mark.parametrize(
-    "roof_rows, reorder",
+    ("roof_rows", "reorder"),
     [
         ([("a", "a-row", _ROW_ROOF), ("a", "a-shed", _SHED)], lambda df: df.iloc[::-1]),
         # One roof spanning two AOIs: the feature_id sequence is identical after the swap.

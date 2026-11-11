@@ -392,7 +392,7 @@ class TestJsonDumpsBytes:
         a NaN literal now fail to parse (callers treat that as a cache miss)."""
         fpath = tmp_path / "legacy.json"
         fpath.write_text(json.dumps({"x": float("nan")}))  # writes {"x": NaN}
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="expected a JSON value"):
             storage.read_json(str(fpath))
 
 

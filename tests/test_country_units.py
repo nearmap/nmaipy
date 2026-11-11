@@ -108,7 +108,7 @@ def primary_ids_df():
 
 
 @pytest.mark.parametrize(
-    "country,kept,dropped",
+    ("country", "kept", "dropped"),
     [
         ("us", "sqft", "sqm"),
         ("au", "sqm", "sqft"),
@@ -131,7 +131,7 @@ def test_per_class_assembler_emits_only_country_unit(cross_class_chunk_gdf, prim
     assert f"unclipped_area_{dropped}" not in cols
 
 
-@pytest.mark.parametrize("country,kept,dropped", [("us", "sqft", "sqm"), ("au", "sqm", "sqft")])
+@pytest.mark.parametrize(("country", "kept", "dropped"), [("us", "sqft", "sqm"), ("au", "sqm", "sqft")])
 def test_roof_instance_per_class_export_emits_only_country_unit(country, kept, dropped):
     """Roof instances have a single area (no clipped/unclipped distinction)."""
     rows = [
