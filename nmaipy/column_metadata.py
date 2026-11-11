@@ -216,12 +216,12 @@ def _substitute(
     """Substitute templated placeholders.
 
     Recognised placeholders:
-      ``{unit}``          – ``"sqft"`` / ``"sqm"``.
-      ``{unit_name}``     – ``"square feet"`` / ``"square metres"``.
-      ``{scope_phrase}``  – e.g. ``"on the primary roof of the parcel"``.
-      ``{class}``         – pattern-captured detection class (humanised).
-      ``{class_label}``   – simple class name from filename or scope (e.g. ``"roof"``).
-      ``{class_label_primary}`` – primary-feature scope phrasing (e.g. ``"primary roof on the parcel"``).
+      ``{unit}``          - ``"sqft"`` / ``"sqm"``.
+      ``{unit_name}``     - ``"square feet"`` / ``"square metres"``.
+      ``{scope_phrase}``  - e.g. ``"on the primary roof of the parcel"``.
+      ``{class}``         - pattern-captured detection class (humanised).
+      ``{class_label}``   - simple class name from filename or scope (e.g. ``"roof"``).
+      ``{class_label_primary}`` - primary-feature scope phrasing (e.g. ``"primary roof on the parcel"``).
         Falls back to ``{class_label}`` when no scope is set.
     """
     if not value:
@@ -516,7 +516,8 @@ def lookup_column(
             if "primary_prefix" in extra_groups:
                 if extra_groups["primary_prefix"]:
                     extra_groups["primary_phrasing"] = (
-                        "the primary roof on the parcel (with Building Lifecycle fallback when structural damage is present)"
+                        "the primary roof on the parcel (with Building Lifecycle fallback when structural damage is "
+                        "present)"
                     )
                 else:
                     extra_groups["primary_phrasing"] = f"this {class_label}"
@@ -544,7 +545,7 @@ def lookup_column(
             scope_for_subject = groups.get("scope") or ""
             if scope_for_subject in _SCOPE_CLASS_LABELS_SIMPLE:
                 extra_groups["dominant_subject"] = f"the primary {_SCOPE_CLASS_LABELS_SIMPLE[scope_for_subject]}"
-            elif class_label and class_label != "feature" and class_label != "parcel":
+            elif class_label and class_label not in {"feature", "parcel"}:
                 extra_groups["dominant_subject"] = f"this {class_label}"
             else:
                 extra_groups["dominant_subject"] = "the parcel"
@@ -556,14 +557,14 @@ def lookup_column(
             # "inside a lanai" / "above-ground" cases).
             if "condition" in extra_groups:
                 cond = extra_groups["condition"]
-                _COND_PHRASES = {
+                cond_phrases = {
                     "unmaintained": "unmaintained",
                     "in_lanai": "inside a lanai",
                     "covered": "covered",
                     "empty": "empty",
                     "above_ground": "above-ground",
                 }
-                extra_groups["condition_phrase"] = _COND_PHRASES.get(cond, cond.replace("_", " "))
+                extra_groups["condition_phrase"] = cond_phrases.get(cond, cond.replace("_", " "))
                 extra_groups["pool_subject"] = (
                     "the primary swimming pool on the parcel"
                     if scope_for_subject == "primary_swimming_pool_"
@@ -674,15 +675,15 @@ def _instantiate(
     extra_groups: dict[str, str] | None = None,
 ) -> ColumnMeta:
     """Render templates in a ColumnMeta against the given context."""
-    kw = dict(
-        area_unit=area_unit,
-        scope=scope,
-        cls=cls,
-        class_label=class_label,
-        class_label_primary=class_label_primary,
-        scope_phrase_override=scope_phrase_override,
-        extra_groups=extra_groups or {},
-    )
+    kw = {
+        "area_unit": area_unit,
+        "scope": scope,
+        "cls": cls,
+        "class_label": class_label,
+        "class_label_primary": class_label_primary,
+        "scope_phrase_override": scope_phrase_override,
+        "extra_groups": extra_groups or {},
+    }
     return replace(
         template,
         dtype=_substitute(template.dtype, **kw),

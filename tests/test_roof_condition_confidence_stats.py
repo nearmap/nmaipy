@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Test that roofConditionConfidenceStats is correctly handled in flatten_roof_attributes."""
 
 import ast
@@ -25,7 +24,8 @@ def roof_condition_confidence_stats_payload():
     raw_payload_file = data_directory / "test_roof_condition_confidence_stats_raw_payload.json"
     if not raw_payload_file.exists():
         pytest.skip(
-            f"Raw payload file {raw_payload_file} does not exist. Run test_gen_roof_condition_confidence_stats_data first."
+            f"Raw payload file {raw_payload_file} does not exist. Run test_gen_roof_condition_confidence_stats_data "
+            "first."
         )
 
     with open(raw_payload_file) as f:
@@ -93,7 +93,7 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["roof_cond"],  # Use roof_cond pack for roof condition stats
@@ -105,26 +105,24 @@ def test_gen_roof_condition_confidence_stats_data(cache_directory: Path):
     features_gdf.to_csv(outfile)
 
     # Check if we got roofConditionConfidenceStats data
-    roof_features = features_gdf[features_gdf["class_id"] == ROOF_ID]
     rccs_count = 0
 
     # Check raw payload for roofConditionConfidenceStats
     for feature in raw_payload.get("features", []):
-        if feature.get("classId") == ROOF_ID:
-            if "roofConditionConfidenceStats" in feature:
-                rccs_count += 1
-                # Save a sample with RCCS
-                rccs_sample_file = data_directory / "test_roof_condition_confidence_stats_sample.json"
-                with open(rccs_sample_file, "w") as f:
-                    json.dump(
-                        {
-                            "feature_id": feature.get("id"),
-                            "roofConditionConfidenceStats": feature["roofConditionConfidenceStats"],
-                        },
-                        f,
-                        indent=2,
-                    )
-                break
+        if feature.get("classId") == ROOF_ID and "roofConditionConfidenceStats" in feature:
+            rccs_count += 1
+            # Save a sample with RCCS
+            rccs_sample_file = data_directory / "test_roof_condition_confidence_stats_sample.json"
+            with open(rccs_sample_file, "w") as f:
+                json.dump(
+                    {
+                        "feature_id": feature.get("id"),
+                        "roofConditionConfidenceStats": feature["roofConditionConfidenceStats"],
+                    },
+                    f,
+                    indent=2,
+                )
+            break
 
 
 def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
@@ -147,8 +145,8 @@ def test_roof_condition_confidence_stats_with_real_data(roof_with_rccs):
     # Verify confidenceStats histogram bins were extracted correctly
     # Each roof condition component should have histogram bins (default: 18 bins, extreme: 3 bins)
     # Look for histogram bin columns
-    default_bins = [key for key in result.keys() if "confidence_stats_default_bin_" in key]
-    extreme_bins = [key for key in result.keys() if "confidence_stats_extreme_bin_" in key]
+    default_bins = [key for key in result if "confidence_stats_default_bin_" in key]
+    extreme_bins = [key for key in result if "confidence_stats_extreme_bin_" in key]
 
     assert len(default_bins) > 0, "Should have default histogram bins"
     assert len(extreme_bins) > 0, "Should have extreme histogram bins"

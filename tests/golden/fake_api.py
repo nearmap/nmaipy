@@ -186,7 +186,7 @@ IGNORED_LIVE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-class UnknownRequest(Exception):
+class UnknownRequest(Exception):  # noqa: N818 -- name imported by the golden replay harness
     """A request the fake has no route or no answer for."""
 
 

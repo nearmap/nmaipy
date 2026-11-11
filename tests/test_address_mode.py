@@ -162,7 +162,7 @@ def test_url_encoding_in_address_fields():
     geometry = Point(0, 0).buffer(0.001)
 
     # Create POST request parameters
-    url, body, exact = api._create_post_request(
+    url, _body, _exact = api._create_post_request(
         base_url=api.FEATURES_URL,
         geometry=geometry,
         address_fields=address_fields,

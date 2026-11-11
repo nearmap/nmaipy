@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Test that hurricaneScore is correctly handled in flatten_roof_attributes."""
 
 import io
@@ -100,7 +99,7 @@ def test_gen_hurricane_score_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame (without date constraints)
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["building"],
@@ -117,7 +116,7 @@ def test_gen_hurricane_score_data(cache_directory: Path):
     hurricane_score_count = 0
     roof_samples = []
 
-    for idx, row in roof_features.iterrows():
+    for _, row in roof_features.iterrows():
         # Check for hurricaneScore as a root-level property (similar to roofSpotlightIndex)
         # After feature_api processing, camelCase gets converted to snake_case
         has_hurricane_score = False

@@ -84,7 +84,7 @@ def test_attempt_gridding_does_not_swallow_dict_aggregate(monkeypatch, defensibl
 
     monkeypatch.setattr(api, "get_features_gdf_gridded", fake_gridded)
 
-    features_gdf, metadata, error, errors_df = api._attempt_gridding(
+    _features_gdf, metadata, error, _errors_df = api._attempt_gridding(
         geometry=Polygon([(0, 0), (0, 1), (1, 1), (1, 0)]),
         region="us",
         aoi_id=999,

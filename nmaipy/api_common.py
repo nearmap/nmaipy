@@ -260,9 +260,12 @@ class RetryRequest(Retry):
         # Read timeouts have their own budget, tracked here because urllib3's `read`
         # counter is shared with connection-aborted errors (see class docstring).
         # Surfacing the bare ReadTimeoutError makes requests raise ReadTimeout.
-        if is_read_timeout and self.read_timeout_retries is not None:
-            if self.read_timeout_count >= self.read_timeout_retries:
-                raise error.with_traceback(_stacktrace)
+        if (
+            is_read_timeout
+            and self.read_timeout_retries is not None
+            and self.read_timeout_count >= self.read_timeout_retries
+        ):
+            raise error.with_traceback(_stacktrace)
 
         result = super().increment(method, url, response, error, _pool, _stacktrace)
         if is_read_timeout:
@@ -477,8 +480,7 @@ def clean_api_key_from_string(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", text, flags=re.IGNORECASE)
-    return text
+    return re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", text, flags=re.IGNORECASE)
 
 
 # Per-thread batching cap for `_increment_progress`. Increments accumulate in
@@ -698,14 +700,13 @@ class BaseApiClient:
                     except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
                         pass
                 self._adapters.clear()
-        else:  # Fallback if attributes don't exist
-            if hasattr(self, "_adapters"):
-                for adapter in self._adapters:
-                    try:
-                        adapter.close()
-                    except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
-                        pass
-                self._adapters.clear()
+        elif hasattr(self, "_adapters"):
+            for adapter in self._adapters:
+                try:
+                    adapter.close()
+                except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
+                    pass
+            self._adapters.clear()
         # Clear thread-local adapter cache (only affects calling thread,
         # but other threads' adapters are already closed via self._adapters above)
         if hasattr(self, "_thread_local") and hasattr(self._thread_local, "adapters"):
@@ -1557,13 +1558,27 @@ CHUNK_PHASE_TIMING_COLUMNS: list[str] = [
 def _get_latency_csv_columns() -> list[str]:
     """Get the ordered list of columns for latency CSV files."""
     bucket_names = _get_latency_bucket_names()
-    return (
-        ["chunk_id", "count", "mean", "p50", "p90", "p95", "p99", "min", "max"]
-        + ["retry_count", "timeout_count", "cache_hits", "cache_misses"]
-        + ["start_time", "end_time", "total_duration_ms", "rps"]
-        + bucket_names
-        + CHUNK_PHASE_TIMING_COLUMNS
-    )
+    return [
+        "chunk_id",
+        "count",
+        "mean",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+        "min",
+        "max",
+        "retry_count",
+        "timeout_count",
+        "cache_hits",
+        "cache_misses",
+        "start_time",
+        "end_time",
+        "total_duration_ms",
+        "rps",
+        *bucket_names,
+        *CHUNK_PHASE_TIMING_COLUMNS,
+    ]
 
 
 def write_latency_csv(chunk_stats: list[dict], csv_path) -> None:
@@ -1652,7 +1667,7 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> list
     combined_df.to_csv(output_csv_path, index=False)
 
     bucket_names = _get_latency_bucket_names()
-    stats_list = [
+    return [
         {
             "chunk_id": row["chunk_id"],
             "count": int(row["count"]),
@@ -1669,8 +1684,6 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> list
         }
         for row in combined_df.to_dict("records")
     ]
-
-    return stats_list
 
 
 def log_request_cache_summary(logger_, chunk_stats: list[dict]) -> None:

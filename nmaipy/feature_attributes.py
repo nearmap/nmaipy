@@ -198,16 +198,23 @@ RESOLVED_SCORE_OUTPUT_COLUMNS = frozenset(
 # Narrow prefixes for columns whose full names are dynamic (not in
 # INCLUDE_FIELD_MAPPINGS): modelInputFeatures columns (one prefix per peril)
 # and defensible-space per-zone columns.
-RESOLVED_DYNAMIC_PREFIXES = tuple(
-    f"{config['model_input_prefix']}_" for config in INCLUDE_FIELD_MAPPINGS.values() if "model_input_prefix" in config
-) + ("defensible_space_zone_",)
+RESOLVED_DYNAMIC_PREFIXES = (
+    *(
+        f"{config['model_input_prefix']}_"
+        for config in INCLUDE_FIELD_MAPPINGS.values()
+        if "model_input_prefix" in config
+    ),
+    "defensible_space_zone_",
+)
 
 # RSI output columns — resolved via its own roof→BL fallback path that
 # predates the generalised score resolution. Exported separately for use
 # in consumers that want to exclude RSI raw columns from propagation.
 RSI_OUTPUT_COLUMNS = frozenset(
-    list(INCLUDE_FIELD_MAPPINGS["roofSpotlightIndex"]["fields"].values())
-    + [f"{INCLUDE_FIELD_MAPPINGS['roofSpotlightIndex']['snake_key']}_model_version"]
+    [
+        *INCLUDE_FIELD_MAPPINGS["roofSpotlightIndex"]["fields"].values(),
+        f"{INCLUDE_FIELD_MAPPINGS['roofSpotlightIndex']['snake_key']}_model_version",
+    ]
 )
 
 
@@ -371,13 +378,12 @@ def _get_feature_value(feature, key):
     """
     if isinstance(feature, dict):
         return feature.get(key)
-    if isinstance(feature, pd.Series):
-        if key in feature.index:
-            val = feature.get(key)
-            # Handle NaN values
-            if pd.isna(val):
-                return None
-            return val
+    if isinstance(feature, pd.Series) and key in feature.index:
+        val = feature.get(key)
+        # Handle NaN values
+        if pd.isna(val):
+            return None
+        return val
     return None
 
 
@@ -740,12 +746,11 @@ def flatten_roof_attributes(
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns
         attributes = roof.get("attributes")
-        if attributes:
-            if isinstance(attributes, str):
-                try:
-                    attributes = json.loads(attributes)
-                except (json.JSONDecodeError, TypeError):
-                    attributes = []
+        if attributes and isinstance(attributes, str):
+            try:
+                attributes = json.loads(attributes)
+            except (json.JSONDecodeError, TypeError):
+                attributes = []
         if attributes is None or not attributes:
             # Try to reconstruct from dot-notation columns (created by exporter.py's process_chunk)
             attributes = _reconstruct_attributes_from_dot_notation(roof)
@@ -1021,9 +1026,8 @@ def flatten_roof_instance_attributes(
         """Get value from dict or Series."""
         if isinstance(roof_instance, dict):
             return roof_instance.get(key)
-        if isinstance(roof_instance, pd.Series):
-            if key in roof_instance.index:
-                return roof_instance.get(key)
+        if isinstance(roof_instance, pd.Series) and key in roof_instance.index:
+            return roof_instance.get(key)
         return None
 
     # Iterate the canonical ROOF_AGE_PREFIX_COLUMNS order so output columns

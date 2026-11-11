@@ -474,8 +474,7 @@ class TestSelectPrimary:
     def _create_test_gdf(self, features: list) -> gpd.GeoDataFrame:
         """Create a test GeoDataFrame from feature definitions."""
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
-        gdf = gdf.set_crs("EPSG:4326")
-        return gdf
+        return gdf.set_crs("EPSG:4326")
 
     def test_largest_method(self):
         """Test 'largest' method selects by area."""

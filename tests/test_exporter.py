@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 import warnings
 import weakref
@@ -163,7 +164,7 @@ class TestAddMissingColumns:
     be added. Doing that one column at a time floods the logs with pandas PerformanceWarnings.
     """
 
-    META_COLUMNS = [
+    META_COLUMNS: ClassVar[list[str]] = [
         "system_version",
         "link",
         "survey_date",
@@ -328,7 +329,7 @@ class TestExporter:
             errors = pd.DataFrame()
         errors.to_csv(outpath_errors, index=True)
 
-        for cp in [p for p in chunk_path.glob("features_*.parquet")]:
+        for cp in list(chunk_path.glob("features_*.parquet")):
             data_features.append(gpd.read_parquet(cp))
         data_features = pd.concat(data_features)
         if len(data_features) > 0:
@@ -555,8 +556,8 @@ class TestExporter:
 
         The fix should handle this by creating properly-typed null arrays.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -615,7 +616,7 @@ class TestExporter:
             feature_paths = [chunk1_path, chunk2_path]
 
             # This should not raise an error
-            result = exporter._stream_and_convert_features(feature_paths, output_path)
+            exporter._stream_and_convert_features(feature_paths, output_path)
 
             # Verify the output file exists and can be read
             assert output_path.exists()
@@ -627,8 +628,8 @@ class TestExporter:
 
     def test_stream_and_convert_features_null_columns_no_warning(self, caplog):
         """Test that null-type columns in later chunks are promoted silently without warnings."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -689,8 +690,8 @@ class TestExporter:
 
     def test_stream_and_convert_features_reference_schema_null_promotion(self):
         """Test that null-type columns in the first chunk are promoted to string in reference schema."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -751,8 +752,8 @@ class TestExporter:
         sorted by class_id (so row-group stats stay class-clustered) in groups of
         at most FEATURES_ROW_GROUP_SIZE rows.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -1074,8 +1075,8 @@ class TestStreamAndConvertFeaturesSchemaUnion:
 
     def test_union_schema_includes_columns_from_all_chunks(self):
         """Columns present in later chunks but not in chunk 0 should be preserved."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -1106,8 +1107,8 @@ class TestStreamAndConvertFeaturesSchemaUnion:
 
     def test_corrupt_chunk_skipped_during_schema_scan(self):
         """A corrupt chunk file should be skipped, not abort the entire export."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -1135,21 +1136,12 @@ class TestStreamAndConvertFeaturesSchemaUnion:
 
     def test_large_type_promotion(self):
         """string and binary columns are promoted to large_string/large_binary to prevent offset overflow."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
             # Create a chunk with pa.string() and pa.binary() columns
-            table = pa.table(
-                {
-                    "text_col": pa.array(["hello"], type=pa.string()),
-                    "bin_col": pa.array([b"\x00\x01"], type=pa.binary()),
-                    "int_col": pa.array([1], type=pa.int64()),
-                    "class_id": pa.array(["c1"], type=pa.string()),
-                    "geometry": pa.array([Point(0, 0).wkb], type=pa.binary()),
-                },
-            )
             # Write with geopandas so we get valid geoparquet metadata
             gdf = gpd.GeoDataFrame(
                 {
@@ -1175,8 +1167,8 @@ class TestStreamAndConvertFeaturesSchemaUnion:
 
     def test_all_corrupt_chunks_returns_none(self):
         """If all chunks are corrupt, _stream_and_convert_features returns None."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
             chunk_dir = tmpdir / "chunks"
             chunk_dir.mkdir()
 
@@ -1273,7 +1265,7 @@ class TestPerClassChunkGlobFiltering:
 
     def test_each_class_matches_own_chunks(self, per_class_cnames):
         """Every class's regex matches its own tabular and geo chunk filenames."""
-        for cid, cname in per_class_cnames.items():
+        for cname in per_class_cnames.values():
             tabular_re, geo_re = _per_class_chunk_regexes(cname)
             tabular_file = f"{cname}_0.parquet"
             geo_file = f"{cname}_features_0.parquet"
@@ -1295,7 +1287,7 @@ class TestPerClassChunkGlobFiltering:
 
     def test_tabular_regex_excludes_geo_files(self, per_class_cnames):
         """Tabular regex must not match geo chunk files for the same class."""
-        for cid, cname in per_class_cnames.items():
+        for cname in per_class_cnames.values():
             tabular_re, _ = _per_class_chunk_regexes(cname)
             geo_file = f"{cname}_features_0.parquet"
             assert not tabular_re.match(geo_file), f"{cname!r} tabular regex must not match geo file {geo_file!r}"
@@ -1611,7 +1603,7 @@ class TestStreamMergeChunksToParquet:
         Path(bad).write_text("not a parquet file")
         out = str(tmp_path / "merged.parquet")
 
-        rows = _stream_merge_chunks_to_parquet(paths + [bad], out, scan_workers=2, prefetch_workers=2)
+        rows = _stream_merge_chunks_to_parquet([*paths, bad], out, scan_workers=2, prefetch_workers=2)
         assert rows == 3
         assert sorted(pq.read_table(out).column("id").to_pylist()) == [1, 2, 3]
 
@@ -2022,7 +2014,6 @@ class TestCoverageGapChunks:
         assert gap_row.dropna().equals(mixed_row.dropna())
 
     def test_export_spanning_all_404_and_mixed_chunks_keeps_every_aoi(self, exporter):
-        aoi_gdf = self._aoi_gdf()
         mixed_aois = gpd.GeoDataFrame(
             {"suburb": ["z", "w"]},
             geometry=[box(151.24, -33.90, 151.25, -33.89), box(151.26, -33.90, 151.27, -33.89)],
@@ -2376,9 +2367,11 @@ class TestSkipRebuildWhenReadmeExists:
         def boom(*args, **kwargs):
             raise sentinel
 
-        with patch("nmaipy.exporter.FeatureApi", side_effect=boom):
-            with pytest.raises(RuntimeError, match="got past the fast-path"):
-                exporter.run()
+        with (
+            patch("nmaipy.exporter.FeatureApi", side_effect=boom),
+            pytest.raises(RuntimeError, match="got past the fast-path"),
+        ):
+            exporter.run()
 
     def test_fast_path_triggered_when_config_unchanged(self, tmp_path):
         """README + matching config → fast-path triggers.
@@ -2452,9 +2445,11 @@ class TestSkipRebuildWhenReadmeExists:
             packs=["building"],
         )
 
-        with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("got past fast-path")):
-            with pytest.raises(RuntimeError, match="got past fast-path"):
-                exporter2.run()
+        with (
+            patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("got past fast-path")),
+            pytest.raises(RuntimeError, match="got past fast-path"),
+        ):
+            exporter2.run()
 
     def test_stale_readme_removed_when_config_changed_rebuild_crashes(self, tmp_path):
         """A config-change rebuild must remove the old README sentinel up front.
@@ -2479,9 +2474,11 @@ class TestSkipRebuildWhenReadmeExists:
             packs=["building"],
         )
 
-        with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("simulated mid-rebuild crash")):
-            with pytest.raises(RuntimeError, match="simulated mid-rebuild crash"):
-                exporter2.run()
+        with (
+            patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("simulated mid-rebuild crash")),
+            pytest.raises(RuntimeError, match="simulated mid-rebuild crash"),
+        ):
+            exporter2.run()
 
         assert not (tmp_path / "final" / "README.md").exists(), (
             "Stale README sentinel must be removed when a config-change rebuild starts, "
@@ -2505,9 +2502,11 @@ class TestSkipRebuildWhenReadmeExists:
             packs=["building", "vegetation"],  # added vegetation
         )
 
-        with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("got past fast-path")):
-            with pytest.raises(RuntimeError, match="got past fast-path"):
-                exporter2.run()
+        with (
+            patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("got past fast-path")),
+            pytest.raises(RuntimeError, match="got past fast-path"),
+        ):
+            exporter2.run()
 
     def test_fast_path_triggered_when_only_ignored_param_changed(self, tmp_path):
         """Performance / ergonomics knobs (processes, threads, log_level, etc.)
@@ -2564,7 +2563,11 @@ class TestResumeRequiresSameConfig:
     """A run skips every chunk that has a rollup and merges the chunk files it finds, so it must refuse chunks
     written under different settings. Only _CONFIG_KEYS_SAFE_TO_CHANGE may differ."""
 
-    BASE = dict(aoi_file="data/examples/sydney_parcels.geojson", country="au", packs=["building", "vegetation"])
+    BASE: ClassVar[dict] = {
+        "aoi_file": "data/examples/sydney_parcels.geojson",
+        "country": "au",
+        "packs": ["building", "vegetation"],
+    }
 
     def _exporter(self, tmp_path, **overrides):
         return AOIExporter(output_dir=str(tmp_path), **{**self.BASE, **overrides})
@@ -2615,7 +2618,7 @@ class TestResumeRequiresSameConfig:
     def test_chunks_without_previous_config_refused(self, tmp_path):
         (tmp_path / "chunks").mkdir()
         self._write_rollup(tmp_path)
-        with pytest.raises(ValueError, match="no readable export_config.json"):
+        with pytest.raises(ValueError, match=r"no readable export_config\.json"):
             self._exporter(tmp_path)
 
 
@@ -2665,7 +2668,7 @@ class TestAoiInputColumnsWithDates:
         # Nested as pyarrow's to_pandas returns a list<struct<...>> column: arrays inside the struct too.
         capture = {
             "captureDate": datetime.date(2024, 5, 1),
-            "capturedAt": datetime.datetime(2024, 5, 1, 10, 30),
+            "capturedAt": datetime.datetime(2024, 5, 1, 10, 30),  # noqa: DTZ001 -- naive value as read from parquet
             "ids": np.arange(1500),
             "source": "a",
         }
@@ -2781,9 +2784,11 @@ def test_class_list_is_read_from_the_configured_url_root(tmp_path):
         packs=["building"],
         url_root="api.example.test/ai/features/v4/bulk",
     )
-    with patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("stop after the class lookup client")) as api:
-        with pytest.raises(RuntimeError, match="stop after the class lookup client"):
-            exporter.run()
+    with (
+        patch("nmaipy.exporter.FeatureApi", side_effect=RuntimeError("stop after the class lookup client")) as api,
+        pytest.raises(RuntimeError, match="stop after the class lookup client"),
+    ):
+        exporter.run()
     assert api.call_args.kwargs["url_root"] == "api.example.test/ai/features/v4/bulk"
 
 

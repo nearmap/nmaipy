@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Examples of common nmaipy use cases for data scientists.
 

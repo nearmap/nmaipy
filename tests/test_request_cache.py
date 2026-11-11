@@ -186,12 +186,14 @@ class TestInflightCoalescing:
             b_done.set()
             return result
 
-        with patch("requests.Session.post", new=fake_post):
-            with patch.object(FeatureApi, "_read_cached_response", parking_read):
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    future_a = pool.submit(run_a)
-                    future_b = pool.submit(run_b)
-                    result_a, result_b = future_a.result(), future_b.result()
+        with (
+            patch("requests.Session.post", new=fake_post),
+            patch.object(FeatureApi, "_read_cached_response", parking_read),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            future_a = pool.submit(run_a)
+            future_b = pool.submit(run_b)
+            result_a, result_b = future_a.result(), future_b.result()
 
         assert posts == ["run-B"], "thread A must hit the cache B populated, not re-fetch it"
         assert api._cache_hits == 1

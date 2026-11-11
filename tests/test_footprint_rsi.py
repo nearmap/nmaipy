@@ -1,6 +1,7 @@
 """Tests for resolving footprint RSI from building lifecycle."""
 
 import json
+from typing import ClassVar
 
 import geopandas as gpd
 import pandas as pd
@@ -141,7 +142,7 @@ class TestResolveFootprintRsi:
 class TestParentLookupRows:
     """The chunk lookup holds only Roof, Building(New) and parent rows; the single-parcel lookup holds every row."""
 
-    ROWS = [
+    ROWS: ClassVar[list[tuple]] = [
         ("roof", ROOF_ID, None),
         ("building", BUILDING_NEW_ID, "lifecycle"),
         ("lifecycle", BUILDING_LIFECYCLE_ID, None),

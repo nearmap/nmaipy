@@ -104,9 +104,9 @@ CACHE_PATHS = {
     "feature_compressed": "-74/40/f3d95bbe7e913c932a5c859c5ffa8c60.json.gz",
     "feature_address": "us/NJ/Springfield/07081/7a39b1da02b5dc33.json",
     "roof_age": "roofage/latest/none/none/10d4f48436b877450a335442d774c2ebadb2fab9283c9f8b93fad1c857497ea3.json",
-    "roof_age_dated": "roofage/latest/2025-01-01/2020-01-01/10d4f48436b877450a335442d774c2ebadb2fab9283c9f8b93fad1c857497ea3.json",
+    "roof_age_dated": "roofage/latest/2025-01-01/2020-01-01/10d4f48436b877450a335442d774c2ebadb2fab9283c9f8b93fad1c857497ea3.json",  # noqa: E501 -- exact cache path with content hash
     "roof_age_address": "roofage/latest/none/none/US/NJ/Springfield/07081/cc399247bbd1d063.json",
-    "damage": "damageconflation/00000000-0000-0000-0000-000000000000/f80e0c14f54d72746adf61139bedbc8b2d9e40c0e686384b9c647e40c9da9f28.json",
+    "damage": "damageconflation/00000000-0000-0000-0000-000000000000/f80e0c14f54d72746adf61139bedbc8b2d9e40c0e686384b9c647e40c9da9f28.json",  # noqa: E501 -- exact cache path with content hash
 }
 
 
@@ -252,7 +252,7 @@ def _cache_path(kind: str, cache_dir: Path) -> str:
     elif kind.startswith("roof_age"):
         api = RoofAgeApi(api_key="dummy", cache_dir=cache_dir)
         key = api._build_cache_key(address=ADDRESS) if kind == "roof_age_address" else api._build_cache_key(aoi=SQUARE)
-        dates = dict(until_as_of_date="2025-01-01", since_as_of_date="2020-01-01") if kind == "roof_age_dated" else {}
+        dates = {"until_as_of_date": "2025-01-01", "since_as_of_date": "2020-01-01"} if kind == "roof_age_dated" else {}
         path = api._get_cache_path(key, **dates)
     else:
         api = DamageConflationApi(event_id="00000000-0000-0000-0000-000000000000", api_key="dummy", cache_dir=cache_dir)

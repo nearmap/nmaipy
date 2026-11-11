@@ -503,7 +503,7 @@ class TestCrossFileConsistency:
     def test_shared_columns_have_identical_structural_metadata(self, tmp_path):
         _write_export_config(tmp_path / "export_config.json", tabular_file_format="csv")
         # Each column appears in every per-class file plus the rollup.
-        common = SHARED_COLUMNS + ["primary_roof_confidence"]
+        common = [*SHARED_COLUMNS, "primary_roof_confidence"]
         _write_csv(tmp_path / "rollup.csv", common)
         _write_csv(tmp_path / "roof.csv", common)
         _write_csv(tmp_path / "building.csv", common)

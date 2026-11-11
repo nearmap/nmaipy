@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import random
 import time
+from typing import ClassVar
 from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunparse
 import uuid
 import warnings
@@ -171,7 +172,7 @@ class FeatureApi(GriddedApiClient):
     """
 
     SOURCE_CRS = LAT_LONG_CRS
-    FLOAT_COLS = [
+    FLOAT_COLS: ClassVar[list[str]] = [
         "fidelity",
         "confidence",
         "areaSqm",
@@ -182,13 +183,14 @@ class FeatureApi(GriddedApiClient):
         "unclippedAreaSqft",
     ]
     # HTTP status codes for retry logic
-    RETRY_STATUS_CODES_BASE = [
+    RETRY_STATUS_CODES_BASE: ClassVar[list[HTTPStatus]] = [
         HTTPStatus.TOO_MANY_REQUESTS,  # 429
         HTTPStatus.BAD_GATEWAY,  # 502
         HTTPStatus.SERVICE_UNAVAILABLE,  # 503
         HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
     ]
-    RETRY_STATUS_CODES_WITH_TIMEOUT = RETRY_STATUS_CODES_BASE + [
+    RETRY_STATUS_CODES_WITH_TIMEOUT: ClassVar[list[HTTPStatus]] = [
+        *RETRY_STATUS_CODES_BASE,
         HTTPStatus.GATEWAY_TIMEOUT,  # 504
     ]
 
@@ -248,7 +250,7 @@ class FeatureApi(GriddedApiClient):
             rapid: When True, rapid survey resources will be considered (for damage classification)
             order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
-            progress_counters: Optional dict with 'total' and 'completed' counters for tracking progress across processes
+            progress_counters: Optional dict with 'total' and 'completed' counters to track progress across processes
             grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
@@ -284,11 +286,11 @@ class FeatureApi(GriddedApiClient):
         # Preserve resolved url_root so _clone_for_2d_fallback can construct a sibling
         # FeatureApi that talks to the same endpoint as self.
         self.url_root = url_root
-        URL_ROOT = f"https://{url_root}"
-        self.FEATURES_URL = URL_ROOT + "/features.json"
-        self.FEATURES_SURVEY_RESOURCE_URL = URL_ROOT + "/surveyresources"
-        self.CLASSES_URL = URL_ROOT + "/classes.json"
-        self.PACKS_URL = URL_ROOT + "/packs.json"
+        api_root = f"https://{url_root}"
+        self.FEATURES_URL = api_root + "/features.json"
+        self.FEATURES_SURVEY_RESOURCE_URL = api_root + "/surveyresources"
+        self.CLASSES_URL = api_root + "/classes.json"
+        self.PACKS_URL = api_root + "/packs.json"
 
         # FeatureApi-specific attributes
         self.bulk_mode = bulk_mode
@@ -375,7 +377,7 @@ class FeatureApi(GriddedApiClient):
         """
         Get packs with class IDs
         """
-        response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
+        _response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
     def get_feature_classes(self, packs: list[str] | None = None) -> pd.DataFrame:
@@ -388,7 +390,7 @@ class FeatureApi(GriddedApiClient):
 
         # Request data
         t1 = time.monotonic()
-        response, data = self._get_feature_api_results_as_data(self.CLASSES_URL)
+        _response, data = self._get_feature_api_results_as_data(self.CLASSES_URL)
         response_time_ms = (time.monotonic() - t1) * 1e3
         logger.debug(f"{response_time_ms:.1f}ms response time for classes.json")
         df_classes = pd.DataFrame(data["classes"]).set_index("id")
@@ -398,7 +400,7 @@ class FeatureApi(GriddedApiClient):
             pack_classes = self.get_packs()
             if diff := set(packs) - set(pack_classes.keys()):
                 raise ValueError(f"Unknown packs: {diff}")
-            all_classes = list(set([class_id for p in packs for class_id in pack_classes[p]]))
+            all_classes = list({class_id for p in packs for class_id in pack_classes[p]})
             # Strip out any classes that we don't get a valid description for from the "packs" endpoint.
             all_classes = [c for c in all_classes if c in df_classes.index]
             df_classes = df_classes.loc[all_classes]
@@ -463,7 +465,7 @@ class FeatureApi(GriddedApiClient):
         Hash a request string to create a cache path.
         """
         request_string = self._clean_api_key(request_string)
-        request_hash = hashlib.md5(request_string.encode()).hexdigest()
+        request_hash = hashlib.md5(request_string.encode(), usedforsecurity=False).hexdigest()
         lon, lat = geometry_utils.extract_coords_for_cache(request_string)
         ext = "json.gz" if self.compress_cache else "json"
         return storage.join_path(self.cache_dir, lon, lat, f"{request_hash}.{ext}")
@@ -484,7 +486,7 @@ class FeatureApi(GriddedApiClient):
         # changing the serializer would invalidate warm production caches.
         body_str = json.dumps(body, sort_keys=True)
         combined_str = clean_url + body_str
-        request_hash = hashlib.md5(combined_str.encode()).hexdigest()
+        request_hash = hashlib.md5(combined_str.encode(), usedforsecurity=False).hexdigest()
 
         ext = "json.gz" if self.compress_cache else "json"
 
@@ -752,7 +754,7 @@ class FeatureApi(GriddedApiClient):
         Returns:
             API response as a dictionary
         """
-        data = self._get_results(
+        return self._get_results(
             geometry=geometry,
             region=region,
             packs=packs,
@@ -767,7 +769,6 @@ class FeatureApi(GriddedApiClient):
             disable_parcel_mode=disable_parcel_mode,
             refresh_cache=refresh_cache,
         )
-        return data
 
     def _get_results(
         self,
@@ -796,7 +797,8 @@ class FeatureApi(GriddedApiClient):
             until: Latest date to pull data for
             address_fields: Fields for an address based query (rather than query AOI based query).
             survey_resource_id: The ID of the survey resource id if an exact survey is requested for the pull.
-                               NB: This is NOT the survey ID from coverage - it is the id of the AI resource attached to that survey.
+                               NB: This is NOT the survey ID from coverage - it is the id of the AI resource
+                               attached to that survey.
             param_dic: Optional dictionary of custom parameters to add to the API request
             refresh_cache: Skip the cache read and fetch from the API, replacing any cached copy
 
@@ -804,7 +806,7 @@ class FeatureApi(GriddedApiClient):
             API response as a Dictionary
         """
         # Use POST request with JSON body for better geometry handling
-        url, body, exact = self._create_post_request(
+        url, body, _exact = self._create_post_request(
             base_url=self.FEATURES_URL,
             geometry=geometry,
             packs=packs,
@@ -937,7 +939,8 @@ class FeatureApi(GriddedApiClient):
                     with self._lock:
                         self._timeout_count += 1
                     logger.info(
-                        f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{attempts_label}, treating as 504"
+                        f"Read timeout after {READ_TIMEOUT_SECONDS}s on attempt {retry_attempt + 1}/{attempts_label}, "
+                        "treating as 504"
                     )
 
                     # Create a mock 504 response object
@@ -968,7 +971,8 @@ class FeatureApi(GriddedApiClient):
                         continue
                     # Exhausted all retries, log error and fall back to size error
                     logger.error(  # noqa: TRY400 -- gridding retries the request next; this is not a failure traceback
-                        f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size error to trigger gridding: {e}"
+                        f"ChunkedEncodingError persisted after {retry_attempt + 1} attempts, treating as size "
+                        f"error to trigger gridding: {e}"
                     )
                     raise AIFeatureAPIRequestSizeError(None, self._clean_api_key(url)) from e
 
@@ -978,7 +982,8 @@ class FeatureApi(GriddedApiClient):
             # Log response at debug level (can be enabled when diagnosing issues)
             sanitized_url = self._clean_api_key(url)
             logger.debug(
-                f"Response from {sanitized_url} in {response_time_seconds:.1f}s (status: {response.status_code if response else 'unknown'})"
+                f"Response from {sanitized_url} in {response_time_seconds:.1f}s (status: "
+                f"{response.status_code if response else 'unknown'})"
             )
 
             # Log slow successful requests (failures go in errors CSV)
@@ -1062,6 +1067,7 @@ class FeatureApi(GriddedApiClient):
             else:
                 # Handle other HTTP errors
                 self._handle_response_errors(response, request_info)
+        return None
 
     @staticmethod
     def add_location_marker_to_link(link: str) -> str:
@@ -1353,12 +1359,12 @@ class FeatureApi(GriddedApiClient):
             }
             return None, None, error, None
         except Exception as grid_error:
-            # exc_info=True so unexpected exceptions surface with a full
+            # logger.exception so unexpected exceptions surface with a full
             # traceback in logs instead of just a message. This is the catch-all
             # that swallowed the dict-aggregate TypeError and a latent KeyError
             # on aoi_id for years — silent feature loss with only a one-line
             # message gave no clue where the failure originated.
-            logger.error(f"Gridding failed for AOI (id {aoi_id}): {grid_error}", exc_info=True)
+            logger.exception(f"Gridding failed for AOI (id {aoi_id})")
             error = {
                 AOI_ID_COLUMN_NAME: aoi_id,
                 "status_code": None,
@@ -1413,7 +1419,8 @@ class FeatureApi(GriddedApiClient):
         """
         if geometry is None and address_fields is None:
             raise ValueError(
-                "Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. This should be impossible"
+                "Internal Error: get_features_gdf was called with NEITHER a geometry NOR address fields specified. "
+                "This should be impossible"
             )
 
         # Spread the chunk-start burst: sleep once per thread before its first AOI request.
@@ -1436,7 +1443,8 @@ class FeatureApi(GriddedApiClient):
 
             if area_sqm > MAX_AOI_AREA_SQM_BEFORE_GRIDDING:
                 logger.debug(
-                    f"AOI (id {aoi_id}) area ({area_sqm:.0f} sqm) exceeds client threshold ({MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm). Forcing gridding..."
+                    f"AOI (id {aoi_id}) area ({area_sqm:.0f} sqm) exceeds client threshold "
+                    f"({MAX_AOI_AREA_SQM_BEFORE_GRIDDING} sqm). Forcing gridding..."
                 )
                 features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
                     geometry=geometry,
@@ -1585,7 +1593,8 @@ class FeatureApi(GriddedApiClient):
                     "geometry": geometry,
                 }
             else:
-                # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI should return an error as usual.
+                # First request was too big, so grid it up, recombine, and return. Any problems and the whole AOI
+                # should return an error as usual.
                 logger.debug(f"Found an over-sized AOI (id {aoi_id}). Trying gridding...")
                 features_gdf, metadata, error, grid_errors_df = self._attempt_gridding(
                     geometry=geometry,
@@ -1617,7 +1626,8 @@ class FeatureApi(GriddedApiClient):
         except requests.exceptions.RetryError as e:
             status_code = e.response.status_code if e.response is not None else DUMMY_STATUS_CODE
             logger.warning(
-                f"Retry Exception - gave up retrying on aoi_id: {aoi_id} near {geometry.representative_point()}. Status code: {status_code}"
+                f"Retry Exception - gave up retrying on aoi_id: {aoi_id} near {geometry.representative_point()}. "
+                f"Status code: {status_code}"
             )
             if logger.level == logging.DEBUG:
                 # Generate debug information including curl command
@@ -1750,7 +1760,8 @@ class FeatureApi(GriddedApiClient):
                 with self.progress_counters["lock"]:
                     self.progress_counters["total"] += num_grid_cells - 1
                 logger.debug(
-                    f"Gridding AOI {aoi_id}: added {num_grid_cells - 1} requests to progress total (1 AOI -> {num_grid_cells} grid cells)"
+                    f"Gridding AOI {aoi_id}: added {num_grid_cells - 1} requests to progress total (1 AOI -> "
+                    f"{num_grid_cells} grid cells)"
                 )
 
             # Retrieve the features for every one of the cells in the gridded AOIs
@@ -1825,11 +1836,13 @@ class FeatureApi(GriddedApiClient):
             if len(metadata_df["survey_date"].unique()) > 1:
                 if aoi_grid_inexact:
                     logger.info(
-                        f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid boundaries."
+                        f"Multiple dates detected for aoi_id {aoi_id} - certain to contain duplicates on grid "
+                        "boundaries."
                     )
                 else:
                     logger.warning(
-                        f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain duplicates on grid boundaries."
+                        f"Failed whole grid for aoi_id {aoi_id}. Multiple dates detected - certain to contain "
+                        "duplicates on grid boundaries."
                     )
                     raise AIFeatureAPIGridError(
                         DUMMY_STATUS_CODE,
@@ -1838,7 +1851,8 @@ class FeatureApi(GriddedApiClient):
                     )
             elif survey_resource_id is None:
                 logger.debug(
-                    f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors (if two overlapping surveys flown on same date)."
+                    f"AOI {aoi_id} gridded on a single date - possible but unlikely to include deduplication errors "
+                    "(if two overlapping surveys flown on same date)."
                 )
                 # TODO: We should change query to guarantee same survey id is used somehow.
 
@@ -2153,7 +2167,8 @@ class FeatureApi(GriddedApiClient):
             since_bulk: Earliest date to pull data for, applied across all Query AOIs.
             until_bulk: Latest date to pull data for, applied across all Query AOIs.
             survey_resource_id_bulk: Impose a single survey resource ID from which to pull all responses.
-            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create a dataframe of errors and return all good data available.
+            max_allowed_error_pct:  Raise an AIFeatureAPIError if we exceed this proportion of errors. Otherwise, create
+                                    a dataframe of errors and return all good data available.
             fail_hard_regrid: should be False on an initial call, this just gets used internally to prevent us
                               getting stuck in an infinite loop of get_features_gdf -> get_features_gdf_gridded ->
                                                                    get_features_gdf_bulk -> get_features_gdf
@@ -2192,17 +2207,14 @@ class FeatureApi(GriddedApiClient):
             for aoi_id, row in gdf.iterrows():
                 # Overwrite blanket since/until dates with per request since/until if columns are present
                 since = since_bulk
-                if SINCE_COL_NAME in row:
-                    if isinstance(row[SINCE_COL_NAME], str):
-                        since = row[SINCE_COL_NAME]
+                if SINCE_COL_NAME in row and isinstance(row[SINCE_COL_NAME], str):
+                    since = row[SINCE_COL_NAME]
                 until = until_bulk
-                if UNTIL_COL_NAME in row:
-                    if isinstance(row[UNTIL_COL_NAME], str):
-                        until = row[UNTIL_COL_NAME]
+                if UNTIL_COL_NAME in row and isinstance(row[UNTIL_COL_NAME], str):
+                    until = row[UNTIL_COL_NAME]
                 survey_resource_id = survey_resource_id_bulk
-                if SURVEY_RESOURCE_ID_COL_NAME in row:
-                    if isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
-                        survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
+                if SURVEY_RESOURCE_ID_COL_NAME in row and isinstance(row[SURVEY_RESOURCE_ID_COL_NAME], str):
+                    survey_resource_id = row[SURVEY_RESOURCE_ID_COL_NAME]
                 job = executor.submit(
                     self.get_features_gdf,
                     geometry=row.geometry if has_geom else None,
@@ -2244,12 +2256,10 @@ class FeatureApi(GriddedApiClient):
                         "request": "Unexpected error",
                         "failure_type": "unexpected",
                     }
-                if aoi_data is not None:
-                    if len(aoi_data) > 0:
-                        data.append(aoi_data)
-                if aoi_metadata is not None:
-                    if len(aoi_metadata) > 0:
-                        metadata.append(aoi_metadata)
+                if aoi_data is not None and len(aoi_data) > 0:
+                    data.append(aoi_data)
+                if aoi_metadata is not None and len(aoi_metadata) > 0:
+                    metadata.append(aoi_metadata)
                 if aoi_error is not None:
                     errors.append(aoi_error)
                     if len(errors) > max_allowed_error_count:

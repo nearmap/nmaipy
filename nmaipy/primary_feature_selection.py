@@ -389,7 +389,7 @@ def select_primary(
     if len(gdf) == 0:
         raise ValueError("Cannot select primary feature from empty GeoDataFrame")
 
-    if method == "largest" or method == "largest_intersection":
+    if method in {"largest", "largest_intersection"}:
         return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
     if method == "nearest":

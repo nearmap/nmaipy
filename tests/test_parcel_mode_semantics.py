@@ -62,7 +62,7 @@ def split(parcels_2_gdf, tmp_path_factory):
     payloads_off = {side: fetch(geom, api_off) for side, geom in halves.items()}
     for side in halves:
         assert payloads_off[side]["surveyId"] == payloads[side]["surveyId"], f"Half {side}: both modes' survey"
-    return dict(roof_id=roof["id"], halves=halves, payloads=payloads, payloads_off=payloads_off)
+    return {"roof_id": roof["id"], "halves": halves, "payloads": payloads, "payloads_off": payloads_off}
 
 
 def _roof(split, side, payloads="payloads") -> dict:

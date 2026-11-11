@@ -59,7 +59,7 @@ _s3_filesystem_cache = {}
 # hundreds of parallel S3 reads — under that load we hit the pool limit and
 # log a flurry of "Connection pool is full, discarding connection" warnings
 # on multi-million-parcel exports. Bump to 50 to match a typical
-# 32-process × 15-thread runner shape with headroom. Adaptive retry mode
+# 32-process x 15-thread runner shape with headroom. Adaptive retry mode
 # smooths transient 503s without changing correctness.
 _S3_CLIENT_CONFIG = BotoConfig(
     max_pool_connections=50,

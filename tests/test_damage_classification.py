@@ -288,8 +288,11 @@ class TestDamageClassification:
         """Test basic damage classification API call with Hurricane Beryl data."""
         # A 200 m box in Houston affected by Hurricane Beryl, holding about 18 buildings. The damage include
         # is scored per Building lifecycle feature at request time, so a small AOI keeps that work light.
-        TEST_AREA_WKT = "POLYGON ((-95.78702 29.55332, -95.78502 29.55332, -95.78502 29.55532, -95.78702 29.55532, -95.78702 29.55332))"
-        test_area_geometry = loads(TEST_AREA_WKT)
+        test_area_wkt = (
+            "POLYGON ((-95.78702 29.55332, -95.78502 29.55332, -95.78502 29.55532, -95.78702 29.55532, -95.78702 "
+            "29.55332))"
+        )
+        test_area_geometry = loads(test_area_wkt)
 
         # Parameters for damage classification
         country = "us"
@@ -343,8 +346,8 @@ class TestDamageClassification:
         assert "survey_date" in metadata, "No survey_date in metadata"
 
         # Optional: Save results for inspection
-        TEST_OUTPUT_DIR = Path(__file__).parent / "data" / "damage_classification_results"
+        test_output_dir = Path(__file__).parent / "data" / "damage_classification_results"
         if os.environ.get("SAVE_TEST_OUTPUT", ""):
-            TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            output_file = TEST_OUTPUT_DIR / "beryl_damage_test.gpkg"
+            test_output_dir.mkdir(parents=True, exist_ok=True)
+            output_file = test_output_dir / "beryl_damage_test.gpkg"
             features_gdf.to_file(output_file, driver="GPKG", layer="damage_features")

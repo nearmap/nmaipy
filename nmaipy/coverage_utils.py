@@ -101,8 +101,7 @@ def poly2coordstring(poly):
     """
     coords = poly.boundary.coords[:]
     flat_coords = np.array(coords).flatten()
-    coordstring = ",".join(flat_coords.astype(str))
-    return coordstring
+    return ",".join(flat_coords.astype(str))
 
 
 def _resolve_apikey(apikey, bearer_token=None):
@@ -374,7 +373,8 @@ def get_surveys_from_point(
 
 def get_survey_resource_id_from_survey_id_query(resources):
     """
-    Get the survey resource id from the resources list, after being given the "resources" field from the survey_id query coverage/v2/surveys/{survey_id} API.
+    Get the survey resource id from the resources list, after being given the "resources" field from the survey_id
+    query coverage/v2/surveys/{survey_id} API.
     """
     if len(resources) == 1:
         return resources[0]["id"]
@@ -383,7 +383,8 @@ def get_survey_resource_id_from_survey_id_query(resources):
 
 def get_survey_resource_id_from_standard_coverage(resources):
     """
-    Get the survey resource id from the resources list. This is the id that can be used with the AI Feature API to get an exact match (rather than since/until dates).
+    Get the survey resource id from the resources list. This is the id that can be used with the AI Feature API to get
+    an exact match (rather than since/until dates).
     """
     if "aifeatures" in resources:
         return resources["aifeatures"][-1]["id"]
@@ -398,7 +399,9 @@ def std_coverage_response_to_dataframe(survey_response):
     if len(df_survey) == 0:
         return df_survey
     for resource_type in ["tiles", "3d", "aifeatures"]:
-        df_survey[resource_type] = df_survey["resources"].apply(lambda d: resource_type in d)
+        df_survey[resource_type] = df_survey["resources"].apply(
+            lambda d, resource_type=resource_type: resource_type in d
+        )
     return df_survey
 
 
@@ -407,9 +410,8 @@ def ai_coverage_response_to_dataframe(response):
     Convert the JSON response from the AI coverage API into a pandas dataframe.
     """
     if response["results"] is not None:
-        df_coverage = pd.DataFrame(response["results"])
         # df_coverage = df_coverage.drop(columns="classes")
-        return df_coverage
+        return pd.DataFrame(response["results"])
     return None
 
 
@@ -494,10 +496,10 @@ def get_coverage_from_points(
     bearer_token=None,
 ):
     """
-    Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
-    and whether the survey has AI and/or 3D resources attached. This doesn't tell us what generation of AI data is available -
-    that will require a subsequent run against the AI Feature API coverage endpoint to determine versions (or just pulling the
-    data and ignoring version).
+    Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage
+    API, and whether the survey has AI and/or 3D resources attached. This doesn't tell us what generation of AI data is
+    available - that will require a subsequent run against the AI Feature API coverage endpoint to determine versions
+    (or just pulling the data and ignoring version).
 
     Parameters:
     -----------
@@ -547,7 +549,7 @@ def get_coverage_from_points(
         if not f.exists():
             df_point_chunk = df_points.iloc[i : i + chunk_size, :]
             logger.debug(f"Pulling chunk from API for {f}.")
-            # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
+            # Multi-threaded pulls are ok - the API copes fine with 10-20 threads pulling requests in parallel.
             c = threaded_get_coverage_from_point_results(
                 df_point_chunk,
                 since_col="since",
@@ -592,37 +594,35 @@ def get_coverage_from_points(
             logger.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
-        if c is not None:
-            if len(c) > 0:
-                if coverage_type == STANDARD_COVERAGE:
-                    cols = [
-                        id_col,
-                        "captureDate",
-                        "survey_id",
-                        "survey_resource_id",
-                        "tiles",
-                        "aifeatures",
-                        "3d",
-                        "tags",
-                    ]
-                elif coverage_type == AI_COVERAGE:
-                    cols = [
-                        id_col,
-                        "captureDate",
-                        "survey_id",
-                        "survey_resource_id",
-                        "systemVersion",
-                        "postcat",
-                        "perspective",
-                    ]
-                # reindex (not .loc[…]) so a survey response missing an optional
-                # field (e.g. tags / 3d) yields a NaN column instead of KeyError.
-                c = c.reindex(columns=cols).set_index(id_col)
-                c["captureDate"] = pd.to_datetime(c["captureDate"])
-                df_coverage.append(c)
+        if c is not None and len(c) > 0:
+            if coverage_type == STANDARD_COVERAGE:
+                cols = [
+                    id_col,
+                    "captureDate",
+                    "survey_id",
+                    "survey_resource_id",
+                    "tiles",
+                    "aifeatures",
+                    "3d",
+                    "tags",
+                ]
+            elif coverage_type == AI_COVERAGE:
+                cols = [
+                    id_col,
+                    "captureDate",
+                    "survey_id",
+                    "survey_resource_id",
+                    "systemVersion",
+                    "postcat",
+                    "perspective",
+                ]
+            # reindex (not .loc[…]) so a survey response missing an optional
+            # field (e.g. tags / 3d) yields a NaN column instead of KeyError.
+            c = c.reindex(columns=cols).set_index(id_col)
+            c["captureDate"] = pd.to_datetime(c["captureDate"])
+            df_coverage.append(c)
     if len(df_coverage) > 0:
-        df_coverage = pd.concat(df_coverage)
-        return df_coverage
+        return pd.concat(df_coverage)
     return None
 
 
@@ -646,7 +646,7 @@ def threaded_get_coverage_from_survey_ids(
     with concurrent.futures.ThreadPoolExecutor(threads) as executor:
         # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
 
-        for i, row in df.iterrows():
+        for _, row in df.iterrows():
             jobs.append(
                 executor.submit(
                     get_surveys_from_id,
@@ -692,7 +692,8 @@ def get_coverage_from_survey_ids(
     bearer_token=None,
 ):
     """
-    Given a GeoDataFrame with survey_ids as a column, get a set of all survey resource IDs that are attached to those survey_ids (such as aifeatures, tiles)
+    Given a GeoDataFrame with survey_ids as a column, get a set of all survey resource IDs that are attached to those
+    survey_ids (such as aifeatures, tiles)
 
     Parameters:
     -----------
@@ -724,7 +725,7 @@ def get_coverage_from_survey_ids(
         if not f.exists():
             df_point_chunk = df.iloc[i : i + chunk_size, :]
             logger.debug(f"Pulling chunk from API for {f}.")
-            # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
+            # Multi-threaded pulls are ok - the API copes fine with 10-20 threads pulling requests in parallel.
             c = threaded_get_coverage_from_survey_ids(
                 df_point_chunk,
                 survey_id_col="survey_id",
@@ -757,13 +758,11 @@ def get_coverage_from_survey_ids(
             logger.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
-        if c is not None:
-            if len(c) > 0:
-                cols = [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
-                c = c.reindex(columns=cols).set_index(id_col)
-                c["captureDate"] = pd.to_datetime(c["captureDate"])
-                df_coverage.append(c)
+        if c is not None and len(c) > 0:
+            cols = [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
+            c = c.reindex(columns=cols).set_index(id_col)
+            c["captureDate"] = pd.to_datetime(c["captureDate"])
+            df_coverage.append(c)
     if len(df_coverage) > 0:
-        df_coverage = pd.concat(df_coverage)
-        return df_coverage
+        return pd.concat(df_coverage)
     return None

@@ -1,10 +1,10 @@
-#!/usr/bin/env python
 """Test that defensibleSpace is correctly handled in flatten_roof_attributes."""
 
 import io
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import geopandas as gpd
 import pandas as pd
@@ -92,7 +92,7 @@ def test_gen_defensible_space_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame (without date constraints)
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["building"],
@@ -108,7 +108,7 @@ def test_gen_defensible_space_data(cache_directory: Path):
     roof_features = features_gdf[features_gdf["class_id"] == ROOF_ID]
     ds_count = 0
 
-    for idx, row in roof_features.iterrows():
+    for _, row in roof_features.iterrows():
         # Check for defensibleSpace as a root-level property
         has_defensible_space = False
 
@@ -187,7 +187,7 @@ def test_handles_missing_defensible_space_gracefully():
     result = flatten_roof_attributes([roof], country="us")
 
     # Verify no defensibleSpace fields in result
-    for key in result.keys():
+    for key in result:
         assert not key.startswith("defensible_space_"), (
             "defensibleSpace fields should not be present when not in source data"
         )
@@ -253,7 +253,7 @@ def test_defensible_space_invalid_data():
     }
 
     result_scalar = flatten_roof_attributes([roof_scalar], country="us")
-    for key in result_scalar.keys():
+    for key in result_scalar:
         assert not key.startswith("defensible_space_")
 
     # Test with None defensibleSpace
@@ -265,7 +265,7 @@ def test_defensible_space_invalid_data():
     }
 
     result_none = flatten_roof_attributes([roof_none], country="us")
-    for key in result_none.keys():
+    for key in result_none:
         assert not key.startswith("defensible_space_")
 
 
@@ -389,7 +389,7 @@ def test_rollup_with_defensible_space(defensible_space_payload):
 class TestRiskObjects:
     """Tests for per-class risk object breakdown within defensible space zones."""
 
-    SAMPLE_DEFENSIBLE_SPACE = {
+    SAMPLE_DEFENSIBLE_SPACE: ClassVar[dict] = {
         "zones": [
             {
                 "zoneId": 0,

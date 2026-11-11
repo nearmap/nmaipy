@@ -119,7 +119,7 @@ def test_format_no_cutoff_error_canonicalises_flag():
 
 def test_exporter_rejects_bulk_since_with_a0(test_aoi_file, test_output_dir):
     """Bulk --since against A.0 must be rejected — A.0 doesn't support sinceAsOfDate either."""
-    with pytest.raises(ValueError, match="A.0 Roof Age dataset"):
+    with pytest.raises(ValueError, match=r"A\.0 Roof Age dataset"):
         RoofAgeExporter(
             aoi_file=str(test_aoi_file),
             output_dir=str(test_output_dir),

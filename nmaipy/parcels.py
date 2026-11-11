@@ -71,22 +71,22 @@ logger = log.get_logger()
 
 # Re-export for backwards compatibility
 __all__ = [
-    "read_from_file",
-    "parcel_rollup",
-    "feature_attributes",
-    "link_roof_instances_to_roofs",
-    "link_roofs_to_buildings",
     "build_parent_lookup",
     "build_parent_lookup_by_aoi",
-    "extract_rsi_from_feature",
-    "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
     "class_column_names",
+    "extract_rsi_from_feature",
+    "feature_attributes",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
     "flatten_roof_attributes",
     "flatten_roof_instance_attributes",
+    "link_roof_instances_to_roofs",
+    "link_roofs_to_buildings",
+    "parcel_rollup",
+    "read_from_file",
+    "resolve_footprint_rsi",
 ]
 
 
@@ -448,9 +448,6 @@ def link_roof_instances_to_roofs(
         roof_tree = STRtree(roof_geoms)
         roof_df_indices = aoi_roofs.index.to_numpy()
         roof_feature_ids = aoi_roofs["feature_id"].array
-
-        # Build mapping from roof df index to position in arrays
-        roof_idx_to_pos = {idx: pos for pos, idx in enumerate(roof_df_indices)}
 
         # For each roof, collect all matching instances with IoU
         roof_to_instances = {idx: [] for idx in roof_df_indices}
@@ -914,7 +911,7 @@ def _traverse_to_bl(feature, parent_lookup: dict) -> dict:
     return {}
 
 
-def feature_attributes(
+def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
@@ -935,7 +932,9 @@ def feature_attributes(
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
         parcel_geom: The geometry for the parcel, or None if no parcel geometry is known.
-        primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
+        primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI.
+                          "nearest" finds the nearest primary object to the provided coordinates, preferring objects
+                          with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
         geometry_projected_col: Optional name of a column containing pre-projected geometries
@@ -1057,8 +1056,8 @@ def feature_attributes(
             projected_crs=projected_crs,
         )
 
-    for class_id, name in classes_df.description.items():
-        name = name.lower().replace(" ", "_")
+    for class_id, description in classes_df.description.items():
+        name = description.lower().replace(" ", "_")
         class_features_gdf = features_by_class.get(class_id, _empty_features)
 
         # For roof instances, filter to only "roof" kind for count/area aggregations
@@ -1463,7 +1462,7 @@ def feature_attributes(
     return parcel
 
 
-def parcel_rollup(
+def parcel_rollup(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     parcels_gdf: gpd.GeoDataFrame,
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
@@ -1559,7 +1558,8 @@ def parcel_rollup(
             features_gdf = features_gdf.set_index(AOI_ID_COLUMN_NAME)
         else:
             raise ValueError(
-                f"features_gdf index name is '{features_gdf.index.name}' but should be '{AOI_ID_COLUMN_NAME}', and column '{AOI_ID_COLUMN_NAME}' not found in dataframe columns: {list(features_gdf.columns)}"
+                f"features_gdf index name is '{features_gdf.index.name}' but should be '{AOI_ID_COLUMN_NAME}', and "
+                f"column '{AOI_ID_COLUMN_NAME}' not found in dataframe columns: {list(features_gdf.columns)}"
             )
 
     assert features_gdf.index.name == AOI_ID_COLUMN_NAME
@@ -1571,7 +1571,8 @@ def parcel_rollup(
 
     if len(parcels_gdf.index.unique()) != len(parcels_gdf):
         raise ValueError(
-            f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+            f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are "
+            f"{len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
     # Methods that use lat/lon for primary feature selection
     uses_lat_lon = primary_decision in ("nearest", "optimal")
@@ -1841,7 +1842,7 @@ def conflation_rollup(
         ``primary_*`` attributes.
     """
     rating_to_count = {k: f"n_{stringcase.snakecase(k)}" for k in DAMAGE_CONFLATION_RAW_RATING_KEYS}
-    count_cols = ["n_buildings"] + list(rating_to_count.values())
+    count_cols = ["n_buildings", *rating_to_count.values()]
     event_meta_cols = [
         "event_uuid",
         "event_name",

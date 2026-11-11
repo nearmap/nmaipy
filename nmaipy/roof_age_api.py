@@ -105,7 +105,7 @@ class RoofAgeApi(BaseApiClient):
             threads: Number of threads for concurrent execution
             url_root: Override the default API root URL (for testing)
             country: Country code for address queries (e.g., 'us', 'au')
-            progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
+            progress_counters: Optional dict with 'total', 'completed', and 'lock' to track progress across processes
             bulk_mode: When True, uses bulk API mode with higher rate limits (1000 rps vs 20 rps)
             resource_id: Roof Age dataset resource id (e.g. ``"latest"`` for the API team's pointer to the
                 current default, or a UUID for a specific dataset). Resource ids identify *datasets*, not

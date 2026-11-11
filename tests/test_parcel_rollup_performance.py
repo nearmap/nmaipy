@@ -167,7 +167,8 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
 
     rollup_s = t_rollup_end - t_rollup_start
     print(
-        f"parcel_rollup: {rollup_s:.1f}s for {len(parcels_2_gdf)} AOIs  ({rollup_s / len(parcels_2_gdf) * 1000:.1f}ms/AOI)"
+        f"parcel_rollup: {rollup_s:.1f}s for {len(parcels_2_gdf)} AOIs  "
+        f"({rollup_s / len(parcels_2_gdf) * 1000:.1f}ms/AOI)"
     )
     print(f"rollup_df shape: {rollup_df.shape}")
 

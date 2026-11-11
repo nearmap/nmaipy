@@ -377,7 +377,7 @@ class TestColumnMetadataTables:
         )
 
     def test_confidence_columns_dtype_marks_quantised_uint8(self):
-        """Confidence scores are stored as uint8 on the wire even though the value space is 0.0–1.0."""
+        """Confidence scores are stored as uint8 on the wire even though the value space is 0.0-1.0."""
         # The dtype label calls this out so downstream consumers know to expect 256 distinct values
         # rather than continuous floats.
         assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"].dtype

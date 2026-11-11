@@ -109,8 +109,7 @@ def parcels_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     16 polygons in Fairlight, Sydney, as well as a point, an empty polygon and an empty row.
     """
-    gdf = parcels.read_from_file(data_directory / "test_parcels.csv")
-    return gdf
+    return parcels.read_from_file(data_directory / "test_parcels.csv")
 
 
 @pytest.fixture(scope="session")
@@ -118,8 +117,7 @@ def parcels_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     100 realistic property boundaries from New Jersey.
     """
-    gdf = parcels.read_from_file(data_directory / "test_parcels_2.csv")
-    return gdf
+    return parcels.read_from_file(data_directory / "test_parcels_2.csv")
 
 
 @pytest.fixture(scope="session")
@@ -127,8 +125,7 @@ def parcels_3_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     """
     Two multipolygons in Cobar, NSW.
     """
-    gdf = parcels.read_from_file(data_directory / "test_parcels_3.csv")
-    return gdf
+    return parcels.read_from_file(data_directory / "test_parcels_3.csv")
 
 
 @pytest.fixture(scope="session")
@@ -137,7 +134,7 @@ def features_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     Features pulled from a cached csv from the AI Feature API for the parcels_gdf fixture.
     """
     df = pd.read_csv(data_directory / "test_features.csv", index_col=AOI_ID_COLUMN_NAME)
-    df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
+    df["attributes"] = df["attributes"].apply(ast.literal_eval)
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
         geometry=df.geometry.apply(loads),
@@ -165,7 +162,7 @@ def features_2_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     Features pulled from a cached csv from the AI Feature API for the parcels_2_gdf fixture.
     """
     df = pd.read_csv(data_directory / "test_features_2.csv", index_col=AOI_ID_COLUMN_NAME)
-    df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
+    df["attributes"] = df["attributes"].apply(ast.literal_eval)
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
         geometry=df.geometry.apply(loads),
@@ -183,7 +180,7 @@ def features_3d_gdf(data_directory: Path) -> gpd.GeoDataFrame:
     if not filepath.exists():
         pytest.skip("test_features_3d.csv not generated yet — run test_gen_data_3d first")
     df = pd.read_csv(filepath, index_col=AOI_ID_COLUMN_NAME)
-    df["attributes"] = df["attributes"].apply(lambda d: ast.literal_eval(d))
+    df["attributes"] = df["attributes"].apply(ast.literal_eval)
     return gpd.GeoDataFrame(
         df.drop("geometry", axis=1),
         geometry=df.geometry.apply(loads),

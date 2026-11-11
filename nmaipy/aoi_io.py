@@ -300,7 +300,8 @@ def read_from_file(
     if has_geometry and has_address_fields:
         logger.info(
             f"Input has both geometry and address fields - geometry mode will be used where available. "
-            f"Address fields {ADDRESS_FIELDS} will be ignored for API queries if geometry is present (falling back to address mode if not)."
+            f"Address fields {ADDRESS_FIELDS} will be ignored for API queries if geometry is present (falling back to "
+            "address mode if not)."
         )
 
     if "geometry" in parcels_gdf:

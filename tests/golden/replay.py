@@ -26,23 +26,28 @@ from .fake_api import FakeApi, UnknownRequest, key_paths
 
 GOLDEN_DIR = Path(__file__).parents[1] / "data" / "golden"
 CLASS_DESCRIPTIONS = Path(constants.__file__).parent / "class_descriptions.json"
-COMMON = dict(
-    processes=1,
-    threads=1,
-    chunk_size=100,
-    max_retries=0,
-    save_features=True,
-    class_level_files=True,
-    include_parcel_geometry=True,
-)
+COMMON = {
+    "processes": 1,
+    "threads": 1,
+    "chunk_size": 100,
+    "max_retries": 0,
+    "save_features": True,
+    "class_level_files": True,
+    "include_parcel_geometry": True,
+}
 CASES: dict[str, dict] = {
-    "us": dict(
-        country="us",
-        packs=["building", "building_char", "pool", "roof_char", "roof_cond", "solar", "surfaces", "vegetation"],
-        roof_age=True,
-        until="2025-03-18",
-    ),
-    "au": dict(country="au", packs=["building", "roof_char", "vegetation"], since="2025-01-20", until="2025-03-06"),
+    "us": {
+        "country": "us",
+        "packs": ["building", "building_char", "pool", "roof_char", "roof_cond", "solar", "surfaces", "vegetation"],
+        "roof_age": True,
+        "until": "2025-03-18",
+    },
+    "au": {
+        "country": "au",
+        "packs": ["building", "roof_char", "vegetation"],
+        "since": "2025-01-20",
+        "until": "2025-03-06",
+    },
 }
 
 _ANY_URL = re.compile(".*")

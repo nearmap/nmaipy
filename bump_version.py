@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Version bumping utility for nmaipy.
 

@@ -97,7 +97,7 @@ def collect_live(api_key: str, cache_dir: Path) -> list[Exchange]:
     ]
     for case, aois in sample_aois().items():
         kwargs = CASES[case]
-        query = dict(packs=kwargs["packs"], since=kwargs.get("since"), until=kwargs.get("until"))
+        query = {"packs": kwargs["packs"], "since": kwargs.get("since"), "until": kwargs.get("until")}
         for aoi in aois:
             if features.should_grid_aoi(aoi, kwargs["country"]):
                 exchanges += _grid_cells(features, case, aoi, query)
@@ -110,7 +110,7 @@ def collect_live(api_key: str, cache_dir: Path) -> list[Exchange]:
     us = CASES["us"]
     exchanges.append(_error(features.get_features, "features", "us", OCEAN_SQUARE, "us", packs=us["packs"]))
     first = sample_aois()["us"][0]
-    no_survey = dict(packs=us["packs"], since=BEFORE_ANY_SURVEY, until=BEFORE_ANY_SURVEY)
+    no_survey = {"packs": us["packs"], "since": BEFORE_ANY_SURVEY, "until": BEFORE_ANY_SURVEY}
     exchanges.append(_error(features.get_features, "features", "us", first, "us", **no_survey))
     roof_age = RoofAgeApi(api_key=api_key, cache_dir=cache_dir / "roof_age_errors", until_as_of_date=us["until"])
     exchanges.append(_error(roof_age.get_roof_age_by_aoi, "roofage", "us", OCEAN_SQUARE, "ocean"))
@@ -125,7 +125,7 @@ def sample_aois() -> dict[str, list[BaseGeometry]]:
     au_geoms = [g for g in au_geoms if g.geom_type == "Polygon" and not g.is_empty and g.is_valid]
     return {
         "us": [shapely.from_wkt(w) for w in us["geometry"]],
-        "au": au_geoms + [shapely.from_wkt(LARGE_ADELAIDE_AOI_WKT)],
+        "au": [*au_geoms, shapely.from_wkt(LARGE_ADELAIDE_AOI_WKT)],
     }
 
 
@@ -277,7 +277,7 @@ def _run(args: argparse.Namespace, api_key: str) -> None:
 
 def _grid_cells(features: FeatureApi, case: str, aoi: BaseGeometry, query: dict) -> list[Exchange]:
     region = CASES[case]["country"]
-    gdf, metadata, error, _ = features.get_features_gdf(aoi, region, aoi_id="drift", **query)
+    _gdf, _metadata, error, _ = features.get_features_gdf(aoi, region, aoi_id="drift", **query)
     assert error is None, f"the live grid request failed: {error}"
     exchanges = []
     for cell in split_geometry_into_grid(aoi, GRID_SIZE_DEGREES).geometry:
@@ -338,7 +338,7 @@ def _class_descriptions(e: Exchange) -> Iterator[tuple[str, str]]:
 
 
 def _under(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}.") or path.startswith(f"{prefix}[]")
+    return path == prefix or path.startswith((f"{prefix}.", f"{prefix}[]"))
 
 
 def _dict_differences(expected: object, actual: object, where: str = "") -> list[str]:

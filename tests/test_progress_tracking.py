@@ -90,7 +90,7 @@ def test_progress_counters_with_process_pool():
     # Submit work to process pool
     with ProcessPoolExecutor(max_workers=2) as executor:
         futures = []
-        for i in range(4):
+        for _ in range(4):
             future = executor.submit(
                 worker_increment_counter,
                 progress_counters,
@@ -161,7 +161,7 @@ def test_progress_counters_concurrent_access():
     # Submit many small jobs concurrently
     with ProcessPoolExecutor(max_workers=4) as executor:
         futures = []
-        for i in range(20):  # 20 workers * 5 increments = 100 total
+        for _ in range(20):  # 20 workers * 5 increments = 100 total
             future = executor.submit(
                 worker_increment_counter,
                 progress_counters,
@@ -190,7 +190,7 @@ def test_progress_counters_picklable():
 
 
 def _writer_blast(progress_counters, num_threads, increments_per_thread):
-    """Worker that runs num_threads × increments_per_thread plain `lock + +=1`
+    """Worker that runs num_threads x increments_per_thread plain `lock + +=1`
     increments — the *unbatched* worst case for lock contention. Used by the
     blocking-reader regression test below.
     """
@@ -226,10 +226,10 @@ def test_blocking_reader_not_starved_under_burst_writes():
     observes many intermediate values and the final tally is exact.
     """
     manager = multiprocessing.Manager()
-    NUM_WRITER_PROCESSES = 4
-    THREADS_PER_PROCESS = 20
-    INC_PER_THREAD = 50
-    expected = NUM_WRITER_PROCESSES * THREADS_PER_PROCESS * INC_PER_THREAD
+    num_writer_processes = 4
+    threads_per_process = 20
+    inc_per_thread = 50
+    expected = num_writer_processes * threads_per_process * inc_per_thread
     initial_counters: dict[str, Any] = {"total": expected, "completed": 0, "lock": manager.Lock()}
     progress_counters = manager.dict(initial_counters)
 
@@ -247,10 +247,10 @@ def test_blocking_reader_not_starved_under_burst_writes():
     reader_thread = threading.Thread(target=reader)
     reader_thread.start()
     try:
-        with ProcessPoolExecutor(max_workers=NUM_WRITER_PROCESSES) as pool:
+        with ProcessPoolExecutor(max_workers=num_writer_processes) as pool:
             futures = [
-                pool.submit(_writer_blast, progress_counters, THREADS_PER_PROCESS, INC_PER_THREAD)
-                for _ in range(NUM_WRITER_PROCESSES)
+                pool.submit(_writer_blast, progress_counters, threads_per_process, inc_per_thread)
+                for _ in range(num_writer_processes)
             ]
             for f in futures:
                 assert f.result() is True
@@ -299,19 +299,19 @@ def test_flush_progress_drains_residue_per_thread_buffers():
     holder_thread.start()
     held.wait()
 
-    NUM_THREADS = 5
+    num_threads = 5
     # Stay strictly below PROGRESS_BATCH_SIZE so the forced flush inside
     # _increment_progress never fires (it would block on the held lock).
-    INC_PER_THREAD = PROGRESS_BATCH_SIZE - 1
-    expected = NUM_THREADS * INC_PER_THREAD
+    inc_per_thread = PROGRESS_BATCH_SIZE - 1
+    expected = num_threads * inc_per_thread
 
     try:
 
         def worker():
-            for _ in range(INC_PER_THREAD):
+            for _ in range(inc_per_thread):
                 client._increment_progress()
 
-        threads = [threading.Thread(target=worker) for _ in range(NUM_THREADS)]
+        threads = [threading.Thread(target=worker) for _ in range(num_threads)]
         for t in threads:
             t.start()
         for t in threads:
@@ -344,17 +344,17 @@ def test_increment_progress_eventually_consistent_under_contention():
     end-to-end through the actual BaseApiClient methods.
     """
     manager = multiprocessing.Manager()
-    NUM_THREADS = 12
-    INC_PER_THREAD = 200
-    expected = NUM_THREADS * INC_PER_THREAD
+    num_threads = 12
+    inc_per_thread = 200
+    expected = num_threads * inc_per_thread
     progress_counters = manager.dict({"total": expected, "completed": 0, "lock": manager.Lock()})
     client = _ProgressOnlyClient(progress_counters)
 
     def worker():
-        for _ in range(INC_PER_THREAD):
+        for _ in range(inc_per_thread):
             client._increment_progress()
 
-    threads = [threading.Thread(target=worker) for _ in range(NUM_THREADS)]
+    threads = [threading.Thread(target=worker) for _ in range(num_threads)]
     for t in threads:
         t.start()
     for t in threads:
@@ -368,7 +368,6 @@ def test_progress_counters_with_skipped_work():
     """Test that progress counters handle pre-existing work correctly (resume scenario)"""
     # Simulate a scenario where we have 20 total AOIs, but 10 were already processed
     # This mimics resuming after a crash where some chunks already exist
-    already_completed = 10
     remaining_work = 10
 
     manager = multiprocessing.Manager()
@@ -383,7 +382,7 @@ def test_progress_counters_with_skipped_work():
     # Submit only the remaining work
     with ProcessPoolExecutor(max_workers=2) as executor:
         futures = []
-        for i in range(2):  # 2 workers * 5 = 10 remaining
+        for _ in range(2):  # 2 workers * 5 = 10 remaining
             future = executor.submit(
                 worker_increment_counter,
                 progress_counters,

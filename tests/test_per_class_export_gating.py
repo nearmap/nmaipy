@@ -93,8 +93,7 @@ def cross_class_chunk_gdf():
             fidelity=None,
         ),
     ]
-    gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs=API_CRS)
-    return gdf
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs=API_CRS)
 
 
 @pytest.fixture

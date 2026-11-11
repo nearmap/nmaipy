@@ -157,7 +157,6 @@ class TestIntegration:
 
             # Check for feature files (parquet format)
             final_dir = output_dir / "final"
-            feature_files = list(final_dir.glob("*.parquet"))
             # Features may or may not be created depending on API response
             # Just verify the export completed
             assert final_dir.exists(), "Final directory not created"

@@ -65,7 +65,7 @@ logger = log.get_logger()
 def _yyyy_mm_dd(value: str) -> str:
     """Argparse type for ``YYYY-MM-DD`` date strings; returns the original string on success."""
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        datetime.strptime(value, "%Y-%m-%d")  # noqa: DTZ007 -- format check only, result discarded
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}") from exc
     return value
@@ -472,7 +472,7 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
+        chunks_to_process, _skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
         latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
@@ -494,10 +494,14 @@ class RoofAgeExporter(BaseExporter):
                 self.logger.info(
                     f"Global latency stats: "
                     f"mean={global_stats['mean']:.0f}ms, "
-                    f"P50={global_stats['p50']:.0f}ms [{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
-                    f"P90={global_stats['p90']:.0f}ms [{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
-                    f"P95={global_stats['p95']:.0f}ms [{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
-                    f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
+                    f"P50={global_stats['p50']:.0f}ms "
+                    f"[{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
+                    f"P90={global_stats['p90']:.0f}ms "
+                    f"[{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
+                    f"P95={global_stats['p95']:.0f}ms "
+                    f"[{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
+                    f"P99={global_stats['p99']:.0f}ms "
+                    f"[{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
                     f"n={global_stats['count']}"
                 )
             log_request_cache_summary(self.logger, all_latency_stats)

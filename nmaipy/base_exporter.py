@@ -33,7 +33,7 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import geopandas as gpd
 import numpy as np
@@ -92,17 +92,17 @@ class BaseExporter(ABC):
 
     # Shared tqdm configuration for progress bars. The "+" in the format indicates
     # total can increase during gridding.
-    _TQDM_CONFIG = dict(
-        desc="API requests",
-        file=sys.stdout,
-        position=0,
-        leave=True,
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-        mininterval=5.0,
-        maxinterval=10.0,
-        smoothing=0.1,
-        unit=" requests",
-    )
+    _TQDM_CONFIG: ClassVar[dict[str, Any]] = {
+        "desc": "API requests",
+        "file": sys.stdout,
+        "position": 0,
+        "leave": True,
+        "bar_format": "{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
+        "mininterval": 5.0,
+        "maxinterval": 10.0,
+        "smoothing": 0.1,
+        "unit": " requests",
+    }
 
     @staticmethod
     def _format_progress_description(chunks_done, chunks_total, lat_str="Warmup"):
@@ -436,7 +436,7 @@ class BaseExporter(ABC):
         jobs = []
         job_to_chunk = {}  # Track which chunk each job corresponds to
         max_retries = 3
-        PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
+        process_pool_retry_delay = 5  # seconds between ProcessPool retries
 
         # Use spawn context for all multiprocessing to avoid fork-safety issues.
         # On Linux, fork is the default and inherits stale S3 clients, event loops,
@@ -493,7 +493,6 @@ class BaseExporter(ABC):
                                     )
                                 )
 
-                            chunks_submitted = 0
                             for position, (i, batch) in enumerate(chunks_to_process):
                                 chunk_id = str(i).zfill(4)
 
@@ -514,11 +513,11 @@ class BaseExporter(ABC):
                                             break
                                         # At capacity for current warmup stage - update progress while waiting
                                         if pbar is not None and progress_counters is not None:
-                                            chunks_completed = chunks_submitted - active_jobs
+                                            chunks_completed = position - active_jobs
                                             self._update_pbar_during_warmup(
                                                 pbar,
                                                 progress_counters,
-                                                chunks_submitted,
+                                                position,
                                                 len(chunks_to_process),
                                                 chunks_completed,
                                             )
@@ -541,7 +540,6 @@ class BaseExporter(ABC):
                                     batch.index.min(),
                                     batch.index.max(),
                                 )
-                                chunks_submitted += 1
 
                             # Process jobs with progress tracking
                             if use_progress_tracking and progress_counters is not None:
@@ -575,7 +573,7 @@ class BaseExporter(ABC):
                             executor.shutdown(wait=True)
 
                 except BrokenProcessPool as e:
-                    self._handle_broken_process_pool(e, attempt, max_retries, PROCESS_POOL_RETRY_DELAY)
+                    self._handle_broken_process_pool(e, attempt, max_retries, process_pool_retry_delay)
                     if attempt < max_retries - 1:
                         jobs = []  # Reset jobs list for retry
                         job_to_chunk = {}  # Reset job tracking for retry
@@ -644,7 +642,7 @@ class BaseExporter(ABC):
         """
         completed_jobs = 0
         last_progress_check = time.time()
-        PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
+        progress_check_interval = 0.5  # Check shared counters every 0.5 seconds
         all_latency_stats = []  # Collect latency stats from each chunk
         latest_latency_stats = None  # Latest stats WITH live requests, for the P50 display
         total_cache_hits = 0  # Cumulative across completed chunks, for hit-rate display
@@ -741,7 +739,7 @@ class BaseExporter(ABC):
                 # previous bounded-timeout that lost the race and left the
                 # displayed counter frozen for minutes.
                 current_time = time.time()
-                if current_time - last_progress_check >= PROGRESS_CHECK_INTERVAL:
+                if current_time - last_progress_check >= progress_check_interval:
                     with progress_counters["lock"]:
                         requests_completed = progress_counters["completed"]
                         requests_total = progress_counters["total"]

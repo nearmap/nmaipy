@@ -343,7 +343,7 @@ def _get_cgroup_cpu_percent(cpu_count: float) -> float | None:
 
     100% means all allocated CPUs are fully utilized.
     """
-    global _prev_cgroup_cpu_usage_ns, _prev_cgroup_cpu_time
+    global _prev_cgroup_cpu_usage_ns, _prev_cgroup_cpu_time  # noqa: PLW0603 -- module-level baseline for CPU deltas
 
     usage_ns = _get_cgroup_cpu_usage_ns()
     if usage_ns is None:

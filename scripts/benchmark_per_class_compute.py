@@ -118,10 +118,10 @@ def _microbench_roof_attrs(chunk_gdf: gpd.GeoDataFrame, country: str, runs: int 
                 fut.result()
 
     print(f"roof_attrs build microbench ({len(roof_records):,} roofs, min of {runs} runs):")
-    t_seq = min(_time(lambda: _seq()) for _ in range(runs))
+    t_seq = min(_time(_seq) for _ in range(runs))
     print(f"  threads=1   {t_seq:>8.3f}s")
     for n in (4, 8, 15):
-        t = min(_time(lambda: _parallel(n)) for _ in range(runs))
+        t = min(_time(lambda n=n: _parallel(n)) for _ in range(runs))
         speedup = t_seq / t if t > 0 else float("inf")
         print(f"  threads={n:<3} {t:>8.3f}s  ({speedup:.2f}x)")
     print()

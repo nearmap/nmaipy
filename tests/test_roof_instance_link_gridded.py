@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 import geopandas as gpd
@@ -145,7 +146,7 @@ class TestProcessChunkWiring:
     """
 
     # The unit-square geometry above, placed in lon/lat: 1 unit = 1e-5 degrees, each AOI at its own origin.
-    _ORIGINS = {"p1": (-75.0, 40.0), "p2": (-75.01, 40.0)}
+    _ORIGINS: ClassVar[dict[str, tuple[float, float]]] = {"p1": (-75.0, 40.0), "p2": (-75.01, 40.0)}
 
     @classmethod
     def _place(cls, geom, aoi_id):

@@ -338,7 +338,7 @@ class ReadmeGenerator:
 
     def _generate_header(self) -> str:
         """Generate the README header."""
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = datetime.now().strftime("%Y-%m-%d")  # noqa: DTZ005 -- local export date for the header
         return f"""# Nearmap AI Export
 
 This folder contains AI-generated property data from Nearmap aerial imagery.
@@ -423,7 +423,7 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
         ]
         max_label_len = max(len(label) for _, label, _, _ in layers)
         tree_lines: list[str] = []
-        for i, (_, label, note, edge) in enumerate(layers):
+        for _, label, note, edge in layers:
             tree_lines.append(f"  {label.ljust(max_label_len)}  ({note})")
             if edge is not None:
                 tree_lines.append(f"  {' ' * max_label_len}    │  {edge}")
@@ -431,22 +431,30 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 
         bullets = [
             "- **Building Lifecycle ↔ Building** is a 1-hop traversal of the API's `parent_id`.",
-            "- **Building ↔ Roof** and **Roof ↔ Roof Instance** use spatial Intersection over "
-            "Union (IoU), not `parent_id`. The roof's API `parentId` points to a deprecated "
-            "Building class, so nmaipy re-links via geometry, with an IoU-based threshold to "
-            "assign a parent.",
-            "- Each parent feature gets a `primary_child_*_id` (the child with the highest IoU); "
-            "each child gets a `parent_*_id`.",
-            "- When the primary roof has structural damage that masks its polygon, RSI and "
-            "similar scores fall back through Roof → Building → Building Lifecycle.",
+            (
+                "- **Building ↔ Roof** and **Roof ↔ Roof Instance** use spatial Intersection over "
+                "Union (IoU), not `parent_id`. The roof's API `parentId` points to a deprecated "
+                "Building class, so nmaipy re-links via geometry, with an IoU-based threshold to "
+                "assign a parent."
+            ),
+            (
+                "- Each parent feature gets a `primary_child_*_id` (the child with the highest IoU); "
+                "each child gets a `parent_*_id`."
+            ),
+            (
+                "- When the primary roof has structural damage that masks its polygon, RSI and "
+                "similar scores fall back through Roof → Building → Building Lifecycle."
+            ),
         ]
 
         lines = [
             "## Class Hierarchy & Relationships",
             "",
-            "nmaipy connects structural classes so that primary-feature columns and per-class "
-            "files can be cross-referenced. The canonical hierarchy is shown below; only the "
-            "layers actually requested in your export will have corresponding files in `final/`.",
+            (
+                "nmaipy connects structural classes so that primary-feature columns and per-class "
+                "files can be cross-referenced. The canonical hierarchy is shown below; only the "
+                "layers actually requested in your export will have corresponding files in `final/`."
+            ),
             "",
             "```",
             *tree_lines,
@@ -527,11 +535,26 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "|---------|---------|------|-----|-----|------|-------------|",
             f"| `{{class}}_present` | `{example_class}_present` | Y/N | — | — | — | Feature was detected |",
             f"| `{{class}}_count` | `{example_class}_count` | int | 0 | — | — | Number of features detected |",
-            f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Combined confidence score indicating likelihood that any features of this class are present |",
-            f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | float | 0 | — | {u_long} | Total area of all features |",
-            f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | float | 0 | — | {u_long} | Total area clipped to parcel boundary |",
-            f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | float | 0 | — | {u_long} | Total unclipped feature area |",
-            f"| `{{class}}_fidelity` | `{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
+            (
+                f"| `{{class}}_confidence` | `{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | "
+                "Combined confidence score indicating likelihood that any features of this class are present |"
+            ),
+            (
+                f"| `{{class}}_total_area_{u}` | `{example_class}_total_area_{u}` | float | 0 | — | {u_long} | Total "
+                "area of all features |"
+            ),
+            (
+                f"| `{{class}}_total_clipped_area_{u}` | `{example_class}_total_clipped_area_{u}` | float | 0 | — | "
+                f"{u_long} | Total area clipped to parcel boundary |"
+            ),
+            (
+                f"| `{{class}}_total_unclipped_area_{u}` | `{example_class}_total_unclipped_area_{u}` | float | 0 | — "
+                f"| {u_long} | Total unclipped feature area |"
+            ),
+            (
+                f"| `{{class}}_fidelity` | `{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the "
+                "shape of the vectorized footprint polygon (only for structural classes — building, roof) |"
+            ),
             "",
             "### Primary Feature Columns",
             "",
@@ -541,11 +564,27 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "| Pattern | Example | Type | Min | Max | Unit | Description |",
             "|---------|---------|------|-----|-----|------|-------------|",
-            f"| `primary_{{class}}_area_{u}` | `primary_{example_class}_area_{u}` | float | 0 | — | {u_long} | Area of primary feature |",
-            f"| `primary_{{class}}_clipped_area_{u}` | `primary_{example_class}_clipped_area_{u}` | float | 0 | — | {u_long} | Clipped area of primary feature |",
-            f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | 0.0 | 1.0 | — | Calibrated confidence measuring likelihood that the primary feature exists |",
-            f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | Unique ID of primary feature (does not persist across surveys) |",
-            f"| `primary_{{class}}_fidelity` | `primary_{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | Quality of the shape of the vectorized footprint polygon (only for structural classes — building, roof) |",
+            (
+                f"| `primary_{{class}}_area_{u}` | `primary_{example_class}_area_{u}` | float | 0 | — | {u_long} | "
+                "Area of primary feature |"
+            ),
+            (
+                f"| `primary_{{class}}_clipped_area_{u}` | `primary_{example_class}_clipped_area_{u}` | float | 0 | — "
+                f"| {u_long} | Clipped area of primary feature |"
+            ),
+            (
+                f"| `primary_{{class}}_confidence` | `primary_{example_class}_confidence` | float (quantised uint8) | "
+                "0.0 | 1.0 | — | Calibrated confidence measuring likelihood that the primary feature exists |"
+            ),
+            (
+                f"| `primary_{{class}}_feature_id` | `primary_{example_class}_feature_id` | string | — | — | — | "
+                "Unique ID of primary feature (does not persist across surveys) |"
+            ),
+            (
+                f"| `primary_{{class}}_fidelity` | `primary_{fidelity_example}_fidelity` | float | 0.0 | 1.0 | — | "
+                "Quality of the shape of the vectorized footprint polygon (only for structural classes — building, "
+                "roof) |"
+            ),
             "",
         ]
 
@@ -583,21 +622,26 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
             "",
             "These columns summarise the dominant roof material and shape for the primary roof.",
             "",
-            "**How dominant is computed.** Each roof is decomposed into material and shape "
-            "components (each with a class, area, and ratio of the roof's total area). The "
-            "**dominant** component is the one with the highest ratio. For **materials**, the "
-            "dominant material is reported only when its ratio is at least 0.5; below that "
-            'threshold the column is `unknown`. For **shapes**, the same "highest ratio wins" '
-            "rule applies but no ratio threshold is enforced — a shape is dominant if it has the "
-            "highest ratio *and* a non-zero area; otherwise `unknown`. (Shape ratios can overlap "
-            "or gap and do not sum to 1, which is why no shape ratio column is emitted.) "
-            "Deprecated `flat (deprecated)` and `shed` shape classes are excluded from selection.",
+            (
+                "**How dominant is computed.** Each roof is decomposed into material and shape "
+                "components (each with a class, area, and ratio of the roof's total area). The "
+                "**dominant** component is the one with the highest ratio. For **materials**, the "
+                "dominant material is reported only when its ratio is at least 0.5; below that "
+                'threshold the column is `unknown`. For **shapes**, the same "highest ratio wins" '
+                "rule applies but no ratio threshold is enforced — a shape is dominant if it has the "
+                "highest ratio *and* a non-zero area; otherwise `unknown`. (Shape ratios can overlap "
+                "or gap and do not sum to 1, which is why no shape ratio column is emitted.) "
+                "Deprecated `flat (deprecated)` and `shed` shape classes are excluded from selection."
+            ),
             "",
             "### Dominant Material",
             "",
             *_render_columns_table(DOMINANT_ROOF_MATERIAL_COLUMNS.keys(), area_unit),
             "",
-            "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null statistics.",
+            (
+                "If no single material has a ratio >= 0.5, the dominant material is reported as `unknown` with null "
+                "statistics."
+            ),
             "",
             "### Dominant Shape",
             "",
@@ -693,48 +737,66 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
                     "`include=roofConditionConfidenceStats` (Gen6 only; available in the US, AU, NZ)."
                 ),
                 "",
-                "RCCS surfaces the per-pixel confidence distribution that underlies each roof "
-                "condition detection (ponding, rusting, staining, structural damage, repairs, "
-                "zinc staining, etc.). The single `*_confidence` score these components also "
-                "carry collapses that distribution to one number; RCCS exposes the full shape so "
-                "downstream consumers can apply their own thresholds or roll their own scoring. "
-                "Gen6 only; available in the US, AU, NZ.",
+                (
+                    "RCCS surfaces the per-pixel confidence distribution that underlies each roof "
+                    "condition detection (ponding, rusting, staining, structural damage, repairs, "
+                    "zinc staining, etc.). The single `*_confidence` score these components also "
+                    "carry collapses that distribution to one number; RCCS exposes the full shape so "
+                    "downstream consumers can apply their own thresholds or roll their own scoring. "
+                    "Gen6 only; available in the US, AU, NZ."
+                ),
                 *component_lines,
                 "",
-                "Note: RCCS covers all roof condition attributes — not just structural damage. "
-                "Cosmetic / maintenance components like staining, ponding, worn shingles and "
-                "repair patches each get their own histogram, with the same `condition is "
-                "present` axis interpreted relative to that component.",
+                (
+                    "Note: RCCS covers all roof condition attributes — not just structural damage. "
+                    "Cosmetic / maintenance components like staining, ponding, worn shingles and "
+                    "repair patches each get their own histogram, with the same `condition is "
+                    "present` axis interpreted relative to that component."
+                ),
                 "",
                 "### Column shape",
                 "",
                 "For each roof condition component `<component>`, RCCS emits two histograms:",
                 "",
-                "- **`<component>_confidence_stats_default_bin_{0..17}`** — 18 bins ordered from "
-                "least to most evidence that the component condition is present. Bins are evenly "
-                "spaced except the outer two edges, which are narrower so that high- and "
-                "low-extreme detail isn't lost in a wide bucket.",
-                "- **`<component>_confidence_stats_extreme_bin_{0..2}`** — 3 bins isolating the "
-                "tails of the same distribution. Bin 0 is the high-confidence-absent extreme, "
-                "bin 1 is the wide middle band covering ~0.992 of the confidence range, bin 2 is "
-                "the high-confidence-present extreme.",
+                (
+                    "- **`<component>_confidence_stats_default_bin_{0..17}`** — 18 bins ordered from "
+                    "least to most evidence that the component condition is present. Bins are evenly "
+                    "spaced except the outer two edges, which are narrower so that high- and "
+                    "low-extreme detail isn't lost in a wide bucket."
+                ),
+                (
+                    "- **`<component>_confidence_stats_extreme_bin_{0..2}`** — 3 bins isolating the "
+                    "tails of the same distribution. Bin 0 is the high-confidence-absent extreme, "
+                    "bin 1 is the wide middle band covering ~0.992 of the confidence range, bin 2 is "
+                    "the high-confidence-present extreme."
+                ),
                 "",
-                "Each bin value is a fraction in `[0, 1]` — the share of roof pixels whose "
-                "per-pixel confidence that the component is present fell into that bin. Bin "
-                "values within one `binType` for one component sum to ~1.0.",
+                (
+                    "Each bin value is a fraction in `[0, 1]` — the share of roof pixels whose "
+                    "per-pixel confidence that the component is present fell into that bin. Bin "
+                    "values within one `binType` for one component sum to ~1.0."
+                ),
                 "",
-                "In the rollup, RCCS columns are scoped to the parcel's primary roof "
-                "(`primary_roof_<component>_confidence_stats_...`); per-class files (e.g. "
-                "`roof.csv`) carry the same columns unscoped, one row per feature.",
+                (
+                    "In the rollup, RCCS columns are scoped to the parcel's primary roof "
+                    "(`primary_roof_<component>_confidence_stats_...`); per-class files (e.g. "
+                    "`roof.csv`) carry the same columns unscoped, one row per feature."
+                ),
                 "",
                 "### Interpreting the histograms",
                 "",
-                "- Mass concentrated in **low-index `default` bins** (or in `extreme_bin_0`) "
-                "indicates strong evidence the condition is **absent** across the roof.",
-                "- Mass concentrated in **high-index `default` bins** (or in `extreme_bin_2`) "
-                "indicates strong evidence the condition is **present**.",
-                "- Mass piled into the middle (e.g. `extreme_bin_1` ≈ 1.0) means the model is "
-                "**not committed** — useful as a low-confidence flag.",
+                (
+                    "- Mass concentrated in **low-index `default` bins** (or in `extreme_bin_0`) "
+                    "indicates strong evidence the condition is **absent** across the roof."
+                ),
+                (
+                    "- Mass concentrated in **high-index `default` bins** (or in `extreme_bin_2`) "
+                    "indicates strong evidence the condition is **present**."
+                ),
+                (
+                    "- Mass piled into the middle (e.g. `extreme_bin_1` ≈ 1.0) means the model is "
+                    "**not committed** — useful as a low-confidence flag."
+                ),
                 "",
                 "For more details, see:",
                 "- https://help.nearmap.com/kb/articles/1749-roof-condition-confidence-stats-rccs",
@@ -849,7 +911,10 @@ For more details, see: https://help.nearmap.com/kb/articles/1641-nearmap-roof-sp
             "| Prefix | Scope |",
             "|--------|-------|",
             "| `primary_defensible_space_zone_{N}_` | Defensible space for the primary roof feature only |",
-            "| `aggregate_defensible_space_zone_{N}_` | Defensible space aggregated across the entire parcel (all structures) |",
+            (
+                "| `aggregate_defensible_space_zone_{N}_` | Defensible space aggregated across the entire parcel (all "
+                "structures) |"
+            ),
             "",
             "### Columns Per Zone (illustrated for zone 0; analogous columns exist for zones 1, 2, etc.)",
             "",
@@ -882,7 +947,7 @@ A ratio of 1.0 means the entire zone is defensible; 0.0 means it is fully occupi
 - **GeoParquet files**: Can be opened with QGIS, ArcGIS, or Python (geopandas)
 - **`*_skipped` columns**: The Feature API may return `{{skipped: true}}` for an include section (e.g. RSI, peril scores, defensible space) when it decides not to evaluate that section for a given row. nmaipy surfaces this as a per-include `*_skipped` boolean — `Y` means "API declined to evaluate", `N` means evaluated normally, absent means the include wasn't requested. When a row has `*_skipped = Y`, the corresponding score / area / ratio columns will be null because the API didn't compute them, not because the underlying feature is absent.
 
-"""
+"""  # noqa: E501 -- README template; line length is output text
 
     def _generate_footer(self) -> str:
         """Generate the README footer."""

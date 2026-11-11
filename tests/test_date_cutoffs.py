@@ -170,9 +170,11 @@ def _bad_until_aois():
 
 def test_feature_api_bulk_rejects_bad_per_row_dates_before_querying(tmp_path):
     api = FeatureApi(api_key="test-key", cache_dir=tmp_path)
-    with patch.object(api, "_get_features_gdf_bulk_inner") as inner:
-        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
-            api.get_features_gdf_bulk(_bad_until_aois(), region="us")
+    with (
+        patch.object(api, "_get_features_gdf_bulk_inner") as inner,
+        pytest.raises(ValueError, match=r"column 'until'.*'b'"),
+    ):
+        api.get_features_gdf_bulk(_bad_until_aois(), region="us")
     inner.assert_not_called()
 
 
@@ -225,7 +227,9 @@ def test_standalone_roof_age_export_rejects_bad_dates_before_querying(tmp_path):
     aoi_file = tmp_path / "aois.csv"
     _bad_until_aois().reset_index().to_wkt().to_csv(aoi_file, index=False)
     exporter = RoofAgeExporter(aoi_file=str(aoi_file), output_dir=str(tmp_path / "out"), country="us", api_key="test")
-    with patch.object(RoofAgeExporter, "split_into_chunks") as split_into_chunks:
-        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
-            exporter.run()
+    with (
+        patch.object(RoofAgeExporter, "split_into_chunks") as split_into_chunks,
+        pytest.raises(ValueError, match=r"column 'until'.*'b'"),
+    ):
+        exporter.run()
     split_into_chunks.assert_not_called()

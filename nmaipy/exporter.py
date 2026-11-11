@@ -600,7 +600,7 @@ def _group_children_by_aoi(
         return {}
     if AOI_ID_COLUMN_NAME not in source.columns:
         return {}
-    return {aoi: group for aoi, group in source.groupby(AOI_ID_COLUMN_NAME)}
+    return dict(iter(source.groupby(AOI_ID_COLUMN_NAME)))
 
 
 def _intersection_or_none(geom, clip_geom):
@@ -885,7 +885,7 @@ def _stream_merge_chunks_to_parquet(
     prefetch read-ahead window, regardless of the total class size. This is what
     lets a national-scale layer (hundreds of GiB across thousands of chunks)
     consolidate without OOM — the read-all-then-concat path peaks at
-    ``sum(all chunks) + concatenated copy`` (≈2×), which scales with total class
+    ``sum(all chunks) + concatenated copy`` (≈2x), which scales with total class
     size and so no box tier can fix it.
 
     Two passes, both preserving ``_unify_and_concat_tables()`` schema semantics:
@@ -1297,7 +1297,7 @@ def _compute_all_per_class_data(
     # rows and K classes (e.g. 25 packs => K ~= 25), this turns ~K full-frame
     # scans plus K transient copies into a single groupby. The transient-copy
     # reduction is the bigger win at peak memory: feature-heavy chunks for
-    # many-pack exports were producing 25 × N-row intermediate views.
+    # many-pack exports were producing 25 x N-row intermediate views.
     class_groups: dict = {}
     if "class_id" in chunk_gdf.columns and len(chunk_gdf) > 0:
         class_groups = dict(iter(chunk_gdf.groupby("class_id", sort=False)))
@@ -1442,7 +1442,7 @@ def _compute_all_per_class_data(
     def _finalise(out):
         if out is None:
             return None
-        cid, desc, flat_df, geo_gdf = out
+        cid, _desc, flat_df, geo_gdf = out
         entry = {"tabular": pa.Table.from_pandas(flat_df, preserve_index=False)}
         if geo_gdf is not None and len(geo_gdf) > 0:
             geo_wkb_df = pd.DataFrame(geo_gdf)
@@ -1466,7 +1466,7 @@ def _compute_all_per_class_data(
     return results
 
 
-def _compute_feature_class_data(
+def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     class_id: str,
     class_description: str,
     country: str,
@@ -1551,7 +1551,8 @@ def _compute_feature_class_data(
 
     # Add metadata columns (address fields, coordinates, etc.) if present
     # These come from the merged features parquet which includes AOI metadata
-    metadata_cols = list(ADDRESS_FIELDS) + [
+    metadata_cols = [
+        *ADDRESS_FIELDS,
         "lat",
         "lon",
         "latitude",
@@ -1591,18 +1592,16 @@ def _compute_feature_class_data(
 
     # Confidence is universal across Feature API classes; roof instances use
     # trust_score instead.
-    if class_id != ROOF_INSTANCE_CLASS_ID:
-        if "confidence" in class_features.columns:
-            initial_batch["confidence"] = class_features["confidence"].to_numpy()
-            added_cols.add("confidence")
+    if class_id != ROOF_INSTANCE_CLASS_ID and "confidence" in class_features.columns:
+        initial_batch["confidence"] = class_features["confidence"].to_numpy()
+        added_cols.add("confidence")
 
     # Fidelity is API-populated only on structural building/roof classes
     # (see CLASSES_WITH_FIDELITY in constants.py). Other classes inherit a
     # NaN-filled fidelity column from the chunk-level pd.concat.
-    if class_id in CLASSES_WITH_FIDELITY:
-        if "fidelity" in class_features.columns:
-            initial_batch["fidelity"] = class_features["fidelity"].to_numpy()
-            added_cols.add("fidelity")
+    if class_id in CLASSES_WITH_FIDELITY and "fidelity" in class_features.columns:
+        initial_batch["fidelity"] = class_features["fidelity"].to_numpy()
+        added_cols.add("fidelity")
 
     # Add area fields (vectorized) - skip if already added.
     # Country-aware: emit only the country-correct unit family (sqft for US, sqm otherwise),
@@ -1799,7 +1798,8 @@ def _compute_feature_class_data(
                         logger.debug(f"Could not flatten roof attributes for feature: {e}")
                         attr_records.append({})
                 logger.debug(
-                    f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} roofs"
+                    f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} "
+                    "roofs"
                 )
 
             if attr_records:
@@ -1857,7 +1857,7 @@ def _compute_feature_class_data(
                         df_parts.append(pd.DataFrame(rsi_batch, index=range(n_rows)))
                         added_cols.update(rsi_batch)
         except Exception:
-            logger.error("Could not resolve footprint RSI for roofs", exc_info=True)
+            logger.exception("Could not resolve footprint RSI for roofs")
 
         # Resolve best scores (peril scores, defensible space) per roof via BL fallback.
         try:
@@ -1888,7 +1888,7 @@ def _compute_feature_class_data(
                     if new_cols:
                         df_parts.append(pd.DataFrame(new_cols, index=range(n_rows)))
         except Exception:
-            logger.error("Could not resolve footprint scores for roofs", exc_info=True)
+            logger.exception("Could not resolve footprint scores for roofs")
 
     # --- Section D: Building attributes (3D, pitch, ground height, then link to child roofs and add RSI) ---
     if class_id == BUILDING_NEW_ID:
@@ -2011,7 +2011,8 @@ def _compute_feature_class_data(
                         except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets no linked attributes
                             logger.debug(f"Could not flatten building-linked roof attributes: {e}")
                     logger.debug(
-                        f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for {len(roofs_linked)} roofs"
+                        f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for "
+                        f"{len(roofs_linked)} roofs"
                     )
 
                 if roof_attrs:
@@ -2035,15 +2036,17 @@ def _compute_feature_class_data(
                     mapped = roof_attrs_df.reindex(lookup_keys).reset_index(drop=True)
 
                     roof_attr_batch = {}
-                    _DOM = (
+                    dominant_prefixes = (
                         "primary_child_roof_dominant_roof_material_",
                         "primary_child_roof_dominant_roof_types_",
                     )
-                    dominant_cols = sorted(c for c in mapped.columns if c.startswith(_DOM))
+                    dominant_cols = sorted(c for c in mapped.columns if c.startswith(dominant_prefixes))
                     other_cols = sorted(
                         c
                         for c in mapped.columns
-                        if not c.startswith(_DOM) and c not in _EXCLUDE_RSI and not _is_resolved_score_col(c)
+                        if not c.startswith(dominant_prefixes)
+                        and c not in _EXCLUDE_RSI
+                        and not _is_resolved_score_col(c)
                     )
                     for col in dominant_cols + other_cols:
                         if col not in added_cols:
@@ -2411,7 +2414,7 @@ def _compute_feature_class_data(
                     if score_batch:
                         df_parts.append(pd.DataFrame(score_batch, index=range(n_rows)))
         except Exception:
-            logger.error("Could not link roofs to building lifecycles", exc_info=True)
+            logger.exception("Could not link roofs to building lifecycles")
 
     # --- Section E2: Pool condition attributes ---
     if class_id == POOL_ID:
@@ -2421,7 +2424,7 @@ def _compute_feature_class_data(
             if pool_batch:
                 df_parts.append(pd.DataFrame(pool_batch, index=range(n_rows)))
         except Exception:
-            logger.error("Could not flatten pool attributes", exc_info=True)
+            logger.exception("Could not flatten pool attributes")
 
     # --- Section F: Mapbrowser link ---
     # Uses geometry centroid for location and survey_date/installation_date for date
@@ -2575,7 +2578,7 @@ def cleanup_process_feature_api():
     """
     Clean up the process-level FeatureApi instance
     """
-    global _process_feature_api
+    global _process_feature_api  # noqa: PLW0603 -- per-process singleton client
     if _process_feature_api is not None:
         try:
             _process_feature_api.cleanup()
@@ -2627,8 +2630,8 @@ def parse_arguments():
         "--roof-age-dataset",
         help=(
             "Roof Age dataset to query when --roof-age is set. Known aliases: 'latest' (default, "
-            "the API's current default dataset), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a literal "
-            "resource UUID."
+            "the API's current default dataset), 'A.0', 'A.1', 'A.1Q2'. Any other value is sent to the API as a "
+            "literal resource UUID."
         ),
         type=str,
         default="latest",
@@ -2658,14 +2661,20 @@ def parse_arguments():
     )
     parser.add_argument(
         "--aoi-grid-min-pct",
-        help="The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful result (not 404) to return. Default is strict full coverage (100) required.",
+        help=(
+            "The minimum threshold (0-100) for how much of a grid cell (proportion of squares) must get a successful "
+            "result (not 404) to return. Default is strict full coverage (100) required."
+        ),
         type=int,
         required=False,
         default=100,
     )
     parser.add_argument(
         "--aoi-grid-inexact",
-        help="Permit inexact merging of large AOIs that get gridded, end up getting grid squares from multiple dates, then merging. Deduplication will work poorly for things like buildings.",
+        help=(
+            "Permit inexact merging of large AOIs that get gridded, end up getting grid squares from multiple dates, "
+            "then merging. Deduplication will work poorly for things like buildings."
+        ),
         action="store_true",
     )
     parser.add_argument(
@@ -2735,12 +2744,18 @@ def parse_arguments():
     )
     parser.add_argument(
         "--save-features",
-        help="If set, save the raw vectors as a geoparquet file for loading in GIS tools. This can be quite time consuming.",
+        help=(
+            "If set, save the raw vectors as a geoparquet file for loading in GIS tools. This can be quite time "
+            "consuming."
+        ),
         action="store_true",
     )
     parser.add_argument(
         "--no-class-level-files",
-        help="If set, disable per-feature-class tabular exports (e.g., roof.csv, roof_instance.csv). By default, these are enabled.",
+        help=(
+            "If set, disable per-feature-class tabular exports (e.g., roof.csv, roof_instance.csv). By default, these "
+            "are enabled."
+        ),
         action="store_true",
     )
     parser.add_argument(
@@ -2806,13 +2821,19 @@ def parse_arguments():
     )
     parser.add_argument(
         "--since",
-        help="Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data takes precedent.",
+        help=(
+            "Bulk limit on date for responses (earliest inclusive date returned). Presence of 'since' column in data "
+            "takes precedent."
+        ),
         required=False,
         type=str,
     )
     parser.add_argument(
         "--until",
-        help="Bulk limit on date for responses (latest inclusive date returned). Presence of 'until' column in data takes precedent.",
+        help=(
+            "Bulk limit on date for responses (latest inclusive date returned). Presence of 'until' column in data "
+            "takes precedent."
+        ),
         required=False,
         type=str,
     )
@@ -2923,12 +2944,11 @@ def cleanup_thread_sessions(executor):
     """Helper to ensure thread sessions are properly closed"""
     if hasattr(executor, "_threads"):
         for thread in executor._threads:
-            if hasattr(thread, "_local"):
-                if hasattr(thread._local, "session"):
-                    try:
-                        thread._local.session.close()
-                    except Exception:  # noqa: BLE001, S110 -- best-effort session close during executor teardown
-                        pass
+            if hasattr(thread, "_local") and hasattr(thread._local, "session"):
+                try:
+                    thread._local.session.close()
+                except Exception:  # noqa: BLE001, S110 -- best-effort session close during executor teardown
+                    pass
 
 
 # Export-config keys that may differ between runs into the same output directory:
@@ -3264,7 +3284,7 @@ class NearmapAIExporter(BaseExporter):
             return self.api_key_param
         return os.getenv("API_KEY")
 
-    def _stream_and_convert_features(
+    def _stream_and_convert_features(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
         self,
         feature_paths: list,
         outpath_features: str,
@@ -3737,7 +3757,7 @@ class NearmapAIExporter(BaseExporter):
         """
         return storage.validate_parquet(path, min_rows=1)
 
-    def process_chunk(
+    def process_chunk(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
         self,
         chunk_id: str,
         aoi_gdf: gpd.GeoDataFrame,
@@ -4116,7 +4136,8 @@ class NearmapAIExporter(BaseExporter):
                                     "primary_child_roof_age_years_as_of_date",
                                 ] = age_years.to_numpy()
                                 logger.debug(
-                                    f"Chunk {chunk_id}: Calculated roof age in years for {roofs_with_age_mask.sum()} roofs"
+                                    f"Chunk {chunk_id}: Calculated roof age in years for {roofs_with_age_mask.sum()} "
+                                    "roofs"
                                 )
 
                     # Calculate roof age in years for roof instances
@@ -4130,7 +4151,8 @@ class NearmapAIExporter(BaseExporter):
                             if age_years is not None:
                                 features_gdf.loc[roof_instance_mask, "roof_age_years_as_of_date"] = age_years.to_numpy()
                                 logger.debug(
-                                    f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} roof instances"
+                                    f"Chunk {chunk_id}: Calculated roof age in years for {roof_instance_mask.sum()} "
+                                    "roof instances"
                                 )
 
             # features_gdf now includes roof instances (and IoU-linked columns on roofs)
@@ -4210,7 +4232,8 @@ class NearmapAIExporter(BaseExporter):
                 "perspective",
                 "postcat",
                 "mesh_date",
-            ] + coverage_columns
+                *coverage_columns,
+            ]
             # Rename metadata columns that clash with user's AOI columns
             conflicting_columns = [c for c in meta_data_columns if c in aoi_gdf.columns]
             for meta_data_column in conflicting_columns:
@@ -4219,7 +4242,7 @@ class NearmapAIExporter(BaseExporter):
 
             # Drop non-scalar metadata columns (e.g. aggregate dicts) before merge
             metadata_df = metadata_df.drop(
-                columns=[c for c in metadata_df.columns if c not in meta_data_columns + [AOI_ID_COLUMN_NAME]],
+                columns=[c for c in metadata_df.columns if c not in [*meta_data_columns, AOI_ID_COLUMN_NAME]],
                 errors="ignore",
             )
             # mesh_date appears in two places that would collide on the rollup merge:
@@ -4269,7 +4292,7 @@ class NearmapAIExporter(BaseExporter):
                 metadata_df = metadata_df.drop(columns=metadata_cols_to_drop)
 
             # Check for column name collisions between any two dataframes
-            final_features_df = aoi_gdf.rename(columns=dict(geometry="aoi_geometry"))
+            final_features_df = aoi_gdf.rename(columns={"geometry": "aoi_geometry"})
 
             # Convert aoi_geometry to WKT now — once per AOI, before the merges
             # duplicate it across every feature row. On dense chunks (e.g. ~17k
@@ -4785,7 +4808,7 @@ class NearmapAIExporter(BaseExporter):
         finally:
             self._cleanup_staging()
 
-    def _run_inner(self):
+    def _run_inner(self):  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
         self.logger.info(f"nmaipy version: {__version__}")
         self.logger.debug("Starting parcel rollup")
 
@@ -4948,13 +4971,15 @@ class NearmapAIExporter(BaseExporter):
         # Print out info around what is being inferred from column names:
         if SURVEY_RESOURCE_ID_COL_NAME in aoi_gdf:
             logger.info(
-                f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead of using date based filtering."
+                f"{SURVEY_RESOURCE_ID_COL_NAME} will be used to get results from the exact Survey Resource ID, instead "
+                "of using date based filtering."
             )
         else:
             logger.debug(f"No {SURVEY_RESOURCE_ID_COL_NAME} column provided, so date based endpoint will be used.")
             if SINCE_COL_NAME in aoi_gdf:
                 logger.info(
-                    f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each Query AOI.'
+                    f'The column "{SINCE_COL_NAME}" will be used as the earliest permitted date (YYYY-MM-DD) for each '
+                    "Query AOI."
                 )
             elif self.since is not None:
                 logger.debug(f"The since date of {self.since} will limit the earliest returned date for all Query AOIs")
@@ -4962,7 +4987,8 @@ class NearmapAIExporter(BaseExporter):
                 logger.debug("No earliest date will be used")
             if UNTIL_COL_NAME in aoi_gdf:
                 logger.info(
-                    f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each Query AOI.'
+                    f'The column "{UNTIL_COL_NAME}" will be used as the latest permitted date (YYYY-MM-DD) for each '
+                    "Query AOI."
                 )
             elif self.until is not None:
                 logger.debug(f"The until date of {self.until} will limit the latest returned date for all Query AOIs")
@@ -4984,7 +5010,7 @@ class NearmapAIExporter(BaseExporter):
                     )
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
+        chunks_to_process, _skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
 
         # Calculate initial AOI count for progress tracking (excluding skipped)
         # If roof_age is enabled, each AOI gets both Feature API and Roof Age API queries
@@ -5008,17 +5034,19 @@ class NearmapAIExporter(BaseExporter):
                 self.logger.info(
                     f"Global latency stats: "
                     f"mean={global_stats['mean']:.0f}ms, "
-                    f"P50={global_stats['p50']:.0f}ms [{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
-                    f"P90={global_stats['p90']:.0f}ms [{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
-                    f"P95={global_stats['p95']:.0f}ms [{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
-                    f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
+                    f"P50={global_stats['p50']:.0f}ms "
+                    f"[{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
+                    f"P90={global_stats['p90']:.0f}ms "
+                    f"[{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
+                    f"P95={global_stats['p95']:.0f}ms "
+                    f"[{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
+                    f"P99={global_stats['p99']:.0f}ms "
+                    f"[{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
                     f"n={global_stats['count']}"
                 )
             log_request_cache_summary(self.logger, all_latency_stats)
 
         data = []
-        data_features = []
-        errors = []
         self.logger.debug(f"Saving rollup data as {self.tabular_file_format} file to {outpath}")
 
         data = self._read_rollup_chunks(num_chunks, len(aoi_gdf))
@@ -5046,17 +5074,15 @@ class NearmapAIExporter(BaseExporter):
             if self.tabular_file_format == "parquet":
                 storage.write_parquet(data, outpath, index=True)
             elif self.tabular_file_format == "csv":
-                if "geometry" in data.columns:
-                    if hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
-                        # If it has a to_wkt method but isn't a GeoSeries
-                        data["geometry"] = data.geometry.to_wkt()
+                # If it has a to_wkt method but isn't a GeoSeries
+                if "geometry" in data.columns and hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
+                    data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
             else:
                 self.logger.info("Invalid output format specified - reverting to csv")
-                if "geometry" in data.columns:
-                    if hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
-                        # If it has a to_wkt method but isn't a GeoSeries
-                        data["geometry"] = data.geometry.to_wkt()
+                # If it has a to_wkt method but isn't a GeoSeries
+                if "geometry" in data.columns and hasattr(data.geometry, "to_wkt") and callable(data.geometry.to_wkt):
+                    data["geometry"] = data.geometry.to_wkt()
                 data.to_csv(outpath, index=True)
 
         # Free the full rollup DataFrame to reduce peak memory during per-class export.
@@ -5193,12 +5219,11 @@ class NearmapAIExporter(BaseExporter):
         del feature_api_errors, roof_age_errors
         gc.collect()
 
-        local_features_path = None
         if self.save_features:
             feature_paths = storage.glob_files(self.chunk_path, "features_*.parquet")
             self.logger.info(f"Saving feature data from {len(feature_paths)} geoparquet chunks to {outpath_features}")
 
-            local_features_path = self._stream_and_convert_features(
+            self._stream_and_convert_features(
                 feature_paths,
                 outpath_features,
             )
@@ -5243,7 +5268,7 @@ def main():
         desired = 32000  # Same as ulimit -n 32000
         try:
             resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
-            new_soft, new_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            new_soft, _new_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
             logger.info(f"File descriptor limits - Previous: {soft}, New: {new_soft}, Hard limit: {hard}")
         except ValueError:
             # If desired limit is too high, try setting to hard limit

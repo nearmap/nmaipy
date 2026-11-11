@@ -187,7 +187,7 @@ def _row_keys(keys: list[list[str]], cells: dict[str, list[str]]) -> list[str]:
     return row_keys
 
 
-def _cell(value: object, column: str) -> str:
+def _cell(value: object, column: str) -> str:  # noqa: PLR0911 -- one early return per value type
     if isinstance(value, shapely.Geometry):
         return shapely.to_wkt(value, rounding_precision=SIGNIFICANT_DIGITS)
     if value is None or (isinstance(value, float) and math.isnan(value)) or value is pd.NA or value is pd.NaT:

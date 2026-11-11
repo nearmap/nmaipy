@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Quick test script for property-based exports.
 

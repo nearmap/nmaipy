@@ -108,7 +108,7 @@ def test_get_surveys_from_point_standard_paginates():
         ]
     )
     with patch.object(cu, "get_payload", side_effect=fake):
-        df, resp = cu.get_surveys_from_point(151.0, -33.0, None, None, "KEY", cu.STANDARD_COVERAGE, limit=2)
+        df, _resp = cu.get_surveys_from_point(151.0, -33.0, None, None, "KEY", cu.STANDARD_COVERAGE, limit=2)
     assert list(df["id"]) == ["s1", "s2", "s3"]
     assert len(urls) == 2, f"expected two page requests, got {urls}"
     assert urls[1].count("limit=") == 1, urls[1]
@@ -128,9 +128,11 @@ def test_get_surveys_from_point_ai_single_request():
 def test_get_all_survey_pages_raises_instead_of_truncating(monkeypatch):
     """Full pages with no `total` past the page cap must fail loudly, not return a partial list."""
     monkeypatch.setattr(cu, "_MAX_COVERAGE_PAGES", 3)
-    with patch.object(cu, "get_payload", return_value={"surveys": [{"id": "s"}]}):
-        with pytest.raises(ValueError, match="aborting rather than truncating"):
-            cu._get_all_survey_pages("https://example/coverage/v2/point/0,0?fields=id", page_size=1, apikey="k")
+    with (
+        patch.object(cu, "get_payload", return_value={"surveys": [{"id": "s"}]}),
+        pytest.raises(ValueError, match="aborting rather than truncating"),
+    ):
+        cu._get_all_survey_pages("https://example/coverage/v2/point/0,0?fields=id", page_size=1, apikey="k")
 
 
 def test_threaded_uses_global_window_when_no_columns():
@@ -202,7 +204,7 @@ def test_get_coverage_from_points_standard_tolerant(tmp_path):
             threads=2,
             coverage_chunk_cache_dir=str(tmp_path / "cov"),
         )
-    # one row per (unit × survey): 2 units × 2 surveys
+    # one row per (unit x survey): 2 units x 2 surveys
     assert len(out) == 4
     assert set(out.index.unique()) == {"u1", "u2"}
     assert "survey_resource_id" in out.columns
@@ -247,9 +249,11 @@ def test_latest_event_id_at_point(coverage_point_response):
 
 
 def test_latest_event_id_at_point_none_raises():
-    with patch.object(cu, "get_payload", return_value={"surveys": []}):
-        with pytest.raises(ValueError, match="No post-catastrophe event"):
-            cu.latest_event_id_at_point(0.0, 0.0, apikey="k")
+    with (
+        patch.object(cu, "get_payload", return_value={"surveys": []}),
+        pytest.raises(ValueError, match="No post-catastrophe event"),
+    ):
+        cu.latest_event_id_at_point(0.0, 0.0, apikey="k")
 
 
 def test_latest_event_id_at_point_picks_newest(coverage_point_response):
@@ -285,9 +289,11 @@ def test_event_boundary_unions_only_tagged_surveys(coverage_boundary_response):
 
 
 def test_event_boundary_unknown_event_raises(coverage_boundary_response):
-    with patch.object(cu, "get_payload", return_value=coverage_boundary_response):
-        with pytest.raises(ValueError, match="No surveys found for event"):
-            cu.event_boundary("no-such-event-id", apikey="k")
+    with (
+        patch.object(cu, "get_payload", return_value=coverage_boundary_response),
+        pytest.raises(ValueError, match="No surveys found for event"),
+    ):
+        cu.event_boundary("no-such-event-id", apikey="k")
 
 
 def test_discover_event_returns_id_and_boundary(coverage_point_response, coverage_boundary_response):

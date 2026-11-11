@@ -310,7 +310,7 @@ def test_attributes_list_handling():
 
     if len(features_gdf) > 0 and "attributes" in features_gdf.columns:
         # Check that attributes is a list
-        for idx, row in features_gdf.iterrows():
+        for _, row in features_gdf.iterrows():
             attrs = row.get("attributes")
             if attrs is not None:
                 assert isinstance(attrs, list), "Attributes should be a list"

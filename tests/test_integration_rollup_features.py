@@ -131,16 +131,6 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
     dot_notation_cols = [c for c in features_columns if "." in c]
     assert len(dot_notation_cols) > 0, "Features should have dot-notation columns"
 
-    # Check for expected patterns in features
-    features_patterns = [
-        "Building 3d attributes.",  # Dot notation with description prefix
-        "Roof material.",
-        "damage.femaCategoryConfidences.",  # Damage with dot notation
-        ".components",  # Components as JSON strings
-    ]
-
-    has_features_patterns = any(any(pattern in col for col in dot_notation_cols) for pattern in features_patterns)
-
     # 3. Verify no internalClassId in features
     assert not any("internalClassId" in col for col in features_columns), "Features should not expose internalClassId"
 
@@ -208,9 +198,7 @@ def test_features_without_rollup(integration_test_dir):
     assert features_file.exists(), "Features file should exist"
 
     # Verify features have proper flattening
-    features_gdf = gpd.read_parquet(features_file)
-    if len(features_gdf) > 0:
-        dot_cols = [c for c in features_gdf.columns if "." in c]
+    gpd.read_parquet(features_file)
 
 
 @pytest.mark.integration
@@ -264,7 +252,8 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     # 1. Verify rollup CSV exists and has include parameter columns
     rollup_file = final_dir / "rollup.csv"
     assert rollup_file.exists(), (
-        f"Rollup CSV should be created at {rollup_file}. Files in final: {list(final_dir.iterdir()) if final_dir.exists() else []}"
+        f"Rollup CSV should be created at {rollup_file}. Files in final: "
+        f"{list(final_dir.iterdir()) if final_dir.exists() else []}"
     )
 
     rollup_df = pd.read_csv(rollup_file)
@@ -617,7 +606,8 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                 roofs_with_age_data = roofs[roofs["primary_child_roof_age_installation_date"].notna()]
                 if len(roofs_with_age_data) > 0:
                     assert "primary_child_roof_age_years_as_of_date" in roofs_with_age_data.columns, (
-                        "Roofs with linked roof instances should have primary_child_roof_age_years_as_of_date in combined features"
+                        "Roofs with linked roof instances should have primary_child_roof_age_years_as_of_date in "
+                        "combined features"
                     )
 
                     # Verify calculation is correct for a sample
@@ -682,7 +672,8 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
 
     # With roof_age=True, rollup must have roof instance roof age columns
     assert "primary_roof_instance_roof_age_years_as_of_date" in rollup_df.columns, (
-        f"Rollup should have primary_roof_instance_roof_age_years_as_of_date, got columns: {[c for c in rollup_df.columns if 'roof' in c]}"
+        "Rollup should have primary_roof_instance_roof_age_years_as_of_date, got columns: "
+        f"{[c for c in rollup_df.columns if 'roof' in c]}"
     )
     assert "primary_roof_instance_roof_age_trust_score" in rollup_df.columns, (
         "Rollup should have primary_roof_instance_roof_age_trust_score"

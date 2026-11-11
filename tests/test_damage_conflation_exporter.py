@@ -198,7 +198,7 @@ def test_save_outputs_drops_wrong_unit_area_and_writes_files(tmp_path, chunk_inp
 
 def test_combine_reads_present_chunks_and_preserves_index(tmp_path, chunk_inputs):
     """Combine concatenates the per-chunk files that are present and round-trips the aoi_id index."""
-    aoi_gdf, features_gdf, metadata_df = chunk_inputs
+    _aoi_gdf, features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path, output_format="both")
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
     storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
@@ -218,7 +218,7 @@ def test_combine_recovers_from_stale_listing(tmp_path, chunk_inputs):
     return False for present chunks until the cache is invalidated. The combine must
     invalidate BEFORE its existence sweep, so it still reads the chunks. Without the fix
     (no invalidate), file_exists stays False and the combine reads 0 records — this test fails."""
-    _, features_gdf, metadata_df = chunk_inputs
+    _, _features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path)
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
     storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
@@ -260,7 +260,7 @@ def test_save_outputs_writes_consolidated_errors(tmp_path, chunk_inputs):
 
 
 def test_save_outputs_skips_rollup_when_disabled(tmp_path, chunk_inputs):
-    aoi_gdf, features_gdf, metadata_df = chunk_inputs
+    _aoi_gdf, features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path, output_format="both", rollup=False)
     exporter._save_outputs(features_gdf.copy(), pd.DataFrame(), metadata_df, pd.DataFrame(), exporter.final_path)
     final = Path(exporter.final_path)

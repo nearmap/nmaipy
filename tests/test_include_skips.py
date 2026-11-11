@@ -98,7 +98,7 @@ class TestResponseHasIncludeSkips:
 
 @pytest.fixture
 def calls(monkeypatch):
-    """Record the skip-retry delays instead of sleeping; feature_api sleeps for other reasons too, so count only those."""
+    """Record skip-retry delays instead of sleeping; feature_api sleeps for other reasons too, so count only those."""
     record = {"sleeps": []}
 
     def sleep(seconds):

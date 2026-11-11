@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Test that roofSpotlightIndex is correctly handled in flatten_roof_attributes."""
 
 import ast
@@ -81,7 +80,7 @@ def test_gen_rsi_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame (without date constraints)
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["building"],
@@ -98,7 +97,7 @@ def test_gen_rsi_data(cache_directory: Path):
     rsi_count = 0
     roof_samples = []
 
-    for idx, row in roof_features.iterrows():
+    for _, row in roof_features.iterrows():
         attrs = row.get("attributes")
         if attrs is not None and not (isinstance(attrs, float) and pd.isna(attrs)):
             if isinstance(attrs, str):
@@ -163,13 +162,15 @@ def test_roof_spotlight_index_with_real_data(roof_with_rsi):
     if "confidence" in roof_with_rsi["roofSpotlightIndex"]:
         assert "roof_spotlight_index_confidence" in result, "confidence should be in flattened result"
         assert result["roof_spotlight_index_confidence"] == roof_with_rsi["roofSpotlightIndex"]["confidence"], (
-            f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got {result['roof_spotlight_index_confidence']}"
+            f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got "
+            f"{result['roof_spotlight_index_confidence']}"
         )
 
     if "modelVersion" in roof_with_rsi["roofSpotlightIndex"]:
         assert "roof_spotlight_index_model_version" in result, "modelVersion should be in flattened result"
         assert result["roof_spotlight_index_model_version"] == roof_with_rsi["roofSpotlightIndex"]["modelVersion"], (
-            f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got {result['roof_spotlight_index_model_version']}"
+            f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got "
+            f"{result['roof_spotlight_index_model_version']}"
         )
 
 

@@ -288,9 +288,8 @@ def test_surfaced_read_timeout_triggers_size_error_for_gridding():
         )
     )
 
-    with patch("requests.Session.post", side_effect=surfaced):
-        with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
-            api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
+    with patch("requests.Session.post", side_effect=surfaced), pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
+        api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
     assert exc_info.value.status_code == HTTPStatus.GATEWAY_TIMEOUT
     assert api._timeout_count == 1
 

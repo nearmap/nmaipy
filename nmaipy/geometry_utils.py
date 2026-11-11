@@ -44,8 +44,7 @@ def polygon_to_coordstring(poly: Polygon) -> str:
     """
     coords = poly.exterior.coords[:]
     flat_coords = np.array(coords).ravel()
-    coordstring = ",".join(flat_coords.astype(str))
-    return coordstring
+    return ",".join(flat_coords.astype(str))
 
 
 def clip_features_to_polygon(
@@ -145,8 +144,7 @@ def create_grid(df: gpd.GeoDataFrame, cell_size: float) -> gpd.GeoDataFrame:
                 )
             )
 
-    grid = gpd.GeoDataFrame({"geometry": polygons}, crs=df.crs)
-    return grid
+    return gpd.GeoDataFrame({"geometry": polygons}, crs=df.crs)
 
 
 def split_geometry_into_grid(geometry: Polygon | MultiPolygon, cell_size: float) -> gpd.GeoDataFrame:
@@ -184,9 +182,7 @@ def split_geometry_into_grid(geometry: Polygon | MultiPolygon, cell_size: float)
     df_gridded = df_gridded.explode(index_parts=True)
 
     # Ensure result is in API CRS
-    df_gridded = df_gridded.to_crs(API_CRS)
-
-    return df_gridded
+    return df_gridded.to_crs(API_CRS)
 
 
 def combine_features_from_grid(
@@ -292,7 +288,7 @@ def combine_features_from_grid(
         # If same feature_id has identical values across all identity cols, rows collapse to 1
         # If same feature_id has different values, multiple rows remain = conflict
         try:
-            identity_cols = ["feature_id"] + cols_to_check
+            identity_cols = ["feature_id", *cols_to_check]
             deduplicated = features_gdf.drop_duplicates(subset=identity_cols)
 
             # Count rows per feature_id after deduplication
@@ -363,6 +359,4 @@ def combine_features_from_grid(
             )
 
     # Reset index to make feature_id a column, then set AOI_ID as index
-    features_gdf_out = features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)
-
-    return features_gdf_out
+    return features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)
