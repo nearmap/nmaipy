@@ -101,14 +101,14 @@ Fix lint findings that ruff can fix safely, then format and sort imports with ru
 pixi run format
 ```
 
-Check without changing files. This runs ty first, then ruff. CI runs the same check on every pull request and on pushes to main, and a PR must pass it:
+Check without changing files. This runs ty first, then ruff. The Lint workflow runs the same check on every pull request and on pushes to main:
 ```bash
 pixi run lint
 ```
 
 Suppress a finding only on its line, always with the code and a reason: `# noqa: <code> -- <reason>` for ruff, `# ty: ignore[<rule>] -- <reason>` for ty.
 
-The commits that only reformat the code are listed in `.git-blame-ignore-revs`. Run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so that `git blame` skips them.
+The commits that only reformat the code or apply ruff's syntax-only fixes are listed in `.git-blame-ignore-revs`. Run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so that `git blame` skips them.
 
 ### Documentation Site
 
