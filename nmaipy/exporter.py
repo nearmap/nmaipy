@@ -9,6 +9,7 @@ import collections
 import concurrent.futures
 import cProfile
 import gc
+from http import HTTPStatus
 import json
 import logging
 import multiprocessing
@@ -16,7 +17,6 @@ import pstats
 import re
 import sys
 import tempfile
-from http import HTTPStatus
 
 # resource is a Unix-only stdlib module; on Windows we set the attribute to None
 # and gate every call site behind sys.platform != "win32" (or `resource is not None`).
@@ -25,10 +25,10 @@ try:
 except ImportError:  # pragma: no cover — Windows
     resource = None
 
-import traceback
-import warnings
 from pathlib import Path
+import traceback
 from typing import Dict, List, Optional
+import warnings
 
 import geopandas as gpd
 import numpy as np
@@ -53,11 +53,11 @@ warnings.filterwarnings("ignore", message=".*initial implementation of Parquet.*
 warnings.filterwarnings("ignore", message=".*Geometry is in a geographic CRS.*centroid.*")
 
 import atexit
-import signal
-import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from datetime import date, datetime, timezone
+import signal
+import time
 
 import psutil
 
@@ -234,7 +234,7 @@ def _read_parquet_chunks_parallel(
             parts.append(f"{len(failed_paths)} failed")
         if empty_count > 0:
             parts.append(f"{empty_count} empty")
-        logger.info(f"Read {len(results)}/{len(paths)} chunks with data " f"({', '.join(parts)})")
+        logger.info(f"Read {len(results)}/{len(paths)} chunks with data ({', '.join(parts)})")
     return results
 
 
@@ -680,8 +680,7 @@ def _clip_roof_geoms_to_aoi(
             failed = [p for p, g, c in zip(positions, sub, clipped) if g is not None and c is None]
             failed_ids = parent_gdf["feature_id"].iloc[failed].tolist()
             logger.warning(
-                "%s: could not clip %d of %d roof(s) to AOI %s (%s); keeping their whole outline(s). "
-                "Feature IDs: %s",
+                "%s: could not clip %d of %d roof(s) to AOI %s (%s); keeping their whole outline(s). Feature IDs: %s",
                 purpose,
                 len(failed),
                 len(positions),
@@ -2297,7 +2296,9 @@ def _compute_feature_class_data(
                 roof_area_col = (
                     f"clipped_area_{roof_suffix}"
                     if f"clipped_area_{roof_suffix}" in roofs.columns
-                    else f"unclipped_area_{roof_suffix}" if f"unclipped_area_{roof_suffix}" in roofs.columns else None
+                    else f"unclipped_area_{roof_suffix}"
+                    if f"unclipped_area_{roof_suffix}" in roofs.columns
+                    else None
                 )
                 # Row identity is (aoi_id, feature_id); largest-roof selection
                 # uses that parcel's own clipped area.
@@ -3339,8 +3340,7 @@ class NearmapAIExporter(BaseExporter):
 
         if extra_sorted:
             self.logger.info(
-                f"Union schema has {len(reference_columns)} columns "
-                f"({len(extra_sorted)} not present in first chunk)"
+                f"Union schema has {len(reference_columns)} columns ({len(extra_sorted)} not present in first chunk)"
             )
 
         # Set up prefetch buffer: read chunks ahead in background threads while
@@ -3483,8 +3483,7 @@ class NearmapAIExporter(BaseExporter):
                             table = pa.Table.from_arrays(arrays, schema=reference_schema)
                             if type_warnings:
                                 self.logger.warning(
-                                    f"Chunk {i}: Incompatible columns replaced with nulls: "
-                                    f"{', '.join(type_warnings)}"
+                                    f"Chunk {i}: Incompatible columns replaced with nulls: {', '.join(type_warnings)}"
                                 )
                             schema_promotion_count += 1
                     # Sort by class_id for compression locality (contiguous class
@@ -3708,7 +3707,7 @@ class NearmapAIExporter(BaseExporter):
             except OSError:
                 pass
 
-        self.logger.info(f"Per-class merge complete: " f"{tabular_count} tabular + {geo_count} geo files")
+        self.logger.info(f"Per-class merge complete: {tabular_count} tabular + {geo_count} geo files")
 
     def get_chunk_output_file(self, chunk_id: str) -> str:
         """

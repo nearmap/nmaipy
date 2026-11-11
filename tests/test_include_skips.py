@@ -11,9 +11,9 @@ import pytest
 import requests
 from shapely.geometry import Polygon, box, mapping
 
-import nmaipy.feature_api as feature_api_module
 from nmaipy.api_common import AIFeatureAPIError
 from nmaipy.constants import REALTIME_SKIP_GRID_SIZE_DEGREES, REALTIME_SKIP_RETRY_DELAY_SECONDS, ROOF_ID
+import nmaipy.feature_api as feature_api_module
 from nmaipy.feature_api import FeatureApi, _response_has_include_skips
 
 # Inside one realtime-skip grid cell, so gridding it wouldn't split the request.

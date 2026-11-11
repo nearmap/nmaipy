@@ -7,11 +7,11 @@ refresh the fake when the live API changes (`python -m tests.golden.drift`).
 import csv
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 import geopandas as gpd
 import pytest
@@ -201,9 +201,9 @@ def test_compare_detects_changes(tmp_path: Path) -> None:
     assert any(d.startswith("rollup.csv: column roof_count: 1 mismatches") for d in differences), differences
     assert f"building.csv: missing rows [{dropped_row!r}]" in differences, differences
     assert "roof.csv: missing columns ['area_sqft']" in differences, differences
-    assert any(
-        d.startswith("roof.csv: column primary_child_roof_age_feature_id: 1 mismatches") for d in differences
-    ), differences
+    assert any(d.startswith("roof.csv: column primary_child_roof_age_feature_id: 1 mismatches") for d in differences), (
+        differences
+    )
 
 
 def test_compare_detects_parquet_value_changes(golden_runs: dict[str, Path], tmp_path: Path) -> None:

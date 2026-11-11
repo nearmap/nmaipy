@@ -9,8 +9,8 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import pytest
-import stringcase
 from shapely.geometry import Polygon, box, shape
+import stringcase
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi

@@ -4,9 +4,9 @@ Generates customer-facing documentation based on actual files and columns
 present in an export directory, rather than using a static template.
 """
 
+from datetime import datetime
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 

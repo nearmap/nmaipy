@@ -32,15 +32,15 @@ Example usage:
 import concurrent.futures
 import hashlib
 import json
+from pathlib import Path
 import re
 import time
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import pandas as pd
-import stringcase
 from shapely.geometry import Polygon, shape
+import stringcase
 
 from nmaipy import log, storage
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
@@ -821,8 +821,7 @@ class RoofAgeApi(BaseApiClient):
         error_pct = (len(errors_df) / len(aoi_gdf)) * 100 if len(aoi_gdf) > 0 else 0
 
         logger.debug(
-            f"Roof age bulk query complete: {len(roofs_gdf)} roofs found, "
-            f"{len(errors_df)} errors ({error_pct:.1f}%)"
+            f"Roof age bulk query complete: {len(roofs_gdf)} roofs found, {len(errors_df)} errors ({error_pct:.1f}%)"
         )
 
         return roofs_gdf, metadata_df, errors_df

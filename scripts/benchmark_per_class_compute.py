@@ -18,13 +18,12 @@ Pulls feature + rollup parquets from any prior export's `chunks/` directory.
 """
 
 import argparse
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import time
 
 import geopandas as gpd
 import pandas as pd
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,

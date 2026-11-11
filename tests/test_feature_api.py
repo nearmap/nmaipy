@@ -1,13 +1,13 @@
+from http import HTTPStatus
 import json
 import logging
 import math
 import os
+from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
-from http import HTTPStatus
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
@@ -204,9 +204,9 @@ class TestFeatureAPI:
         actual_area = geometry_projected.area.iloc[0]
 
         # Verify the test polygon is actually larger than the threshold
-        assert (
-            actual_area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING
-        ), f"Test polygon area ({actual_area:.0f}) should be > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        assert actual_area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING, (
+            f"Test polygon area ({actual_area:.0f}) should be > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        )
 
         feature_api = FeatureApi(cache_dir=cache_directory)
 
@@ -272,9 +272,9 @@ class TestFeatureAPI:
         actual_area = geometry_projected.area.iloc[0]
 
         # Verify the test polygon is actually smaller than the threshold
-        assert (
-            actual_area < MAX_AOI_AREA_SQM_BEFORE_GRIDDING
-        ), f"Test polygon area ({actual_area:.0f}) should be < {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        assert actual_area < MAX_AOI_AREA_SQM_BEFORE_GRIDDING, (
+            f"Test polygon area ({actual_area:.0f}) should be < {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        )
 
         feature_api = FeatureApi(cache_dir=cache_directory)
 
@@ -937,9 +937,9 @@ class TestFeatureAPI:
             assert "TEST_SECRET_KEY_123" not in result, f"API key not removed from: {input_url}"
             # For URL cases, check structure is preserved
             if input_url.startswith("http") or input_url.startswith("/"):
-                assert (
-                    "APIKEYREMOVED" in result or "apikey" not in input_url.lower()
-                ), f"APIKEYREMOVED not added correctly for: {input_url}"
+                assert "APIKEYREMOVED" in result or "apikey" not in input_url.lower(), (
+                    f"APIKEYREMOVED not added correctly for: {input_url}"
+                )
 
     def test_curl_command_generation(self):
         """Test that curl commands are generated correctly with sanitized API keys"""
@@ -1061,9 +1061,9 @@ class TestFeatureAPI:
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
             except AIFeatureAPIRequestSizeError as e:
                 # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(
-                    e.request_string
-                ), f"API key found in exception request_string: {e.request_string}"
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                    f"API key found in exception request_string: {e.request_string}"
+                )
                 assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
         # Test case 2: 504 status code leading to exception
@@ -1083,9 +1083,9 @@ class TestFeatureAPI:
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
             except AIFeatureAPIRequestSizeError as e:
                 # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(
-                    e.request_string
-                ), f"API key found in exception request_string: {e.request_string}"
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                    f"API key found in exception request_string: {e.request_string}"
+                )
                 assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
         # Test case 3: JSON parsing error leading to exception (successful
@@ -1105,9 +1105,9 @@ class TestFeatureAPI:
                 assert False, "Should have raised AIFeatureAPIRequestSizeError"
             except AIFeatureAPIRequestSizeError as e:
                 # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(
-                    e.request_string
-                ), f"API key found in exception request_string: {e.request_string}"
+                assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                    f"API key found in exception request_string: {e.request_string}"
+                )
                 assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
     def test_max_allowed_error_count_uses_floor_not_round(self):
@@ -1275,9 +1275,9 @@ class TestTruncatedJsonLogging:
         """feature_api matches orjson's truncation message as text, so a wording change must fail here."""
         with pytest.raises(orjson.JSONDecodeError) as exc_info:
             orjson.loads(b'{"features": [{"id": "abc", "geometry": {"type": "Polygon", "coordinates": [[1.5')
-        assert (
-            exc_info.value.msg == ORJSON_TRUNCATED_MSG
-        ), f"orjson's truncation message changed to {exc_info.value.msg!r}; update ORJSON_TRUNCATED_MSG"
+        assert exc_info.value.msg == ORJSON_TRUNCATED_MSG, (
+            f"orjson's truncation message changed to {exc_info.value.msg!r}; update ORJSON_TRUNCATED_MSG"
+        )
 
     @pytest.mark.parametrize(
         "content, expected_level",
@@ -1309,17 +1309,17 @@ class TestTruncatedJsonLogging:
             nmaipy_logger.removeHandler(caplog.handler)
 
         parse_records = [r for r in caplog.records if "JSON" in r.getMessage() and "200 response" in r.getMessage()]
-        assert (
-            len(parse_records) == 1
-        ), f"Expected one parse-error log record, got {[r.getMessage() for r in parse_records]}"
+        assert len(parse_records) == 1, (
+            f"Expected one parse-error log record, got {[r.getMessage() for r in parse_records]}"
+        )
         assert parse_records[0].levelno == expected_level, (
             f"Expected level {logging.getLevelName(expected_level)}, got {parse_records[0].levelname}: "
             f"{parse_records[0].getMessage()}"
         )
         warnings_logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert len(warnings_logged) == (
-            1 if expected_level == logging.WARNING else 0
-        ), f"Unexpected warnings: {[r.getMessage() for r in warnings_logged]}"
+        assert len(warnings_logged) == (1 if expected_level == logging.WARNING else 0), (
+            f"Unexpected warnings: {[r.getMessage() for r in warnings_logged]}"
+        )
 
 
 class TestBulkUnexpectedErrorHandling:

@@ -25,9 +25,9 @@ class TestConstants:
         assert MAX_AOI_AREA_SQM_BEFORE_GRIDDING > 0, "Gridding threshold should be positive"
         assert MAX_AOI_AREA_SQM_BEFORE_GRIDDING == 1_000_000, "Should be 1 sq km as per requirements"
         # 1 sq km is reasonable - not too small (causing excessive gridding) nor too large
-        assert (
-            100_000 <= MAX_AOI_AREA_SQM_BEFORE_GRIDDING <= 10_000_000
-        ), "Gridding threshold should be between 0.1 and 10 sq km"
+        assert 100_000 <= MAX_AOI_AREA_SQM_BEFORE_GRIDDING <= 10_000_000, (
+            "Gridding threshold should be between 0.1 and 10 sq km"
+        )
 
     def test_crs_definitions(self):
         """Test that CRS definitions are valid."""
@@ -76,9 +76,9 @@ class TestConstants:
         assert METERS_TO_FEET == pytest.approx(3.28084, rel=1e-5), "Meters to feet conversion incorrect"
 
         # Check squared conversion
-        assert SQUARED_METERS_TO_SQUARED_FEET == pytest.approx(
-            METERS_TO_FEET * METERS_TO_FEET, rel=1e-5
-        ), "Squared meters to squared feet conversion incorrect"
+        assert SQUARED_METERS_TO_SQUARED_FEET == pytest.approx(METERS_TO_FEET * METERS_TO_FEET, rel=1e-5), (
+            "Squared meters to squared feet conversion incorrect"
+        )
 
     def test_no_negative_values(self):
         """Test that numeric constants are not negative where inappropriate."""

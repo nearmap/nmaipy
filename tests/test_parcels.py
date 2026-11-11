@@ -1,8 +1,8 @@
 import ast
 import json
 import os
-import sys
 from pathlib import Path
+import sys
 
 import geopandas as gpd
 import numpy as np
@@ -121,7 +121,6 @@ def test_gen_data_2_all_packs(parcels_2_gdf, data_directory: Path, cache_directo
 
 
 class TestParcels:
-
     def test_flatten_building(self):
         country = "au"
         attributes = {
@@ -503,9 +502,9 @@ class TestParcels:
         for k in expected:
             # Check approximately equal for floats
             if isinstance(expected[k], float):
-                assert np.isclose(
-                    expected[k], actual[k], rtol=0.01
-                ), f"Expected {k} to be {expected[k]}, got {actual[k]}"
+                assert np.isclose(expected[k], actual[k], rtol=0.01), (
+                    f"Expected {k} to be {expected[k]}, got {actual[k]}"
+                )
             else:
                 assert expected[k] == actual[k], f"Expected {k} to be {expected[k]}, got {actual[k]}"
         for k in actual:
@@ -841,9 +840,9 @@ class TestParcels:
         # Check tree cover percentage is within +/- 2% of expected value (0.77)
         actual_pct = df.loc[51310013081068, "pct_tree_cover"]
         expected_pct = 0.77
-        assert (
-            abs(actual_pct - expected_pct) / expected_pct <= 0.02
-        ), f"Tree cover {actual_pct:.4f} differs by more than 2% relative error from expected {expected_pct}"
+        assert abs(actual_pct - expected_pct) / expected_pct <= 0.02, (
+            f"Tree cover {actual_pct:.4f} differs by more than 2% relative error from expected {expected_pct}"
+        )
 
     @pytest.mark.live_api
     def test_large_query_geoid_11179800001006(self, cache_directory: Path):
@@ -926,9 +925,9 @@ class TestParcels:
 
         # At least some parcels should have 3D data
         has_3d_col = f"{col_prefix}has_3d_attributes"
-        assert (
-            rollup_df[has_3d_col] == "Y"
-        ).any(), f"No parcels have 3D attributes. Values: {rollup_df[has_3d_col].value_counts().to_dict()}"
+        assert (rollup_df[has_3d_col] == "Y").any(), (
+            f"No parcels have 3D attributes. Values: {rollup_df[has_3d_col].value_counts().to_dict()}"
+        )
 
         # Height column should exist and have numeric values
         height_col = f"{col_prefix}height_ft"
@@ -951,9 +950,9 @@ class TestParcels:
 
         # Ground height column should exist with positive values
         ground_height_col = f"{col_prefix}ground_height_ft"
-        assert (
-            ground_height_col in rollup_df.columns
-        ), f"Missing {ground_height_col}. Columns: {list(rollup_df.columns)}"
+        assert ground_height_col in rollup_df.columns, (
+            f"Missing {ground_height_col}. Columns: {list(rollup_df.columns)}"
+        )
         ground_height_values = pd.to_numeric(rollup_df[ground_height_col], errors="coerce").dropna()
         assert len(ground_height_values) > 0, "No valid ground_height values"
         assert (ground_height_values > 0).all(), f"Ground height should be positive: {ground_height_values.tolist()}"
@@ -994,16 +993,16 @@ class TestLinkRoofInstancesToRoofs:
         ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(instances_gdf, roofs_gdf)
 
         # Primary should be None because IoU is below threshold
-        assert (
-            roofs_linked.loc["aoi-1", "primary_child_roof_age_feature_id"] is None
-        ), f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_age_feature_id']}"
+        assert roofs_linked.loc["aoi-1", "primary_child_roof_age_feature_id"] is None, (
+            f"Expected None for low IoU match, got {roofs_linked.loc['aoi-1', 'primary_child_roof_age_feature_id']}"
+        )
 
         # But the child list should still contain the instance for reference
         children = json.loads(roofs_linked.loc["aoi-1", "child_roof_instances"])
         assert len(children) == 1, "Child list should still contain the low-IoU match for reference"
-        assert (
-            children[0]["iou"] < MIN_ROOF_INSTANCE_IOU_THRESHOLD
-        ), f"IoU {children[0]['iou']} should be below threshold {MIN_ROOF_INSTANCE_IOU_THRESHOLD}"
+        assert children[0]["iou"] < MIN_ROOF_INSTANCE_IOU_THRESHOLD, (
+            f"IoU {children[0]['iou']} should be below threshold {MIN_ROOF_INSTANCE_IOU_THRESHOLD}"
+        )
 
         # Parent should also be None on the instance side
         assert ri_linked.loc["aoi-1", "parent_id"] is None, "Parent should be None for low IoU match"

@@ -9,8 +9,8 @@ These tests verify:
 - Reproducibility of bootstrap sampling with seeded RNG
 """
 
-import tempfile
 from pathlib import Path
+import tempfile
 from unittest.mock import MagicMock
 
 import numpy as np

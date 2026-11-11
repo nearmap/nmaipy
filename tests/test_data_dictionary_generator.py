@@ -374,9 +374,9 @@ class TestFileDiscovery:
             assert (tmp_path / f"{stem}_data_dictionary.csv").exists(), f"missing dictionary for {name}"
         # Geoparquet companions get no dictionary.
         for name in ["roof_features", "building_features"]:
-            assert not (
-                tmp_path / f"{name}_data_dictionary.csv"
-            ).exists(), f"unexpected dictionary for geometry file {name}"
+            assert not (tmp_path / f"{name}_data_dictionary.csv").exists(), (
+                f"unexpected dictionary for geometry file {name}"
+            )
 
     def test_parquet_format_picks_parquet_variants(self, tmp_path):
         """When tabular_file_format='parquet', only the parquet variants get dictionaries."""
@@ -565,9 +565,9 @@ class TestUserInputColumns:
         dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
         rows = {r["column_name"]: r for _, r in dd.iterrows()}
         for col in ("external_id", "force_new", "address"):
-            assert (
-                "Input column provided by user" in rows[col]["description"]
-            ), f"{col} should be labelled as user-supplied"
+            assert "Input column provided by user" in rows[col]["description"], (
+                f"{col} should be labelled as user-supplied"
+            )
             assert rows[col]["source"] == "input data"
         # Known columns are unaffected.
         assert "?" not in rows["tile_area_sqft"]["description"]
@@ -636,12 +636,12 @@ class TestDefensibleSpacePrimaryScope:
         for col in cols:
             meta = lookup_column(col, area_unit="sqft")
             assert not meta.is_unknown(), f"{col} fell through to sentinel"
-            assert (
-                "around the primary roof on the parcel" in meta.description
-            ), f"{col} missing primary-roof scope phrase: {meta.description!r}"
-            assert (
-                "from the structure" in meta.description
-            ), f"{col} missing zone-band substitution: {meta.description!r}"
+            assert "around the primary roof on the parcel" in meta.description, (
+                f"{col} missing primary-roof scope phrase: {meta.description!r}"
+            )
+            assert "from the structure" in meta.description, (
+                f"{col} missing zone-band substitution: {meta.description!r}"
+            )
 
     def test_primary_coverage_ratio_clear_of_vegetation_semantics(self):
         meta = lookup_column("primary_defensible_space_zone_0_coverage_ratio", area_unit="sqft")

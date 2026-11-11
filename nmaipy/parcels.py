@@ -12,17 +12,17 @@ and select "primary" features for detailed attribute extraction.
 
 import json
 import re
-import warnings
 from typing import Union
+import warnings
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import stringcase
 from shapely import make_valid
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
+import stringcase
 
 from nmaipy import log
 from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
@@ -1385,7 +1385,9 @@ def feature_attributes(
         area_col = (
             "clipped_area_sqft"
             if "clipped_area_sqft" in roof_features.columns
-            else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
+            else "clipped_area_sqm"
+            if "clipped_area_sqm" in roof_features.columns
+            else None
         )
         area_vals = []
         areas = roof_features[area_col].values if area_col else None
@@ -1421,7 +1423,9 @@ def feature_attributes(
         area_col = (
             "clipped_area_sqft"
             if "clipped_area_sqft" in roof_features.columns
-            else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
+            else "clipped_area_sqm"
+            if "clipped_area_sqm" in roof_features.columns
+            else None
         )
         areas = roof_features[area_col].values if area_col else None
 

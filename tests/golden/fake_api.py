@@ -5,11 +5,11 @@ takes a method, URL and body and returns a `FakeResponse`. The fake emits exactl
 `IGNORED_LIVE_FIELDS` lists the live paths it leaves out on purpose (the drift check enforces both).
 """
 
-import dataclasses
-import json
 from collections import defaultdict
 from collections.abc import Callable, Iterator
+import dataclasses
 from functools import cache
+import json
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import numpy as np

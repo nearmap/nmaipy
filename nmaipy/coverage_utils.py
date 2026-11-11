@@ -551,7 +551,7 @@ def get_coverage_from_points(
     coverage_chunk_cache_dir.mkdir(parents=True, exist_ok=True)
 
     for i in tqdm(range(0, len(df_points), chunk_size)):
-        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
+        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i + chunk_size}.parquet"
         if not f.exists():
             df_point_chunk = df_points.iloc[i : i + chunk_size, :]
             logger.debug(f"Pulling chunk from API for {f}.")
@@ -730,7 +730,7 @@ def get_coverage_from_survey_ids(
     coverage_chunk_cache_dir.mkdir(parents=True, exist_ok=True)
 
     for i in tqdm(range(0, len(df), chunk_size)):
-        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
+        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i + chunk_size}.parquet"
         if not f.exists():
             df_point_chunk = df.iloc[i : i + chunk_size, :]
             logger.debug(f"Pulling chunk from API for {f}.")

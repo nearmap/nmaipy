@@ -12,8 +12,8 @@ itself relies on.
 
 from __future__ import annotations
 
-import json
 from importlib import resources
+import json
 
 import pytest
 

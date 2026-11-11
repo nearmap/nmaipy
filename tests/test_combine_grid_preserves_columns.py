@@ -311,12 +311,12 @@ def test_merged_grid_areas_match_ungridded_response():
         got = merged.loc[feature_id]
         # Each cell rounds its piece to 0.1 sqm / 1 sqft, so allow that much per cell.
         n = cells_per_feature[feature_id]
-        assert got["area_sqm"] == pytest.approx(
-            row["area_sqm"], abs=0.1 * n
-        ), f"{row['description']} {feature_id}: merged area_sqm {got['area_sqm']} != ungridded {row['area_sqm']}"
-        assert got["area_sqft"] == pytest.approx(
-            row["area_sqft"], abs=1.0 * n
-        ), f"{row['description']} {feature_id}: merged area_sqft {got['area_sqft']} != ungridded {row['area_sqft']}"
+        assert got["area_sqm"] == pytest.approx(row["area_sqm"], abs=0.1 * n), (
+            f"{row['description']} {feature_id}: merged area_sqm {got['area_sqm']} != ungridded {row['area_sqm']}"
+        )
+        assert got["area_sqft"] == pytest.approx(row["area_sqft"], abs=1.0 * n), (
+            f"{row['description']} {feature_id}: merged area_sqft {got['area_sqft']} != ungridded {row['area_sqft']}"
+        )
         assert got["clipped_area_sqm"] == pytest.approx(row["clipped_area_sqm"], abs=0.1 * n)
         assert got["unclipped_area_sqm"] == row["unclipped_area_sqm"]
 

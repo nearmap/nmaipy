@@ -10,10 +10,10 @@ These tests verify:
 
 import json
 import os
-import tempfile
-import warnings
 from pathlib import Path
+import tempfile
 from unittest.mock import Mock, patch
+import warnings
 
 import geopandas as gpd
 import pandas as pd
@@ -1063,9 +1063,9 @@ class TestRoofAgeFieldMapping:
             for col in result_df.columns:
                 if col.startswith("roof_age_"):
                     base = col[len("roof_age_") :]
-                    assert (
-                        base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date"
-                    ), f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
+                    assert base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date", (
+                        f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
+                    )
 
             # Boolean fields converted to Y/N
             assert set(result_df["roof_age_relevant_permits"].dropna().unique()) <= {

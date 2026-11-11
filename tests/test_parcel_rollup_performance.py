@@ -12,10 +12,10 @@ cProfile output (if env var is set) is written to `<tempdir>/nmaipy_profile_parc
 import ast
 import cProfile
 import os
+from pathlib import Path
 import pstats
 import tempfile
 import time
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -175,9 +175,9 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
     )
     print(f"rollup_df shape: {rollup_df.shape}")
 
-    assert len(rollup_df) == len(
-        parcels_2_gdf
-    ), f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
+    assert len(rollup_df) == len(parcels_2_gdf), (
+        f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
+    )
 
 
 @pytest.mark.live_api

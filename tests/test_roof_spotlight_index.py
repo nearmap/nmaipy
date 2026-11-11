@@ -156,21 +156,21 @@ def test_roof_spotlight_index_with_real_data(roof_with_rsi):
 
     # Verify roofSpotlightIndex was extracted correctly using real values from API
     assert "roof_spotlight_index" in result, "roof_spotlight_index should be present in flattened result"
-    assert (
-        result["roof_spotlight_index"] == roof_with_rsi["roofSpotlightIndex"]["value"]
-    ), f"Expected value {roof_with_rsi['roofSpotlightIndex']['value']}, got {result['roof_spotlight_index']}"
+    assert result["roof_spotlight_index"] == roof_with_rsi["roofSpotlightIndex"]["value"], (
+        f"Expected value {roof_with_rsi['roofSpotlightIndex']['value']}, got {result['roof_spotlight_index']}"
+    )
 
     if "confidence" in roof_with_rsi["roofSpotlightIndex"]:
         assert "roof_spotlight_index_confidence" in result, "confidence should be in flattened result"
-        assert (
-            result["roof_spotlight_index_confidence"] == roof_with_rsi["roofSpotlightIndex"]["confidence"]
-        ), f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got {result['roof_spotlight_index_confidence']}"
+        assert result["roof_spotlight_index_confidence"] == roof_with_rsi["roofSpotlightIndex"]["confidence"], (
+            f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got {result['roof_spotlight_index_confidence']}"
+        )
 
     if "modelVersion" in roof_with_rsi["roofSpotlightIndex"]:
         assert "roof_spotlight_index_model_version" in result, "modelVersion should be in flattened result"
-        assert (
-            result["roof_spotlight_index_model_version"] == roof_with_rsi["roofSpotlightIndex"]["modelVersion"]
-        ), f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got {result['roof_spotlight_index_model_version']}"
+        assert result["roof_spotlight_index_model_version"] == roof_with_rsi["roofSpotlightIndex"]["modelVersion"], (
+            f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got {result['roof_spotlight_index_model_version']}"
+        )
 
 
 def test_handles_missing_rsi_gracefully():

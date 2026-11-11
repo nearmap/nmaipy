@@ -22,11 +22,11 @@ Note: The Roof Age API is currently available for US properties only.
 """
 
 import argparse
+from datetime import datetime, timezone
+from pathlib import Path
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -293,7 +293,7 @@ class RoofAgeExporter(BaseExporter):
         # Validate country
         if self.country.lower() != "us":
             raise ValueError(
-                f"Roof Age API is currently only available for US properties. " f"Got country='{self.country}'"
+                f"Roof Age API is currently only available for US properties. Got country='{self.country}'"
             )
 
         # Belt-and-braces: cutoff parameters aren't supported on the A.0 dataset (HTTP 500 from prod).
@@ -513,8 +513,7 @@ class RoofAgeExporter(BaseExporter):
         error_count = len(errors_df)
         roof_count = len(roofs_gdf)
         self.logger.info(
-            f"API queries complete: {success_count} successful, {error_count} errors, "
-            f"{roof_count} total roofs found"
+            f"API queries complete: {success_count} successful, {error_count} errors, {roof_count} total roofs found"
         )
 
         # Guard against silent empty consolidation: with chunks to read, all three combined

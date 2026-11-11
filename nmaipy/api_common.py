@@ -9,28 +9,28 @@ This module provides common functionality used across different API clients:
 - Request caching infrastructure
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import gzip
 import hashlib
+from http import HTTPStatus
+from itertools import takewhile
 import json
 import logging
 import numbers
 import os
+from pathlib import Path
 import random
 import re
 import threading
-import weakref
-from concurrent.futures import ThreadPoolExecutor
-from http import HTTPStatus
-from itertools import takewhile
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import weakref
 
+from dotenv import load_dotenv
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 from urllib3.util.retry import Retry

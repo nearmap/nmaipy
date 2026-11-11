@@ -7,14 +7,14 @@ canned responses built from the real cached Feature API payload in
 data (see project memory: real data only).
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import gzip
 import json
 import logging
+from pathlib import Path
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

@@ -1,7 +1,7 @@
 import json
 import os
-import warnings
 from pathlib import Path
+import warnings
 
 # Default columns
 AOI_ID_COLUMN_NAME = "aoi_id"

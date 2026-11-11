@@ -3,15 +3,15 @@
 This is the only module that knows which HTTP library nmaipy uses.
 """
 
-import functools
-import json
-import os
-import re
-import socket
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
+import functools
+import json
+import os
 from pathlib import Path
+import re
+import socket
 from typing import Any
 
 import pytest

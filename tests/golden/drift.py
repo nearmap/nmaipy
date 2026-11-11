@@ -9,16 +9,16 @@ survey dates; `--write-vocabulary` rewrites `vocabulary.json`.
 """
 
 import argparse
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator
 import dataclasses
 import json
 import os
+from pathlib import Path
 import re
 import sys
 import tempfile
 import traceback
-from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
-from pathlib import Path
 from typing import Any
 
 import geopandas as gpd

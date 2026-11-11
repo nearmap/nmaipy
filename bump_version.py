@@ -9,9 +9,9 @@ Usage:
     python bump_version.py 3.2.5  # Set specific version
 """
 
-import sys
-import re
 from pathlib import Path
+import re
+import sys
 
 
 def read_current_version():

@@ -3,15 +3,15 @@ import datetime
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import sys
 import tempfile
 import threading
 import time
+from unittest.mock import MagicMock, patch
 import warnings
 import weakref
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
 import numpy as np
@@ -22,7 +22,6 @@ import pyproj
 import pytest
 from shapely.geometry import Polygon, box
 
-import nmaipy.exporter as exporter_mod
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     API_CRS,
@@ -35,6 +34,7 @@ from nmaipy.constants import (
     ROOF_INSTANCE_CLASS_ID,
     SQUARED_METERS_TO_SQUARED_FEET,
 )
+import nmaipy.exporter as exporter_mod
 from nmaipy.exporter import (
     AOIExporter,
     _add_missing_columns,
@@ -374,9 +374,9 @@ class TestExporter:
         expected_rollup_file = final_path / "rollup.csv"
         expected_features_file = final_path / "features.parquet"
 
-        assert (
-            expected_rollup_file.exists()
-        ), f"Rollup CSV file was not created at {expected_rollup_file}. Found files: {list(final_path.glob('*'))}"
+        assert expected_rollup_file.exists(), (
+            f"Rollup CSV file was not created at {expected_rollup_file}. Found files: {list(final_path.glob('*'))}"
+        )
         assert expected_features_file.exists(), "Features parquet file was not created"
 
         # Verify chunk files were created
@@ -397,9 +397,9 @@ class TestExporter:
             manual_concat = pd.concat(chunk_data, ignore_index=True)
 
             # Verify same number of features
-            assert len(consolidated_features) == len(
-                manual_concat
-            ), f"Feature count mismatch: consolidated={len(consolidated_features)}, manual_concat={len(manual_concat)}"
+            assert len(consolidated_features) == len(manual_concat), (
+                f"Feature count mismatch: consolidated={len(consolidated_features)}, manual_concat={len(manual_concat)}"
+            )
 
             # Verify CRS preservation
             if hasattr(manual_concat, "crs") and manual_concat.crs:
@@ -673,12 +673,12 @@ class TestExporter:
 
             # Should NOT produce per-chunk warning messages about schema casting
             warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-            assert not any(
-                "Schema casting failed" in m for m in warning_msgs
-            ), f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
-            assert not any(
-                "Incompatible columns" in m for m in warning_msgs
-            ), f"Null-type promotions should not produce incompatible column warnings"
+            assert not any("Schema casting failed" in m for m in warning_msgs), (
+                f"Should not produce noisy schema casting warnings, got: {warning_msgs}"
+            )
+            assert not any("Incompatible columns" in m for m in warning_msgs), (
+                f"Null-type promotions should not produce incompatible column warnings"
+            )
 
             # Verify data is correct
             merged = gpd.read_parquet(output_path)
@@ -738,9 +738,9 @@ class TestExporter:
             # large_string uses 64-bit offsets to avoid overflow on large exports.
             schema = pq.read_schema(output_path)
             lob_field = schema.field("lob_bv")
-            assert (
-                lob_field.type == pa.large_string()
-            ), f"Expected large_string type for promoted null column, got {lob_field.type}"
+            assert lob_field.type == pa.large_string(), (
+                f"Expected large_string type for promoted null column, got {lob_field.type}"
+            )
 
     def test_stream_and_convert_features_coalesces_row_groups(self):
         """Row groups are capped by FEATURES_ROW_GROUP_SIZE, not one per class run.
@@ -1021,7 +1021,7 @@ class TestPerClassFileWhitelist:
             assert class_id in unique_classes, f"{name} ({class_id}) should be present in all-packs NJ data"
 
         assert whitelisted == PER_CLASS_FILE_CLASS_IDS, (
-            f"All 6 whitelisted classes should be present. " f"Missing: {PER_CLASS_FILE_CLASS_IDS - whitelisted}"
+            f"All 6 whitelisted classes should be present. Missing: {PER_CLASS_FILE_CLASS_IDS - whitelisted}"
         )
 
         # Non-whitelisted classes should be numerous (vegetation, surfaces, etc.)

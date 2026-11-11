@@ -5,11 +5,11 @@ These tests verify that the progress counter infrastructure works correctly
 across process boundaries on all platforms (both fork and spawn modes).
 """
 
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import multiprocessing
 import pickle
 import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import pytest
 
@@ -325,7 +325,7 @@ def test_flush_progress_drains_residue_per_thread_buffers():
 
     # All increments are trapped in per-thread buffers — shared counter is still 0.
     assert progress_counters["completed"] == 0, (
-        f"expected all {expected} increments to be buffered, but shared counter is " f"{progress_counters['completed']}"
+        f"expected all {expected} increments to be buffered, but shared counter is {progress_counters['completed']}"
     )
 
     client.flush_progress()

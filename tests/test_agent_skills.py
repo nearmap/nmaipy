@@ -5,8 +5,8 @@ Claude Code from .claude/skills, where each skill is a symlink into .agents/skil
 SKILL.md frontmatter of the Agent Skills format (agentskills.io), so the skills keep to that format.
 """
 
-import re
 from pathlib import Path
+import re
 
 import pytest
 

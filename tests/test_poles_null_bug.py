@@ -3,9 +3,9 @@
 import gzip
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -91,9 +91,9 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
     all_features_files = list(final_dir.glob("*features.parquet"))
     main_features_file = final_dir / "features.parquet"
 
-    assert (
-        main_features_file.exists()
-    ), f"Expected main feature file at {main_features_file}. Found: {all_features_files}"
+    assert main_features_file.exists(), (
+        f"Expected main feature file at {main_features_file}. Found: {all_features_files}"
+    )
     features_files = [main_features_file]
     # Cache is now in cache/feature_api/ subdirectory
     payload_files = list(test_output_dir.glob("cache/feature_api/**/*.json"))
@@ -122,23 +122,23 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
 
     for class_id, min_count in min_features_expected.items():
         gdf_class = gdf[gdf.class_id == class_id]
-        assert (
-            len(gdf_class) >= min_count
-        ), f"Expected at least {min_count} features for class {class_id}, found {len(gdf_class)}"
+        assert len(gdf_class) >= min_count, (
+            f"Expected at least {min_count} features for class {class_id}, found {len(gdf_class)}"
+        )
 
         if len(gdf_class) > 0:
             class_geom_types = gdf_class.geometry.geom_type.unique()
-            assert (
-                len(class_geom_types) == 1
-            ), f"Expected single geometry type for class {class_id}, found: {class_geom_types}"
+            assert len(class_geom_types) == 1, (
+                f"Expected single geometry type for class {class_id}, found: {class_geom_types}"
+            )
             if class_id == CLASS_1054_POLE:
-                assert (
-                    "Point" in class_geom_types
-                ), f"Expected Point geometry for class {class_id}, found: {class_geom_types}"
+                assert "Point" in class_geom_types, (
+                    f"Expected Point geometry for class {class_id}, found: {class_geom_types}"
+                )
             else:
-                assert (
-                    "Polygon" in class_geom_types
-                ), f"Expected Polygon geometry for class {class_id}, found: {class_geom_types}"
+                assert "Polygon" in class_geom_types, (
+                    f"Expected Polygon geometry for class {class_id}, found: {class_geom_types}"
+                )
 
     # Verify we got a meaningful number of features overall
     assert len(gdf) >= 10, f"Expected at least 10 total features, found {len(gdf)}"
@@ -146,9 +146,9 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
     # Check belongsToParcel only for polygon features (not point features like poles)
     for feature in payload["features"]:
         if feature.get("description") != "Pole":
-            assert (
-                "belongsToParcel" in feature
-            ), f"Payload for {feature['description']} does not contain belongsToParcel key in feature"
+            assert "belongsToParcel" in feature, (
+                f"Payload for {feature['description']} does not contain belongsToParcel key in feature"
+            )
 
     # The belongs_to_parcel column should exist
     assert "belongs_to_parcel" in gdf.columns, "belongs_to_parcel column not found in features"
@@ -158,9 +158,9 @@ def test_poles_pack_null_datatype_issue(poles_aoi_file, test_output_dir):
     # The important thing is that the column exists and values are valid (True, False, or None)
     valid_values = {True, False, None}
     actual_values = set(gdf["belongs_to_parcel"].unique())
-    assert actual_values.issubset(
-        valid_values
-    ), f"belongs_to_parcel has unexpected values: {actual_values - valid_values}"
+    assert actual_values.issubset(valid_values), (
+        f"belongs_to_parcel has unexpected values: {actual_values - valid_values}"
+    )
 
     # Check for POINT geometries (poles should have point geometries)
     assert "geometry" in gdf.columns, "geometry column not found"

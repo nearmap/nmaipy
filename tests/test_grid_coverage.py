@@ -15,8 +15,8 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon, box
 
-import nmaipy.feature_api as feature_api_mod
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, AREA_CRS
+import nmaipy.feature_api as feature_api_mod
 from nmaipy.feature_api import AIFeatureAPIGridError, FeatureApi
 from nmaipy.geometry_utils import split_geometry_into_grid
 

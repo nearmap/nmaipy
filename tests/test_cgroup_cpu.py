@@ -3,8 +3,8 @@ from unittest.mock import patch
 import psutil
 import pytest
 
-import nmaipy.cgroup_memory as cgroup_mod
 from nmaipy.base_exporter import BaseExporter
+import nmaipy.cgroup_memory as cgroup_mod
 from nmaipy.cgroup_memory import (
     _get_cgroup_cpu_percent,
     _get_cgroup_cpu_usage_ns,

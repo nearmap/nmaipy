@@ -393,7 +393,7 @@ def test_prefer3d_dedupes_partial_gridded_aoi_across_passes(tmp_path):
 
     assert call_count["n"] == 2, "should have run a 2D fallback pass after the 3D 404"
     assert merged_meta.index.is_unique, (
-        f"metadata index must not contain duplicates after prefer3d merge — got " f"{merged_meta.index.tolist()!r}"
+        f"metadata index must not contain duplicates after prefer3d merge — got {merged_meta.index.tolist()!r}"
     )
     # 2D fallback wins for the retried AOI.
     assert aoi_id in merged_meta.index

@@ -187,9 +187,9 @@ def test_handles_missing_defensible_space_gracefully():
 
     # Verify no defensibleSpace fields in result
     for key in result.keys():
-        assert not key.startswith(
-            "defensible_space_"
-        ), "defensibleSpace fields should not be present when not in source data"
+        assert not key.startswith("defensible_space_"), (
+            "defensibleSpace fields should not be present when not in source data"
+        )
 
 
 def test_defensible_space_with_camel_case(roof_with_defensible_space):

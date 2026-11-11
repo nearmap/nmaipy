@@ -2,9 +2,9 @@
 
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -185,9 +185,9 @@ def test_prefer3d_end_to_end_3d_path(test_output_dir, salt_lake_aoi):
     assert "mesh_date" in rollup.columns, "rollup must expose the mesh_date metadata column"
     assert len(rollup) == 1
     mesh_date = rollup["mesh_date"].iloc[0]
-    assert (
-        mesh_date and str(mesh_date) != "" and str(mesh_date).lower() != "nan"
-    ), f"latest survey at this AOI is the 2025-09-03 3D capture; mesh_date should be populated, got {mesh_date!r}"
+    assert mesh_date and str(mesh_date) != "" and str(mesh_date).lower() != "nan", (
+        f"latest survey at this AOI is the 2025-09-03 3D capture; mesh_date should be populated, got {mesh_date!r}"
+    )
 
 
 @pytest.mark.integration

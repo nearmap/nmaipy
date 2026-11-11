@@ -8,8 +8,8 @@ This module provides common geometric operations used by multiple API clients:
 - Coordinate extraction for caching
 """
 
-import warnings
 from typing import Tuple, Union
+import warnings
 
 import geopandas as gpd
 import numpy as np

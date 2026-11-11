@@ -27,20 +27,20 @@ These tests pin:
 """
 
 import gc
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import socket
 import threading
 import time
-import weakref
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
+import weakref
 
 import pytest
 import requests
-import urllib3
 from requests.adapters import HTTPAdapter
 from shapely.geometry import Polygon
+import urllib3
 
 from nmaipy.api_common import RetryRequest, is_read_timeout_error
 from nmaipy.constants import READ_TIMEOUT_MAX_RETRIES, READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS

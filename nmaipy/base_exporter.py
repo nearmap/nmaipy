@@ -860,8 +860,10 @@ class BaseExporter(ABC):
                 self.logger.error(
                     f"  Container Memory: {cgroup_usage:.1f}GB used of {cgroup_limit:.1f}GB ({cgroup_percent:.1f}%)"
                 )
-        self.logger.error(f"  Host Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)")
-        self.logger.error(f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)")
+        self.logger.error(
+            f"  Host Memory: {mem.used / 1024**3:.1f}GB used of {mem.total / 1024**3:.1f}GB ({mem.percent}%)"
+        )
+        self.logger.error(f"  Swap: {swap.used / 1024**3:.1f}GB used of {swap.total / 1024**3:.1f}GB ({swap.percent}%)")
         self.logger.error(f"  File descriptors: {fd_count} open (limit: {soft_limit})")
         self.logger.error(f"  Active processes: {self.processes}")
         cpu_pct = psutil.cpu_percent(interval=0.1)  # Blocking OK in error path
@@ -873,7 +875,7 @@ class BaseExporter(ABC):
 
         if attempt < max_retries - 1:
             self.logger.warning(
-                f"Process pool broken, attempt {attempt + 1}/{max_retries}, " f"retrying after {retry_delay}s delay..."
+                f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {retry_delay}s delay..."
             )
             time.sleep(retry_delay)
         else:

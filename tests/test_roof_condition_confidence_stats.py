@@ -287,9 +287,9 @@ def test_handles_missing_rccs_gracefully():
     result = flatten_roof_attributes([roof], country="au")
 
     # Verify no RCCS fields in result
-    assert (
-        "roof_condition_confidence_stats" not in result
-    ), "roof_condition_confidence_stats should not be present when not in source data"
+    assert "roof_condition_confidence_stats" not in result, (
+        "roof_condition_confidence_stats should not be present when not in source data"
+    )
 
 
 def test_flatten_roof_attributes_handles_null_histograms():
@@ -328,6 +328,6 @@ def test_flatten_roof_attributes_handles_null_histograms():
 
     result = flatten_roof_attributes([roof], country="us")
 
-    assert not any(
-        "confidence_stats_" in k for k in result
-    ), "No histogram bin columns should be emitted when histograms/ratios are null"
+    assert not any("confidence_stats_" in k for k in result), (
+        "No histogram bin columns should be emitted when histograms/ratios are null"
+    )

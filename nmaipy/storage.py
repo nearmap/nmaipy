@@ -13,20 +13,20 @@ or ~/.aws/credentials.
 import gzip
 import logging
 import os
+from pathlib import Path
 import shutil
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import boto3
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config as BotoConfig
 import fsspec
 import geopandas as gpd
 import orjson
 import pyarrow as pa
 import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
-from boto3.s3.transfer import TransferConfig
-from botocore.config import Config as BotoConfig
 
 from nmaipy.constants import GEOPARQUET_SCHEMA_VERSION
 

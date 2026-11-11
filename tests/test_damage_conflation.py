@@ -69,8 +69,7 @@ def test_flatten_column_set_is_exact(milton_features):
     for feature in milton_features:
         flat = flatten_conflated_damage_attributes(feature["properties"])
         assert set(flat.keys()) == EXPECTED_COLUMNS, (
-            f"column drift: missing={EXPECTED_COLUMNS - set(flat.keys())}, "
-            f"extra={set(flat.keys()) - EXPECTED_COLUMNS}"
+            f"column drift: missing={EXPECTED_COLUMNS - set(flat.keys())}, extra={set(flat.keys()) - EXPECTED_COLUMNS}"
         )
 
 

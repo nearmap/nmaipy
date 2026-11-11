@@ -1,6 +1,6 @@
 import ast
-import shutil
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import geopandas as gpd

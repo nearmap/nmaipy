@@ -24,10 +24,10 @@ Example usage:
 """
 
 import argparse
+from datetime import datetime, timezone
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
 
 import geopandas as gpd
 import pandas as pd

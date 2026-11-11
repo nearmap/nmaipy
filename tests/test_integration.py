@@ -7,13 +7,13 @@ boundaries. Tests are skipped if API_KEY is not set.
 """
 
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 
+from dotenv import load_dotenv
 import geopandas as gpd
 import pandas as pd
 import pytest
-from dotenv import load_dotenv
 
 from nmaipy.exporter import AOIExporter
 
@@ -185,9 +185,9 @@ class TestIntegration:
             csv_files = [final_dir / "rollup.csv"] if (final_dir / "rollup.csv").exists() else []
 
             # Either parquet or csv should exist
-            assert (
-                len(parquet_files) > 0 or len(csv_files) > 0
-            ), f"No output file created. Files: {list(final_dir.iterdir())}"
+            assert len(parquet_files) > 0 or len(csv_files) > 0, (
+                f"No output file created. Files: {list(final_dir.iterdir())}"
+            )
 
     @pytest.mark.integration
     @pytest.mark.skipif(not HAS_API_KEY, reason="API_KEY not set - skipping integration test")
