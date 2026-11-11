@@ -31,14 +31,13 @@ internal pyaiutils wrapper.
 import concurrent.futures
 import hashlib
 import time
-from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon, mapping, shape
 
 from nmaipy import log, storage
-from nmaipy.api_common import BaseApiClient, DamageConflationAPIError
+from nmaipy.api_common import BaseApiClient, DamageConflationAPIError, _cache_error_text
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
@@ -91,16 +90,16 @@ class DamageConflationApi(BaseApiClient):
     def __init__(
         self,
         event_id: str,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[str] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
+        api_key: str | None = None,
+        cache_dir: str | None = None,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         maxretry: int = MAX_RETRIES,
-        url_root: Optional[str] = None,
+        url_root: str | None = None,
         country: str = "us",
-        progress_counters: Optional[dict] = None,
-        bearer_token: Optional[str] = None,
+        progress_counters: dict | None = None,
+        bearer_token: str | None = None,
     ):
         """
         Initialize Damage Conflation API client.
@@ -147,10 +146,7 @@ class DamageConflationApi(BaseApiClient):
             url_root = DAMAGE_CONFLATION_URL_ROOT
         # POST {base_url}.geojson -> /ai/damage/v2/events/{event_id}/latest.geojson
         # base_url contains no secret: the API key is only ever sent as a `?apikey=`
-        # query param at request time, never embedded here. So it is logged directly
-        # rather than routed through _clean_api_key — doing so would feed an api-key
-        # named sanitizer into the log, which CodeQL flags as clear-text logging of a
-        # secret (a false positive, since there is no secret to clean).
+        # query param at request time, never embedded here. So it is logged directly.
         self.base_url = f"https://{url_root}/{DAMAGE_CONFLATION_EVENTS_PATH}/{event_id}/latest"
 
         logger.debug(f"Initialized DamageConflationApi with base_url: {self.base_url}, event_id: {event_id}")
@@ -198,7 +194,7 @@ class DamageConflationApi(BaseApiClient):
         key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
         return storage.join_path(qualifier_dir, f"{key_hash}{extension}")
 
-    def _load_from_cache(self, cache_key: str) -> Optional[Dict]:
+    def _load_from_cache(self, cache_key: str) -> dict | None:
         """Load a cached response via the event-scoped path layout."""
         if self.cache_dir is None or self.overwrite_cache:
             return None
@@ -207,21 +203,21 @@ class DamageConflationApi(BaseApiClient):
             return None
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
-        except Exception as e:
-            logger.warning(f"Failed to load from cache: {e}")
+        except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
+            logger.warning(f"Failed to load from cache: {_cache_error_text(e)}")
             return None
 
-    def _save_to_cache(self, cache_key: str, data: Dict) -> None:
+    def _save_to_cache(self, cache_key: str, data: dict) -> None:
         """Save a response via the event-scoped path layout."""
         if self.cache_dir is None:
             return
         cache_path = self._get_cache_path(cache_key)
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
-        except Exception as e:
-            logger.warning(f"Failed to save to cache: {e}")
+        except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
+            logger.warning(f"Failed to save to cache: {_cache_error_text(e)}")
 
-    def _build_cache_key(self, aoi: Optional[Polygon] = None, address: Optional[Dict[str, str]] = None) -> str:
+    def _build_cache_key(self, aoi: Polygon | None = None, address: dict[str, str] | None = None) -> str:
         """Cache key identifying the request geometry/address (event lives in the path)."""
         if aoi is not None:
             return f"damageconflation_aoi_{aoi.wkt}"
@@ -237,11 +233,11 @@ class DamageConflationApi(BaseApiClient):
     # ------------------------------------------------------------------ requests
     def _build_request_payload(
         self,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
-        cursor: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> Dict:
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
         """
         Build the JSON request body for the Damage Conflation API.
 
@@ -257,10 +253,11 @@ class DamageConflationApi(BaseApiClient):
         if aoi is None and address is None:
             raise ValueError("Must specify either aoi or address")
 
-        payload: Dict = {}
+        payload: dict = {}
         if aoi is not None:
             payload["aoi"] = mapping(aoi)
         else:
+            assert address is not None
             for field in ADDRESS_FIELDS:
                 if field not in address:
                     raise ValueError(f"Address missing required field: {field}")
@@ -276,18 +273,18 @@ class DamageConflationApi(BaseApiClient):
     def _fetch_all_pages(
         self,
         url: str,
-        params: Dict,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
-        limit: Optional[int] = None,
-    ) -> Dict:
+        params: dict,
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
+        limit: int | None = None,
+    ) -> dict:
         """
         Fetch all pages for a query, following ``nextCursor`` until exhausted.
 
         Returns a merged response dict (first-page top-level metadata + all features).
         Raises DamageConflationAPIError on HTTP error or an error body.
         """
-        all_features: List[dict] = []
+        all_features: list[dict] = []
         cursor = None
         page_count = 0
         first_page_metadata = None
@@ -304,7 +301,7 @@ class DamageConflationApi(BaseApiClient):
                 if not response.ok:
                     raise DamageConflationAPIError(
                         response,
-                        self._clean_api_key(url),
+                        self._redact_api_key(url),
                         message=f"Failed to get damage conflation data (page {page_count})",
                     )
 
@@ -314,7 +311,7 @@ class DamageConflationApi(BaseApiClient):
             if isinstance(response_data, dict) and "error" in response_data:
                 raise DamageConflationAPIError(
                     None,
-                    self._clean_api_key(url),
+                    self._redact_api_key(url),
                     message=f"{response_data.get('error')} (code: {response_data.get('code', 'UNKNOWN')})",
                 )
 
@@ -330,7 +327,7 @@ class DamageConflationApi(BaseApiClient):
                 if page_count >= DAMAGE_CONFLATION_MAX_PAGES:
                     raise DamageConflationAPIError(
                         None,
-                        self._clean_api_key(url),
+                        self._redact_api_key(url),
                         message=(
                             f"Pagination exceeded {DAMAGE_CONFLATION_MAX_PAGES} pages "
                             f"({len(all_features)} features so far) without exhausting nextCursor "
@@ -347,7 +344,7 @@ class DamageConflationApi(BaseApiClient):
         merged["features"] = all_features
         return merged
 
-    def _parse_response(self, response_data: Dict, aoi_id: str) -> gpd.GeoDataFrame:
+    def _parse_response(self, response_data: dict, aoi_id: str) -> gpd.GeoDataFrame:
         """
         Parse a (merged) Damage Conflation response into a GeoDataFrame.
 
@@ -372,7 +369,7 @@ class DamageConflationApi(BaseApiClient):
             if geometry is None:
                 raise DamageConflationAPIError(
                     None,
-                    self._clean_api_key(self.base_url),
+                    self._redact_api_key(self.base_url),
                     message=f"Feature missing 'geometry' for {aoi_id} (feature id: {feature.get('id')})",
                 )
             geometries.append(shape(geometry))
@@ -396,7 +393,7 @@ class DamageConflationApi(BaseApiClient):
         aoi: Polygon,
         aoi_id: str,
         file_format: str = "geojson",
-        limit: Optional[int] = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
+        limit: int | None = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
     ) -> gpd.GeoDataFrame:
         """
         Get conflated damage for an area of interest, handling pagination.
@@ -423,17 +420,17 @@ class DamageConflationApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         response_data = self._fetch_all_pages(url=url, params=params, aoi=aoi, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)
 
     def get_damage_by_address(
         self,
-        address: Dict[str, str],
+        address: dict[str, str],
         aoi_id: str,
         file_format: str = "geojson",
-        limit: Optional[int] = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
+        limit: int | None = DAMAGE_CONFLATION_DEFAULT_PAGE_LIMIT,
     ) -> gpd.GeoDataFrame:
         """
         Get conflated damage for a property address, handling pagination.
@@ -457,7 +454,7 @@ class DamageConflationApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         response_data = self._fetch_all_pages(url=url, params=params, address=address, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)
@@ -465,7 +462,7 @@ class DamageConflationApi(BaseApiClient):
     def get_damage_bulk(
         self,
         aoi_gdf: gpd.GeoDataFrame,
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Get conflated damage for multiple AOIs in parallel.
 
@@ -515,7 +512,7 @@ class DamageConflationApi(BaseApiClient):
                         if col in features_gdf.columns:
                             metadata[col] = features_gdf[col].iloc[0]
                 return ("success", features_gdf, metadata, None)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- per-AOI: the failure is recorded in the errors table and the other AOIs continue
                 error_info = {
                     AOI_ID_COLUMN_NAME: aoi_id,
                     "status_code": getattr(e, "status_code", -1),

@@ -1,13 +1,12 @@
+from http import HTTPStatus
 import json
 import logging
 import math
-import os
+from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
-from http import HTTPStatus
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
@@ -69,7 +68,7 @@ class TestFeatureAPI:
 
     def test_trim_features_to_aoi(self, cache_directory: Path):
         aoi = loads(
-            "MULTIPOLYGON(((-81.96101015253903 29.05631578134146, -81.96097715235663 29.05643178114233, -81.96088515183891 29.05676078057977, -81.96081015166226 29.05688178032226, -81.96071615151028 29.05699178005651, -81.96050315132298 29.05714677958319, -81.96030215120676 29.05725677918626, -81.96002115116396 29.05733877872941, -81.95975115121745 29.05736077836785, -81.95966415128315 29.0573387782909, -81.9592571518955 29.05705277817911, -81.95915015219606 29.05689377826324, -81.95908815262986 29.05664577852331, -81.95908115301701 29.05641477882801, -81.95915615341346 29.05616177926368, -81.95941915372902 29.05591977991694, -81.95949115377999 29.055874780067, -81.9598821540514 29.05563378087792, -81.96037115415523 29.05547378170073, -81.96061515411904 29.05544678203954, -81.96077815401978 29.05547378220442, -81.9608651538808 29.05553978222199, -81.96098515356586 29.05570478214509, -81.96103515330084 29.05585378200341, -81.96101015253903 29.05631578134146)), ((-81.965573157064 29.05269479199695, -81.96551115685583 29.05283179172925, -81.96541715672163 29.05293079147429, -81.96469115613426 29.05342678988017, -81.96450915619464 29.05342678965309, -81.96423415640598 29.05335478940948, -81.96400815645254 29.05337178910396, -81.96389515631647 29.05347578881938, -81.96363915561045 29.05394978784645, -81.96358915545353 29.05405378764083, -81.96360115525603 29.05416978749583, -81.96363915516162 29.05421878747553, -81.96372015504298 29.05427378750045, -81.96410215486105 29.05430678792986, -81.96424015465836 29.05440078797153, -81.96424615447276 29.05451078782699, -81.96420915438496 29.05457078769814, -81.96409615424729 29.05467578741273, -81.96392115414024 29.05477478705886, -81.96355815400395 29.0549287863961, -81.96329515397292 29.05499978597212, -81.96305715400537 29.05502778563849, -81.96281315415156 29.05498878538958, -81.96260015443251 29.0548627852986, -81.96218015526925 29.05444478535088, -81.96194215557841 29.05430678524426, -81.961836155797 29.05419678526315, -81.96179815600141 29.05408178537342, -81.96196115625911 29.05389478583257, -81.96219215657767 29.05365778644532, -81.9625221568685 29.05341778718632, -81.96287515717678 29.05316278797737, -81.96310015757098 29.05288178864514, -81.96318115798456 29.05261778910983, -81.96318815851441 29.05229878955775, -81.9632691590098 29.05198579009027, -81.96335715918424 29.05186379036877, -81.96410215975392 29.05137479197944, -81.96416415973346 29.05137479205743, -81.96422715961252 29.05143479205378, -81.96421415949663 29.05150679193795, -81.96361315825364 29.05237078999111, -81.96361315801505 29.05251378979393, -81.96368915791651 29.05255778982842, -81.96417115776693 29.05255179044018, -81.96456515752637 29.05261779084218, -81.96479715747789 29.0526007911561, -81.96501615763911 29.05246079162424, -81.96525415781238 29.05230979213174, -81.96541715775842 29.05230979233601, -81.96552915758446 29.05239179236256, -81.96556715744335 29.05246879230323, -81.965573157064 29.05269479199695)))"
+            "MULTIPOLYGON(((-81.96101015253903 29.05631578134146, -81.96097715235663 29.05643178114233, -81.96088515183891 29.05676078057977, -81.96081015166226 29.05688178032226, -81.96071615151028 29.05699178005651, -81.96050315132298 29.05714677958319, -81.96030215120676 29.05725677918626, -81.96002115116396 29.05733877872941, -81.95975115121745 29.05736077836785, -81.95966415128315 29.0573387782909, -81.9592571518955 29.05705277817911, -81.95915015219606 29.05689377826324, -81.95908815262986 29.05664577852331, -81.95908115301701 29.05641477882801, -81.95915615341346 29.05616177926368, -81.95941915372902 29.05591977991694, -81.95949115377999 29.055874780067, -81.9598821540514 29.05563378087792, -81.96037115415523 29.05547378170073, -81.96061515411904 29.05544678203954, -81.96077815401978 29.05547378220442, -81.9608651538808 29.05553978222199, -81.96098515356586 29.05570478214509, -81.96103515330084 29.05585378200341, -81.96101015253903 29.05631578134146)), ((-81.965573157064 29.05269479199695, -81.96551115685583 29.05283179172925, -81.96541715672163 29.05293079147429, -81.96469115613426 29.05342678988017, -81.96450915619464 29.05342678965309, -81.96423415640598 29.05335478940948, -81.96400815645254 29.05337178910396, -81.96389515631647 29.05347578881938, -81.96363915561045 29.05394978784645, -81.96358915545353 29.05405378764083, -81.96360115525603 29.05416978749583, -81.96363915516162 29.05421878747553, -81.96372015504298 29.05427378750045, -81.96410215486105 29.05430678792986, -81.96424015465836 29.05440078797153, -81.96424615447276 29.05451078782699, -81.96420915438496 29.05457078769814, -81.96409615424729 29.05467578741273, -81.96392115414024 29.05477478705886, -81.96355815400395 29.0549287863961, -81.96329515397292 29.05499978597212, -81.96305715400537 29.05502778563849, -81.96281315415156 29.05498878538958, -81.96260015443251 29.0548627852986, -81.96218015526925 29.05444478535088, -81.96194215557841 29.05430678524426, -81.961836155797 29.05419678526315, -81.96179815600141 29.05408178537342, -81.96196115625911 29.05389478583257, -81.96219215657767 29.05365778644532, -81.9625221568685 29.05341778718632, -81.96287515717678 29.05316278797737, -81.96310015757098 29.05288178864514, -81.96318115798456 29.05261778910983, -81.96318815851441 29.05229878955775, -81.9632691590098 29.05198579009027, -81.96335715918424 29.05186379036877, -81.96410215975392 29.05137479197944, -81.96416415973346 29.05137479205743, -81.96422715961252 29.05143479205378, -81.96421415949663 29.05150679193795, -81.96361315825364 29.05237078999111, -81.96361315801505 29.05251378979393, -81.96368915791651 29.05255778982842, -81.96417115776693 29.05255179044018, -81.96456515752637 29.05261779084218, -81.96479715747789 29.0526007911561, -81.96501615763911 29.05246079162424, -81.96525415781238 29.05230979213174, -81.96541715775842 29.05230979233601, -81.96552915758446 29.05239179236256, -81.96556715744335 29.05246879230323, -81.965573157064 29.05269479199695)))"  # noqa: E501 -- verbatim WKT fixture
         )
         country = "us"
         date_1 = "2010-01-01"
@@ -77,23 +76,8 @@ class TestFeatureAPI:
         packs = ["building", "vegetation"]
         aoi_id = 47
 
-        parcels_gdf = gpd.GeoDataFrame(
-            [{"geometry": aoi, "aoi_id": aoi_id, "since": date_1, "until": date_2}],
-            crs=API_CRS,
-        )
-
-        classes_df = pd.DataFrame(
-            [
-                {"id": BUILDING_ID, "description": "building"},
-                {
-                    "id": VEG_MEDHIGH_ID,
-                    "description": "Medium and High Vegetation (>2m)",
-                },
-            ]
-        ).set_index("id")
-
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
+        features_gdf, _metadata, _error, _ = feature_api.get_features_gdf(
             aoi, country, packs, aoi_id=aoi_id, since=date_1, until=date_2
         )
 
@@ -163,7 +147,7 @@ class TestFeatureAPI:
         aoi_id = "0"
 
         feature_api = FeatureApi(cache_dir=cache_directory, parcel_mode=True)
-        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
+        features_gdf, _metadata, error, _ = feature_api.get_features_gdf(
             large_adelaide_aoi,
             region=country,
             packs=packs,
@@ -177,7 +161,7 @@ class TestFeatureAPI:
         # Note: With parcel_mode disabled during gridding (to ensure consistent include params),
         # we get all features, not just those that belong to the parcel.
         assert len(features_gdf.query("class_id == @ROOF_ID")) == 15  # Updated: more roofs with parcel_mode disabled
-        assert len(features_gdf.query("class_id == @VEG_MEDHIGH_ID")) == 750  # Guessed
+        assert len(features_gdf[features_gdf.class_id == VEG_MEDHIGH_ID]) == 750  # Guessed
 
         # Note: With parcel_mode disabled during gridding, buildings are not clipped to parcel boundaries.
         # The clipped/unclipped area assertion is removed since it no longer applies to gridded queries.
@@ -186,7 +170,7 @@ class TestFeatureAPI:
         assert len(features_gdf.loc[[aoi_id]]) == len(features_gdf)
 
     def test_proactive_gridding_for_large_aoi(self, cache_directory: Path, monkeypatch):
-        """Test that AOIs larger than MAX_AOI_AREA_SQM_BEFORE_GRIDDING trigger gridding directly without hitting the API first"""
+        """AOIs larger than MAX_AOI_AREA_SQM_BEFORE_GRIDDING trigger gridding directly without hitting the API first"""
         # Create a test polygon that's definitely larger than the threshold
         # This is roughly 3km x 3km = 9 sqkm, well above the 1 sqkm threshold
         test_coords = [
@@ -204,9 +188,9 @@ class TestFeatureAPI:
         actual_area = geometry_projected.area.iloc[0]
 
         # Verify the test polygon is actually larger than the threshold
-        assert (
-            actual_area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING
-        ), f"Test polygon area ({actual_area:.0f}) should be > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        assert actual_area > MAX_AOI_AREA_SQM_BEFORE_GRIDDING, (
+            f"Test polygon area ({actual_area:.0f}) should be > {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        )
 
         feature_api = FeatureApi(cache_dir=cache_directory)
 
@@ -272,9 +256,9 @@ class TestFeatureAPI:
         actual_area = geometry_projected.area.iloc[0]
 
         # Verify the test polygon is actually smaller than the threshold
-        assert (
-            actual_area < MAX_AOI_AREA_SQM_BEFORE_GRIDDING
-        ), f"Test polygon area ({actual_area:.0f}) should be < {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        assert actual_area < MAX_AOI_AREA_SQM_BEFORE_GRIDDING, (
+            f"Test polygon area ({actual_area:.0f}) should be < {MAX_AOI_AREA_SQM_BEFORE_GRIDDING}"
+        )
 
         feature_api = FeatureApi(cache_dir=cache_directory)
 
@@ -327,9 +311,9 @@ class TestFeatureAPI:
         # Somewhere in the Pacific
         aoi = loads("""
             POLYGON((
-                -145.5385490968286 -28.74031798505824, 
+                -145.5385490968286 -28.74031798505824,
                 -145.5381490968286 -28.74031798505824,
-                -145.5381490968286 -28.73991798505824, 
+                -145.5381490968286 -28.73991798505824,
                 -145.5385490968286 -28.73991798505824,
                 -145.5385490968286 -28.74031798505824
                 ))
@@ -446,7 +430,7 @@ class TestFeatureAPI:
         packs = ["building"]
 
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs)
+        features_gdf, metadata_df, _errors_df = feature_api.get_features_gdf_bulk(aoi_gdf, country, packs)
         features_gdf = features_gdf.query("class_id == @ROOF_ID")  # Filter out building classes, just keep roof.
 
         # Check metadata
@@ -464,10 +448,10 @@ class TestFeatureAPI:
         # Small area around a power pole in Darwin, AU
         aoi = loads("""
             Polygon ((130.85230645835545715 -12.39611155192925374, 130.85240838555137088 -12.39610856112810566, 130.85241538484379475 -12.3961991396618636, 130.85233576789246968 -12.39619572160455263, 130.85233576789246968 -12.39619572160455263, 130.85230645835545715 -12.39611155192925374))
-            """)
+            """)  # noqa: E501 -- verbatim WKT fixture
         country = "au"
         feature_api = FeatureApi(cache_dir=cache_directory)
-        features_gdf, metadata, error, _ = feature_api.get_features_gdf(
+        features_gdf, _metadata, _error, _ = feature_api.get_features_gdf(
             aoi, region=country, classes=["46f2f9ce-8c0f-50df-a9e0-4c2026dd3f95"]
         )
         features_gdf[AOI_ID_COLUMN_NAME] = 0
@@ -533,7 +517,7 @@ class TestFeatureAPI:
         Multipolygon with two nearby parts, and an overlapping discrete class (building)
         """
         aoi = loads(
-            "MultiPolygon (((-88.40618111505668253 43.06538384370446693, -88.40618111505668253 43.06557268197261834, -88.40601285961312783 43.06557268197261834, -88.40601285961312783 43.06538384370446693, -88.40618111505668253 43.06538384370446693)),((-88.40590800477149003 43.06555664855734022, -88.40590394063035262 43.06538028071267377, -88.40578689336528839 43.06537434239258033, -88.40577307528538142 43.06555189791498606, -88.40577307528538142 43.06555189791498606, -88.40590800477149003 43.06555664855734022)))"
+            "MultiPolygon (((-88.40618111505668253 43.06538384370446693, -88.40618111505668253 43.06557268197261834, -88.40601285961312783 43.06557268197261834, -88.40601285961312783 43.06538384370446693, -88.40618111505668253 43.06538384370446693)),((-88.40590800477149003 43.06555664855734022, -88.40590394063035262 43.06538028071267377, -88.40578689336528839 43.06537434239258033, -88.40577307528538142 43.06555189791498606, -88.40577307528538142 43.06555189791498606, -88.40590800477149003 43.06555664855734022)))"  # noqa: E501 -- verbatim WKT fixture
         )
 
         date_1 = "2020-01-01"
@@ -567,7 +551,7 @@ class TestFeatureAPI:
     def test_polygon_with_hole_1(self, cache_directory: Path):
         # This one should have a building in the middle which gets pulled then discarded, and clear space around it.
         aoi = loads(
-            "Polygon((-87.98409445082069169 42.9844739669082827, -87.98409445082069169 42.98497943053578041, -87.98334642812285722 42.98497943053578041, -87.98334642812285722 42.9844739669082827, -87.98409445082069169 42.9844739669082827), (-87.98398389681051412 42.98492725383756152, -87.9834560905684242 42.98492725383756152, -87.98343201832427951 42.98454440595978809, -87.98402490878204674 42.98453201391029666, -87.98398389681051412 42.98492725383756152))"
+            "Polygon((-87.98409445082069169 42.9844739669082827, -87.98409445082069169 42.98497943053578041, -87.98334642812285722 42.98497943053578041, -87.98334642812285722 42.9844739669082827, -87.98409445082069169 42.9844739669082827), (-87.98398389681051412 42.98492725383756152, -87.9834560905684242 42.98492725383756152, -87.98343201832427951 42.98454440595978809, -87.98402490878204674 42.98453201391029666, -87.98398389681051412 42.98492725383756152))"  # noqa: E501 -- verbatim WKT fixture
         )
         country = "us"
         date_1 = "2022-04-21"
@@ -594,7 +578,7 @@ class TestFeatureAPI:
         Test correct behaviour of a connected class, with complex many holed query AOI.
         """
         aoi = loads(
-            "Polygon ((-87.98869354480743254 42.98720736071164339, -87.98869354480743254 42.98745790451570059, -87.98832791466347203 42.98745790451570059, -87.98832791466347203 42.98720736071164339, -87.98869354480743254 42.98720736071164339),(-87.98862916890175256 42.9874149280962996, -87.98856291796968776 42.98741401370408255, -87.98856229296089282 42.9873628077175951, -87.98862916890175256 42.9874149280962996),(-87.98843666619346493 42.98739206828654602, -87.98848416686175256 42.98736737968242494, -87.98842104097366246 42.98729559979562254, -87.9883935405867561 42.98732120282217295, -87.98834416489208365 42.98737743800379718, -87.98837854037572015 42.98741355650798823, -87.98840979081536773 42.98735457818008854, -87.98840979081536773 42.98735457818008854, -87.98843666619346493 42.98739206828654602),(-87.9883354147689829 42.9873874963235707, -87.98833916482176676 42.9874492177950458, -87.98868416967553685 42.98745013218676547, -87.98868604470192167 42.98742315762577704, -87.9883697902526194 42.98741858566508256, -87.9883354147689829 42.9873874963235707),(-87.98868104463157636 42.98741721407682803, -87.98868104463157636 42.98721467587366618, -87.98833228972502241 42.98721238988563442, -87.98864729415674901 42.9874149280962996, -87.98864729415674901 42.9874149280962996, -87.98868104463157636 42.98741721407682803),(-87.9885416676707024 42.98740761295811552, -87.98855229282020218 42.98736509370006331, -87.98845979151882091 42.98731343047596454, -87.98850041709034997 42.98737469482540519, -87.98841666591209787 42.98740212660388949, -87.98843104111432467 42.98741172772346175, -87.98843104111432467 42.98741172772346175, -87.9885416676707024 42.98740761295811552))"
+            "Polygon ((-87.98869354480743254 42.98720736071164339, -87.98869354480743254 42.98745790451570059, -87.98832791466347203 42.98745790451570059, -87.98832791466347203 42.98720736071164339, -87.98869354480743254 42.98720736071164339),(-87.98862916890175256 42.9874149280962996, -87.98856291796968776 42.98741401370408255, -87.98856229296089282 42.9873628077175951, -87.98862916890175256 42.9874149280962996),(-87.98843666619346493 42.98739206828654602, -87.98848416686175256 42.98736737968242494, -87.98842104097366246 42.98729559979562254, -87.9883935405867561 42.98732120282217295, -87.98834416489208365 42.98737743800379718, -87.98837854037572015 42.98741355650798823, -87.98840979081536773 42.98735457818008854, -87.98840979081536773 42.98735457818008854, -87.98843666619346493 42.98739206828654602),(-87.9883354147689829 42.9873874963235707, -87.98833916482176676 42.9874492177950458, -87.98868416967553685 42.98745013218676547, -87.98868604470192167 42.98742315762577704, -87.9883697902526194 42.98741858566508256, -87.9883354147689829 42.9873874963235707),(-87.98868104463157636 42.98741721407682803, -87.98868104463157636 42.98721467587366618, -87.98833228972502241 42.98721238988563442, -87.98864729415674901 42.9874149280962996, -87.98864729415674901 42.9874149280962996, -87.98868104463157636 42.98741721407682803),(-87.9885416676707024 42.98740761295811552, -87.98855229282020218 42.98736509370006331, -87.98845979151882091 42.98731343047596454, -87.98850041709034997 42.98737469482540519, -87.98841666591209787 42.98740212660388949, -87.98843104111432467 42.98741172772346175, -87.98843104111432467 42.98741172772346175, -87.9885416676707024 42.98740761295811552))"  # noqa: E501 -- verbatim WKT fixture
         )
         country = "us"
         date_1 = "2022-04-21"
@@ -635,9 +619,8 @@ class TestFeatureAPI:
 
     def test_unknown_pack(self, cache_directory: Path):
         feature_api = FeatureApi(cache_dir=cache_directory)
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match=r"Unknown packs: .*'foobar'"):
             feature_api.get_feature_classes(packs=["solar", "foobar"])
-        assert "foobar" in str(excinfo.value)
 
     def test_packs(self, cache_directory: Path):
         """
@@ -731,7 +714,7 @@ class TestFeatureAPI:
             # (normally you'd use the include parameter, but this tests param_dic)
             param_dic = {"include": "roofSpotlightIndex"}
 
-            features_gdf, metadata, error, _ = feature_api.get_features_gdf(
+            _features_gdf, _metadata, _error, _ = feature_api.get_features_gdf(
                 geometry=sydney_aoi,
                 region=country,
                 packs=packs,
@@ -845,10 +828,7 @@ class TestFeatureAPI:
             # Test failure scenario - mock replace to fail
             with patch.object(Path, "replace", side_effect=Exception("Mock failure")):
                 target_path3 = cache_path / "test_cache3.json"
-                try:
-                    api._write_to_cache(target_path3, test_payload)
-                except Exception:
-                    pass  # Expected to fail
+                api._write_to_cache(target_path3, test_payload)
 
                 # Check no temp files remain even after failure
                 temp_files = list(cache_path.glob("*.tmp*"))
@@ -863,10 +843,10 @@ class TestFeatureAPI:
                 self.msg = msg
                 self.args = ()
 
-            def getMessage(self):
+            def getMessage(self):  # noqa: N802 -- mirrors logging.LogRecord.getMessage
                 return self.msg
 
-        filter = APIKeyFilter()
+        api_key_filter = APIKeyFilter()
 
         # Test URL with API key
         test_cases = [
@@ -877,14 +857,14 @@ class TestFeatureAPI:
             ("Request failed for apikey=MYSECRETKEY", "apikey=REMOVED"),
         ]
 
-        for test_input, expected_pattern in test_cases:
+        for test_input, _ in test_cases:
             record = MockRecord(test_input)
-            filter.filter(record)
+            api_key_filter.filter(record)
             assert "SECRET" not in record.msg, f"Secret not removed from: {test_input}"
             assert "REMOVED" in record.msg, f"REMOVED not added to: {test_input}"
 
-    def test_clean_api_key_with_url_parsing(self):
-        """Test that _clean_api_key properly handles various URL formats using urllib.parse"""
+    def test_redact_api_key_with_url_parsing(self):
+        """Test that _redact_api_key properly handles various URL formats using urllib.parse"""
         api = FeatureApi(api_key="TEST_SECRET_KEY_123")
 
         # Test cases with different URL formats
@@ -931,15 +911,15 @@ class TestFeatureAPI:
             ),
         ]
 
-        for input_url, expected_output in test_cases:
-            result = api._clean_api_key(input_url)
+        for input_url, _ in test_cases:
+            result = api._redact_api_key(input_url)
             # Check that the API key is not in the result
             assert "TEST_SECRET_KEY_123" not in result, f"API key not removed from: {input_url}"
             # For URL cases, check structure is preserved
-            if input_url.startswith("http") or input_url.startswith("/"):
-                assert (
-                    "APIKEYREMOVED" in result or "apikey" not in input_url.lower()
-                ), f"APIKEYREMOVED not added correctly for: {input_url}"
+            if input_url.startswith(("http", "/")):
+                assert "APIKEYREMOVED" in result or "apikey" not in input_url.lower(), (
+                    f"APIKEYREMOVED not added correctly for: {input_url}"
+                )
 
     def test_curl_command_generation(self):
         """Test that curl commands are generated correctly with sanitized API keys"""
@@ -998,18 +978,16 @@ class TestFeatureAPI:
         with patch("requests.Session.post") as mock_post:
             mock_post.side_effect = requests.exceptions.ReadTimeout("Read timed out")
 
-            try:
-                # This should catch the timeout and treat it as a 504
-                result = api._get_results(
+            # This should catch the timeout and treat it as a 504
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
+                api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                # Should not reach here
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # This is expected - read timeouts should trigger gridding like 504s
-                assert e.status_code == HTTPStatus.GATEWAY_TIMEOUT, f"Expected 504, got {e.status_code}"
+            # This is expected - read timeouts should trigger gridding like 504s
+            e = exc_info.value
+            assert e.status_code == HTTPStatus.GATEWAY_TIMEOUT, f"Expected 504, got {e.status_code}"
 
     def test_timeout_logging_with_debug(self):
         """Test that timeout errors generate debug logs with curl commands"""
@@ -1024,7 +1002,7 @@ class TestFeatureAPI:
 
             # Capture log messages
             with patch("nmaipy.feature_api.logger") as mock_logger:
-                features_gdf, metadata, error, _ = api.get_features_gdf(
+                _features_gdf, _metadata, error, _ = api.get_features_gdf(
                     geometry=test_polygon,
                     region="au",
                     packs=["building"],
@@ -1052,19 +1030,18 @@ class TestFeatureAPI:
             # Simulate ChunkedEncodingError that triggers exception
             mock_post.side_effect = requests.exceptions.ChunkedEncodingError("Test error")
 
-            try:
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(
-                    e.request_string
-                ), f"API key found in exception request_string: {e.request_string}"
-                assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
+            # Check that the stored request_string doesn't contain the API key
+            e = exc_info.value
+            assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                f"API key found in exception request_string: {e.request_string}"
+            )
+            assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
         # Test case 2: 504 status code leading to exception
         with patch("requests.Session.post") as mock_post:
@@ -1074,19 +1051,18 @@ class TestFeatureAPI:
             mock_response.text = "Gateway Timeout"
             mock_post.return_value = mock_response
 
-            try:
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(
-                    e.request_string
-                ), f"API key found in exception request_string: {e.request_string}"
-                assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
+            # Check that the stored request_string doesn't contain the API key
+            e = exc_info.value
+            assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                f"API key found in exception request_string: {e.request_string}"
+            )
+            assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
         # Test case 3: JSON parsing error leading to exception (successful
         # responses are parsed from raw bytes via orjson)
@@ -1096,19 +1072,18 @@ class TestFeatureAPI:
             mock_response.content = b"not valid json {"
             mock_post.return_value = mock_response
 
-            try:
+            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
                 api._get_results(
                     geometry=test_polygon,
                     region="au",
                     in_gridding_mode=False,
                 )
-                assert False, "Should have raised AIFeatureAPIRequestSizeError"
-            except AIFeatureAPIRequestSizeError as e:
-                # Check that the stored request_string doesn't contain the API key
-                assert "SUPER_SECRET_KEY_123" not in str(
-                    e.request_string
-                ), f"API key found in exception request_string: {e.request_string}"
-                assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
+            # Check that the stored request_string doesn't contain the API key
+            e = exc_info.value
+            assert "SUPER_SECRET_KEY_123" not in str(e.request_string), (
+                f"API key found in exception request_string: {e.request_string}"
+            )
+            assert "APIKEYREMOVED" in str(e.request_string), "Exception should contain sanitized placeholder"
 
     def test_max_allowed_error_count_uses_floor_not_round(self):
         """
@@ -1176,7 +1151,7 @@ class TestFeatureAPI:
         monkeypatch.setattr(feature_api, "get_features_gdf_bulk", mock_get_features_gdf_bulk)
 
         # Call _attempt_gridding directly - should NOT crash with IndexError
-        features, metadata, error, grid_errors = feature_api._attempt_gridding(
+        features, metadata, error, _grid_errors = feature_api._attempt_gridding(
             geometry=large_aoi,
             region="au",
             packs=["building"],
@@ -1220,9 +1195,11 @@ class TestEmptyBody502Handling:
 
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 
-        with patch("requests.Session.post", return_value=self._mock_502_response()):
-            with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
-                api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
+        with (
+            patch("requests.Session.post", return_value=self._mock_502_response()),
+            pytest.raises(AIFeatureAPIRequestSizeError) as exc_info,
+        ):
+            api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
 
         assert exc_info.value.status_code == HTTPStatus.BAD_GATEWAY
         assert exc_info.value.message == "Empty response body (HTTP 502)"
@@ -1231,12 +1208,12 @@ class TestEmptyBody502Handling:
         """At the get_features_gdf level, an empty-body 502 attempts gridding"""
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
 
-        with patch("requests.Session.post", return_value=self._mock_502_response()):
-            with patch("time.sleep"):
-                with patch.object(api, "_attempt_gridding", return_value=(None, None, None, None)) as mock_grid:
-                    api.get_features_gdf(
-                        geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
-                    )
+        with (
+            patch("requests.Session.post", return_value=self._mock_502_response()),
+            patch("time.sleep"),
+            patch.object(api, "_attempt_gridding", return_value=(None, None, None, None)) as mock_grid,
+        ):
+            api.get_features_gdf(geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi")
 
         mock_grid.assert_called_once()
 
@@ -1245,12 +1222,14 @@ class TestEmptyBody502Handling:
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
         response = self._mock_502_response(text='{"message": "upstream application error"}')
 
-        with patch("requests.Session.post", return_value=response):
-            with patch("time.sleep"):
-                with patch.object(api, "_attempt_gridding") as mock_grid:
-                    _, _, error, _ = api.get_features_gdf(
-                        geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
-                    )
+        with (
+            patch("requests.Session.post", return_value=response),
+            patch("time.sleep"),
+            patch.object(api, "_attempt_gridding") as mock_grid,
+        ):
+            _, _, error, _ = api.get_features_gdf(
+                geometry=self._test_polygon(), region="au", packs=["building"], aoi_id="test_aoi"
+            )
 
         mock_grid.assert_not_called()
         assert error is not None
@@ -1275,12 +1254,12 @@ class TestTruncatedJsonLogging:
         """feature_api matches orjson's truncation message as text, so a wording change must fail here."""
         with pytest.raises(orjson.JSONDecodeError) as exc_info:
             orjson.loads(b'{"features": [{"id": "abc", "geometry": {"type": "Polygon", "coordinates": [[1.5')
-        assert (
-            exc_info.value.msg == ORJSON_TRUNCATED_MSG
-        ), f"orjson's truncation message changed to {exc_info.value.msg!r}; update ORJSON_TRUNCATED_MSG"
+        assert exc_info.value.msg == ORJSON_TRUNCATED_MSG, (
+            f"orjson's truncation message changed to {exc_info.value.msg!r}; update ORJSON_TRUNCATED_MSG"
+        )
 
     @pytest.mark.parametrize(
-        "content, expected_level",
+        ("content", "expected_level"),
         [
             (b'{"features": [{"id": "abc", "geometry": {"type": "Poly', logging.DEBUG),
             (b"", logging.DEBUG),
@@ -1290,7 +1269,9 @@ class TestTruncatedJsonLogging:
         ],
         ids=["truncated", "empty", "whitespace-only", "nan-literal", "bom"],
     )
-    def test_parse_error_grids_and_logs_at_expected_level(self, caplog, content, expected_level):
+    def test_parse_error_grids_and_logs_at_expected_level(
+        self, caplog: pytest.LogCaptureFixture, content: bytes, expected_level: int
+    ):
         """Every unparseable 200 raises a size error; only non-truncation errors warn."""
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
         response = MagicMock()
@@ -1301,25 +1282,27 @@ class TestTruncatedJsonLogging:
         nmaipy_logger = logging.getLogger("nmaipy")
         nmaipy_logger.addHandler(caplog.handler)
         try:
-            with caplog.at_level(logging.DEBUG, logger="nmaipy"):
-                with patch("requests.Session.post", return_value=response):
-                    with pytest.raises(AIFeatureAPIRequestSizeError):
-                        api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
+            with (
+                caplog.at_level(logging.DEBUG, logger="nmaipy"),
+                patch("requests.Session.post", return_value=response),
+                pytest.raises(AIFeatureAPIRequestSizeError),
+            ):
+                api._get_results(geometry=self._test_polygon(), region="au", in_gridding_mode=False)
         finally:
             nmaipy_logger.removeHandler(caplog.handler)
 
         parse_records = [r for r in caplog.records if "JSON" in r.getMessage() and "200 response" in r.getMessage()]
-        assert (
-            len(parse_records) == 1
-        ), f"Expected one parse-error log record, got {[r.getMessage() for r in parse_records]}"
+        assert len(parse_records) == 1, (
+            f"Expected one parse-error log record, got {[r.getMessage() for r in parse_records]}"
+        )
         assert parse_records[0].levelno == expected_level, (
             f"Expected level {logging.getLevelName(expected_level)}, got {parse_records[0].levelname}: "
             f"{parse_records[0].getMessage()}"
         )
         warnings_logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert len(warnings_logged) == (
-            1 if expected_level == logging.WARNING else 0
-        ), f"Unexpected warnings: {[r.getMessage() for r in warnings_logged]}"
+        assert len(warnings_logged) == (1 if expected_level == logging.WARNING else 0), (
+            f"Unexpected warnings: {[r.getMessage() for r in warnings_logged]}"
+        )
 
 
 class TestBulkUnexpectedErrorHandling:
@@ -1355,7 +1338,7 @@ class TestBulkUnexpectedErrorHandling:
 
         monkeypatch.setattr(FeatureApi, "get_features_gdf", fake_get_features_gdf)
 
-        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+        features_gdf, _metadata_df, errors_df = feature_api.get_features_gdf_bulk(
             aoi_gdf,
             region="au",
             packs=["building"],
@@ -1423,7 +1406,7 @@ class TestMaxAllowedErrorBudget:
 
         monkeypatch.setattr(FeatureApi, "get_features_gdf", fake_get_features_gdf)
 
-        features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+        features_gdf, _metadata_df, errors_df = feature_api.get_features_gdf_bulk(
             self._aoi_gdf(), region="au", packs=["building"], max_allowed_error_pct=50
         )
         assert "a" in features_gdf.index
@@ -1445,11 +1428,11 @@ class TestMaxAllowedErrorBudget:
 
 
 if __name__ == "__main__":
-    current_file = os.path.abspath(__file__)
+    current_file = str(Path(__file__).resolve())
     sys.exit(pytest.main([current_file]))
 
 
-@pytest.mark.parametrize("maxretry,expected_posts", [(0, 1), (2, 3)])
+@pytest.mark.parametrize(("maxretry", "expected_posts"), [(0, 1), (2, 3)])
 def test_chunked_encoding_retry_loop_honours_maxretry(maxretry, expected_posts):
     """The client-side ChunkedEncodingError loop must spend the configured budget
     (1 initial attempt + maxretry retries), not the package constant."""

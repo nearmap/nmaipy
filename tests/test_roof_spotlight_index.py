@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Test that roofSpotlightIndex is correctly handled in flatten_roof_attributes."""
 
 import ast
@@ -25,7 +24,7 @@ def rsi_payload():
     if not raw_payload_file.exists():
         pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_rsi_data first.")
 
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 
@@ -59,7 +58,7 @@ def test_gen_rsi_data(cache_directory: Path):
         AOI_ID_COLUMN_NAME
     )
 
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("API_KEY", "")
     if not api_key:
         pytest.skip("API_KEY not found in environment")
 
@@ -81,7 +80,7 @@ def test_gen_rsi_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame (without date constraints)
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["building"],
@@ -98,13 +97,13 @@ def test_gen_rsi_data(cache_directory: Path):
     rsi_count = 0
     roof_samples = []
 
-    for idx, row in roof_features.iterrows():
+    for _, row in roof_features.iterrows():
         attrs = row.get("attributes")
         if attrs is not None and not (isinstance(attrs, float) and pd.isna(attrs)):
             if isinstance(attrs, str):
                 try:
                     attrs = json.loads(attrs.replace("'", '"'))
-                except:
+                except json.JSONDecodeError:
                     attrs = ast.literal_eval(attrs) if attrs else []
             if isinstance(attrs, list) and len(attrs) > 0:
                 # Save sample of roof with attributes
@@ -156,21 +155,23 @@ def test_roof_spotlight_index_with_real_data(roof_with_rsi):
 
     # Verify roofSpotlightIndex was extracted correctly using real values from API
     assert "roof_spotlight_index" in result, "roof_spotlight_index should be present in flattened result"
-    assert (
-        result["roof_spotlight_index"] == roof_with_rsi["roofSpotlightIndex"]["value"]
-    ), f"Expected value {roof_with_rsi['roofSpotlightIndex']['value']}, got {result['roof_spotlight_index']}"
+    assert result["roof_spotlight_index"] == roof_with_rsi["roofSpotlightIndex"]["value"], (
+        f"Expected value {roof_with_rsi['roofSpotlightIndex']['value']}, got {result['roof_spotlight_index']}"
+    )
 
     if "confidence" in roof_with_rsi["roofSpotlightIndex"]:
         assert "roof_spotlight_index_confidence" in result, "confidence should be in flattened result"
-        assert (
-            result["roof_spotlight_index_confidence"] == roof_with_rsi["roofSpotlightIndex"]["confidence"]
-        ), f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got {result['roof_spotlight_index_confidence']}"
+        assert result["roof_spotlight_index_confidence"] == roof_with_rsi["roofSpotlightIndex"]["confidence"], (
+            f"Expected confidence {roof_with_rsi['roofSpotlightIndex']['confidence']}, got "
+            f"{result['roof_spotlight_index_confidence']}"
+        )
 
     if "modelVersion" in roof_with_rsi["roofSpotlightIndex"]:
         assert "roof_spotlight_index_model_version" in result, "modelVersion should be in flattened result"
-        assert (
-            result["roof_spotlight_index_model_version"] == roof_with_rsi["roofSpotlightIndex"]["modelVersion"]
-        ), f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got {result['roof_spotlight_index_model_version']}"
+        assert result["roof_spotlight_index_model_version"] == roof_with_rsi["roofSpotlightIndex"]["modelVersion"], (
+            f"Expected modelVersion {roof_with_rsi['roofSpotlightIndex']['modelVersion']}, got "
+            f"{result['roof_spotlight_index_model_version']}"
+        )
 
 
 def test_handles_missing_rsi_gracefully():
@@ -199,10 +200,10 @@ def test_handles_missing_rsi_gracefully():
         if isinstance(attrs, str):
             try:
                 attrs = json.loads(attrs.replace("'", '"'))
-            except:
+            except json.JSONDecodeError:
                 try:
                     attrs = ast.literal_eval(attrs)
-                except:
+                except (ValueError, SyntaxError):
                     attrs = []
         roof["attributes"] = attrs if isinstance(attrs, list) else []
     else:

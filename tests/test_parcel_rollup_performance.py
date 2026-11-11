@@ -12,10 +12,10 @@ cProfile output (if env var is set) is written to `<tempdir>/nmaipy_profile_parc
 import ast
 import cProfile
 import os
+from pathlib import Path
 import pstats
 import tempfile
 import time
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -23,7 +23,7 @@ import pytest
 from shapely.wkt import loads as wkt_loads
 
 from nmaipy import parcels
-from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, LAT_LONG_CRS, ROOF_INSTANCE_CLASS_ID
+from nmaipy.constants import AOI_ID_COLUMN_NAME, LAT_LONG_CRS, ROOF_INSTANCE_CLASS_ID
 from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi
 
@@ -103,10 +103,6 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
         pytest.skip(f"Perf fixture not generated yet — run test_gen_perf_fixture first: {PERF_FIXTURE}")
 
     # --- Load fixture (pre-saved API responses) ---
-    import ast
-
-    from shapely.wkt import loads as wkt_loads
-
     raw_df = pd.read_csv(PERF_FIXTURE)
 
     # Reconstruct features_gdf from the saved CSV (same pattern as conftest fixtures)
@@ -159,8 +155,8 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
 
     if do_profile:
         pr.disable()
-        profile_path = os.path.join(tempfile.gettempdir(), "nmaipy_profile_parcel_rollup.txt")
-        with open(profile_path, "w", encoding="utf-8") as pf:
+        profile_fd, profile_path = tempfile.mkstemp(prefix="nmaipy_profile_parcel_rollup_", suffix=".txt")
+        with os.fdopen(profile_fd, "w", encoding="utf-8") as pf:
             pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
             pf.write("\n=== Top 40 by self (tottime) ===\n")
@@ -171,13 +167,14 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
 
     rollup_s = t_rollup_end - t_rollup_start
     print(
-        f"parcel_rollup: {rollup_s:.1f}s for {len(parcels_2_gdf)} AOIs  ({rollup_s / len(parcels_2_gdf) * 1000:.1f}ms/AOI)"
+        f"parcel_rollup: {rollup_s:.1f}s for {len(parcels_2_gdf)} AOIs  "
+        f"({rollup_s / len(parcels_2_gdf) * 1000:.1f}ms/AOI)"
     )
     print(f"rollup_df shape: {rollup_df.shape}")
 
-    assert len(rollup_df) == len(
-        parcels_2_gdf
-    ), f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
+    assert len(rollup_df) == len(parcels_2_gdf), (
+        f"Expected {len(parcels_2_gdf)} rows in rollup_df, got {len(rollup_df)}"
+    )
 
 
 @pytest.mark.live_api
@@ -238,8 +235,8 @@ def test_parcel_rollup_performance_au(parcels_gdf: gpd.GeoDataFrame):
 
     if do_profile:
         pr.disable()
-        profile_path = os.path.join(tempfile.gettempdir(), "nmaipy_profile_parcel_rollup_au.txt")
-        with open(profile_path, "w", encoding="utf-8") as pf:
+        profile_fd, profile_path = tempfile.mkstemp(prefix="nmaipy_profile_parcel_rollup_au_", suffix=".txt")
+        with os.fdopen(profile_fd, "w", encoding="utf-8") as pf:
             pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
             pf.write("\n=== Top 40 by self (tottime) ===\n")

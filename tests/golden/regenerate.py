@@ -5,9 +5,9 @@ Usage: python -m tests.golden.regenerate [case ...]
 """
 
 import argparse
+from pathlib import Path
 import shutil
 import tempfile
-from pathlib import Path
 
 from .compare import canonicalise_export
 from .replay import CASES, GOLDEN_DIR, run_case

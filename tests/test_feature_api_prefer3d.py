@@ -34,8 +34,7 @@ def _aoi_gdf(aoi_id: str, polygon: Polygon, **extra_cols) -> gpd.GeoDataFrame:
     row = {"geometry": polygon, **extra_cols}
     gdf = gpd.GeoDataFrame([row], crs=API_CRS)
     gdf[AOI_ID_COLUMN_NAME] = [aoi_id]
-    gdf = gdf.set_index(AOI_ID_COLUMN_NAME)
-    return gdf
+    return gdf.set_index(AOI_ID_COLUMN_NAME)
 
 
 def _square(lon: float, lat: float, size: float = 0.0005) -> Polygon:
@@ -162,7 +161,7 @@ def test_prefer3d_no_retry_when_first_pass_succeeds(tmp_path, real_feature_paylo
     gdf = _aoi_gdf("aoi-1", _square(-111.926, 33.414))
 
     with patch("requests.Session.post", new=fake_post):
-        features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
+        _features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
 
     assert call_count["n"] == 1, "should not retry when first pass succeeded"
     assert "aoi-1" in metadata.index
@@ -187,7 +186,7 @@ def test_prefer3d_keeps_non_404_errors_without_retry(tmp_path):
     gdf = _aoi_gdf("aoi-1", _square(-111.926, 33.414))
 
     with patch("requests.Session.post", new=fake_post):
-        features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
+        _features, _metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
 
     # 500s already exhaust their own urllib3 retries, so we just need to confirm
     # no second-pass URL without 3dCoverage was issued.
@@ -217,7 +216,7 @@ def test_prefer3d_skips_retry_for_survey_resource_id_aois(tmp_path):
     )
 
     with patch("requests.Session.post", new=fake_post):
-        features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
+        _features, _metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us")
 
     # Only one request should have been made — the one with the survey_resource_id path.
     # No 2D fallback because the AOI is pinned to a specific survey.
@@ -276,7 +275,7 @@ def test_prefer3d_wholesale_fallback_when_threshold_exceeded(tmp_path, real_feat
     gdf = gpd.GeoDataFrame(pd.concat([gdf1, gdf2]), crs=API_CRS)
 
     with patch("requests.Session.post", new=fake_post):
-        features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us", max_allowed_error_pct=0)
+        _features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us", max_allowed_error_pct=0)
 
     # Both AOIs should resolve via the wholesale 2D fallback — no AOIs in errors.
     assert "aoi-1" in metadata.index
@@ -309,7 +308,7 @@ def test_prefer3d_bypassed_when_in_gridding_mode(tmp_path, real_feature_payload)
 
     with patch("requests.Session.post", new=fake_post):
         # in_gridding_mode=True must bypass the prefer3d wrapper entirely.
-        features, metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us", in_gridding_mode=True)
+        _features, _metadata, errors = api.get_features_gdf_bulk(gdf=gdf, region="us", in_gridding_mode=True)
 
     # With prefer3d bypassed, the single only3d=True attempt 404s and there is NO 2D retry.
     assert all("3dCoverage=true" in u for u in captured_urls)
@@ -331,7 +330,7 @@ def test_prefer3d_dedupes_partial_gridded_aoi_across_passes(tmp_path):
     gdf = _aoi_gdf(aoi_id, geom)
 
     def _meta_row(survey_date: str) -> pd.DataFrame:
-        df = pd.DataFrame(
+        return pd.DataFrame(
             [
                 {
                     "system_version": "gen6-test",
@@ -346,7 +345,6 @@ def test_prefer3d_dedupes_partial_gridded_aoi_across_passes(tmp_path):
             ],
             index=pd.Index([aoi_id], name=AOI_ID_COLUMN_NAME),
         )
-        return df
 
     def _features_row(survey_date: str) -> gpd.GeoDataFrame:
         return gpd.GeoDataFrame(
@@ -393,7 +391,7 @@ def test_prefer3d_dedupes_partial_gridded_aoi_across_passes(tmp_path):
 
     assert call_count["n"] == 2, "should have run a 2D fallback pass after the 3D 404"
     assert merged_meta.index.is_unique, (
-        f"metadata index must not contain duplicates after prefer3d merge — got " f"{merged_meta.index.tolist()!r}"
+        f"metadata index must not contain duplicates after prefer3d merge — got {merged_meta.index.tolist()!r}"
     )
     # 2D fallback wins for the retried AOI.
     assert aoi_id in merged_meta.index

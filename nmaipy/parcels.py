@@ -13,16 +13,15 @@ and select "primary" features for detailed attribute extraction.
 import json
 import re
 import warnings
-from typing import Union
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import stringcase
 from shapely import make_valid
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
+import stringcase
 
 from nmaipy import log
 from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
@@ -52,8 +51,6 @@ from nmaipy.feature_attributes import (
     DEFENSIBLE_SPACE_RISK_OBJECT_CLASSES,
     FALSE_STRING,
     PERIL_SCORE_OUTPUT_COLUMNS,
-    RESOLVED_DYNAMIC_PREFIXES,
-    RESOLVED_SCORE_OUTPUT_COLUMNS,
     RSI_OUTPUT_COLUMNS,
     TRUE_STRING,
     _flatten_defensible_space,
@@ -74,22 +71,22 @@ logger = log.get_logger()
 
 # Re-export for backwards compatibility
 __all__ = [
-    "read_from_file",
-    "parcel_rollup",
-    "feature_attributes",
-    "link_roof_instances_to_roofs",
-    "link_roofs_to_buildings",
     "build_parent_lookup",
     "build_parent_lookup_by_aoi",
-    "extract_rsi_from_feature",
-    "resolve_footprint_rsi",
     "calculate_child_feature_attributes",
     "class_column_names",
+    "extract_rsi_from_feature",
+    "feature_attributes",
     # Also re-export flattening functions for backwards compatibility
     "flatten_building_attributes",
     "flatten_building_lifecycle_damage_attributes",
     "flatten_roof_attributes",
     "flatten_roof_instance_attributes",
+    "link_roof_instances_to_roofs",
+    "link_roofs_to_buildings",
+    "parcel_rollup",
+    "read_from_file",
+    "resolve_footprint_rsi",
 ]
 
 
@@ -148,7 +145,7 @@ def _compute_iou(geom_a, geom_b) -> float:
             return 0.0
         union = geom_a.union(geom_b).area
         return intersection / union if union > 0 else 0.0
-    except Exception:
+    except GEOSException:
         return 0.0
 
 
@@ -192,7 +189,7 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
 
     total = 0.0
     skipped = 0
-    for child in children.values:
+    for child in children.array:
         if child is None or child.is_empty:
             continue
         try:
@@ -220,7 +217,7 @@ def calculate_child_feature_attributes(
     country: str,
     name_prefix: str = "",
     parent_projected=None,
-    children_projected: gpd.GeoSeries = None,
+    children_projected: gpd.GeoSeries | None = None,
 ) -> dict:
     """
     Calculate component attributes by spatial intersection for clipped features.
@@ -319,7 +316,7 @@ def calculate_child_feature_attributes(
                 matching_projected[mask], parent_projected, class_id=class_id
             )
             if "confidence" in matching_features.columns:
-                conf = matching_features["confidence"].values[mask.values]
+                conf = matching_features["confidence"].to_numpy()[mask.to_numpy()]
                 valid = conf[pd.notna(conf)]
                 if len(valid) > 0:
                     max_confidence = float(valid.max())
@@ -447,13 +444,10 @@ def link_roof_instances_to_roofs(
             continue
 
         # Build spatial index for roofs
-        roof_geoms = aoi_roofs.geometry.values
+        roof_geoms = aoi_roofs.geometry.array
         roof_tree = STRtree(roof_geoms)
-        roof_df_indices = aoi_roofs.index.values
-        roof_feature_ids = aoi_roofs["feature_id"].values
-
-        # Build mapping from roof df index to position in arrays
-        roof_idx_to_pos = {idx: pos for pos, idx in enumerate(roof_df_indices)}
+        roof_df_indices = aoi_roofs.index.to_numpy()
+        roof_feature_ids = aoi_roofs["feature_id"].array
 
         # For each roof, collect all matching instances with IoU
         roof_to_instances = {idx: [] for idx in roof_df_indices}
@@ -502,8 +496,8 @@ def link_roof_instances_to_roofs(
 
             # Assign parent to roof instance (only if IoU meets threshold)
             if best_roof_idx is not None and best_iou >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id
-                ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)
+                ri_gdf.at[ri_idx, "parent_id"] = best_roof_feature_id  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                ri_gdf.at[ri_idx, "parent_iou"] = round(best_iou, 4)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
         # For each roof, sort instances by IoU and assign primary
         for roof_df_idx, instances in roof_to_instances.items():
@@ -520,12 +514,12 @@ def link_roof_instances_to_roofs(
             sorted_instances = sorted(instances, key=instance_sort_key)
 
             # Assign to roof (JSON-serialize list for parquet compatibility)
-            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)
-            rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)
+            rf_gdf.at[roof_df_idx, "child_roof_instances"] = json.dumps(sorted_instances)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+            rf_gdf.at[roof_df_idx, "child_roof_instance_count"] = len(sorted_instances)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
             # Only assign primary if IoU meets threshold - below that we don't trust the match
             if sorted_instances[0]["iou"] >= MIN_ROOF_INSTANCE_IOU_THRESHOLD:
-                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]
-                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_feature_id"] = sorted_instances[0]["feature_id"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                rf_gdf.at[roof_df_idx, "primary_child_roof_age_iou"] = sorted_instances[0]["iou"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
     # Restore aoi_id as index
     ri_gdf = ri_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -634,10 +628,10 @@ def link_roofs_to_buildings(
             continue
 
         # Build spatial index for buildings
-        bldg_geoms = aoi_buildings.geometry.values
+        bldg_geoms = aoi_buildings.geometry.array
         bldg_tree = STRtree(bldg_geoms)
-        bldg_df_indices = aoi_buildings.index.values
-        bldg_feature_ids = aoi_buildings["feature_id"].values
+        bldg_df_indices = aoi_buildings.index.to_numpy()
+        bldg_feature_ids = aoi_buildings["feature_id"].array
 
         # For each building, collect all matching roofs with IoU
         bldg_to_roofs = {idx: [] for idx in bldg_df_indices}
@@ -683,8 +677,8 @@ def link_roofs_to_buildings(
 
             # Assign parent to roof (only if IoU meets threshold)
             if best_bldg_idx is not None and best_iou >= min_iou_threshold:
-                rf_gdf.at[rf_idx, "parent_building_id"] = best_bldg_feature_id
-                rf_gdf.at[rf_idx, "parent_building_iou"] = round(best_iou, 4)
+                rf_gdf.at[rf_idx, "parent_building_id"] = best_bldg_feature_id  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                rf_gdf.at[rf_idx, "parent_building_iou"] = round(best_iou, 4)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
         # For each building, sort roofs by IoU and assign primary
         for bldg_df_idx, roofs in bldg_to_roofs.items():
@@ -695,12 +689,12 @@ def link_roofs_to_buildings(
             sorted_roofs = sorted(roofs, key=lambda x: -x["iou"])
 
             # Assign to building (JSON-serialize list for parquet compatibility)
-            bldg_gdf.at[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)
-            bldg_gdf.at[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)
+            bldg_gdf.at[bldg_df_idx, "child_roofs"] = json.dumps(sorted_roofs)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+            bldg_gdf.at[bldg_df_idx, "child_roof_count"] = len(sorted_roofs)  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
             # Only assign primary if IoU meets threshold
             if sorted_roofs[0]["iou"] >= min_iou_threshold:
-                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]
-                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_id"] = sorted_roofs[0]["feature_id"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
+                bldg_gdf.at[bldg_df_idx, "primary_child_roof_iou"] = sorted_roofs[0]["iou"]  # noqa: PD008 -- scalar write in a per-row loop; .loc is much slower
 
     # Restore aoi_id as index
     rf_gdf = rf_gdf.set_index(AOI_ID_COLUMN_NAME)
@@ -797,7 +791,7 @@ def build_parent_lookup(features_gdf: gpd.GeoDataFrame) -> dict:
     # so to_dict("records") preserves it in every dict.
     if filtered.index.name is not None:
         filtered = filtered.reset_index()
-    return dict(zip(filtered["feature_id"].values, filtered.to_dict("records")))
+    return dict(zip(filtered["feature_id"].values, filtered.to_dict("records"), strict=True))
 
 
 def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame, all_rows: bool = False) -> dict:
@@ -822,7 +816,7 @@ def _build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame, all_rows: bool =
         raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot scope parent lookup per parcel")
     lookup: dict = {}
     for aoi, fid, rec in zip(
-        filtered[AOI_ID_COLUMN_NAME].values, filtered["feature_id"].values, filtered.to_dict("records")
+        filtered[AOI_ID_COLUMN_NAME].values, filtered["feature_id"].values, filtered.to_dict("records"), strict=True
     ):
         lookup.setdefault(aoi, {})[fid] = rec
     return lookup
@@ -840,8 +834,8 @@ def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
 
 def resolve_footprint_rsi(
     feature,
-    features_gdf: gpd.GeoDataFrame = None,
-    parent_lookup: dict = None,
+    features_gdf: gpd.GeoDataFrame | None = None,
+    parent_lookup: dict | None = None,
 ) -> dict:
     """
     Resolve the 'best' RSI for a feature by checking the feature itself then
@@ -917,17 +911,17 @@ def _traverse_to_bl(feature, parent_lookup: dict) -> dict:
     return {}
 
 
-def feature_attributes(
+def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
-    parcel_geom: Union[MultiPolygon, Polygon, None],
+    parcel_geom: MultiPolygon | Polygon | None,
     primary_decision: str,
-    primary_lat: float = None,
-    primary_lon: float = None,
-    geometry_projected_col: str = None,
-    projected_crs: str = None,
-    parent_lookup: dict = None,
+    primary_lat: float | None = None,
+    primary_lon: float | None = None,
+    geometry_projected_col: str | None = None,
+    projected_crs: str | None = None,
+    parent_lookup: dict | None = None,
     clip_roof_to_parcel: bool = False,
 ) -> dict:
     """
@@ -938,7 +932,9 @@ def feature_attributes(
         classes_df: Class name and ID lookup (index of the dataframe) to include.
         country: The country code for map projections and units.
         parcel_geom: The geometry for the parcel, or None if no parcel geometry is known.
-        primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI. "nearest" finds the nearest primary object to the provided coordinates, preferring objects with high confidence if present.
+        primary_decision: "largest_intersection" default is just the largest feature by area intersected with Query AOI.
+                          "nearest" finds the nearest primary object to the provided coordinates, preferring objects
+                          with high confidence if present.
         primary_lat: Latitude of centroid to denote primary feature (e.g. primary building location).
         primary_lon: Longitude of centroid to denote primary feature (e.g. primary building location).
         geometry_projected_col: Optional name of a column containing pre-projected geometries
@@ -1037,6 +1033,7 @@ def feature_attributes(
                 for fid, bid in zip(
                     roofs_linked_parcel["feature_id"].values,
                     roofs_linked_parcel["parent_building_id"].values,
+                    strict=True,
                 )
                 if pd.notna(bid)
             }
@@ -1059,8 +1056,8 @@ def feature_attributes(
             projected_crs=projected_crs,
         )
 
-    for class_id, name in classes_df.description.items():
-        name = name.lower().replace(" ", "_")
+    for class_id, description in classes_df.description.items():
+        name = description.lower().replace(" ", "_")
         class_features_gdf = features_by_class.get(class_id, _empty_features)
 
         # For roof instances, filter to only "roof" kind for count/area aggregations
@@ -1385,10 +1382,12 @@ def feature_attributes(
         area_col = (
             "clipped_area_sqft"
             if "clipped_area_sqft" in roof_features.columns
-            else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
+            else "clipped_area_sqm"
+            if "clipped_area_sqm" in roof_features.columns
+            else None
         )
         area_vals = []
-        areas = roof_features[area_col].values if area_col else None
+        areas = roof_features[area_col].to_numpy() if area_col else None
         for i, feature_id in enumerate(roof_features["feature_id"]):
             rf = _parent_lookup.get(feature_id) or {}
             resolved_rsi = extract_rsi_from_feature(rf)
@@ -1421,9 +1420,11 @@ def feature_attributes(
         area_col = (
             "clipped_area_sqft"
             if "clipped_area_sqft" in roof_features.columns
-            else "clipped_area_sqm" if "clipped_area_sqm" in roof_features.columns else None
+            else "clipped_area_sqm"
+            if "clipped_area_sqm" in roof_features.columns
+            else None
         )
-        areas = roof_features[area_col].values if area_col else None
+        areas = roof_features[area_col].to_numpy() if area_col else None
 
         # Resolve all scores for each roof once (roof first, BL fallback via linked BN).
         per_roof_scores = []
@@ -1461,16 +1462,16 @@ def feature_attributes(
     return parcel
 
 
-def parcel_rollup(
+def parcel_rollup(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     parcels_gdf: gpd.GeoDataFrame,
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
     country: str,
     primary_decision: str,
-    api_metadata: list = None,
+    api_metadata: list | None = None,
     alpha: bool = False,
     beta: bool = False,
-    gridded_aoi_ids: set = None,
+    gridded_aoi_ids: set | None = None,
 ):
     """
     Summarize feature data to parcel attributes.
@@ -1515,7 +1516,7 @@ def parcel_rollup(
     #      under the active alpha/beta flags at that exact version.
     null_classes_by_aoi = {}
     _class_baseline_columns = {}
-    if api_metadata:
+    if api_metadata is not None and api_metadata:
         all_aoi_ids = set(parcels_gdf.index)
         for meta_df, meta_classes in api_metadata:
             successful_aois = set(meta_df.index) if len(meta_df) > 0 else set()
@@ -1543,7 +1544,7 @@ def parcel_rollup(
                 }
                 for aoi_id, sv in meta_df["system_version"].items():
                     unreturnable = unreturnable_by_sv.get(sv)
-                    if unreturnable:
+                    if unreturnable is not None and unreturnable:
                         null_classes_by_aoi.setdefault(aoi_id, set()).update(unreturnable)
         # Only compute baseline columns if at least one AOI needs nullification
         if null_classes_by_aoi:
@@ -1557,7 +1558,8 @@ def parcel_rollup(
             features_gdf = features_gdf.set_index(AOI_ID_COLUMN_NAME)
         else:
             raise ValueError(
-                f"features_gdf index name is '{features_gdf.index.name}' but should be '{AOI_ID_COLUMN_NAME}', and column '{AOI_ID_COLUMN_NAME}' not found in dataframe columns: {list(features_gdf.columns)}"
+                f"features_gdf index name is '{features_gdf.index.name}' but should be '{AOI_ID_COLUMN_NAME}', and "
+                f"column '{AOI_ID_COLUMN_NAME}' not found in dataframe columns: {list(features_gdf.columns)}"
             )
 
     assert features_gdf.index.name == AOI_ID_COLUMN_NAME
@@ -1568,8 +1570,9 @@ def parcel_rollup(
         features_gdf = features_gdf[~features_gdf["class_id"].isin(DEPRECATED_CLASS_IDS)]
 
     if len(parcels_gdf.index.unique()) != len(parcels_gdf):
-        raise Exception(
-            f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are {len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
+        raise ValueError(
+            f"AOI id index {AOI_ID_COLUMN_NAME} is NOT unique in parcels/AOI dataframe, but it should be: there are "
+            f"{len(parcels_gdf.index.unique())} unique AOI ids and {len(parcels_gdf)} rows in the dataframe"
         )
     # Methods that use lat/lon for primary feature selection
     uses_lat_lon = primary_decision in ("nearest", "optimal")
@@ -1606,7 +1609,7 @@ def parcel_rollup(
                 geometry=df[geom_col].values,
                 crs=features_gdf.crs or API_CRS,
             )
-            df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.values
+            df["_geometry_projected"] = temp_gdf.to_crs(projected_crs).geometry.array
             geometry_projected_col = "_geometry_projected"
 
     # Build parent lookup once for the whole chunk, scoped per AOI: in parcelMode
@@ -1703,7 +1706,7 @@ def parcel_rollup(
     # ``{"skipped": true}`` — we record ``aggregate_defensible_space_skipped``
     # so downstream consumers can tell "API skipped this" from "no aggregate
     # data available".
-    if api_metadata:
+    if api_metadata is not None and api_metadata:
         meta_df = api_metadata[0][0]
         if "aggregate" in meta_df.columns:
             agg_rows = {}
@@ -1738,9 +1741,9 @@ def parcel_rollup(
             try:
                 # Convert to float first to handle integer columns
                 rollup_df[col] = rollup_df[col].astype(float).round(2)
-            except (TypeError, ValueError) as e:
-                logger.error(f"Failed to round column '{col}' - column description:")
-                logger.error(rollup_df[col].describe())
+            except (TypeError, ValueError):
+                logger.exception(f"Failed to round column '{col}' - column description:")
+                logger.error(rollup_df[col].describe())  # noqa: TRY400 -- a detail line; the traceback is logged on the line above
                 raise
     # Reorder defensible space columns so each zone groups together in a predictable order:
     # primary_roof zones (ascending zoneId) first, then aggregate zones.
@@ -1839,7 +1842,7 @@ def conflation_rollup(
         ``primary_*`` attributes.
     """
     rating_to_count = {k: f"n_{stringcase.snakecase(k)}" for k in DAMAGE_CONFLATION_RAW_RATING_KEYS}
-    count_cols = ["n_buildings"] + list(rating_to_count.values())
+    count_cols = ["n_buildings", *rating_to_count.values()]
     event_meta_cols = [
         "event_uuid",
         "event_name",

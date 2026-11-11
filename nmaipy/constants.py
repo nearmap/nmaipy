@@ -1,7 +1,7 @@
 import json
 import os
-import warnings
 from pathlib import Path
+import warnings
 
 # Default columns
 AOI_ID_COLUMN_NAME = "aoi_id"
@@ -446,7 +446,8 @@ TILE_SHINGLE_DISCOLOURATION = "cfa8951a-4c29-54de-ae98-e5f804c305e3"
 LEAF_OFF_VEG_ID = "cd47dfd1-2c24-543c-89fd-7677b2cc100b"
 DRIVEABLE_ID = "372fb6c1-a3ab-5019-ba0f-489ed12079de"
 
-CLASSES_WITH_PRIMARY_FEATURE = BUILDING_STYLE_CLASS_IDS + [
+CLASSES_WITH_PRIMARY_FEATURE = [
+    *BUILDING_STYLE_CLASS_IDS,
     POOL_ID,
     ROOF_INSTANCE_CLASS_ID,
 ]  # Can add more where we particularly care about attributes for the largest feature
@@ -495,18 +496,18 @@ except (FileNotFoundError, json.JSONDecodeError):
     FEATURE_CLASS_DESCRIPTIONS = {}
 
 
-def refresh_class_descriptions(api_key: str = None):
+def refresh_class_descriptions(api_key: str | None = None):
     """Fetch class descriptions from the live Feature API and update class_descriptions.json.
 
     Preserves synthetic entries (e.g. Roof Instance from Roof Age API) that aren't
     returned by the Feature API.
     """
-    from nmaipy.feature_api import FeatureApi
+    from nmaipy.feature_api import FeatureApi  # noqa: PLC0415 -- import cycle: feature_api imports constants
 
     api = FeatureApi(api_key=api_key or os.environ.get("API_KEY"))
     classes_df = api.get_feature_classes()
     api.cleanup()
-    descriptions = dict(zip(classes_df.index, classes_df["description"]))
+    descriptions = dict(zip(classes_df.index, classes_df["description"], strict=True))
     # Preserve synthetic entries not from Feature API
     for cid in PER_CLASS_FILE_CLASS_IDS:
         if cid not in descriptions:

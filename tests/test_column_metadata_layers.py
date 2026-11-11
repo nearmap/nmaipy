@@ -12,8 +12,8 @@ itself relies on.
 
 from __future__ import annotations
 
-import json
 from importlib import resources
+import json
 
 import pytest
 
@@ -106,13 +106,14 @@ def test_spec_example_absent_when_spec_missing():
     assert meta.example == ""
 
 
-@pytest.mark.parametrize("unit,unit_name", [("sqm", "square metres"), ("sqft", "square feet")])
+@pytest.mark.parametrize(("unit", "unit_name"), [("sqm", "square metres"), ("sqft", "square feet")])
 def test_grid_coverage_columns_resolve(unit, unit_name):
     """The rollup's coverage columns resolve to their own entries, the area one in either unit."""
     for name in ["grid_cells", "grid_cells_answered", "answered_area_fraction"]:
         assert lookup_column(name, area_unit=unit).group == "api_status", name
     meta = lookup_column(f"answered_area_{unit}", area_unit=unit)
-    assert "denominator" in meta.description and meta.unit == unit_name
+    assert "denominator" in meta.description
+    assert meta.unit == unit_name
 
 
 def test_model_input_fields_do_not_shadow_roof_component_columns():

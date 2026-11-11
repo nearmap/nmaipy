@@ -93,7 +93,8 @@ class TestGriddingDtypeBug:
                     assert (errors_df.index == aoi_id).all()
                 else:
                     pytest.fail(
-                        f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}"
+                        f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index "
+                        f"name: {errors_df.index.name}"
                     )
             else:
                 # Test still passes (no dtype error), but we couldn't verify error handling
@@ -126,7 +127,7 @@ class TestGriddingDtypeBug:
         feature_api = FeatureApi(cache_dir=cache_directory, only3d=True, aoi_grid_min_pct=75, threads=50)
 
         try:
-            features_gdf, metadata_df, errors_df = feature_api.get_features_gdf_bulk(
+            _features_gdf, _metadata_df, errors_df = feature_api.get_features_gdf_bulk(
                 gdf=aoi_gdf,
                 region="au",
                 packs=["building"],
@@ -146,7 +147,8 @@ class TestGriddingDtypeBug:
                     assert (errors_df.index == aoi_id).all()
                 else:
                     pytest.fail(
-                        f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index name: {errors_df.index.name}"
+                        f"aoi_id not found in errors_df columns or index. Columns: {errors_df.columns.tolist()}, Index "
+                        f"name: {errors_df.index.name}"
                     )
             else:
                 pytest.skip("No errors occurred - unable to fully verify error dtype handling")

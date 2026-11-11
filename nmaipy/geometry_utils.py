@@ -9,7 +9,6 @@ This module provides common geometric operations used by multiple API clients:
 """
 
 import warnings
-from typing import Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -45,13 +44,12 @@ def polygon_to_coordstring(poly: Polygon) -> str:
     """
     coords = poly.exterior.coords[:]
     flat_coords = np.array(coords).ravel()
-    coordstring = ",".join(flat_coords.astype(str))
-    return coordstring
+    return ",".join(flat_coords.astype(str))
 
 
 def clip_features_to_polygon(
     feature_poly_series: gpd.GeoSeries,
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     region: str,
 ) -> gpd.GeoDataFrame:
     """
@@ -84,7 +82,7 @@ def clip_features_to_polygon(
     return gdf_clip
 
 
-def extract_coords_for_cache(request_string: str) -> Tuple[str, str]:
+def extract_coords_for_cache(request_string: str) -> tuple[str, str]:
     """
     Extract lon/lat coordinates from a request string for cache organization.
 
@@ -104,7 +102,7 @@ def extract_coords_for_cache(request_string: str) -> Tuple[str, str]:
         >>> # Returns: ("-74", "41")
     """
     # Extract query parameters
-    r = request_string.split("?")[-1]
+    r = request_string.rsplit("?", maxsplit=1)[-1]
     dic = dict([token.split("=") for token in r.split("&")])
 
     # Get first lon/lat from polygon coordinates
@@ -146,11 +144,10 @@ def create_grid(df: gpd.GeoDataFrame, cell_size: float) -> gpd.GeoDataFrame:
                 )
             )
 
-    grid = gpd.GeoDataFrame({"geometry": polygons}, crs=df.crs)
-    return grid
+    return gpd.GeoDataFrame({"geometry": polygons}, crs=df.crs)
 
 
-def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: float) -> gpd.GeoDataFrame:
+def split_geometry_into_grid(geometry: Polygon | MultiPolygon, cell_size: float) -> gpd.GeoDataFrame:
     """
     Split a large geometry into a grid of smaller cells.
 
@@ -185,12 +182,12 @@ def split_geometry_into_grid(geometry: Union[Polygon, MultiPolygon], cell_size: 
     df_gridded = df_gridded.explode(index_parts=True)
 
     # Ensure result is in API CRS
-    df_gridded = df_gridded.to_crs(API_CRS)
-
-    return df_gridded
+    return df_gridded.to_crs(API_CRS)
 
 
-def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_ids: list = None) -> gpd.GeoDataFrame:
+def combine_features_from_grid(
+    features_gdf: gpd.GeoDataFrame, connected_class_ids: list | None = None
+) -> gpd.GeoDataFrame:
     """
     Combine features from multiple grid cells, removing duplicates and merging connected features.
 
@@ -291,7 +288,7 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
         # If same feature_id has identical values across all identity cols, rows collapse to 1
         # If same feature_id has different values, multiple rows remain = conflict
         try:
-            identity_cols = ["feature_id"] + cols_to_check
+            identity_cols = ["feature_id", *cols_to_check]
             deduplicated = features_gdf.drop_duplicates(subset=identity_cols)
 
             # Count rows per feature_id after deduplication
@@ -362,6 +359,4 @@ def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_i
             )
 
     # Reset index to make feature_id a column, then set AOI_ID as index
-    features_gdf_out = features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)
-
-    return features_gdf_out
+    return features_gdf_dissolved.reset_index().set_index(AOI_ID_COLUMN_NAME)

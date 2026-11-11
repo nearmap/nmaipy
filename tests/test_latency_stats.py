@@ -9,12 +9,11 @@ These tests verify:
 - Reproducibility of bootstrap sampling with seeded RNG
 """
 
-import tempfile
 from pathlib import Path
+import tempfile
 from unittest.mock import MagicMock
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from nmaipy.api_common import (

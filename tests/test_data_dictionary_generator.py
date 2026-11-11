@@ -18,6 +18,7 @@ the standalone Roof Age exporter is intentionally out of scope):
 
 from __future__ import annotations
 
+from importlib import resources
 import json
 from pathlib import Path
 
@@ -27,7 +28,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from nmaipy import column_metadata as cm
-from nmaipy.column_metadata import ColumnMeta, lookup_column, reload_metadata
+from nmaipy.column_metadata import lookup_column, reload_metadata
 from nmaipy.data_dictionary_generator import _DD_COLUMNS, DataDictionaryGenerator
 
 
@@ -132,7 +133,7 @@ class TestGenericPatterns:
     """Each suffix family produces the expected dtype/source default."""
 
     @pytest.mark.parametrize(
-        "name, dtype, expect_min",
+        ("name", "dtype", "expect_min"),
         [
             ("tile_area_sqft", "float", "0"),
             ("metal_area_sqm", "float", "0"),
@@ -154,7 +155,8 @@ class TestGenericPatterns:
         meta = lookup_column("solar_present", area_unit="sqft")
         assert meta.dtype == "binary"
         assert meta.allowed_values == "Y | N"
-        assert meta.min == "N" and meta.max == "Y"
+        assert meta.min == "N"
+        assert meta.max == "Y"
 
     def test_confidence_includes_null_caveat(self):
         meta = lookup_column("tile_confidence", area_unit="sqft")
@@ -162,7 +164,7 @@ class TestGenericPatterns:
         assert "Null when the corresponding area is 0" in meta.description
 
     @pytest.mark.parametrize(
-        "name, bin_type, expected_bin_idx",
+        ("name", "bin_type", "expected_bin_idx"),
         [
             ("primary_roof_structural_damage_confidence_stats_default_bin_0", "default", "0"),
             ("primary_roof_structural_damage_confidence_stats_default_bin_17", "default", "17"),
@@ -182,7 +184,7 @@ class TestGenericPatterns:
         assert f"bin {expected_bin_idx}" in meta.description
 
     @pytest.mark.parametrize(
-        "name, expected_scope_phrase, expected_class_phrase",
+        ("name", "expected_scope_phrase", "expected_class_phrase"),
         [
             # Regression: short-first alternation in the regex would let
             # ``primary_roof_`` match a ``primary_roof_instance_`` column,
@@ -374,9 +376,9 @@ class TestFileDiscovery:
             assert (tmp_path / f"{stem}_data_dictionary.csv").exists(), f"missing dictionary for {name}"
         # Geoparquet companions get no dictionary.
         for name in ["roof_features", "building_features"]:
-            assert not (
-                tmp_path / f"{name}_data_dictionary.csv"
-            ).exists(), f"unexpected dictionary for geometry file {name}"
+            assert not (tmp_path / f"{name}_data_dictionary.csv").exists(), (
+                f"unexpected dictionary for geometry file {name}"
+            )
 
     def test_parquet_format_picks_parquet_variants(self, tmp_path):
         """When tabular_file_format='parquet', only the parquet variants get dictionaries."""
@@ -399,8 +401,6 @@ class TestJsonConfig:
     def test_round_trip_edit_appears_in_output(self, tmp_path, monkeypatch):
         """Editing the JSON, reloading, and regenerating reflects the change."""
         # Load real config, mutate one description, write it to a temp file, point loader at it.
-        import importlib.resources as resources
-
         with resources.files("nmaipy.data").joinpath("column_metadata.json").open() as fh:
             payload = json.load(fh)
         payload["exact_matches"]["aoi_id"]["description"] = "EDITED IN TEST"
@@ -409,38 +409,37 @@ class TestJsonConfig:
 
         # Force loader to use the custom path.
         reload_metadata()
-        from nmaipy import column_metadata as col_mod
 
-        col_mod.load_metadata.cache_clear()
-        original = col_mod.load_metadata
+        cm.load_metadata.cache_clear()
+        original = cm.load_metadata
 
         def _patched(json_path=None):
             return original(str(custom_path))
 
-        monkeypatch.setattr(col_mod, "load_metadata", _patched)
+        monkeypatch.setattr(cm, "load_metadata", _patched)
 
-        meta = col_mod.lookup_column("aoi_id")
+        meta = cm.lookup_column("aoi_id")
         assert "EDITED IN TEST" in meta.description
 
     def test_malformed_json_raises_friendly_error(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text("{not: valid json")
+        cm.load_metadata.cache_clear()
         with pytest.raises(json.JSONDecodeError):
-            cm.load_metadata.cache_clear()
             cm.load_metadata(str(bad))
 
     def test_missing_required_key_raises_friendly_error(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text(json.dumps({"exact_matches": {}}))  # missing 'patterns'
+        cm.load_metadata.cache_clear()
         with pytest.raises(ValueError, match="patterns"):
-            cm.load_metadata.cache_clear()
             cm.load_metadata(str(bad))
 
     def test_invalid_pattern_regex_raises_friendly_error(self, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text(json.dumps({"exact_matches": {}, "patterns": [{"regex": "(unclosed"}]}))
+        cm.load_metadata.cache_clear()
         with pytest.raises(ValueError, match="regex is invalid"):
-            cm.load_metadata.cache_clear()
             cm.load_metadata(str(bad))
 
 
@@ -504,7 +503,7 @@ class TestCrossFileConsistency:
     def test_shared_columns_have_identical_structural_metadata(self, tmp_path):
         _write_export_config(tmp_path / "export_config.json", tabular_file_format="csv")
         # Each column appears in every per-class file plus the rollup.
-        common = SHARED_COLUMNS + ["primary_roof_confidence"]
+        common = [*SHARED_COLUMNS, "primary_roof_confidence"]
         _write_csv(tmp_path / "rollup.csv", common)
         _write_csv(tmp_path / "roof.csv", common)
         _write_csv(tmp_path / "building.csv", common)
@@ -565,9 +564,9 @@ class TestUserInputColumns:
         dd = pd.read_csv(tmp_path / "rollup_data_dictionary.csv", keep_default_na=False)
         rows = {r["column_name"]: r for _, r in dd.iterrows()}
         for col in ("external_id", "force_new", "address"):
-            assert (
-                "Input column provided by user" in rows[col]["description"]
-            ), f"{col} should be labelled as user-supplied"
+            assert "Input column provided by user" in rows[col]["description"], (
+                f"{col} should be labelled as user-supplied"
+            )
             assert rows[col]["source"] == "input data"
         # Known columns are unaffected.
         assert "?" not in rows["tile_area_sqft"]["description"]
@@ -636,12 +635,12 @@ class TestDefensibleSpacePrimaryScope:
         for col in cols:
             meta = lookup_column(col, area_unit="sqft")
             assert not meta.is_unknown(), f"{col} fell through to sentinel"
-            assert (
-                "around the primary roof on the parcel" in meta.description
-            ), f"{col} missing primary-roof scope phrase: {meta.description!r}"
-            assert (
-                "from the structure" in meta.description
-            ), f"{col} missing zone-band substitution: {meta.description!r}"
+            assert "around the primary roof on the parcel" in meta.description, (
+                f"{col} missing primary-roof scope phrase: {meta.description!r}"
+            )
+            assert "from the structure" in meta.description, (
+                f"{col} missing zone-band substitution: {meta.description!r}"
+            )
 
     def test_primary_coverage_ratio_clear_of_vegetation_semantics(self):
         meta = lookup_column("primary_defensible_space_zone_0_coverage_ratio", area_unit="sqft")

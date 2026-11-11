@@ -11,12 +11,11 @@ keyed on its cell id, so no request leaves the process.
 import logging
 
 import geopandas as gpd
-import pandas as pd
 import pytest
 from shapely.geometry import Polygon, box
 
-import nmaipy.feature_api as feature_api_mod
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, AREA_CRS
+import nmaipy.feature_api as feature_api_mod
 from nmaipy.feature_api import AIFeatureAPIGridError, FeatureApi
 from nmaipy.geometry_utils import split_geometry_into_grid
 
@@ -116,7 +115,7 @@ class TestPartialGrid:
         assert n > 6, f"the AOI should grid into several cells, got {n}"
         # Fail the two smallest (edge) cells, so the area share is well above the cell share.
         smallest = cells.to_crs(AREA_CRS["au"]).area.nsmallest(2).index.tolist()
-        api = _api(tmp_path, monkeypatch, {cid: 404 for cid in smallest}, aoi_grid_min_pct=50)
+        api = _api(tmp_path, monkeypatch, dict.fromkeys(smallest, 404), aoi_grid_min_pct=50)
 
         # The nmaipy logger has propagate=False, so attach caplog's handler directly.
         nmaipy_logger = logging.getLogger("nmaipy")
@@ -127,11 +126,13 @@ class TestPartialGrid:
         finally:
             nmaipy_logger.removeHandler(caplog.handler)
 
-        assert summary["grid_cells"] == n and summary["grid_cells_answered"] == n - 2
+        assert summary["grid_cells"] == n
+        assert summary["grid_cells_answered"] == n - 2
         expected = _area_share(cells, [c for c in cells.index if c not in smallest])
         assert summary["answered_area_fraction"] == pytest.approx(expected, rel=1e-6)
         assert summary["answered_area_fraction"] > (n - 2) / n, "edge slivers must weigh less than whole cells"
-        assert len(metadata_df) == n - 2 and len(errors_df) == 2
+        assert len(metadata_df) == n - 2
+        assert len(errors_df) == 2
         assert f"{n - 2} of {n} grid cells answered" in caplog.text, "the log must count cells, not features"
 
     def test_attempt_gridding_puts_coverage_on_the_metadata(self, tmp_path, monkeypatch):
@@ -141,12 +142,13 @@ class TestPartialGrid:
         n = len(_cells())
         assert (metadata["grid_cells"], metadata["grid_cells_answered"]) == (n, n - 1)
         assert 0 < metadata["answered_area_fraction"] < 1
-        assert len(grid_errors) == 1 and (grid_errors["failure_type"] == "grid").all()
+        assert len(grid_errors) == 1
+        assert (grid_errors["failure_type"] == "grid").all()
 
 
 class TestFailedGrid:
     @pytest.mark.parametrize(
-        "statuses,expected_status",
+        ("statuses", "expected_status"),
         [
             ([404, 404, 404], 404),  # every failed cell had no coverage
             ([404, 404, 404, 503, 503], 503),  # an outage is not a coverage gap, however the cells finished
@@ -168,7 +170,8 @@ class TestFailedGrid:
         assert 0 < error["answered_area_fraction"] < 1
         assert f"{n - 2} of {n}" not in error["message"], "exact counts belong in the columns, not the message"
         assert error["message"].endswith("Failed due to {404, 503}")
-        assert error["status_code"] == 503 and error["failure_type"] == "grid"
+        assert error["status_code"] == 503
+        assert error["failure_type"] == "grid"
 
     def test_every_cell_is_queried_even_when_the_grid_fails(self, tmp_path, monkeypatch):
         n = len(_cells())
@@ -180,7 +183,7 @@ class TestFailedGrid:
 
     def test_no_cell_answered_with_zero_threshold_keeps_the_real_status(self, tmp_path, monkeypatch):
         n = len(_cells())
-        api = _api(tmp_path, monkeypatch, {i: 503 for i in range(n)}, aoi_grid_min_pct=0)
+        api = _api(tmp_path, monkeypatch, dict.fromkeys(range(n), 503), aoi_grid_min_pct=0)
         with pytest.raises(AIFeatureAPIGridError) as exc:
             _gridded(api)
         assert exc.value.status_code == 503, "an all-503 grid must not be reported as a 404 coverage gap"
@@ -190,9 +193,9 @@ class TestFailedGrid:
 class TestThreshold:
     """aoi_grid_min_pct is applied as before: floor(cells * (100 - min_pct) / 100) failures are allowed."""
 
-    @pytest.mark.parametrize("n_failed,passes", [(1, True), (2, False)])
+    @pytest.mark.parametrize(("n_failed", "passes"), [(1, True), (2, False)])
     def test_99_pct_of_100_cells_allows_one_failure(self, tmp_path, monkeypatch, hundred_cells, n_failed, passes):
-        api = _api(tmp_path, monkeypatch, {i: 404 for i in range(n_failed)}, aoi_grid_min_pct=99)
+        api = _api(tmp_path, monkeypatch, dict.fromkeys(range(n_failed), 404), aoi_grid_min_pct=99)
         if passes:
             assert _gridded(api)[3]["grid_cells_answered"] == 100 - n_failed
         else:
@@ -206,16 +209,16 @@ class TestRejectionMessage:
     THRESHOLD_100 = "below the 100% threshold. Failed due to {404}"
 
     @pytest.mark.parametrize(
-        "n_failed,bracket",
+        ("n_failed", "bracket"),
         [(11, "[80-90)"), (20, "[80-90)"), (21, "[70-80)"), (90, "[10-20)"), (91, "(0-10)"), (99, "(0-10)")],
     )
     def test_names_the_bracket_of_cells_answered(self, tmp_path, monkeypatch, hundred_cells, n_failed, bracket):
-        api = _api(tmp_path, monkeypatch, {i: 404 for i in range(n_failed)}, aoi_grid_min_pct=100)
+        api = _api(tmp_path, monkeypatch, dict.fromkeys(range(n_failed), 404), aoi_grid_min_pct=100)
         assert _rejection_message(api) == f"Rejected as only {bracket}% of grid cells answered, {self.THRESHOLD_100}"
 
     def test_different_counts_in_one_bracket_share_a_message(self, tmp_path, monkeypatch, hundred_cells):
         messages = {
-            _rejection_message(_api(tmp_path, monkeypatch, {i: 404 for i in range(n_failed)}, aoi_grid_min_pct=100))
+            _rejection_message(_api(tmp_path, monkeypatch, dict.fromkeys(range(n_failed), 404), aoi_grid_min_pct=100))
             for n_failed in (11, 15, 19)
         }
         assert len(messages) == 1, f"81, 85 and 89 of 100 cells answered must group together, got {messages}"
@@ -226,11 +229,11 @@ class TestRejectionMessage:
         assert _rejection_message(api).endswith("Failed due to {404, 500, 503}")
 
     def test_no_cell_answered_is_its_own_message(self, tmp_path, monkeypatch, hundred_cells):
-        api = _api(tmp_path, monkeypatch, {i: 404 for i in range(100)}, aoi_grid_min_pct=100)
+        api = _api(tmp_path, monkeypatch, dict.fromkeys(range(100), 404), aoi_grid_min_pct=100)
         assert _rejection_message(api) == "Rejected as no grid cells answered. Failed due to {404}"
 
     @pytest.mark.parametrize(
-        "failures,statuses",
+        ("failures", "statuses"),
         [({0: RuntimeError("boom"), 1: 404}, "{404, no status}"), ({0: RuntimeError("boom")}, "{no status}")],
     )
     def test_a_cell_whose_query_raised_has_no_status(self, tmp_path, monkeypatch, hundred_cells, failures, statuses):

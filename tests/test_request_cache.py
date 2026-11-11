@@ -7,21 +7,21 @@ canned responses built from the real cached Feature API payload in
 data (see project memory: real data only).
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import gzip
 import json
 import logging
+from pathlib import Path
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from shapely.geometry import Polygon
 
 from nmaipy import storage
-from nmaipy.api_common import AIFeatureAPIError
+from nmaipy.api_common import AIFeatureAPIError, _cache_error_text
 from nmaipy.feature_api import FeatureApi
 
 
@@ -186,12 +186,14 @@ class TestInflightCoalescing:
             b_done.set()
             return result
 
-        with patch("requests.Session.post", new=fake_post):
-            with patch.object(FeatureApi, "_read_cached_response", parking_read):
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    future_a = pool.submit(run_a)
-                    future_b = pool.submit(run_b)
-                    result_a, result_b = future_a.result(), future_b.result()
+        with (
+            patch("requests.Session.post", new=fake_post),
+            patch.object(FeatureApi, "_read_cached_response", parking_read),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            future_a = pool.submit(run_a)
+            future_b = pool.submit(run_b)
+            result_a, result_b = future_a.result(), future_b.result()
 
         assert posts == ["run-B"], "thread A must hit the cache B populated, not re-fetch it"
         assert api._cache_hits == 1
@@ -236,16 +238,13 @@ class TestInflightCoalescing:
 
         aoi = _square(-111.926, 33.414)
         outcomes = []
-        with patch("requests.Session.post", new=fake_post):
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = [
-                    pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(2)
-                ]
-                for f in futures:
-                    try:
-                        outcomes.append(("ok", f.result()))
-                    except AIFeatureAPIError:
-                        outcomes.append(("error", None))
+        with patch("requests.Session.post", new=fake_post), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(2)]
+            for f in futures:
+                try:
+                    outcomes.append(("ok", f.result()))
+                except AIFeatureAPIError:
+                    outcomes.append(("error", None))
 
         assert post_count[0] == 2
         statuses = sorted(status for status, _ in outcomes)
@@ -276,17 +275,14 @@ class TestInflightCoalescing:
         aoi = _square(-111.926, 33.414)
         statuses = []
         t0 = time.monotonic()
-        with patch("requests.Session.post", new=fake_post):
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = [
-                    pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(4)
-                ]
-                for f in futures:
-                    try:
-                        f.result()
-                        statuses.append("ok")
-                    except AIFeatureAPIError:
-                        statuses.append("error")
+        with patch("requests.Session.post", new=fake_post), ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(api._get_results, geometry=aoi, region="us", packs=["building"]) for _ in range(4)]
+            for f in futures:
+                try:
+                    f.result()
+                    statuses.append("ok")
+                except AIFeatureAPIError:
+                    statuses.append("error")
         elapsed = time.monotonic() - t0
 
         # Between 2 and 4 fetches: normally all four threads fetch, but a worker
@@ -332,3 +328,31 @@ class TestTolerantCacheWrite:
 
         assert not cache_path.exists()
         assert any("Failed to write cache entry" in r.message for r in caplog.records)
+
+    def test_write_failure_log_omits_the_cache_path(self, tmp_path, real_feature_payload, caplog):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        api = FeatureApi(api_key="dummy", cache_dir=cache_dir, compress_cache=True)
+        (cache_dir / "blocker").write_text("a file where a directory must go")
+        cache_path = cache_dir / "blocker" / "us" / "NJ" / "Springfield" / "07081" / "entry.json.gz"
+
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.DEBUG, logger="nmaipy"):
+                api._write_to_cache(cache_path, real_feature_payload)
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
+
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Failed to write cache entry" in logged
+        assert "07081" not in logged, "the zip code in the cache path was logged"
+        assert "Springfield" not in logged, "the city in the cache path was logged"
+
+
+def test_cache_error_text_never_falls_back_to_the_message():
+    assert _cache_error_text(PermissionError("Access Denied")) == "PermissionError"
+    assert (
+        _cache_error_text(FileNotFoundError(2, "No such file or directory", "/c/07001.json"))
+        == "FileNotFoundError: No such file or directory"
+    )

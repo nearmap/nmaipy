@@ -2,7 +2,6 @@ import concurrent.futures
 import os
 from pathlib import Path
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
@@ -12,7 +11,7 @@ from shapely.ops import unary_union
 from tqdm import tqdm
 from urllib3.util.retry import Retry
 
-from nmaipy import (  # noqa: F401 — import side effect: installs APIKeyFilter on the "nmaipy" / urllib3 / requests loggers.
+from nmaipy import (  # noqa: F401 -- import side effect: installs APIKeyFilter on the "nmaipy" / urllib3 / requests loggers.
     api_common,
     log,
 )
@@ -89,12 +88,11 @@ def get_payload(request_string, apikey=None, timeout=DEFAULT_TIMEOUT, bearer_tok
     if response.ok:
         logger.debug(f"Status Code: {response.status_code} ({response.reason})")
         return response.json()
-    elif response.status_code == FORBIDDEN_403:
+    if response.status_code == FORBIDDEN_403:
         logger.debug(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
         return FORBIDDEN_403
-    else:
-        logger.error(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
-        return response.status_code
+    logger.error(f"Status Code: {response.status_code} ({response.reason}) — {response.content!r}")
+    return response.status_code
 
 
 def poly2coordstring(poly):
@@ -103,8 +101,7 @@ def poly2coordstring(poly):
     """
     coords = poly.boundary.coords[:]
     flat_coords = np.array(coords).flatten()
-    coordstring = ",".join(flat_coords.astype(str))
-    return coordstring
+    return ",".join(flat_coords.astype(str))
 
 
 def _resolve_apikey(apikey, bearer_token=None):
@@ -116,7 +113,7 @@ def _resolve_apikey(apikey, bearer_token=None):
     if bearer_token:
         return None
     key = apikey or os.environ.get("API_KEY")
-    if not key:
+    if key is None or not key:
         raise ValueError("No API key or bearer token provided and the API_KEY environment variable is not set")
     return key
 
@@ -181,7 +178,7 @@ def _post_cat_events_at_point(lat, lon, since=None, until=None, apikey=None, bea
         url += f"&until={until}"
     response = _get_all_survey_pages(url, _COVERAGE_PAGE_SIZE, apikey=apikey, bearer_token=bearer_token)
     if isinstance(response, int):
-        raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")
+        raise ValueError(f"Coverage API request failed at lat={lat}, lon={lon} (status {response})")  # noqa: TRY004 -- an int response is the failed request's HTTP status, not a wrong argument type
 
     events = {}
     for survey in response.get("surveys", []):
@@ -276,7 +273,7 @@ def event_boundary(event_id, since=None, until=None, apikey=None, bearer_token=N
     )
     response = _get_all_survey_pages(url, _COVERAGE_PAGE_SIZE, apikey=apikey, bearer_token=bearer_token)
     if isinstance(response, int):
-        raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")
+        raise ValueError(f"Coverage API boundary request failed for event {event_id} (status {response})")  # noqa: TRY004 -- an int response is the failed request's HTTP status, not a wrong argument type
 
     boundaries = []
     for survey in response["surveys"]:
@@ -342,7 +339,7 @@ def get_surveys_from_point(
             f"https://api.nearmap.com/coverage/v2/point/{lon},{lat}?fields={fields}&resources=tiles:Vert,aifeatures,3d"
         )
         if include_disaster:
-            url += f"&include=disaster"
+            url += "&include=disaster"
     elif coverage_type == AI_COVERAGE:
         url = f"https://api.nearmap.com/ai/features/v4/coverage.json?point={lon},{lat}&limit={limit}"
         if has_3d:
@@ -364,36 +361,34 @@ def get_surveys_from_point(
     if not isinstance(response, int):
         if coverage_type == STANDARD_COVERAGE:
             return std_coverage_response_to_dataframe(response), response
-        elif coverage_type == AI_COVERAGE:
+        if coverage_type == AI_COVERAGE:
             return ai_coverage_response_to_dataframe(response), response
-        else:
-            raise ValueError(f"Unknown coverage type {coverage_type}")
-    elif response == FORBIDDEN_403:
+        raise ValueError(f"Unknown coverage type {coverage_type}")
+    if response == FORBIDDEN_403:
         logger.debug(f"Unauthorised area request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
         return None, None
-    else:
-        logger.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
-        return None, None
+    logger.error(f"Failed request at {lat=}, {lon=}, {since=}, {until=} with code {response}")
+    return None, None
 
 
 def get_survey_resource_id_from_survey_id_query(resources):
     """
-    Get the survey resource id from the resources list, after being given the "resources" field from the survey_id query coverage/v2/surveys/{survey_id} API.
+    Get the survey resource id from the resources list, after being given the "resources" field from the survey_id
+    query coverage/v2/surveys/{survey_id} API.
     """
     if len(resources) == 1:
         return resources[0]["id"]
-    else:
-        raise Exception("More than one resource returned from survey_id query")
+    raise ValueError("More than one resource returned from survey_id query")
 
 
 def get_survey_resource_id_from_standard_coverage(resources):
     """
-    Get the survey resource id from the resources list. This is the id that can be used with the AI Feature API to get an exact match (rather than since/until dates).
+    Get the survey resource id from the resources list. This is the id that can be used with the AI Feature API to get
+    an exact match (rather than since/until dates).
     """
     if "aifeatures" in resources:
         return resources["aifeatures"][-1]["id"]
-    else:
-        return None
+    return None
 
 
 def std_coverage_response_to_dataframe(survey_response):
@@ -403,10 +398,11 @@ def std_coverage_response_to_dataframe(survey_response):
     df_survey = pd.DataFrame(survey_response["surveys"])
     if len(df_survey) == 0:
         return df_survey
-    else:
-        for resource_type in ["tiles", "3d", "aifeatures"]:
-            df_survey[resource_type] = df_survey["resources"].apply(lambda d: resource_type in d)
-        return df_survey
+    for resource_type in ["tiles", "3d", "aifeatures"]:
+        df_survey[resource_type] = df_survey["resources"].apply(
+            lambda d, resource_type=resource_type: resource_type in d
+        )
+    return df_survey
 
 
 def ai_coverage_response_to_dataframe(response):
@@ -414,11 +410,9 @@ def ai_coverage_response_to_dataframe(response):
     Convert the JSON response from the AI coverage API into a pandas dataframe.
     """
     if response["results"] is not None:
-        df_coverage = pd.DataFrame(response["results"])
         # df_coverage = df_coverage.drop(columns="classes")
-        return df_coverage
-    else:
-        return None
+        return pd.DataFrame(response["results"])
+    return None
 
 
 def threaded_get_coverage_from_point_results(
@@ -502,10 +496,10 @@ def get_coverage_from_points(
     bearer_token=None,
 ):
     """
-    Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage API,
-    and whether the survey has AI and/or 3D resources attached. This doesn't tell us what generation of AI data is available -
-    that will require a subsequent run against the AI Feature API coverage endpoint to determine versions (or just pulling the
-    data and ignoring version).
+    Given a GeoDataFrame of points, get a full history of all surveys that intersect with each point from the coverage
+    API, and whether the survey has AI and/or 3D resources attached. This doesn't tell us what generation of AI data is
+    available - that will require a subsequent run against the AI Feature API coverage endpoint to determine versions
+    (or just pulling the data and ignoring version).
 
     Parameters:
     -----------
@@ -551,11 +545,11 @@ def get_coverage_from_points(
     coverage_chunk_cache_dir.mkdir(parents=True, exist_ok=True)
 
     for i in tqdm(range(0, len(df_points), chunk_size)):
-        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
+        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i + chunk_size}.parquet"
         if not f.exists():
             df_point_chunk = df_points.iloc[i : i + chunk_size, :]
             logger.debug(f"Pulling chunk from API for {f}.")
-            # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
+            # Multi-threaded pulls are ok - the API copes fine with 10-20 threads pulling requests in parallel.
             c = threaded_get_coverage_from_point_results(
                 df_point_chunk,
                 since_col="since",
@@ -600,39 +594,36 @@ def get_coverage_from_points(
             logger.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
-        if c is not None:
-            if len(c) > 0:
-                if coverage_type == STANDARD_COVERAGE:
-                    cols = [
-                        id_col,
-                        "captureDate",
-                        "survey_id",
-                        "survey_resource_id",
-                        "tiles",
-                        "aifeatures",
-                        "3d",
-                        "tags",
-                    ]
-                elif coverage_type == AI_COVERAGE:
-                    cols = [
-                        id_col,
-                        "captureDate",
-                        "survey_id",
-                        "survey_resource_id",
-                        "systemVersion",
-                        "postcat",
-                        "perspective",
-                    ]
-                # reindex (not .loc[…]) so a survey response missing an optional
-                # field (e.g. tags / 3d) yields a NaN column instead of KeyError.
-                c = c.reindex(columns=cols).set_index(id_col)
-                c["captureDate"] = pd.to_datetime(c["captureDate"])
-                df_coverage.append(c)
+        if c is not None and len(c) > 0:
+            if coverage_type == STANDARD_COVERAGE:
+                cols = [
+                    id_col,
+                    "captureDate",
+                    "survey_id",
+                    "survey_resource_id",
+                    "tiles",
+                    "aifeatures",
+                    "3d",
+                    "tags",
+                ]
+            elif coverage_type == AI_COVERAGE:
+                cols = [
+                    id_col,
+                    "captureDate",
+                    "survey_id",
+                    "survey_resource_id",
+                    "systemVersion",
+                    "postcat",
+                    "perspective",
+                ]
+            # reindex (not .loc[…]) so a survey response missing an optional
+            # field (e.g. tags / 3d) yields a NaN column instead of KeyError.
+            c = c.reindex(columns=cols).set_index(id_col)
+            c["captureDate"] = pd.to_datetime(c["captureDate"])
+            df_coverage.append(c)
     if len(df_coverage) > 0:
-        df_coverage = pd.concat(df_coverage)
-        return df_coverage
-    else:
-        return None
+        return pd.concat(df_coverage)
+    return None
 
 
 def threaded_get_coverage_from_survey_ids(
@@ -655,7 +646,7 @@ def threaded_get_coverage_from_survey_ids(
     with concurrent.futures.ThreadPoolExecutor(threads) as executor:
         # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
 
-        for i, row in df.iterrows():
+        for _, row in df.iterrows():
             jobs.append(
                 executor.submit(
                     get_surveys_from_id,
@@ -675,20 +666,20 @@ def threaded_get_coverage_from_survey_ids(
 
 def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT, bearer_token=None):
     # NOTE: this references `id_check_response_to_dataframe`, which is not defined
-    # anywhere in the package — the survey-ids path is pre-existing dead code with
-    # no callers. Left in place (out of scope for this cleanup); flagged so a
+    # anywhere in the package — the survey-ids path is unfinished: the public
+    # get_coverage_from_survey_ids reaches it, and any 200 response raises NameError.
+    # Left in place (out of scope for this cleanup); flagged so a
     # future reviver knows the response parser still needs implementing.
     fields = "id,captureDate,resources"
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
     response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
-        return id_check_response_to_dataframe(response), response  # noqa: F821 (see NOTE above)
-    elif response == FORBIDDEN_403:
+        return id_check_response_to_dataframe(response), response  # noqa: F821 -- undefined parser, see NOTE above  # ty: ignore[unresolved-reference] -- undefined parser, see NOTE above
+    if response == FORBIDDEN_403:
         logger.debug(f"Unauthorised area request at {survey_id=} with code {response}")
         return None, None
-    else:
-        logger.error(f"Failed request at {survey_id=} with code {response}")
-        return None, None
+    logger.error(f"Failed request at {survey_id=} with code {response}")
+    return None, None
 
 
 def get_coverage_from_survey_ids(
@@ -702,7 +693,8 @@ def get_coverage_from_survey_ids(
     bearer_token=None,
 ):
     """
-    Given a GeoDataFrame with survey_ids as a column, get a set of all survey resource IDs that are attached to those survey_ids (such as aifeatures, tiles)
+    Given a GeoDataFrame with survey_ids as a column, get a set of all survey resource IDs that are attached to those
+    survey_ids (such as aifeatures, tiles)
 
     Parameters:
     -----------
@@ -730,11 +722,11 @@ def get_coverage_from_survey_ids(
     coverage_chunk_cache_dir.mkdir(parents=True, exist_ok=True)
 
     for i in tqdm(range(0, len(df), chunk_size)):
-        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i+chunk_size}.parquet"
+        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i + chunk_size}.parquet"
         if not f.exists():
             df_point_chunk = df.iloc[i : i + chunk_size, :]
             logger.debug(f"Pulling chunk from API for {f}.")
-            # Multi-threaded pulls are ok - the API is designed to cope fine with 10-20 threads running in parallel pulling requests.
+            # Multi-threaded pulls are ok - the API copes fine with 10-20 threads pulling requests in parallel.
             c = threaded_get_coverage_from_survey_ids(
                 df_point_chunk,
                 survey_id_col="survey_id",
@@ -767,14 +759,11 @@ def get_coverage_from_survey_ids(
             logger.debug(f"Reading chunk from parquet for {f}.")
             c = pd.read_parquet(f)
 
-        if c is not None:
-            if len(c) > 0:
-                cols = [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
-                c = c.reindex(columns=cols).set_index(id_col)
-                c["captureDate"] = pd.to_datetime(c["captureDate"])
-                df_coverage.append(c)
+        if c is not None and len(c) > 0:
+            cols = [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
+            c = c.reindex(columns=cols).set_index(id_col)
+            c["captureDate"] = pd.to_datetime(c["captureDate"])
+            df_coverage.append(c)
     if len(df_coverage) > 0:
-        df_coverage = pd.concat(df_coverage)
-        return df_coverage
-    else:
-        return None
+        return pd.concat(df_coverage)
+    return None

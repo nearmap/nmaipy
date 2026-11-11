@@ -29,7 +29,7 @@ EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"  # Hurricane Milton
 @pytest.fixture
 def milton_response(data_directory: Path):
     fixture_path = data_directory / "test_damage_conflation_milton_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)
 
 
@@ -96,7 +96,8 @@ def test_init_rejects_invalid_maxretry(bad):
 def test_init_accepts_numpy_integer_maxretry():
     """Callers that read the budget out of a pandas/numpy config get a numpy int, not a Python int."""
     api = DamageConflationApi(event_id=EVENT_ID, api_key="t", maxretry=np.int64(7))
-    assert api.maxretry == 7 and type(api.maxretry) is int
+    assert api.maxretry == 7
+    assert type(api.maxretry) is int
 
 
 def test_backoff_does_not_overflow_on_unbounded_retry_history():
@@ -123,7 +124,9 @@ def test_429_error_message_says_rate_limited_not_jsondecodeerror():
     resp.json.side_effect = json.JSONDecodeError("Expecting value", "Too Many Requests", 0)
     err = DamageConflationAPIError(resp, "https://example/url")
     assert "JSONDecodeError" not in str(err)
-    assert "429" in str(err) and "Rate limited" in str(err) and "retry budget" in str(err)
+    assert "429" in str(err)
+    assert "Rate limited" in str(err)
+    assert "retry budget" in str(err)
 
 
 # ------------------------------------------------------------- payload building
@@ -131,7 +134,8 @@ def test_build_request_payload_aoi(damage_api, test_aoi):
     payload = damage_api._build_request_payload(aoi=test_aoi)
     assert payload["aoi"]["type"] == "Polygon"
     assert "address" not in payload
-    assert "cursor" not in payload and "limit" not in payload
+    assert "cursor" not in payload
+    assert "limit" not in payload
 
     paged = damage_api._build_request_payload(aoi=test_aoi, cursor="abc", limit=250)
     assert paged["cursor"] == "abc"
@@ -147,9 +151,9 @@ def test_build_request_payload_address(damage_api):
 
 
 def test_build_request_payload_xor(damage_api, test_aoi):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Must specify either aoi or address"):
         damage_api._build_request_payload()  # neither
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Cannot specify both aoi and address"):
         damage_api._build_request_payload(aoi=test_aoi, address={"streetAddress": "x"})  # both
 
 
@@ -339,7 +343,7 @@ def test_get_damage_by_aoi_real_api(test_aoi):
 
     Requires a valid API_KEY env var and access to the Hurricane Milton event.
     """
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY", ""):
         pytest.skip("API_KEY not set")
 
     api = DamageConflationApi(event_id=EVENT_ID)  # api key from environment

@@ -27,20 +27,22 @@ These tests pin:
 """
 
 import gc
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 import socket
 import threading
 import time
-import weakref
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, override
 from unittest.mock import patch
+import weakref
 
 import pytest
 import requests
-import urllib3
 from requests.adapters import HTTPAdapter
 from shapely.geometry import Polygon
+import urllib3
 
 from nmaipy.api_common import RetryRequest, is_read_timeout_error
 from nmaipy.constants import READ_TIMEOUT_MAX_RETRIES, READ_TIMEOUT_SECONDS, TIMEOUT_SECONDS
@@ -74,7 +76,8 @@ class _RecordingHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # client already gave up on this attempt and closed the connection
 
-    def log_message(self, *args):
+    @override
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
 
@@ -101,7 +104,7 @@ def aborting_server():
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen(50)
-    state = {"attempts": 0, "abort_first": 0, "port": sock.getsockname()[1], "lock": threading.Lock()}
+    state: dict[str, Any] = {"attempts": 0, "abort_first": 0, "port": sock.getsockname()[1], "lock": threading.Lock()}
 
     def handle(conn):
         with state["lock"]:
@@ -286,9 +289,8 @@ def test_surfaced_read_timeout_triggers_size_error_for_gridding():
         )
     )
 
-    with patch("requests.Session.post", side_effect=surfaced):
-        with pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
-            api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
+    with patch("requests.Session.post", side_effect=surfaced), pytest.raises(AIFeatureAPIRequestSizeError) as exc_info:
+        api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
     assert exc_info.value.status_code == HTTPStatus.GATEWAY_TIMEOUT
     assert api._timeout_count == 1
 
@@ -303,9 +305,8 @@ def test_non_timeout_connection_error_propagates():
         )
     )
 
-    with patch("requests.Session.post", side_effect=refused):
-        with pytest.raises(requests.exceptions.ConnectionError):
-            api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
+    with patch("requests.Session.post", side_effect=refused), pytest.raises(requests.exceptions.ConnectionError):
+        api._get_results(geometry=polygon, region="au", in_gridding_mode=False)
     assert api._timeout_count == 0
 
 
@@ -339,3 +340,35 @@ def test_retry_callback_does_not_keep_client_alive():
         assert ref() is None, "client must be freed by refcounting, not left to cyclic gc"
     finally:
         gc.enable()
+
+
+@pytest.mark.parametrize(
+    ("url", "private"),
+    [
+        (
+            "https://api.example.test/features.json?streetAddress=1%20X&zip=07001&apikey=SECRETKEY",
+            ("streetAddress", "zip=", "SECRETKEY"),
+        ),
+        (
+            "https://api.example.test/features.json?streetAddress=12%20Example%20Street&zip=07001",
+            ("streetAddress", "zip="),
+        ),
+    ],
+    ids=["key", "bearer"],
+)
+def test_retry_log_shows_the_endpoint_only(caplog, url, private):
+    """The retry log shows the endpoint only: address fields and the key stay out whatever the param order."""
+    retry = RetryRequest(total=5, status_forcelist=[503], allowed_methods=None)
+    nmaipy_logger = logging.getLogger("nmaipy")
+    nmaipy_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="nmaipy"):
+            retry.increment("POST", url, response=urllib3.HTTPResponse(status=503))
+    finally:
+        nmaipy_logger.removeHandler(caplog.handler)
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "causing retry" in logged
+    assert "https://api.example.test/features.json" in logged, "retry log lost the endpoint"
+    for field in private:
+        assert field not in logged, f"{field} reached the retry log"

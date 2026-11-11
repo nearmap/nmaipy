@@ -18,20 +18,18 @@ Pulls feature + rollup parquets from any prior export's `chunks/` directory.
 """
 
 import argparse
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import time
 
 import geopandas as gpd
 import pandas as pd
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
     BUILDING_NEW_ID,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
     ROOF_ID,
-    ROOF_INSTANCE_CLASS_ID,
 )
 from nmaipy.exporter import (
     _add_is_primary_column,
@@ -61,10 +59,10 @@ def _summarise_chunk(chunk_gdf: gpd.GeoDataFrame) -> None:
     if "class_id" in chunk_gdf.columns:
         n_classes = chunk_gdf["class_id"].nunique()
         print(f"distinct classes   : {n_classes}")
-        if ROOF_ID in chunk_gdf["class_id"].values:
+        if ROOF_ID in chunk_gdf["class_id"].array:
             n_roofs = (chunk_gdf["class_id"] == ROOF_ID).sum()
             print(f"roof rows          : {n_roofs:,}")
-        if BUILDING_NEW_ID in chunk_gdf["class_id"].values:
+        if BUILDING_NEW_ID in chunk_gdf["class_id"].array:
             n_buildings = (chunk_gdf["class_id"] == BUILDING_NEW_ID).sum()
             print(f"building rows      : {n_buildings:,}")
     print()
@@ -120,10 +118,10 @@ def _microbench_roof_attrs(chunk_gdf: gpd.GeoDataFrame, country: str, runs: int 
                 fut.result()
 
     print(f"roof_attrs build microbench ({len(roof_records):,} roofs, min of {runs} runs):")
-    t_seq = min(_time(lambda: _seq()) for _ in range(runs))
+    t_seq = min(_time(_seq) for _ in range(runs))
     print(f"  threads=1   {t_seq:>8.3f}s")
     for n in (4, 8, 15):
-        t = min(_time(lambda: _parallel(n)) for _ in range(runs))
+        t = min(_time(lambda n=n: _parallel(n)) for _ in range(runs))
         speedup = t_seq / t if t > 0 else float("inf")
         print(f"  threads={n:<3} {t:>8.3f}s  ({speedup:.2f}x)")
     print()

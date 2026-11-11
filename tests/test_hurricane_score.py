@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Test that hurricaneScore is correctly handled in flatten_roof_attributes."""
 
 import io
@@ -9,8 +8,8 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import pytest
-import stringcase
 from shapely.geometry import Polygon, box, shape
+import stringcase
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
@@ -26,7 +25,7 @@ def hurricane_score_payload():
     if not raw_payload_file.exists():
         pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_hurricane_score_data first.")
 
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 
@@ -78,7 +77,7 @@ def test_gen_hurricane_score_data(cache_directory: Path):
         [{"aoi_id": "hurricane_score_test_area", "geometry": test_polygon}], crs="EPSG:4326"
     ).set_index(AOI_ID_COLUMN_NAME)
 
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("API_KEY", "")
     if not api_key:
         pytest.skip("API_KEY not found in environment")
 
@@ -100,7 +99,7 @@ def test_gen_hurricane_score_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame (without date constraints)
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["building"],
@@ -117,15 +116,15 @@ def test_gen_hurricane_score_data(cache_directory: Path):
     hurricane_score_count = 0
     roof_samples = []
 
-    for idx, row in roof_features.iterrows():
+    for _, row in roof_features.iterrows():
         # Check for hurricaneScore as a root-level property (similar to roofSpotlightIndex)
         # After feature_api processing, camelCase gets converted to snake_case
         has_hurricane_score = False
 
         # Check both possible field names
-        if "hurricane_score" in row.index and pd.notna(row.get("hurricane_score")):
-            has_hurricane_score = True
-        elif "hurricaneScore" in row.index and pd.notna(row.get("hurricaneScore")):
+        if ("hurricane_score" in row.index and pd.notna(row.get("hurricane_score"))) or (
+            "hurricaneScore" in row.index and pd.notna(row.get("hurricaneScore"))
+        ):
             has_hurricane_score = True
 
         if has_hurricane_score:

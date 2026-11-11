@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 import geopandas as gpd
@@ -12,9 +13,9 @@ import shapely
 from shapely.affinity import affine_transform
 from shapely.geometry import Polygon, box
 
-import nmaipy.exporter as exporter_mod
 from nmaipy import parcels
 from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, ROOF_ID, ROOF_INSTANCE_CLASS_ID
+import nmaipy.exporter as exporter_mod
 from nmaipy.exporter import AOIExporter, _clip_roof_geoms_to_aoi, _link_roof_instances
 
 _AOI = box(0, 0, 10, 10)
@@ -80,7 +81,7 @@ def test_only_gridded_aois_are_clipped_and_every_roof_keeps_its_outline():
 
     assert list(roofs_linked["feature_id"]) == ["a-row", "b-row", "a-shed"], "Roofs must keep their input order"
     assert all(
-        linked.equals(original) for linked, original in zip(roofs_linked.geometry, roofs.geometry)
+        linked.equals(original) for linked, original in zip(roofs_linked.geometry, roofs.geometry, strict=True)
     ), "Every linked roof must keep its whole outline"
     by_fid = _by_feature_id(roofs_linked)
     assert by_fid.loc["a-row", "primary_child_roof_age_feature_id"] == "a-ours"
@@ -114,7 +115,7 @@ def test_an_invalid_roof_keeps_its_outline_without_unclipping_the_rest_of_its_ao
 
 
 @pytest.mark.parametrize(
-    "roof_rows, reorder",
+    ("roof_rows", "reorder"),
     [
         ([("a", "a-row", _ROW_ROOF), ("a", "a-shed", _SHED)], lambda df: df.iloc[::-1]),
         # One roof spanning two AOIs: the feature_id sequence is identical after the swap.
@@ -145,7 +146,7 @@ class TestProcessChunkWiring:
     """
 
     # The unit-square geometry above, placed in lon/lat: 1 unit = 1e-5 degrees, each AOI at its own origin.
-    _ORIGINS = {"p1": (-75.0, 40.0), "p2": (-75.01, 40.0)}
+    _ORIGINS: ClassVar[dict[str, tuple[float, float]]] = {"p1": (-75.0, 40.0), "p2": (-75.01, 40.0)}
 
     @classmethod
     def _place(cls, geom, aoi_id):
@@ -264,6 +265,6 @@ class TestProcessChunkWiring:
         roof_features = pd.read_parquet(chunk_path / "roof_features_0000.parquet").set_index("feature_id")
         for aoi_id in ("p1", "p2"):
             written = shapely.from_wkb(roof_features.loc[f"{aoi_id}-row", "geometry"])
-            assert written.equals_exact(
-                self._place(_ROW_ROOF, aoi_id), tolerance=1e-12
-            ), f"{aoi_id}'s roof must be written with its whole outline"
+            assert written.equals_exact(self._place(_ROW_ROOF, aoi_id), tolerance=1e-12), (
+                f"{aoi_id}'s roof must be written with its whole outline"
+            )

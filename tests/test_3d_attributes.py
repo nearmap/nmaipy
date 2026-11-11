@@ -2,9 +2,9 @@
 
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -19,7 +19,7 @@ from nmaipy.feature_api import FeatureApi
 def test_output_dir():
     """Fixture to create and clean up test output directory."""
     # Use a temporary directory for CI/CD, but a known location for local debugging
-    if os.environ.get("CI"):
+    if os.environ.get("CI", ""):
         # In CI, use temp directory
         temp_dir = tempfile.mkdtemp(prefix="3d_test_")
         output_dir = Path(temp_dir)
@@ -185,9 +185,10 @@ def test_prefer3d_end_to_end_3d_path(test_output_dir, salt_lake_aoi):
     assert "mesh_date" in rollup.columns, "rollup must expose the mesh_date metadata column"
     assert len(rollup) == 1
     mesh_date = rollup["mesh_date"].iloc[0]
-    assert (
-        mesh_date and str(mesh_date) != "" and str(mesh_date).lower() != "nan"
-    ), f"latest survey at this AOI is the 2025-09-03 3D capture; mesh_date should be populated, got {mesh_date!r}"
+    msg = f"latest survey at this AOI is the 2025-09-03 3D capture; mesh_date should be populated, got {mesh_date!r}"
+    assert mesh_date, msg
+    assert str(mesh_date) != "", msg
+    assert str(mesh_date).lower() != "nan", msg
 
 
 @pytest.mark.integration
@@ -309,7 +310,7 @@ def test_attributes_list_handling():
 
     if len(features_gdf) > 0 and "attributes" in features_gdf.columns:
         # Check that attributes is a list
-        for idx, row in features_gdf.iterrows():
+        for _, row in features_gdf.iterrows():
             attrs = row.get("attributes")
             if attrs is not None:
                 assert isinstance(attrs, list), "Attributes should be a list"
@@ -340,7 +341,7 @@ def test_attributes_list_handling():
                 assert isinstance(flattened, dict), "Flattened result should be a dict"
 
                 # Check that internalClassId is not in flattened keys
-                for key in flattened.keys():
+                for key in flattened:
                     assert "internalClassId" not in key, f"Key {key} should not contain internalClassId"
 
                 # Check that components are JSON strings

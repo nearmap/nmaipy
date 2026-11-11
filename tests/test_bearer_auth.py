@@ -15,7 +15,7 @@ import responses
 from shapely.geometry import box
 
 from nmaipy import coverage_utils
-from nmaipy.api_common import APIKeyFilter, clean_api_key_from_string
+from nmaipy.api_common import APIKeyFilter, redact_api_key_from_string
 from nmaipy.damage_conflation_api import DamageConflationApi
 from nmaipy.feature_api import FeatureApi
 from nmaipy.roof_age_api import RoofAgeApi
@@ -59,11 +59,19 @@ def test_post_url_omits_apikey_in_bearer_mode():
     assert "?parcelMode=" in url
 
 
-def test_post_url_includes_apikey_in_key_mode():
-    """Control: key mode still uses ?apikey=."""
-    api = FeatureApi(api_key="dummy")
-    url, _body, _exact = api._create_post_request(api.FEATURES_URL, geometry=box(0, 0, 1, 1))
-    assert "apikey=dummy" in url
+@responses.activate
+def test_post_key_mode_sends_apikey_param_not_in_url(tmp_path):
+    """Key mode sends the apikey in the request params, and cache paths match the url that once carried it."""
+    api = FeatureApi(api_key="dummy", cache_dir=tmp_path)
+    url, body, _exact = api._create_post_request(api.FEATURES_URL, geometry=box(0, 0, 1, 1))
+    assert "apikey=" not in url
+    url_with_key = url.replace("?", "?apikey=dummy&", 1)
+    assert api._post_request_cache_path(url, body) == api._post_request_cache_path(url_with_key, body)
+    responses.add(responses.POST, api.FEATURES_URL, json={"features": []}, status=200)
+    api._fetch_results(url, body, None, in_gridding_mode=False)
+    req = responses.calls[0].request
+    assert req.url is not None
+    assert "apikey=dummy" in req.url
 
 
 def test_strip_empty_query():
@@ -88,12 +96,12 @@ def test_both_credentials_warns_and_uses_bearer(caplog):
     assert any("api_key is ignored" in r.getMessage() for r in caplog.records)
 
 
-def test_clean_api_key_scrubs_raw_bearer_token():
-    """A raw token without the "Bearer " prefix is still scrubbed by _clean_api_key."""
+def test_redact_api_key_scrubs_raw_bearer_token():
+    """A raw token without the "Bearer " prefix is still scrubbed by _redact_api_key."""
     feature_api = FeatureApi(bearer_token=_JWT)
-    assert _JWT not in feature_api._clean_api_key(f"request with {_JWT} leaked")
+    assert _JWT not in feature_api._redact_api_key(f"request with {_JWT} leaked")
     roof_age_api = RoofAgeApi(bearer_token=_JWT)  # exercises the BaseApiClient implementation
-    assert _JWT not in roof_age_api._clean_api_key(f"request with {_JWT} leaked")
+    assert _JWT not in roof_age_api._redact_api_key(f"request with {_JWT} leaked")
 
 
 @responses.activate
@@ -108,6 +116,7 @@ def test_packs_bearer_sends_header_and_no_apikey():
     api = FeatureApi(api_key=None, bearer_token=_JWT)
     api.get_packs()
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
     assert req.url.startswith(api_url)
@@ -122,6 +131,7 @@ def test_packs_key_mode_no_auth_header():
     api = FeatureApi(api_key="dummy")
     api.get_packs()
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -129,7 +139,7 @@ def test_packs_key_mode_no_auth_header():
 def test_bearer_token_scrubbed_by_clean_helper():
     """A bearer token must be redacted from strings destined for logs/errors."""
     dirty = f"GET /packs Authorization: Bearer {_JWT} failed"
-    cleaned = clean_api_key_from_string(dirty)
+    cleaned = redact_api_key_from_string(dirty)
     assert _JWT not in cleaned
     assert "Bearer REMOVED" in cleaned
 
@@ -177,6 +187,7 @@ def test_coverage_get_payload_bearer_header():
     responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0", json={"surveys": []}, status=200)
     coverage_utils.get_payload("https://api.nearmap.com/coverage/v2/point/0,0", bearer_token=_JWT)
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -187,6 +198,7 @@ def test_coverage_get_payload_apikey_mode():
     responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0", json={"surveys": []}, status=200)
     coverage_utils.get_payload("https://api.nearmap.com/coverage/v2/point/0,0", apikey="dummy")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -241,6 +253,7 @@ def test_damage_conflation_bearer_sends_header_and_no_apikey(monkeypatch):
     api = DamageConflationApi(event_id=_EVENT_ID, bearer_token=_JWT)
     api.get_damage_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -252,6 +265,7 @@ def test_damage_conflation_key_mode_no_auth_header():
     api = DamageConflationApi(event_id=_EVENT_ID, api_key="dummy")
     api.get_damage_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -267,6 +281,7 @@ def test_damage_conflation_address_bearer_sends_header_and_no_apikey(monkeypatch
     api = DamageConflationApi(event_id=_EVENT_ID, bearer_token=_JWT)
     api.get_damage_by_address(_ADDRESS, aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -278,6 +293,7 @@ def test_damage_conflation_address_key_mode_sends_apikey():
     api = DamageConflationApi(event_id=_EVENT_ID, api_key="dummy")
     api.get_damage_by_address(_ADDRESS, aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -295,6 +311,7 @@ def test_roof_age_aoi_bearer_omits_apikey_param(monkeypatch):
     api = RoofAgeApi(bearer_token=_JWT)
     api.get_roof_age_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -306,5 +323,6 @@ def test_roof_age_aoi_key_mode_sends_apikey_param():
     api = RoofAgeApi(api_key="dummy")
     api.get_roof_age_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers

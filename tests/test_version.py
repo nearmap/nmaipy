@@ -1,10 +1,8 @@
 """Tests for version management."""
 
+from pathlib import Path
 import re
 import tomllib
-from pathlib import Path
-
-import pytest
 
 from nmaipy import __version__, __version_info__
 

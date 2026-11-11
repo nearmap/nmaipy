@@ -5,7 +5,6 @@ Tests cover both local filesystem operations (using tmp_path) and S3 operations
 (mocking the cached S3 filesystem to avoid requiring real AWS credentials).
 """
 
-import gzip
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
@@ -34,13 +33,13 @@ class TestIsS3Path:
         assert storage.is_s3_path("s3://bucket/key/") is True
 
     def test_local_unix_path(self):
-        assert storage.is_s3_path("/tmp/data") is False
+        assert storage.is_s3_path("/tmp/data") is False  # noqa: S108 -- path string only, never written
 
     def test_local_relative_path(self):
         assert storage.is_s3_path("data/output") is False
 
     def test_path_object(self):
-        assert storage.is_s3_path(Path("/tmp/data")) is False
+        assert storage.is_s3_path(Path("/tmp/data")) is False  # noqa: S108 -- path string only, never written
 
     def test_empty_string(self):
         assert storage.is_s3_path("") is False
@@ -53,12 +52,12 @@ class TestIsS3Path:
 
 class TestJoinPath:
     def test_local_join(self):
-        result = storage.join_path("/tmp/output", "chunks", "file.parquet")
-        assert result == str(Path("/tmp/output/chunks/file.parquet"))
+        result = storage.join_path("/tmp/output", "chunks", "file.parquet")  # noqa: S108 -- path string only, never written
+        assert result == str(Path("/tmp/output/chunks/file.parquet"))  # noqa: S108 -- path string only, never written
 
     def test_local_join_single_part(self):
-        result = storage.join_path("/tmp/output", "final")
-        assert result == str(Path("/tmp/output/final"))
+        result = storage.join_path("/tmp/output", "final")  # noqa: S108 -- path string only, never written
+        assert result == str(Path("/tmp/output/final"))  # noqa: S108 -- path string only, never written
 
     def test_s3_join(self):
         result = storage.join_path("s3://bucket/prefix", "chunks", "file.parquet")
@@ -346,20 +345,20 @@ class TestJsonIO:
     def test_write_json_default_str(self, tmp_path):
         """write_json with default=str handles non-serializable types."""
         fpath = str(tmp_path / "data.json")
-        data = {"path": Path("/tmp/test")}
+        data = {"path": Path("/tmp/test")}  # noqa: S108 -- path string only, never written
 
         storage.write_json(fpath, data, default=str)
         result = storage.read_json(fpath)
-        assert result["path"] == str(Path("/tmp/test"))
+        assert result["path"] == str(Path("/tmp/test"))  # noqa: S108 -- path string only, never written
 
     def test_write_compressed_json_default_str(self, tmp_path):
         """Compressed write_json with default=str also handles non-serializable types."""
         fpath = str(tmp_path / "data.json.gz")
-        data = {"path": Path("/tmp/test")}
+        data = {"path": Path("/tmp/test")}  # noqa: S108 -- path string only, never written
 
         storage.write_json(fpath, data, compressed=True, default=str)
         result = storage.read_json(fpath, compressed=True)
-        assert result["path"] == str(Path("/tmp/test"))
+        assert result["path"] == str(Path("/tmp/test"))  # noqa: S108 -- path string only, never written
 
 
 class TestJsonDumpsBytes:
@@ -392,7 +391,7 @@ class TestJsonDumpsBytes:
         a NaN literal now fail to parse (callers treat that as a cache miss)."""
         fpath = tmp_path / "legacy.json"
         fpath.write_text(json.dumps({"x": float("nan")}))  # writes {"x": NaN}
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="expected a JSON value"):
             storage.read_json(str(fpath))
 
 
@@ -403,10 +402,10 @@ class TestJsonDumpsBytes:
 
 class TestBasename:
     def test_local_basename(self):
-        assert storage.basename("/tmp/output/final/file.parquet") == "file.parquet"
+        assert storage.basename("/tmp/output/final/file.parquet") == "file.parquet"  # noqa: S108 -- path string only, never written
 
     def test_local_basename_dir(self):
-        assert storage.basename("/tmp/output/final") == "final"
+        assert storage.basename("/tmp/output/final") == "final"  # noqa: S108 -- path string only, never written
 
     def test_s3_basename(self):
         assert storage.basename("s3://bucket/prefix/file.parquet") == "file.parquet"
@@ -674,7 +673,7 @@ class TestValidateParquetResilience:
 class TestInvalidateCache:
     def test_local_is_noop(self):
         with patch("nmaipy.storage._get_s3_filesystem") as mock_get_fs:
-            storage.invalidate_cache("/tmp/some/dir")
+            storage.invalidate_cache("/tmp/some/dir")  # noqa: S108 -- path string only, never written
             mock_get_fs.assert_not_called()
 
     @patch("nmaipy.storage._get_s3_filesystem")
@@ -695,7 +694,7 @@ class TestPyarrowReadPaths:
         assert storage.pyarrow_read_paths([]) == ([], None)
 
     def test_local_paths_pass_through_with_no_filesystem(self):
-        paths = ["/tmp/a.parquet", "/tmp/b.parquet"]
+        paths = ["/tmp/a.parquet", "/tmp/b.parquet"]  # noqa: S108 -- path string only, never written
         out_paths, fs = storage.pyarrow_read_paths(paths)
         assert out_paths == paths
         assert out_paths is not paths  # defensive copy, caller list not aliased
@@ -703,7 +702,7 @@ class TestPyarrowReadPaths:
 
     def test_mixed_schemes_raise(self):
         with pytest.raises(ValueError, match="one scheme"):
-            storage.pyarrow_read_paths(["s3://bucket/a.parquet", "/tmp/b.parquet"])
+            storage.pyarrow_read_paths(["s3://bucket/a.parquet", "/tmp/b.parquet"])  # noqa: S108 -- path string only, never written
 
     def test_cross_bucket_paths_raise(self):
         # All paths share the single filesystem resolved from one bucket root;

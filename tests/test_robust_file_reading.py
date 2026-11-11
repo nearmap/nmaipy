@@ -1,12 +1,12 @@
 """Tests for robust CSV and Parquet file reading with mixed types and explicit dtypes."""
 
-import tempfile
 from pathlib import Path
+import tempfile
 
 import geopandas as gpd
 import pandas as pd
 import pytest
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 
 from nmaipy import parcels
 from nmaipy.constants import AOI_ID_COLUMN_NAME
@@ -30,7 +30,8 @@ class TestRobustFileReading:
                 '3,"789","Melbourne","POLYGON((144.9 -37.6, 145.0 -37.6, 145.0 -37.7, 144.9 -37.7, 144.9 -37.6))"\n'
             )
             f.write(
-                '4,"12A Main St","Melbourne","POLYGON((144.9 -37.5, 145.0 -37.5, 145.0 -37.6, 144.9 -37.6, 144.9 -37.5))"\n'
+                '4,"12A Main St","Melbourne","POLYGON((144.9 -37.5, 145.0 -37.5, 145.0 -37.6, 144.9 -37.6, 144.9 '
+                '-37.5))"\n'
             )
             f.write('5,"","Melbourne","POLYGON((144.9 -37.4, 145.0 -37.4, 145.0 -37.5, 144.9 -37.5, 144.9 -37.4))"\n')
             csv_path = f.name
@@ -211,7 +212,7 @@ class TestRobustFileReading:
                     f'{i},"{i * 10}","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n'
                 )
             # Row 101 has text
-            f.write(f'101,"10A","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n')
+            f.write('101,"10A","POLYGON((144.9 -37.8, 145.0 -37.8, 145.0 -37.9, 144.9 -37.9, 144.9 -37.8))"\n')
             csv_path = f.name
 
         try:
@@ -225,7 +226,7 @@ class TestRobustFileReading:
             assert result.loc[101, "street_number"] == "10A"
 
             # Both should be same type
-            assert type(result.loc[1, "street_number"]) == type(result.loc[101, "street_number"])
+            assert type(result.loc[1, "street_number"]) is type(result.loc[101, "street_number"])
 
         finally:
             Path(csv_path).unlink()
@@ -342,9 +343,9 @@ class TestRobustFileReading:
             result = parcels.read_from_file(Path(parquet_path))
 
             assert result.index.name == AOI_ID_COLUMN_NAME, "aoi_id should be the index"
-            assert (
-                AOI_ID_COLUMN_NAME not in result.columns
-            ), "aoi_id must appear only as the index, not also as a column"
+            assert AOI_ID_COLUMN_NAME not in result.columns, (
+                "aoi_id must appear only as the index, not also as a column"
+            )
             assert list(result.index) == [10, 20, 30], "aoi_id values should be preserved"
             # And the merge that previously raised must now succeed.
             other = pd.DataFrame({"extra": [1, 2, 3]}, index=pd.Index([10, 20, 30], name=AOI_ID_COLUMN_NAME))
@@ -425,7 +426,9 @@ class TestRobustFileReading:
         finally:
             Path(parquet_path).unlink()
 
-    @pytest.mark.parametrize("suffix,driver,date_typed", [("geojson", "GeoJSON", False), ("gpkg", "GPKG", True)])
+    @pytest.mark.parametrize(
+        ("suffix", "driver", "date_typed"), [("geojson", "GeoJSON", False), ("gpkg", "GPKG", True)]
+    )
     def test_since_until_come_back_as_date_strings(self, tmp_path, suffix, driver, date_typed):
         """GeoJSON readers parse YYYY-MM-DD text, and GeoPackage readers a date-typed field, as datetimes, which
         the exporters reject; read_from_file must return them as strings, keeping nulls null."""

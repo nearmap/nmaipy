@@ -5,11 +5,11 @@ takes a method, URL and body and returns a `FakeResponse`. The fake emits exactl
 `IGNORED_LIVE_FIELDS` lists the live paths it leaves out on purpose (the drift check enforces both).
 """
 
-import dataclasses
-import json
 from collections import defaultdict
 from collections.abc import Callable, Iterator
+import dataclasses
 from functools import cache
+import json
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import numpy as np
@@ -186,7 +186,7 @@ IGNORED_LIVE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-class UnknownRequest(Exception):
+class UnknownRequest(Exception):  # noqa: N818 -- name imported by the golden replay harness
     """A request the fake has no route or no answer for."""
 
 
@@ -243,7 +243,9 @@ class FakeApi:
     def _classes(self) -> dict:
         kinds = {}
         for pack in vocabulary()["packs"].values():
-            kinds |= {c: "Attribute" for c in pack["attributeClasses"]} | {c: "Feature" for c in pack["featureClasses"]}
+            kinds |= dict.fromkeys(pack["attributeClasses"], "Attribute") | dict.fromkeys(
+                pack["featureClasses"], "Feature"
+            )
         current = {s.system_version for s in self.world.surveys}
         return {
             "classes": [
@@ -287,7 +289,11 @@ class FakeApi:
         selected = {f.name: f for f in candidates if _intersection_area(f, request, self.world.country) > 0}
         roofs = {name for name, f in selected.items() if f.class_id == ROOF_ID}
         selected |= {f.name: f for f in candidates if f.parent in roofs}
-        flags = {name: self._flag(f, parcel_aoi, selected) for name, f in selected.items()} if parcel_aoi else {}
+        flags = (
+            {name: self._flag(f, parcel_aoi, selected) for name, f in selected.items()}
+            if parcel_aoi is not None and parcel_aoi
+            else {}
+        )
         records = [
             self._feature(f, request, survey, attribute_classes, flags.get(f.name))
             for f in sorted(selected.values(), key=lambda f: f.id)

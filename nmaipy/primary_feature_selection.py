@@ -16,7 +16,6 @@ and operates purely on geometric and attribute criteria.
 """
 
 from functools import lru_cache
-from typing import Optional, Union
 
 import geopandas as gpd
 import pandas as pd
@@ -48,7 +47,7 @@ DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.9
 def select_primary_by_largest(
     gdf: gpd.GeoDataFrame,
     area_col: str = "area",
-    secondary_area_col: Optional[str] = None,
+    secondary_area_col: str | None = None,
 ) -> pd.Series:
     """
     Select the primary feature based on largest area.
@@ -80,7 +79,7 @@ def select_primary_by_largest(
     sort_ascending = [False]
 
     # Add secondary sort column if provided and exists
-    if secondary_area_col and secondary_area_col in gdf.columns:
+    if secondary_area_col is not None and secondary_area_col and secondary_area_col in gdf.columns:
         sort_cols.append(secondary_area_col)
         sort_ascending.append(False)
 
@@ -95,12 +94,12 @@ def select_primary_by_nearest(
     target_lon: float,
     geometry_projected_col: str,
     projected_crs: str,
-    confidence_col: Optional[str] = "confidence",
+    confidence_col: str | None = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     area_col: str = "area",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
     distance_tolerance: float = NEAREST_TOLERANCE_METERS,
-) -> Optional[pd.Series]:
+) -> pd.Series | None:
     """
     Select the primary feature based on containment or proximity to a target point.
 
@@ -216,11 +215,11 @@ def select_primary_by_nearest(
 
 def _select_best_by_confidence(
     gdf: gpd.GeoDataFrame,
-    confidence_col: Optional[str],
+    confidence_col: str | None,
     high_confidence_threshold: float,
 ) -> int:
     """Select the best feature index, preferring high-confidence features."""
-    if confidence_col and confidence_col in gdf.columns:
+    if confidence_col is not None and confidence_col and confidence_col in gdf.columns:
         high_conf_mask = gdf[confidence_col] >= high_confidence_threshold
         if high_conf_mask.any():
             # Return first high-confidence feature
@@ -232,11 +231,11 @@ def _select_best_by_confidence(
 def _select_best_by_confidence_and_distance(
     gdf: gpd.GeoDataFrame,
     distances: pd.Series,
-    confidence_col: Optional[str],
+    confidence_col: str | None,
     high_confidence_threshold: float,
 ) -> int:
     """Select the best feature index, preferring high-confidence then nearest."""
-    if confidence_col and confidence_col in gdf.columns:
+    if confidence_col is not None and confidence_col and confidence_col in gdf.columns:
         high_conf_mask = gdf[confidence_col] >= high_confidence_threshold
         if high_conf_mask.any():
             # Select nearest among high-confidence features
@@ -253,8 +252,8 @@ def select_primary_optimal(
     geometry_projected_col: str,
     projected_crs: str,
     area_col: str = "area",
-    secondary_area_col: Optional[str] = None,
-    confidence_col: Optional[str] = "confidence",
+    secondary_area_col: str | None = None,
+    confidence_col: str | None = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     geometry_col: str = "geometry",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
@@ -331,17 +330,17 @@ def select_primary(
     gdf: gpd.GeoDataFrame,
     method: str = "largest",
     area_col: str = "area",
-    secondary_area_col: Optional[str] = None,
-    target_lat: Optional[float] = None,
-    target_lon: Optional[float] = None,
-    confidence_col: Optional[str] = "confidence",
+    secondary_area_col: str | None = None,
+    target_lat: float | None = None,
+    target_lon: float | None = None,
+    confidence_col: str | None = "confidence",
     high_confidence_threshold: float = DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     geometry_col: str = "geometry",
     small_area_threshold: float = BUILDING_SMALL_MAX_AREA_SQM,
     distance_tolerance: float = NEAREST_TOLERANCE_METERS,
-    geometry_projected_col: Optional[str] = None,
-    projected_crs: Optional[str] = None,
-) -> Optional[pd.Series]:
+    geometry_projected_col: str | None = None,
+    projected_crs: str | None = None,
+) -> pd.Series | None:
     """
     Convenience function to select primary feature using specified method.
 
@@ -390,20 +389,20 @@ def select_primary(
     if len(gdf) == 0:
         raise ValueError("Cannot select primary feature from empty GeoDataFrame")
 
-    if method == "largest" or method == "largest_intersection":
+    if method in {"largest", "largest_intersection"}:
         return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
-    elif method == "nearest":
+    if method == "nearest":
         if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
             logger.debug("For 'nearest' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
-        if not geometry_projected_col or geometry_projected_col not in gdf.columns:
+        if geometry_projected_col is None or not geometry_projected_col or geometry_projected_col not in gdf.columns:
             raise ValueError(
                 f"geometry_projected_col='{geometry_projected_col}' is required for 'nearest' method "
                 "and must exist in the GeoDataFrame"
             )
-        if not projected_crs:
+        if projected_crs is None or not projected_crs:
             raise ValueError("projected_crs is required for 'nearest' method")
 
         return select_primary_by_nearest(
@@ -419,17 +418,17 @@ def select_primary(
             distance_tolerance=distance_tolerance,
         )
 
-    elif method == "optimal":
+    if method == "optimal":
         if target_lat is None or target_lon is None or pd.isna(target_lat) or pd.isna(target_lon):
             logger.debug("For 'optimal' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
-        if not geometry_projected_col or geometry_projected_col not in gdf.columns:
+        if geometry_projected_col is None or not geometry_projected_col or geometry_projected_col not in gdf.columns:
             raise ValueError(
                 f"geometry_projected_col='{geometry_projected_col}' is required for 'optimal' method "
                 "and must exist in the GeoDataFrame"
             )
-        if not projected_crs:
+        if projected_crs is None or not projected_crs:
             raise ValueError("projected_crs is required for 'optimal' method")
 
         return select_primary_optimal(
@@ -447,7 +446,6 @@ def select_primary(
             distance_tolerance=distance_tolerance,
         )
 
-    else:
-        raise ValueError(
-            f"Invalid selection method '{method}'. Must be 'largest', 'largest_intersection', 'nearest', or 'optimal'"
-        )
+    raise ValueError(
+        f"Invalid selection method '{method}'. Must be 'largest', 'largest_intersection', 'nearest', or 'optimal'"
+    )

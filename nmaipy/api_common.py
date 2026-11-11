@@ -9,28 +9,27 @@ This module provides common functionality used across different API clients:
 - Request caching infrastructure
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
-import gzip
 import hashlib
+from http import HTTPStatus
+from itertools import takewhile
 import json
 import logging
 import numbers
 import os
+from pathlib import Path
 import random
 import re
 import threading
+from typing import Any, Optional
 import weakref
-from concurrent.futures import ThreadPoolExecutor
-from http import HTTPStatus
-from itertools import takewhile
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
+from dotenv import load_dotenv
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 from urllib3.util.retry import Retry
@@ -261,9 +260,12 @@ class RetryRequest(Retry):
         # Read timeouts have their own budget, tracked here because urllib3's `read`
         # counter is shared with connection-aborted errors (see class docstring).
         # Surfacing the bare ReadTimeoutError makes requests raise ReadTimeout.
-        if is_read_timeout and self.read_timeout_retries is not None:
-            if self.read_timeout_count >= self.read_timeout_retries:
-                raise error.with_traceback(_stacktrace)
+        if (
+            is_read_timeout
+            and self.read_timeout_retries is not None
+            and self.read_timeout_count >= self.read_timeout_retries
+        ):
+            raise error.with_traceback(_stacktrace)
 
         result = super().increment(method, url, response, error, _pool, _stacktrace)
         if is_read_timeout:
@@ -292,12 +294,19 @@ class RetryRequest(Retry):
 
                 # Clean URL of API key for logging
                 clean_url = url
-                if url and "apikey=" in url:
-                    clean_url = url.split("apikey=")[0] + "apikey=***"
+                if url:
+                    clean_url = url.split("?", 1)[0] + ("?apikey=***" if "apikey=" in url else "")
 
                 logger.info(f"{reason} causing retry {len(result.history)} of request {clean_url}")
 
         return result
+
+
+def _cache_error_text(e: Exception) -> str:
+    """Describe a cache failure without the cache path, which can hold an address or zip code."""
+    if isinstance(e, OSError) and e.strerror is not None:
+        return f"{type(e).__name__}: {e.strerror}"
+    return type(e).__name__
 
 
 def is_read_timeout_error(exc: Exception) -> bool:
@@ -395,19 +404,13 @@ class AIFeatureAPIError(APIError):
     Maintains backward compatibility with existing code.
     """
 
-    pass
-
 
 class RoofAgeAPIError(APIError):
     """Error responses specific to the Roof Age API."""
 
-    pass
-
 
 class DamageConflationAPIError(APIError):
     """Error responses specific to the Damage Conflation API."""
-
-    pass
 
 
 class APIRequestSizeError(APIError):
@@ -445,9 +448,9 @@ class APIGridError(Exception):
         self,
         status_code_error_mode,
         message="",
-        grid_cells: Optional[int] = None,
-        grid_cells_answered: Optional[int] = None,
-        answered_area_fraction: Optional[float] = None,
+        grid_cells: int | None = None,
+        grid_cells_answered: int | None = None,
+        answered_area_fraction: float | None = None,
     ):
         self.status_code = status_code_error_mode
         self.text = "Gridding and re-requesting failed on one or more grid cell queries."
@@ -463,7 +466,7 @@ class APIGridError(Exception):
         return f"APIGridError: {self.status_code} - {self.message}"
 
 
-def clean_api_key_from_string(text: str) -> str:
+def redact_api_key_from_string(text: str) -> str:
     """
     Remove API keys from a string for safe logging.
 
@@ -484,8 +487,10 @@ def clean_api_key_from_string(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", text, flags=re.IGNORECASE)
-    return text
+    return re.sub(r"Bearer\s+[^\s'\"]+", "Bearer REMOVED", text, flags=re.IGNORECASE)
+
+
+clean_api_key_from_string = redact_api_key_from_string  # previous name, kept for existing callers
 
 
 # Per-thread batching cap for `_increment_progress`. Increments accumulate in
@@ -508,7 +513,7 @@ class _InflightEntry:
     serializing behind the lock and fetch independently.
     """
 
-    __slots__ = ("lock", "refcount", "fetch_failed")
+    __slots__ = ("fetch_failed", "lock", "refcount")
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -530,13 +535,13 @@ class BaseApiClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
+        api_key: str | None = None,
+        cache_dir: Path | None = None,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         maxretry: int = MAX_RETRIES,
-        bearer_token: Optional[str] = None,
+        bearer_token: str | None = None,
     ):
         """
         Initialize base API client.
@@ -566,26 +571,26 @@ class BaseApiClient:
         # _InflightEntry. Guarded by _inflight_guard; bounded because each
         # entry is dropped when its last in-flight request leaves, so the map
         # can never exceed this client's thread count.
-        self._inflight_requests: Dict[str, _InflightEntry] = {}
+        self._inflight_requests: dict[str, _InflightEntry] = {}
         self._inflight_guard = threading.Lock()
 
         # Progress-counter plumbing. `progress_counters` is overridden by
         # subclasses that accept it as a constructor arg. The registry holds
         # one (buffer, lock) tuple per thread that has called
         # `_increment_progress`; `flush_progress()` drains them.
-        self.progress_counters: Optional[dict] = None
-        self._progress_buffers: List = []
+        self.progress_counters: dict | None = None
+        self._progress_buffers: list = []
         self._progress_buffers_registry_lock = threading.Lock()
 
         # A bearer token authenticates via an Authorization header and takes precedence
         # over any api key; otherwise fall back to the api key (arg or env).
         self.bearer_token = bearer_token
-        if api_key:
+        if api_key is not None and api_key:
             self.api_key = api_key
         else:
             self.api_key = os.environ.get("API_KEY", None)
-        if self.bearer_token:
-            if api_key:
+        if self.bearer_token is not None and self.bearer_token:
+            if api_key is not None and api_key:
                 # Phrased to dodge the APIKeyFilter's "Bearer <x>" redaction regex.
                 logger.warning(
                     "Both api_key and bearer_token provided — the api_key is ignored; "
@@ -613,7 +618,7 @@ class BaseApiClient:
         if self.cache_dir is not None:
             storage.ensure_directory(self.cache_dir)
         elif overwrite_cache:
-            raise ValueError(f"No cache dir specified, but overwrite cache set to True.")
+            raise ValueError("No cache dir specified, but overwrite cache set to True.")
 
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -694,7 +699,7 @@ class BaseApiClient:
         # never let it fail cleanup if the shared Manager.Lock is already gone.
         try:
             self.flush_progress()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
             pass
 
         if hasattr(self, "_lock") and hasattr(self, "_adapters"):
@@ -702,17 +707,16 @@ class BaseApiClient:
                 for adapter in self._adapters:
                     try:
                         adapter.close()
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
                         pass
                 self._adapters.clear()
-        else:  # Fallback if attributes don't exist
-            if hasattr(self, "_adapters"):
-                for adapter in self._adapters:
-                    try:
-                        adapter.close()
-                    except Exception:
-                        pass
-                self._adapters.clear()
+        elif hasattr(self, "_adapters"):
+            for adapter in self._adapters:
+                try:
+                    adapter.close()
+                except Exception:  # noqa: BLE001, S110 -- best-effort cleanup, also run from __del__; must never raise
+                    pass
+            self._adapters.clear()
         # Clear thread-local adapter cache (only affects calling thread,
         # but other threads' adapters are already closed via self._adapters above)
         if hasattr(self, "_thread_local") and hasattr(self._thread_local, "adapters"):
@@ -850,7 +854,7 @@ class BaseApiClient:
         session = requests.Session()
         session.mount("https://", adapter)
         session._timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
-        if self.bearer_token:
+        if self.bearer_token is not None and self.bearer_token:
             session.headers["Authorization"] = f"Bearer {self.bearer_token}"
 
         try:
@@ -860,7 +864,7 @@ class BaseApiClient:
             session.adapters.clear()
             try:
                 session.close()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 -- best-effort session close; must not mask the request's result
                 pass
 
     def _get_cache_path(self, cache_key: str) -> str:
@@ -881,7 +885,7 @@ class BaseApiClient:
         extension = ".json.gz" if self.compress_cache else ".json"
         return storage.join_path(self.cache_dir, f"{key_hash}{extension}")
 
-    def _load_from_cache(self, cache_key: str) -> Optional[Dict]:
+    def _load_from_cache(self, cache_key: str) -> dict | None:
         """
         Load data from cache if it exists and cache is enabled.
 
@@ -900,11 +904,11 @@ class BaseApiClient:
 
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
-        except Exception as e:
-            logger.warning(f"Failed to load from cache: {e}")
+        except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
+            logger.warning(f"Failed to load from cache: {_cache_error_text(e)}")
             return None
 
-    def _save_to_cache(self, cache_key: str, data: Dict) -> None:
+    def _save_to_cache(self, cache_key: str, data: dict) -> None:
         """
         Save data to cache.
 
@@ -918,11 +922,11 @@ class BaseApiClient:
         cache_path = self._get_cache_path(cache_key)
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
-        except Exception as e:
-            logger.warning(f"Failed to save to cache: {e}")
+        except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
+            logger.warning(f"Failed to save to cache: {_cache_error_text(e)}")
 
     @contextlib.contextmanager
-    def _coalesce_inflight(self, cache_path: Optional[str]):
+    def _coalesce_inflight(self, cache_path: str | None):
         """
         Serialize concurrent fetches that share a cache entry (in-flight coalescing).
 
@@ -1037,7 +1041,11 @@ class BaseApiClient:
         storage.ensure_directory(cache_subdir)
         return storage.join_path(cache_subdir, f"{key_hash}{extension}")
 
-    def _clean_api_key(self, text: str) -> str:
+    def _auth_params(self) -> dict[str, str]:
+        """Query parameters that authenticate a request: the apikey, or none in bearer mode."""
+        return {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
+
+    def _redact_api_key(self, text: str) -> str:
         """
         Remove API keys and bearer tokens from text for safe logging.
 
@@ -1047,13 +1055,13 @@ class BaseApiClient:
         Returns:
             String with credentials replaced with 'REMOVED'
         """
-        text = clean_api_key_from_string(text)
+        text = redact_api_key_from_string(text)
         # Catch a raw token that lacks the "Bearer " prefix the regex keys on.
-        if self.bearer_token:
+        if self.bearer_token is not None and self.bearer_token:
             text = text.replace(self.bearer_token, "REMOVED")
         return text
 
-    def get_latency_stats(self) -> Optional[Dict[str, Any]]:
+    def get_latency_stats(self) -> dict[str, Any] | None:
         """
         Calculate latency statistics for this API client instance.
 
@@ -1121,12 +1129,12 @@ class BaseApiClient:
 
 
 def collect_latency_stats_from_apis(
-    api_clients: List[Optional["BaseApiClient"]],
+    api_clients: list[Optional["BaseApiClient"]],
     chunk_id: str,
     chunk_start_time: str,
     chunk_end_time: str,
     total_duration_ms: float,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Collect and combine latency statistics from multiple API clients.
 
@@ -1233,16 +1241,16 @@ class GriddedApiClient(BaseApiClient):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
+        api_key: str | None = None,
+        cache_dir: Path | None = None,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         maxretry: int = MAX_RETRIES,
         grid_cell_size: float = 0.002,
         max_aoi_area_sqm: float = 1_000_000,
-        max_concurrent_gridding: Optional[int] = None,
-        bearer_token: Optional[str] = None,
+        max_concurrent_gridding: int | None = None,
+        bearer_token: str | None = None,
     ):
         """
         Initialize GriddedApiClient.
@@ -1296,7 +1304,7 @@ class GriddedApiClient(BaseApiClient):
         return area_sqm > self.max_aoi_area_sqm
 
 
-def generate_curl_command(url: str, body: dict = None, method: str = "POST", timeout: int = 90) -> str:
+def generate_curl_command(url: str, body: dict | None = None, method: str = "POST", timeout: int = 90) -> str:
     """
     Generate a curl command for debugging HTTP requests.
 
@@ -1319,9 +1327,9 @@ def generate_curl_command(url: str, body: dict = None, method: str = "POST", tim
         >>> print(cmd)  # API key will be replaced with 'APIKEYREMOVED'
     """
     # Clean the API key from the URL
-    clean_url = clean_api_key_from_string(url)
+    clean_url = redact_api_key_from_string(url)
 
-    if method == "POST" and body:
+    if method == "POST" and body is not None and body:
         # Format the JSON body nicely
         json_body = json.dumps(body, indent=2)
 
@@ -1365,7 +1373,7 @@ def format_error_message(request_string: str, response: requests.Response) -> st
         >>> msg = format_error_message(url, response)
         >>> logger.error(msg)
     """
-    clean_request = clean_api_key_from_string(request_string)
+    clean_request = redact_api_key_from_string(request_string)
     return f"\n{clean_request=}\n\n{response.status_code=}\n\n{response.text}\n\n"
 
 
@@ -1374,7 +1382,7 @@ def format_error_message(request_string: str, response: requests.Response) -> st
 # =============================================================================
 
 
-def percentile_from_histogram(hist: np.ndarray, buckets: List[float], percentile: float) -> float:
+def percentile_from_histogram(hist: np.ndarray, buckets: list[float], percentile: float) -> float:
     """
     Compute percentile from histogram via linear interpolation.
 
@@ -1417,8 +1425,8 @@ def percentile_from_histogram(hist: np.ndarray, buckets: List[float], percentile
 
 
 def compute_global_latency_stats(
-    chunk_stats: List[Dict], n_bootstrap: int = 1000, seed: Optional[int] = 42
-) -> Dict[str, Any]:
+    chunk_stats: list[dict], n_bootstrap: int = 1000, seed: int | None = 42
+) -> dict[str, Any]:
     """
     Compute global latency statistics from per-chunk stats with bootstrap confidence intervals.
 
@@ -1492,7 +1500,7 @@ def compute_global_latency_stats(
     }
 
 
-def _get_latency_bucket_names() -> List[str]:
+def _get_latency_bucket_names() -> list[str]:
     """Get histogram bucket column names based on LATENCY_BUCKETS."""
     bucket_names = []
     for i in range(len(LATENCY_BUCKETS) - 1):
@@ -1505,7 +1513,7 @@ def _get_latency_bucket_names() -> List[str]:
     return bucket_names
 
 
-def _stats_to_row(stats: Dict) -> Dict:
+def _stats_to_row(stats: dict) -> dict:
     """Convert a latency stats dict to a flat row dict for DataFrame."""
     if stats is None:
         return None
@@ -1539,7 +1547,7 @@ def _stats_to_row(stats: Dict) -> Dict:
 
     histogram = stats.get("histogram", [0] * (len(LATENCY_BUCKETS) - 1))
     bucket_names = _get_latency_bucket_names()
-    for name, count in zip(bucket_names, histogram):
+    for name, count in zip(bucket_names, histogram, strict=True):
         row[name] = count
 
     return row
@@ -1547,7 +1555,7 @@ def _stats_to_row(stats: Dict) -> Dict:
 
 # Per-phase chunk-processing timings (seconds) appended to latency rows via
 # `save_chunk_latency_stats(..., extra_columns=...)` from exporter closeout.
-CHUNK_PHASE_TIMING_COLUMNS: List[str] = [
+CHUNK_PHASE_TIMING_COLUMNS: list[str] = [
     "parcel_rollup_s",
     "post_rollup_merge_s",
     "prep_merges_s",
@@ -1561,19 +1569,33 @@ CHUNK_PHASE_TIMING_COLUMNS: List[str] = [
 ]
 
 
-def _get_latency_csv_columns() -> List[str]:
+def _get_latency_csv_columns() -> list[str]:
     """Get the ordered list of columns for latency CSV files."""
     bucket_names = _get_latency_bucket_names()
-    return (
-        ["chunk_id", "count", "mean", "p50", "p90", "p95", "p99", "min", "max"]
-        + ["retry_count", "timeout_count", "cache_hits", "cache_misses"]
-        + ["start_time", "end_time", "total_duration_ms", "rps"]
-        + bucket_names
-        + CHUNK_PHASE_TIMING_COLUMNS
-    )
+    return [
+        "chunk_id",
+        "count",
+        "mean",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+        "min",
+        "max",
+        "retry_count",
+        "timeout_count",
+        "cache_hits",
+        "cache_misses",
+        "start_time",
+        "end_time",
+        "total_duration_ms",
+        "rps",
+        *bucket_names,
+        *CHUNK_PHASE_TIMING_COLUMNS,
+    ]
 
 
-def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
+def write_latency_csv(chunk_stats: list[dict], csv_path) -> None:
     """
     Write per-chunk latency statistics to a CSV file using pandas.
 
@@ -1592,9 +1614,7 @@ def write_latency_csv(chunk_stats: List[Dict], csv_path) -> None:
     df.to_csv(csv_path, index=False)
 
 
-def save_chunk_latency_stats(
-    stats: Dict, chunk_path: Path, chunk_id: str, extra_columns: Optional[Dict] = None
-) -> None:
+def save_chunk_latency_stats(stats: dict, chunk_path: Path, chunk_id: str, extra_columns: dict | None = None) -> None:
     """
     Save latency stats for a single chunk to a sidecar parquet file.
 
@@ -1614,7 +1634,7 @@ def save_chunk_latency_stats(
     if row is None:
         return
 
-    if extra_columns:
+    if extra_columns is not None and extra_columns:
         row.update(extra_columns)
 
     df = pd.DataFrame([row])
@@ -1622,7 +1642,7 @@ def save_chunk_latency_stats(
     storage.write_parquet(df, outfile, index=False)
 
 
-def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List[Dict]:
+def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> list[dict]:
     """
     Combine per-chunk latency parquet files into a final CSV and return stats list.
 
@@ -1643,7 +1663,7 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
         try:
             with storage.open_file(path, "rb") as f:
                 return pd.read_parquet(f)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- latency stats are diagnostic; an unreadable chunk file is skipped
             return None
 
     with ThreadPoolExecutor(max_workers=S3_PARALLEL_READ_WORKERS) as executor:
@@ -1661,7 +1681,7 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
     combined_df.to_csv(output_csv_path, index=False)
 
     bucket_names = _get_latency_bucket_names()
-    stats_list = [
+    return [
         {
             "chunk_id": row["chunk_id"],
             "count": int(row["count"]),
@@ -1679,10 +1699,8 @@ def combine_chunk_latency_stats(chunk_path: Path, output_csv_path: Path) -> List
         for row in combined_df.to_dict("records")
     ]
 
-    return stats_list
 
-
-def log_request_cache_summary(logger_, chunk_stats: List[Dict]) -> None:
+def log_request_cache_summary(logger_, chunk_stats: list[dict]) -> None:
     """
     Log the overall request-cache hit rate for an export closeout.
 
@@ -1702,7 +1720,7 @@ def log_request_cache_summary(logger_, chunk_stats: List[Dict]) -> None:
     )
 
 
-def read_latency_csv(csv_path) -> List[Dict]:
+def read_latency_csv(csv_path) -> list[dict]:
     """
     Read latency stats from a CSV file and convert to list of dicts.
 

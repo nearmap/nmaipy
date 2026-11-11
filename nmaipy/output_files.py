@@ -12,7 +12,6 @@ lives in one place.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from nmaipy import storage
 from nmaipy.column_metadata import PER_CLASS_LABELS
@@ -24,7 +23,7 @@ class FileSpec:
 
     description: str
     kind: str
-    class_label: Optional[str] = None
+    class_label: str | None = None
     is_per_class: bool = False
     list_in_readme: bool = True
 
@@ -72,7 +71,7 @@ STATIC_FILES: dict[str, FileSpec] = {
 }
 
 
-def file_spec_for(filename: str) -> Optional[FileSpec]:
+def file_spec_for(filename: str) -> FileSpec | None:
     """Return the `FileSpec` for a given basename, or None if not in the registry.
 
     Recognises:

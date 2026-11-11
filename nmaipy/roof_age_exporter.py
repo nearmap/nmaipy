@@ -22,11 +22,10 @@ Note: The Roof Age API is currently available for US properties only.
 """
 
 import argparse
+from datetime import UTC, datetime
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
@@ -66,7 +65,7 @@ logger = log.get_logger()
 def _yyyy_mm_dd(value: str) -> str:
     """Argparse type for ``YYYY-MM-DD`` date strings; returns the original string on success."""
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        datetime.strptime(value, "%Y-%m-%d")  # noqa: DTZ007 -- format check only, result discarded
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}") from exc
     return value
@@ -225,7 +224,7 @@ class RoofAgeExporter(BaseExporter):
         aoi_file: str,
         output_dir: str,
         output_format: str = "geoparquet",
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         no_cache: bool = False,
         overwrite_cache: bool = False,
         compress_cache: bool = False,
@@ -233,12 +232,12 @@ class RoofAgeExporter(BaseExporter):
         threads: int = 10,
         chunk_size: int = 500,
         country: str = "us",
-        api_key: str = None,
+        api_key: str | None = None,
         log_level: str = "INFO",
         include_aoi_geometry: bool = False,
         roof_age_dataset: str = "latest",
-        until: str = None,
-        since: str = None,
+        until: str | None = None,
+        since: str | None = None,
         api_warmup_interval_seconds: float = API_WARMUP_INTERVAL_SECONDS,
     ):
         """
@@ -277,7 +276,9 @@ class RoofAgeExporter(BaseExporter):
         # RoofAgeExporter-specific attributes
         self.aoi_file = aoi_file
         self.output_format = output_format
-        self.cache_dir = str(cache_dir) if cache_dir else storage.join_path(self.output_dir, "cache")
+        self.cache_dir = (
+            str(cache_dir) if cache_dir is not None and cache_dir else storage.join_path(self.output_dir, "cache")
+        )
         self.no_cache = no_cache
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -293,7 +294,7 @@ class RoofAgeExporter(BaseExporter):
         # Validate country
         if self.country.lower() != "us":
             raise ValueError(
-                f"Roof Age API is currently only available for US properties. " f"Got country='{self.country}'"
+                f"Roof Age API is currently only available for US properties. Got country='{self.country}'"
             )
 
         # Belt-and-braces: cutoff parameters aren't supported on the A.0 dataset (HTTP 500 from prod).
@@ -365,7 +366,7 @@ class RoofAgeExporter(BaseExporter):
         BaseExporter.configure_worker_logging(self.log_level)
         logger = log.get_logger()
 
-        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_time = datetime.now(UTC).isoformat()
         chunk_start_monotonic = time.monotonic()
 
         try:
@@ -380,7 +381,7 @@ class RoofAgeExporter(BaseExporter):
             # Check if chunk already processed
             if storage.file_exists(outfile_metadata) and storage.validate_parquet(outfile_metadata):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
-                return
+                return None
 
             logger.debug(f"Chunk {chunk_id}: Processing {len(aoi_gdf)} AOIs")
 
@@ -422,7 +423,7 @@ class RoofAgeExporter(BaseExporter):
             if latency_stats is not None:
                 latency_stats["chunk_id"] = chunk_id
                 latency_stats["start_time"] = chunk_start_time
-                latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
+                latency_stats["end_time"] = datetime.now(UTC).isoformat()
                 latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
                 save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
 
@@ -431,7 +432,7 @@ class RoofAgeExporter(BaseExporter):
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
         except Exception as e:
-            logger.error(f"Chunk {chunk_id} failed: {e}")
+            logger.error(f"Chunk {chunk_id} failed: {e}")  # noqa: TRY400 -- the traceback is printed to stderr on the next line
             traceback.print_exc()
             raise
 
@@ -471,7 +472,7 @@ class RoofAgeExporter(BaseExporter):
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
         # Split into chunks and process in parallel (using BaseExporter methods)
-        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
+        chunks_to_process, _skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
 
         initial_aoi_count = len(aoi_gdf) - skipped_aois
         latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
@@ -493,10 +494,14 @@ class RoofAgeExporter(BaseExporter):
                 self.logger.info(
                     f"Global latency stats: "
                     f"mean={global_stats['mean']:.0f}ms, "
-                    f"P50={global_stats['p50']:.0f}ms [{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
-                    f"P90={global_stats['p90']:.0f}ms [{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
-                    f"P95={global_stats['p95']:.0f}ms [{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
-                    f"P99={global_stats['p99']:.0f}ms [{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
+                    f"P50={global_stats['p50']:.0f}ms "
+                    f"[{global_stats['p50_ci'][0]:.0f}-{global_stats['p50_ci'][1]:.0f}], "
+                    f"P90={global_stats['p90']:.0f}ms "
+                    f"[{global_stats['p90_ci'][0]:.0f}-{global_stats['p90_ci'][1]:.0f}], "
+                    f"P95={global_stats['p95']:.0f}ms "
+                    f"[{global_stats['p95_ci'][0]:.0f}-{global_stats['p95_ci'][1]:.0f}], "
+                    f"P99={global_stats['p99']:.0f}ms "
+                    f"[{global_stats['p99_ci'][0]:.0f}-{global_stats['p99_ci'][1]:.0f}], "
                     f"n={global_stats['count']}"
                 )
             log_request_cache_summary(self.logger, all_latency_stats)
@@ -513,8 +518,7 @@ class RoofAgeExporter(BaseExporter):
         error_count = len(errors_df)
         roof_count = len(roofs_gdf)
         self.logger.info(
-            f"API queries complete: {success_count} successful, {error_count} errors, "
-            f"{roof_count} total roofs found"
+            f"API queries complete: {success_count} successful, {error_count} errors, {roof_count} total roofs found"
         )
 
         # Guard against silent empty consolidation: with chunks to read, all three combined
@@ -680,8 +684,8 @@ def main():
             api_warmup_interval_seconds=args.api_warmup_interval,
         )
         exporter.run()
-    except Exception as e:
-        logger.error(f"Export failed: {e}")
+    except Exception as e:  # noqa: BLE001 -- CLI entry point: report any failure and exit 1
+        logger.error(f"Export failed: {e}")  # noqa: TRY400 -- the traceback is printed to stderr on the next line
         traceback.print_exc()
         sys.exit(1)
 

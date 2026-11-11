@@ -15,12 +15,11 @@ Usage::
 
 from __future__ import annotations
 
-import json
-import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from importlib import resources
-from typing import Optional
+import json
+import re
 
 from nmaipy.constants import RETIRED_ROOF_SHAPE_DESCRIPTIONS
 
@@ -193,12 +192,12 @@ class _CompiledPattern:
     template: ColumnMeta
 
 
-def _format_scope_phrase(scope_prefix: Optional[str]) -> str:
+def _format_scope_phrase(scope_prefix: str | None) -> str:
     """Return the human-readable phrase for a scope prefix.
 
     Empty/None → the parcel-wide phrase ("across the entire parcel").
     """
-    if not scope_prefix:
+    if scope_prefix is None or not scope_prefix:
         return _DEFAULT_SCOPE_PHRASE
     return _SCOPE_PHRASES.get(scope_prefix, _DEFAULT_SCOPE_PHRASE)
 
@@ -212,17 +211,17 @@ def _substitute(
     class_label: str = "",
     class_label_primary: str = "",
     scope_phrase_override: str = "",
-    extra_groups: Optional[dict[str, str]] = None,
+    extra_groups: dict[str, str] | None = None,
 ) -> str:
     """Substitute templated placeholders.
 
     Recognised placeholders:
-      ``{unit}``          – ``"sqft"`` / ``"sqm"``.
-      ``{unit_name}``     – ``"square feet"`` / ``"square metres"``.
-      ``{scope_phrase}``  – e.g. ``"on the primary roof of the parcel"``.
-      ``{class}``         – pattern-captured detection class (humanised).
-      ``{class_label}``   – simple class name from filename or scope (e.g. ``"roof"``).
-      ``{class_label_primary}`` – primary-feature scope phrasing (e.g. ``"primary roof on the parcel"``).
+      ``{unit}``          - ``"sqft"`` / ``"sqm"``.
+      ``{unit_name}``     - ``"square feet"`` / ``"square metres"``.
+      ``{scope_phrase}``  - e.g. ``"on the primary roof of the parcel"``.
+      ``{class}``         - pattern-captured detection class (humanised).
+      ``{class_label}``   - simple class name from filename or scope (e.g. ``"roof"``).
+      ``{class_label_primary}`` - primary-feature scope phrasing (e.g. ``"primary roof on the parcel"``).
         Falls back to ``{class_label}`` when no scope is set.
     """
     if not value:
@@ -304,17 +303,17 @@ def _overlay_meta(base: ColumnMeta, entry: dict) -> ColumnMeta:
 def _validate(payload: dict) -> None:
     """Basic shape validation. Raises ValueError with a friendly message on bad input."""
     if not isinstance(payload, dict):
-        raise ValueError("column_metadata.json: top-level value must be an object/dict.")
+        raise ValueError("column_metadata.json: top-level value must be an object/dict.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     for required in ("exact_matches", "patterns"):
         if required not in payload:
             raise ValueError(f"column_metadata.json: missing required top-level key '{required}'.")
     if not isinstance(payload["exact_matches"], dict):
-        raise ValueError("column_metadata.json: 'exact_matches' must be an object (column name → metadata).")
+        raise ValueError("column_metadata.json: 'exact_matches' must be an object (column name → metadata).")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     if not isinstance(payload["patterns"], list):
-        raise ValueError("column_metadata.json: 'patterns' must be a list of pattern objects.")
+        raise ValueError("column_metadata.json: 'patterns' must be a list of pattern objects.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     for i, pattern in enumerate(payload["patterns"]):
         if not isinstance(pattern, dict):
-            raise ValueError(f"column_metadata.json: patterns[{i}] must be an object.")
+            raise ValueError(f"column_metadata.json: patterns[{i}] must be an object.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
         if "regex" not in pattern:
             raise ValueError(f"column_metadata.json: patterns[{i}] is missing 'regex'.")
         try:
@@ -325,9 +324,9 @@ def _validate(payload: dict) -> None:
 
 @lru_cache(maxsize=1)
 def load_metadata(
-    json_path: Optional[str] = None,
-    spec_raw_fields_path: Optional[str] = None,
-    overrides_path: Optional[str] = None,
+    json_path: str | None = None,
+    spec_raw_fields_path: str | None = None,
+    overrides_path: str | None = None,
 ) -> tuple[dict[str, ColumnMeta], tuple[_CompiledPattern, ...], dict[str, str], dict[str, str]]:
     """Load and validate the three-file column metadata stack.
 
@@ -398,7 +397,7 @@ def _is_model_input_field(entry: dict) -> bool:
     return entry.get("_spec_ref", "").split(".", 1)[0].endswith("ModelInputFeatures")
 
 
-def _read_json(json_path: Optional[str], package: str, default_filename: str) -> dict:
+def _read_json(json_path: str | None, package: str, default_filename: str) -> dict:
     """Read a JSON file from an explicit path or the bundled package data."""
     if json_path is None:
         with resources.files(package).joinpath(default_filename).open("r", encoding="utf-8") as fh:
@@ -407,7 +406,7 @@ def _read_json(json_path: Optional[str], package: str, default_filename: str) ->
         return json.load(fh)
 
 
-def _read_json_optional(json_path: Optional[str], package: str, default_filename: str) -> dict:
+def _read_json_optional(json_path: str | None, package: str, default_filename: str) -> dict:
     """Read a JSON file like :func:`_read_json`, but return ``{}`` if absent.
 
     Used for the spec-sourced and overrides layers, which older installs
@@ -432,13 +431,13 @@ def _validate_exact_only(payload: dict, *, source: str) -> None:
     if not payload:
         return
     if not isinstance(payload, dict):
-        raise ValueError(f"{source}: top-level value must be an object/dict.")
+        raise ValueError(f"{source}: top-level value must be an object/dict.")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
     if "exact_matches" not in payload:
         # Missing exact_matches is benign for these files (they may carry
         # only metadata like _doc). Treat as empty.
         return
     if not isinstance(payload["exact_matches"], dict):
-        raise ValueError(f"{source}: 'exact_matches' must be an object (column name → metadata).")
+        raise ValueError(f"{source}: 'exact_matches' must be an object (column name → metadata).")  # noqa: TRY004 -- malformed metadata file content; documented as ValueError
 
 
 def reload_metadata() -> None:
@@ -450,7 +449,7 @@ def lookup_column(
     name: str,
     area_unit: str = "",
     class_label: str = "feature",
-    extras: Optional[dict[str, str]] = None,
+    extras: dict[str, str] | None = None,
 ) -> ColumnMeta:
     """Resolve a column name to its ColumnMeta.
 
@@ -517,7 +516,8 @@ def lookup_column(
             if "primary_prefix" in extra_groups:
                 if extra_groups["primary_prefix"]:
                     extra_groups["primary_phrasing"] = (
-                        "the primary roof on the parcel (with Building Lifecycle fallback when structural damage is present)"
+                        "the primary roof on the parcel (with Building Lifecycle fallback when structural damage is "
+                        "present)"
                     )
                 else:
                     extra_groups["primary_phrasing"] = f"this {class_label}"
@@ -545,7 +545,7 @@ def lookup_column(
             scope_for_subject = groups.get("scope") or ""
             if scope_for_subject in _SCOPE_CLASS_LABELS_SIMPLE:
                 extra_groups["dominant_subject"] = f"the primary {_SCOPE_CLASS_LABELS_SIMPLE[scope_for_subject]}"
-            elif class_label and class_label != "feature" and class_label != "parcel":
+            elif class_label and class_label not in {"feature", "parcel"}:
                 extra_groups["dominant_subject"] = f"this {class_label}"
             else:
                 extra_groups["dominant_subject"] = "the parcel"
@@ -557,14 +557,14 @@ def lookup_column(
             # "inside a lanai" / "above-ground" cases).
             if "condition" in extra_groups:
                 cond = extra_groups["condition"]
-                _COND_PHRASES = {
+                cond_phrases = {
                     "unmaintained": "unmaintained",
                     "in_lanai": "inside a lanai",
                     "covered": "covered",
                     "empty": "empty",
                     "above_ground": "above-ground",
                 }
-                extra_groups["condition_phrase"] = _COND_PHRASES.get(cond, cond.replace("_", " "))
+                extra_groups["condition_phrase"] = cond_phrases.get(cond, cond.replace("_", " "))
                 extra_groups["pool_subject"] = (
                     "the primary swimming pool on the parcel"
                     if scope_for_subject == "primary_swimming_pool_"
@@ -578,7 +578,7 @@ def lookup_column(
             scope_phrase_override = ""
             if not scope and class_label and class_label not in ("feature", "parcel"):
                 scope_phrase_override = f"on this {class_label}"
-            if extras:
+            if extras is not None and extras:
                 extra_groups.update(extras)
             rendered = _instantiate(
                 pattern.template,
@@ -603,8 +603,8 @@ def _scope_stripped_lookup(
     area_unit: str,
     scope_prefix: str,
     class_label: str = "feature",
-    extras: Optional[dict[str, str]] = None,
-) -> Optional[ColumnMeta]:
+    extras: dict[str, str] | None = None,
+) -> ColumnMeta | None:
     """If ``remainder`` is in ``exact_matches``, return its meta with scope phrase appended.
 
     Also tries ``roof_age_<remainder>`` for child/instance scope prefixes, since the
@@ -624,7 +624,7 @@ def _scope_stripped_lookup(
             if ra_templated != f"roof_age_{remainder}":
                 candidates.append(ra_templated)
 
-    base: Optional[ColumnMeta] = None
+    base: ColumnMeta | None = None
     for candidate in candidates:
         if candidate in exact:
             base = exact[candidate]
@@ -672,18 +672,18 @@ def _instantiate(
     class_label: str = "",
     class_label_primary: str = "",
     scope_phrase_override: str = "",
-    extra_groups: Optional[dict[str, str]] = None,
+    extra_groups: dict[str, str] | None = None,
 ) -> ColumnMeta:
     """Render templates in a ColumnMeta against the given context."""
-    kw = dict(
-        area_unit=area_unit,
-        scope=scope,
-        cls=cls,
-        class_label=class_label,
-        class_label_primary=class_label_primary,
-        scope_phrase_override=scope_phrase_override,
-        extra_groups=extra_groups or {},
-    )
+    kw = {
+        "area_unit": area_unit,
+        "scope": scope,
+        "cls": cls,
+        "class_label": class_label,
+        "class_label_primary": class_label_primary,
+        "scope_phrase_override": scope_phrase_override,
+        "extra_groups": extra_groups or {},
+    }
     return replace(
         template,
         dtype=_substitute(template.dtype, **kw),

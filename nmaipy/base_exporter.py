@@ -13,7 +13,6 @@ Subclasses implement process_chunk() to define API-specific processing logic.
 """
 
 import concurrent.futures
-import json
 import multiprocessing
 import os
 import platform
@@ -21,7 +20,6 @@ import shutil
 import sys
 import tempfile
 import time
-import traceback
 import warnings
 
 # resource is a Unix-only stdlib module; on Windows we set the attribute to None
@@ -33,9 +31,9 @@ except ImportError:  # pragma: no cover — Windows
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar
 
 import geopandas as gpd
 import numpy as np
@@ -43,6 +41,7 @@ import pandas as pd
 import psutil
 from tqdm import tqdm
 
+import nmaipy
 from nmaipy import log, storage
 from nmaipy.cgroup_memory import (
     get_cgroup_cpu_limit,
@@ -69,7 +68,7 @@ def resource_postfix() -> str:
         used_gb, total_gb = get_memory_info_cgroup_aware()
         cpu_pct, _ = get_cpu_info_cgroup_aware()
         return f"{used_gb:.1f}/{total_gb:.1f}GB | CPU {cpu_pct:.0f}%"
-    except Exception:
+    except Exception:  # noqa: BLE001 -- progress display only; a failed resource probe must not stop the export
         return ""
 
 
@@ -93,17 +92,17 @@ class BaseExporter(ABC):
 
     # Shared tqdm configuration for progress bars. The "+" in the format indicates
     # total can increase during gridding.
-    _TQDM_CONFIG = dict(
-        desc="API requests",
-        file=sys.stdout,
-        position=0,
-        leave=True,
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
-        mininterval=5.0,
-        maxinterval=10.0,
-        smoothing=0.1,
-        unit=" requests",
-    )
+    _TQDM_CONFIG: ClassVar[dict[str, Any]] = {
+        "desc": "API requests",
+        "file": sys.stdout,
+        "position": 0,
+        "leave": True,
+        "bar_format": "{l_bar}{bar}| {n_fmt}/{total_fmt}+ [{elapsed}<{remaining}, {rate_fmt}]",
+        "mininterval": 5.0,
+        "maxinterval": 10.0,
+        "smoothing": 0.1,
+        "unit": " requests",
+    }
 
     @staticmethod
     def _format_progress_description(chunks_done, chunks_total, lat_str="Warmup"):
@@ -172,19 +171,19 @@ class BaseExporter(ABC):
         if self.is_s3_output:
             self._local_staging_dir = tempfile.mkdtemp(prefix="nmaipy_staging_")
             self._local_final_staging = os.path.join(self._local_staging_dir, "final")
-            os.makedirs(self._local_final_staging, exist_ok=True)
+            Path(self._local_final_staging).mkdir(parents=True, exist_ok=True)
         else:
             self._local_staging_dir = None
             self._local_final_staging = None
 
     def _cleanup_staging(self):
         """Remove the local staging directory created for S3 output."""
-        if self.is_s3_output and self._local_staging_dir:
+        if self.is_s3_output and self._local_staging_dir is not None and self._local_staging_dir:
             shutil.rmtree(self._local_staging_dir, ignore_errors=True)
             self._local_staging_dir = None
             self._local_final_staging = None
 
-    def _save_config(self, config: Dict[str, Any], config_name: str = "export_config.json"):
+    def _save_config(self, config: dict[str, Any], config_name: str = "export_config.json"):
         """
         Save export configuration to the final output directory.
 
@@ -196,16 +195,11 @@ class BaseExporter(ABC):
             config: Dictionary of export parameters
             config_name: Name of the config file (default: export_config.json)
         """
-        try:
-            import nmaipy
-
-            nmaipy_version = getattr(nmaipy, "__version__", "unknown")
-        except Exception:
-            nmaipy_version = "unknown"
+        nmaipy_version = getattr(nmaipy, "__version__", "unknown")
 
         # Build metadata
         metadata = {
-            "export_started_at": datetime.now(timezone.utc).isoformat(),
+            "export_started_at": datetime.now(UTC).isoformat(),
             "nmaipy_version": nmaipy_version,
             "python_version": platform.python_version(),
             "platform": platform.platform(),
@@ -222,7 +216,7 @@ class BaseExporter(ABC):
         try:
             storage.write_json(config_path, full_config, indent=2, default=str)
             self.logger.debug(f"Saved export config to {config_path}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- the config file is informational; a failed write is logged and the export continues
             self.logger.warning(f"Could not save export config: {e}")
 
     @abstractmethod
@@ -244,7 +238,6 @@ class BaseExporter(ABC):
         Raises:
             Any exceptions should be raised to be caught by run_parallel()
         """
-        pass
 
     @abstractmethod
     def get_chunk_output_file(self, chunk_id: str) -> str:
@@ -259,7 +252,6 @@ class BaseExporter(ABC):
         Returns:
             Path to the chunk's main output file (string, may be S3 URI)
         """
-        pass
 
     def is_chunk_output_complete(self, path: str) -> bool:
         """
@@ -275,7 +267,7 @@ class BaseExporter(ABC):
 
     def split_into_chunks(
         self, aoi_gdf: gpd.GeoDataFrame, check_cache: bool = True
-    ) -> Tuple[List[Tuple[int, gpd.GeoDataFrame]], int, int, int]:
+    ) -> tuple[list[tuple[int, gpd.GeoDataFrame]], int, int, int]:
         """
         Split a GeoDataFrame into chunks for parallel processing.
 
@@ -331,8 +323,7 @@ class BaseExporter(ABC):
                 if storage.file_exists(outfile):
                     if self.is_chunk_output_complete(outfile):
                         return (i, batch, True, None)
-                    else:
-                        return (i, batch, False, chunk_id)
+                    return (i, batch, False, chunk_id)
                 return (i, batch, False, None)
 
             cache_workers = S3_PARALLEL_READ_WORKERS if self.is_s3_output else PARALLEL_READ_WORKERS
@@ -401,7 +392,7 @@ class BaseExporter(ABC):
                     # this serial loop pays with no concurrency to mask it.
                     with storage.open_file(f, "rb") as fh:
                         parts.append(reader(fh))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- an unreadable chunk file is logged and skipped; the other chunks still combine
                     self.logger.warning(f"Chunk {chunk_id}: failed to read {prefix} file {f}: {e}. Skipping.")
         if not parts:
             if geo:
@@ -413,11 +404,11 @@ class BaseExporter(ABC):
 
     def run_parallel(
         self,
-        chunks_to_process: List[Tuple[int, gpd.GeoDataFrame]],
+        chunks_to_process: list[tuple[int, gpd.GeoDataFrame]],
         initial_aoi_count: int,
         use_progress_tracking: bool = True,
         **process_chunk_kwargs,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Process chunks in parallel using ProcessPoolExecutor.
 
@@ -445,7 +436,7 @@ class BaseExporter(ABC):
         jobs = []
         job_to_chunk = {}  # Track which chunk each job corresponds to
         max_retries = 3
-        PROCESS_POOL_RETRY_DELAY = 5  # seconds between ProcessPool retries
+        process_pool_retry_delay = 5  # seconds between ProcessPool retries
 
         # Use spawn context for all multiprocessing to avoid fork-safety issues.
         # On Linux, fork is the default and inherits stale S3 clients, event loops,
@@ -459,13 +450,8 @@ class BaseExporter(ABC):
         if use_progress_tracking:
             manager = mp_context.Manager()
             # Estimate 1 request per AOI initially (may grow if gridding occurs)
-            progress_counters = manager.dict(
-                {
-                    "total": initial_aoi_count,
-                    "completed": 0,
-                    "lock": manager.Lock(),
-                }
-            )
+            initial_counters: dict[str, Any] = {"total": initial_aoi_count, "completed": 0, "lock": manager.Lock()}
+            progress_counters = manager.dict(initial_counters)
             # Add progress_counters to kwargs if subclass expects it
             if "progress_counters" not in process_chunk_kwargs:
                 process_chunk_kwargs["progress_counters"] = progress_counters
@@ -507,7 +493,6 @@ class BaseExporter(ABC):
                                     )
                                 )
 
-                            chunks_submitted = 0
                             for position, (i, batch) in enumerate(chunks_to_process):
                                 chunk_id = str(i).zfill(4)
 
@@ -526,18 +511,17 @@ class BaseExporter(ABC):
 
                                         if active_jobs < max_concurrent:
                                             break
-                                        else:
-                                            # At capacity for current warmup stage - update progress while waiting
-                                            if pbar is not None and progress_counters is not None:
-                                                chunks_completed = chunks_submitted - active_jobs
-                                                self._update_pbar_during_warmup(
-                                                    pbar,
-                                                    progress_counters,
-                                                    chunks_submitted,
-                                                    len(chunks_to_process),
-                                                    chunks_completed,
-                                                )
-                                            time.sleep(1.0)
+                                        # At capacity for current warmup stage - update progress while waiting
+                                        if pbar is not None and progress_counters is not None:
+                                            chunks_completed = position - active_jobs
+                                            self._update_pbar_during_warmup(
+                                                pbar,
+                                                progress_counters,
+                                                position,
+                                                len(chunks_to_process),
+                                                chunks_completed,
+                                            )
+                                        time.sleep(1.0)
 
                                 self.logger.debug(
                                     f"Submitting chunk {chunk_id} with {len(batch)} AOIs "
@@ -556,7 +540,6 @@ class BaseExporter(ABC):
                                     batch.index.min(),
                                     batch.index.max(),
                                 )
-                                chunks_submitted += 1
 
                             # Process jobs with progress tracking
                             if use_progress_tracking and progress_counters is not None:
@@ -590,7 +573,7 @@ class BaseExporter(ABC):
                             executor.shutdown(wait=True)
 
                 except BrokenProcessPool as e:
-                    self._handle_broken_process_pool(e, attempt, max_retries, PROCESS_POOL_RETRY_DELAY)
+                    self._handle_broken_process_pool(e, attempt, max_retries, process_pool_retry_delay)
                     if attempt < max_retries - 1:
                         jobs = []  # Reset jobs list for retry
                         job_to_chunk = {}  # Reset job tracking for retry
@@ -606,7 +589,7 @@ class BaseExporter(ABC):
     def _update_pbar_during_warmup(
         self,
         pbar: tqdm,
-        progress_counters: Dict[str, Any],
+        progress_counters: dict[str, Any],
         chunks_submitted: int,
         total_chunks: int,
         chunks_completed: int,
@@ -634,13 +617,13 @@ class BaseExporter(ABC):
 
     def _monitor_progress_with_tqdm(
         self,
-        jobs: List[concurrent.futures.Future],
-        job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
-        progress_counters: Dict[str, Any],
+        jobs: list[concurrent.futures.Future],
+        job_to_chunk: dict[concurrent.futures.Future, tuple[str, int, Any, Any]],
+        progress_counters: dict[str, Any],
         num_jobs: int,
         executor: ProcessPoolExecutor,
-        pbar: Optional[tqdm] = None,
-    ) -> List[Dict[str, Any]]:
+        pbar: tqdm | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Monitor job progress with dynamic tqdm progress bar.
 
@@ -659,13 +642,13 @@ class BaseExporter(ABC):
         """
         completed_jobs = 0
         last_progress_check = time.time()
-        PROGRESS_CHECK_INTERVAL = 0.5  # Check shared counters every 0.5 seconds
+        progress_check_interval = 0.5  # Check shared counters every 0.5 seconds
         all_latency_stats = []  # Collect latency stats from each chunk
         latest_latency_stats = None  # Latest stats WITH live requests, for the P50 display
         total_cache_hits = 0  # Cumulative across completed chunks, for hit-rate display
         total_cache_misses = 0
 
-        def build_lat_str():
+        def build_lat_str(latest_latency_stats: dict | None, total_cache_hits: int, total_cache_misses: int) -> str:
             """Latency + cache hit-rate segment of the progress description.
 
             Both figures update as chunks complete: latency shows the P50 of the
@@ -673,7 +656,11 @@ class BaseExporter(ABC):
             no latency signal, so they don't blank the readout), the cache hit
             rate is cumulative over all completed chunks.
             """
-            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms" if latest_latency_stats else "Lat: ---"
+            lat_str = (
+                f"P50={latest_latency_stats['p50']:.0f}ms"
+                if latest_latency_stats is not None and latest_latency_stats
+                else "Lat: ---"
+            )
             cache_checked = total_cache_hits + total_cache_misses
             if cache_checked > 0:
                 lat_str += f" | Cache {100 * total_cache_hits / cache_checked:.0f}%"
@@ -725,20 +712,22 @@ class BaseExporter(ABC):
                             pbar.n = requests_completed
 
                             pbar.set_description(
-                                self._format_progress_description(completed_jobs, num_jobs, lat_str=build_lat_str())
+                                self._format_progress_description(
+                                    completed_jobs,
+                                    num_jobs,
+                                    lat_str=build_lat_str(latest_latency_stats, total_cache_hits, total_cache_misses),
+                                )
                             )
                             pbar.refresh()
 
-                        except Exception as e:
+                        except Exception:
                             chunk_info = job_to_chunk.get(j, ("unknown", -1, -1, -1))
                             chunk_id, chunk_idx, min_aoi, max_aoi = chunk_info
                             completed_jobs += 1
-                            self.logger.error(
+                            self.logger.exception(
                                 f"FAILURE TO COMPLETE JOB - Chunk: {chunk_id} "
-                                f"(index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}, "
-                                f"Error: {e}"
+                                f"(index {chunk_idx}), AOI range: {min_aoi}-{max_aoi}"
                             )
-                            self.logger.error(f"Traceback: {traceback.format_exc()}")
                             executor.shutdown(wait=False)
                             raise
                         finally:
@@ -750,7 +739,7 @@ class BaseExporter(ABC):
                 # previous bounded-timeout that lost the race and left the
                 # displayed counter frozen for minutes.
                 current_time = time.time()
-                if current_time - last_progress_check >= PROGRESS_CHECK_INTERVAL:
+                if current_time - last_progress_check >= progress_check_interval:
                     with progress_counters["lock"]:
                         requests_completed = progress_counters["completed"]
                         requests_total = progress_counters["total"]
@@ -762,7 +751,11 @@ class BaseExporter(ABC):
                     # Update position and description
                     pbar.n = requests_completed
                     pbar.set_description(
-                        self._format_progress_description(completed_jobs, num_jobs, lat_str=build_lat_str())
+                        self._format_progress_description(
+                            completed_jobs,
+                            num_jobs,
+                            lat_str=build_lat_str(latest_latency_stats, total_cache_hits, total_cache_misses),
+                        )
                     )
                     pbar.refresh()
                     last_progress_check = current_time
@@ -774,7 +767,13 @@ class BaseExporter(ABC):
 
             pbar.n = requests_completed
             pbar.total = requests_total
-            pbar.set_description(self._format_progress_description(num_jobs, num_jobs, lat_str=build_lat_str()))
+            pbar.set_description(
+                self._format_progress_description(
+                    num_jobs,
+                    num_jobs,
+                    lat_str=build_lat_str(latest_latency_stats, total_cache_hits, total_cache_misses),
+                )
+            )
             pbar.refresh()
 
         finally:
@@ -786,9 +785,9 @@ class BaseExporter(ABC):
 
     def _monitor_progress_simple(
         self,
-        jobs: List[concurrent.futures.Future],
-        job_to_chunk: Dict[concurrent.futures.Future, Tuple[str, int, Any, Any]],
-    ) -> List[Dict[str, Any]]:
+        jobs: list[concurrent.futures.Future],
+        job_to_chunk: dict[concurrent.futures.Future, tuple[str, int, Any, Any]],
+    ) -> list[dict[str, Any]]:
         """
         Simple progress monitoring with tqdm over completed jobs.
 
@@ -800,7 +799,7 @@ class BaseExporter(ABC):
         self.logger.info(f"Processing {len(jobs)} chunks...")
         all_latency_stats = []
         last_resource_update = 0.0
-        pbar = tqdm(list(zip(jobs, range(len(jobs)))), desc="Processing chunks")
+        pbar = tqdm(list(zip(jobs, range(len(jobs)), strict=True)), desc="Processing chunks")
         for job, _ in pbar:
             now = time.time()
             if now - last_resource_update >= 5.0:
@@ -813,10 +812,10 @@ class BaseExporter(ABC):
                     latency_stats = result.get("latency_stats")
                     if latency_stats is not None:
                         all_latency_stats.append(latency_stats)
-            except Exception as e:
+            except Exception:
                 chunk_info = job_to_chunk.get(job, ("unknown", -1, -1, -1))
                 chunk_id = chunk_info[0]
-                self.logger.error(f"Chunk {chunk_id} failed: {e}")
+                self.logger.exception(f"Chunk {chunk_id} failed")
                 raise
         return all_latency_stats
 
@@ -841,15 +840,15 @@ class BaseExporter(ABC):
 
         # Count open file descriptors (Linux only — /proc is absent on macOS and Windows)
         try:
-            pid = os.getpid()
-            if os.path.exists(f"/proc/{pid}/fd"):
-                fd_count = len(os.listdir(f"/proc/{pid}/fd"))
+            fd_dir = Path(f"/proc/{os.getpid()}/fd")
+            if fd_dir.exists():
+                fd_count = len(list(fd_dir.iterdir()))
             else:
                 fd_count = "unknown"
-        except Exception:
+        except OSError:
             fd_count = "unknown"
 
-        self.logger.error(f"BrokenProcessPool diagnostic info:")
+        self.logger.error("BrokenProcessPool diagnostic info:")
 
         # Log cgroup info if in container
         if is_running_in_container():
@@ -860,8 +859,10 @@ class BaseExporter(ABC):
                 self.logger.error(
                     f"  Container Memory: {cgroup_usage:.1f}GB used of {cgroup_limit:.1f}GB ({cgroup_percent:.1f}%)"
                 )
-        self.logger.error(f"  Host Memory: {mem.used/1024**3:.1f}GB used of {mem.total/1024**3:.1f}GB ({mem.percent}%)")
-        self.logger.error(f"  Swap: {swap.used/1024**3:.1f}GB used of {swap.total/1024**3:.1f}GB ({swap.percent}%)")
+        self.logger.error(
+            f"  Host Memory: {mem.used / 1024**3:.1f}GB used of {mem.total / 1024**3:.1f}GB ({mem.percent}%)"
+        )
+        self.logger.error(f"  Swap: {swap.used / 1024**3:.1f}GB used of {swap.total / 1024**3:.1f}GB ({swap.percent}%)")
         self.logger.error(f"  File descriptors: {fd_count} open (limit: {soft_limit})")
         self.logger.error(f"  Active processes: {self.processes}")
         cpu_pct = psutil.cpu_percent(interval=0.1)  # Blocking OK in error path
@@ -873,7 +874,7 @@ class BaseExporter(ABC):
 
         if attempt < max_retries - 1:
             self.logger.warning(
-                f"Process pool broken, attempt {attempt + 1}/{max_retries}, " f"retrying after {retry_delay}s delay..."
+                f"Process pool broken, attempt {attempt + 1}/{max_retries}, retrying after {retry_delay}s delay..."
             )
             time.sleep(retry_delay)
         else:

@@ -317,7 +317,7 @@ class TestFlattenRoofDominantColumns:
             shape_components=[],
         )
         result = flatten_roof_attributes([roof], country="us")
-        mat_keys = [k for k in result.keys() if k.startswith("dominant_roof_material_")]
+        mat_keys = [k for k in result if k.startswith("dominant_roof_material_")]
         assert mat_keys == [
             "dominant_roof_material_feature_class",
             "dominant_roof_material_description",
@@ -333,7 +333,7 @@ class TestFlattenRoofDominantColumns:
             shape_components=[_shape("Hip", 80, 0.75, 0.6, class_id="hip-uuid")],
         )
         result = flatten_roof_attributes([roof], country="us")
-        shape_keys = [k for k in result.keys() if k.startswith("dominant_roof_types_")]
+        shape_keys = [k for k in result if k.startswith("dominant_roof_types_")]
         assert shape_keys == [
             "dominant_roof_types_feature_class",
             "dominant_roof_types_description",

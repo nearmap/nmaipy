@@ -24,7 +24,7 @@ EVENT_ID = "2f510853-5d55-50f4-9102-2c02de08190e"
 
 @pytest.fixture
 def milton_response(data_directory: Path):
-    with open(data_directory / "test_damage_conflation_milton_response.json", "r") as f:
+    with open(data_directory / "test_damage_conflation_milton_response.json") as f:
         return json.load(f)
 
 
@@ -115,7 +115,8 @@ def test_process_chunk_writes_features_and_metadata(tmp_path, chunk_inputs):
 
     feats = Path(exporter.chunk_path) / "damage_features_0000.parquet"
     meta = Path(exporter.chunk_path) / "metadata_0000.parquet"
-    assert feats.exists() and meta.exists()
+    assert feats.exists()
+    assert meta.exists()
     result = gpd.read_parquet(feats)
     assert len(result) == len(features_gdf)
     for col in ("feature_id", "damage_event_rating", "event_uuid"):
@@ -197,7 +198,7 @@ def test_save_outputs_drops_wrong_unit_area_and_writes_files(tmp_path, chunk_inp
 
 def test_combine_reads_present_chunks_and_preserves_index(tmp_path, chunk_inputs):
     """Combine concatenates the per-chunk files that are present and round-trips the aoi_id index."""
-    aoi_gdf, features_gdf, metadata_df = chunk_inputs
+    _aoi_gdf, features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path, output_format="both")
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
     storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
@@ -217,7 +218,7 @@ def test_combine_recovers_from_stale_listing(tmp_path, chunk_inputs):
     return False for present chunks until the cache is invalidated. The combine must
     invalidate BEFORE its existence sweep, so it still reads the chunks. Without the fix
     (no invalidate), file_exists stays False and the combine reads 0 records — this test fails."""
-    _, features_gdf, metadata_df = chunk_inputs
+    _, _features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path)
     Path(exporter.chunk_path).mkdir(parents=True, exist_ok=True)
     storage.write_parquet(metadata_df, str(Path(exporter.chunk_path) / "metadata_0000.parquet"))
@@ -253,12 +254,13 @@ def test_save_outputs_writes_consolidated_errors(tmp_path, chunk_inputs):
     errs = Path(exporter.final_path) / "damage_errors.csv"
     assert errs.exists()
     out = pd.read_csv(errs)
-    assert "status_code" in out.columns and "message" in out.columns
+    assert "status_code" in out.columns
+    assert "message" in out.columns
     assert (out["status_code"] == 429).any()
 
 
 def test_save_outputs_skips_rollup_when_disabled(tmp_path, chunk_inputs):
-    aoi_gdf, features_gdf, metadata_df = chunk_inputs
+    _aoi_gdf, features_gdf, metadata_df = chunk_inputs
     exporter = _make_exporter(tmp_path, output_format="both", rollup=False)
     exporter._save_outputs(features_gdf.copy(), pd.DataFrame(), metadata_df, pd.DataFrame(), exporter.final_path)
     final = Path(exporter.final_path)
@@ -338,7 +340,7 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
 
     # Input columns pass through, ahead of the rollup columns, in both formats.
     for fmt in (rollup, pd.read_parquet(final / "damage_rollup.parquet").reset_index()):
-        assert dict(zip(fmt["aoi_id"], fmt["policy_number"])) == {"p1": "POL-1", "p2": "POL-2"}
+        assert dict(zip(fmt["aoi_id"], fmt["policy_number"], strict=True)) == {"p1": "POL-1", "p2": "POL-2"}
         cols = list(fmt.columns)
         assert cols.index("portfolio") < cols.index("n_buildings")
         assert "geometry" not in cols

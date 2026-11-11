@@ -10,10 +10,10 @@ These tests verify:
 
 import json
 import os
-import tempfile
-import warnings
 from pathlib import Path
+import tempfile
 from unittest.mock import Mock, patch
+import warnings
 
 import geopandas as gpd
 import pandas as pd
@@ -34,6 +34,8 @@ from nmaipy.constants import (
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    SINCE_COL_NAME,
+    UNTIL_COL_NAME,
     resolve_roof_age_dataset,
 )
 from nmaipy.exporter import export_feature_class
@@ -45,7 +47,7 @@ def test_gen_roof_age_data(parcels_2_gdf, data_directory: Path, cache_directory:
     """Generate cached roof age data for NJ parcels (3 AOIs)."""
     small_gdf = parcels_2_gdf.head(3)
     api = RoofAgeApi(cache_dir=cache_directory)
-    roofs_gdf, metadata_df, errors_df = api.get_roof_age_bulk(small_gdf)
+    roofs_gdf, metadata_df, _errors_df = api.get_roof_age_bulk(small_gdf)
     roofs_gdf.to_csv(data_directory / "test_roof_age_bulk_nj.csv", index=False)
     metadata_df.to_csv(data_directory / "test_roof_age_metadata_nj.csv")
 
@@ -69,7 +71,7 @@ def test_aoi_nj():
 def test_roof_age_response(data_directory):
     """Load the test roof age API response from fixture file"""
     fixture_path = data_directory / "test_roof_age_nj_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)
 
 
@@ -78,7 +80,7 @@ def test_roof_age_fl_response(data_directory):
     """Real Fort Myers FL API response: roofs with multi-element
     relevantPermitsDetails and a populated assessorDataDetails."""
     fixture_path = data_directory / "test_roof_age_fl_response.json"
-    with open(fixture_path, "r") as f:
+    with open(fixture_path) as f:
         return json.load(f)
 
 
@@ -177,25 +179,31 @@ def test_roof_age_api_since_as_of_date_in_payload(test_aoi_nj):
 def test_roof_age_api_per_call_until_overrides_instance_default(test_aoi_nj):
     """A per-call until_as_of_date overrides the instance-wide default in get_roof_age_by_aoi."""
     api = RoofAgeApi(api_key="t", resource_id="abc", until_as_of_date="2020-01-01")
-    with patch.object(api, "_fetch_all_pages", return_value={"features": [], "type": "FeatureCollection"}) as fetch:
-        with patch.object(api, "_load_from_cache", return_value=None), patch.object(api, "_save_to_cache"):
-            api.get_roof_age_by_aoi(test_aoi_nj, "aoi1")
-            assert fetch.call_args.kwargs["until_as_of_date"] == "2020-01-01"
+    with (
+        patch.object(api, "_fetch_all_pages", return_value={"features": [], "type": "FeatureCollection"}) as fetch,
+        patch.object(api, "_load_from_cache", return_value=None),
+        patch.object(api, "_save_to_cache"),
+    ):
+        api.get_roof_age_by_aoi(test_aoi_nj, "aoi1")
+        assert fetch.call_args.kwargs["until_as_of_date"] == "2020-01-01"
 
-            api.get_roof_age_by_aoi(test_aoi_nj, "aoi2", until_as_of_date="2019-06-15")
-            assert fetch.call_args.kwargs["until_as_of_date"] == "2019-06-15"
+        api.get_roof_age_by_aoi(test_aoi_nj, "aoi2", until_as_of_date="2019-06-15")
+        assert fetch.call_args.kwargs["until_as_of_date"] == "2019-06-15"
 
 
 def test_roof_age_api_per_call_since_overrides_instance_default(test_aoi_nj):
     """A per-call since_as_of_date overrides the instance-wide default in get_roof_age_by_aoi."""
     api = RoofAgeApi(api_key="t", resource_id="abc", since_as_of_date="2018-01-01")
-    with patch.object(api, "_fetch_all_pages", return_value={"features": [], "type": "FeatureCollection"}) as fetch:
-        with patch.object(api, "_load_from_cache", return_value=None), patch.object(api, "_save_to_cache"):
-            api.get_roof_age_by_aoi(test_aoi_nj, "aoi1")
-            assert fetch.call_args.kwargs["since_as_of_date"] == "2018-01-01"
+    with (
+        patch.object(api, "_fetch_all_pages", return_value={"features": [], "type": "FeatureCollection"}) as fetch,
+        patch.object(api, "_load_from_cache", return_value=None),
+        patch.object(api, "_save_to_cache"),
+    ):
+        api.get_roof_age_by_aoi(test_aoi_nj, "aoi1")
+        assert fetch.call_args.kwargs["since_as_of_date"] == "2018-01-01"
 
-            api.get_roof_age_by_aoi(test_aoi_nj, "aoi2", since_as_of_date="2019-06-15")
-            assert fetch.call_args.kwargs["since_as_of_date"] == "2019-06-15"
+        api.get_roof_age_by_aoi(test_aoi_nj, "aoi2", since_as_of_date="2019-06-15")
+        assert fetch.call_args.kwargs["since_as_of_date"] == "2019-06-15"
 
 
 def test_roof_age_api_bulk_reads_per_aoi_until_column(test_aoi_nj):
@@ -203,8 +211,6 @@ def test_roof_age_api_bulk_reads_per_aoi_until_column(test_aoi_nj):
 
     Mirrors feature_api.py's pattern: the bulk default is overridden when the row has a non-empty string.
     """
-    from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, UNTIL_COL_NAME
-
     api = RoofAgeApi(api_key="t", resource_id="abc", until_as_of_date="2020-01-01", threads=1)
 
     aoi_gdf = gpd.GeoDataFrame(
@@ -230,8 +236,6 @@ def test_roof_age_api_bulk_reads_per_aoi_until_column(test_aoi_nj):
 
 def test_roof_age_api_bulk_reads_per_aoi_since_column(test_aoi_nj):
     """get_roof_age_bulk picks up a 'since' column on the input GeoDataFrame and forwards it per-row."""
-    from nmaipy.constants import AOI_ID_COLUMN_NAME, API_CRS, SINCE_COL_NAME
-
     api = RoofAgeApi(api_key="t", resource_id="abc", since_as_of_date="2018-01-01", threads=1)
 
     aoi_gdf = gpd.GeoDataFrame(
@@ -292,7 +296,8 @@ def test_roof_age_api_cache_separated_by_until_as_of_date(test_aoi_nj, cache_dir
     none_path = api._get_cache_path(cache_key, until_as_of_date=None)
     p2020 = api._get_cache_path(cache_key, until_as_of_date="2020-01-01")
     p2021 = api._get_cache_path(cache_key, until_as_of_date="2021-01-01")
-    assert none_path != p2020 != p2021 and none_path != p2021
+    assert none_path != p2020 != p2021
+    assert none_path != p2021
 
 
 def test_roof_age_api_cache_separated_by_since_as_of_date(test_aoi_nj, cache_directory):
@@ -302,7 +307,8 @@ def test_roof_age_api_cache_separated_by_since_as_of_date(test_aoi_nj, cache_dir
     none_path = api._get_cache_path(cache_key, since_as_of_date=None)
     p2018 = api._get_cache_path(cache_key, since_as_of_date="2018-01-01")
     p2019 = api._get_cache_path(cache_key, since_as_of_date="2019-01-01")
-    assert none_path != p2018 != p2019 and none_path != p2019
+    assert none_path != p2018 != p2019
+    assert none_path != p2019
 
 
 def test_roof_age_api_missing_key():
@@ -628,14 +634,13 @@ def test_bulk_query_with_errors(roof_age_api):
                     geometry=[aoi],
                     crs=API_CRS,
                 )
-            else:
-                # Raise an error
-                raise RoofAgeAPIError(None, "test_url", message="Test error")
+            # Raise an error
+            raise RoofAgeAPIError(None, "test_url", message="Test error")
 
         mock_get.side_effect = side_effect
 
         # The bulk method returns errors in errors_df rather than raising exceptions
-        roofs_gdf, metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf)
+        roofs_gdf, _metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf)
 
         assert len(roofs_gdf) == 1  # One success
         assert len(errors_df) == 1  # One error
@@ -662,7 +667,7 @@ def test_bulk_query_all_errors(roof_age_api):
         mock_get.side_effect = RoofAgeAPIError(None, "test_url", message="Test error")
 
         # All errors are returned in errors_df
-        roofs_gdf, metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf)
+        roofs_gdf, _metadata_df, errors_df = roof_age_api.get_roof_age_bulk(aoi_gdf)
 
         assert len(roofs_gdf) == 0  # No successes
         assert len(errors_df) == 1  # One error
@@ -922,11 +927,11 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
     Fetches roof instances from the Roof Age API and exports them via
     export_feature_class, verifying the output contains expected columns.
     """
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY", ""):
         pytest.skip("API_KEY not set")
 
     api = RoofAgeApi()
-    roofs_gdf, metadata_df, errors_df = api.get_roof_age_bulk(parcels_2_gdf)
+    roofs_gdf, _metadata_df, _errors_df = api.get_roof_age_bulk(parcels_2_gdf)
 
     if len(roofs_gdf) == 0:
         pytest.skip("No roof instances returned from API")
@@ -1022,11 +1027,10 @@ class TestRoofAgeFieldMapping:
         # Concat just like exporter.py line ~2203
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*concatenation with empty or all-NA.*")
-            combined = gpd.GeoDataFrame(
+            return gpd.GeoDataFrame(
                 pd.concat([fa, ra], ignore_index=False),
                 crs=API_CRS,
             )
-        return combined
 
     def test_roof_instance_export_whitelists_columns(self, combined_features_gdf):
         """Only ROOF_AGE_PREFIX_COLUMNS get roof_age_ prefix; Feature API columns are excluded."""
@@ -1063,9 +1067,9 @@ class TestRoofAgeFieldMapping:
             for col in result_df.columns:
                 if col.startswith("roof_age_"):
                     base = col[len("roof_age_") :]
-                    assert (
-                        base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date"
-                    ), f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
+                    assert base in ROOF_AGE_PREFIX_COLUMNS or col == "roof_age_years_as_of_date", (
+                        f"Unexpected roof_age_ column: {col} (base '{base}' not in ROOF_AGE_PREFIX_COLUMNS)"
+                    )
 
             # Boolean fields converted to Y/N
             assert set(result_df["roof_age_relevant_permits"].dropna().unique()) <= {
@@ -1108,7 +1112,7 @@ class TestRoofAgeFieldMapping:
             pytest.skip("Need both roof instances and roofs in combined data")
 
         # Link roof instances to roofs (replicating exporter flow)
-        ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(ri_features, roof_features)
+        _ri_linked, roofs_linked = parcels.link_roof_instances_to_roofs(ri_features, roof_features)
 
         # Only test roofs that have a linked primary child
         roofs_with_link = roofs_linked[roofs_linked["primary_child_roof_age_feature_id"].notna()]

@@ -1,13 +1,11 @@
 """Tests for primary feature selection utilities."""
 
 import geopandas as gpd
-import pandas as pd
 import pytest
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 
 from nmaipy.primary_feature_selection import (
     select_primary,
-    select_primary_by_largest,
     select_primary_by_nearest,
     select_primary_optimal,
 )
@@ -21,7 +19,7 @@ class TestSelectPrimaryByNearest:
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
         gdf = gdf.set_crs("EPSG:4326")
         # Pre-project to EPSG:3857 for select_primary_by_nearest
-        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.values
+        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.array
         return gdf
 
     def test_containment_selects_feature_containing_target(self):
@@ -338,7 +336,7 @@ class TestSelectPrimaryOptimal:
         """Create a test GeoDataFrame from feature definitions with pre-projected geometry."""
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
         gdf = gdf.set_crs("EPSG:4326")
-        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.values
+        gdf["_geometry_projected"] = gdf.to_crs("EPSG:3857").geometry.array
         return gdf
 
     def test_uses_nearest_when_feature_contains_target(self):
@@ -476,8 +474,7 @@ class TestSelectPrimary:
     def _create_test_gdf(self, features: list) -> gpd.GeoDataFrame:
         """Create a test GeoDataFrame from feature definitions."""
         gdf = gpd.GeoDataFrame(features, geometry="geometry")
-        gdf = gdf.set_crs("EPSG:4326")
-        return gdf
+        return gdf.set_crs("EPSG:4326")
 
     def test_largest_method(self):
         """Test 'largest' method selects by area."""

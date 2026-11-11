@@ -24,10 +24,10 @@ Example usage:
 """
 
 import argparse
+from datetime import UTC, datetime
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
 
 import geopandas as gpd
 import pandas as pd
@@ -131,7 +131,7 @@ def filter_buildings_to_aoi(
     intersection_sqm = buildings.intersection(aoi_per_building).area
     ratio = intersection_sqm / buildings.area
     keep = (ratio >= min_ratio) | (intersection_sqm >= min_intersection_sqm) | ratio.isna()
-    return features_gdf[keep.values]
+    return features_gdf[keep.to_numpy()]
 
 
 def parse_arguments():
@@ -242,7 +242,7 @@ class DamageConflationExporter(BaseExporter):
         rollup: bool = False,
         parcel_mode: bool = False,
         primary_decision: str = "largest",
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         no_cache: bool = False,
         overwrite_cache: bool = False,
         compress_cache: bool = False,
@@ -251,7 +251,7 @@ class DamageConflationExporter(BaseExporter):
         max_retries: int = MAX_RETRIES,
         chunk_size: int = 500,
         country: str = "us",
-        api_key: str = None,
+        api_key: str | None = None,
         log_level: str = "INFO",
         include_aoi_geometry: bool = False,
         api_warmup_interval_seconds: float = API_WARMUP_INTERVAL_SECONDS,
@@ -273,7 +273,9 @@ class DamageConflationExporter(BaseExporter):
         self.rollup = rollup
         self.parcel_mode = parcel_mode
         self.primary_decision = primary_decision
-        self.cache_dir = str(cache_dir) if cache_dir else storage.join_path(self.output_dir, "cache")
+        self.cache_dir = (
+            str(cache_dir) if cache_dir is not None and cache_dir else storage.join_path(self.output_dir, "cache")
+        )
         self.no_cache = no_cache
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache
@@ -322,7 +324,7 @@ class DamageConflationExporter(BaseExporter):
         BaseExporter.configure_worker_logging(self.log_level)
         logger = log.get_logger()
 
-        chunk_start_time = datetime.now(timezone.utc).isoformat()
+        chunk_start_time = datetime.now(UTC).isoformat()
         chunk_start_monotonic = time.monotonic()
 
         try:
@@ -334,7 +336,7 @@ class DamageConflationExporter(BaseExporter):
 
             if storage.file_exists(outfile_metadata) and storage.validate_parquet(outfile_metadata):
                 logger.debug(f"Chunk {chunk_id} already processed, skipping")
-                return
+                return None
 
             logger.debug(f"Chunk {chunk_id}: Processing {len(aoi_gdf)} AOIs")
             progress_counters = kwargs.get("progress_counters")
@@ -375,7 +377,7 @@ class DamageConflationExporter(BaseExporter):
             if latency_stats is not None:
                 latency_stats["chunk_id"] = chunk_id
                 latency_stats["start_time"] = chunk_start_time
-                latency_stats["end_time"] = datetime.now(timezone.utc).isoformat()
+                latency_stats["end_time"] = datetime.now(UTC).isoformat()
                 latency_stats["total_duration_ms"] = (time.monotonic() - chunk_start_monotonic) * 1000
                 save_chunk_latency_stats(latency_stats, self.chunk_path, chunk_id)
 
@@ -383,7 +385,7 @@ class DamageConflationExporter(BaseExporter):
             return {"chunk_id": chunk_id, "latency_stats": latency_stats}
 
         except Exception as e:
-            logger.error(f"Chunk {chunk_id} failed: {e}")
+            logger.error(f"Chunk {chunk_id} failed: {e}")  # noqa: TRY400 -- the traceback is printed to stderr on the next line
             traceback.print_exc()
             raise
 
@@ -409,7 +411,7 @@ class DamageConflationExporter(BaseExporter):
 
         self.logger.info(f"Loaded {len(aoi_gdf)} AOIs")
 
-        chunks_to_process, skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
+        chunks_to_process, _skipped_chunks, skipped_aois, num_chunks = self.split_into_chunks(aoi_gdf, check_cache=True)
         initial_aoi_count = len(aoi_gdf) - skipped_aois
         latency_csv_path = storage.join_path(self.final_path, "latency_stats.csv")
 
@@ -578,8 +580,8 @@ def main():
             api_warmup_interval_seconds=args.api_warmup_interval,
         )
         exporter.run()
-    except Exception as e:
-        logger.error(f"Export failed: {e}")
+    except Exception as e:  # noqa: BLE001 -- CLI entry point: report any failure and exit 1
+        logger.error(f"Export failed: {e}")  # noqa: TRY400 -- the traceback is printed to stderr on the next line
         traceback.print_exc()
         sys.exit(1)
 

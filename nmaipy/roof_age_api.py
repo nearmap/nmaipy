@@ -32,19 +32,17 @@ Example usage:
 import concurrent.futures
 import hashlib
 import json
-import re
-import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+import time
 
 import geopandas as gpd
 import pandas as pd
-import stringcase
 from shapely.geometry import Polygon, shape
+import stringcase
 
 from nmaipy import log, storage
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
-from nmaipy.api_common import BaseApiClient, RoofAgeAPIError
+from nmaipy.api_common import BaseApiClient, RoofAgeAPIError, _cache_error_text
 from nmaipy.constants import (
     ADDRESS_FIELDS,
     AOI_ID_COLUMN_NAME,
@@ -53,7 +51,6 @@ from nmaipy.constants import (
     MAX_RETRIES,
     ROOF_AGE_AREA_FIELD,
     ROOF_AGE_ASSESSOR_DATA_DETAILS_FIELD,
-    ROOF_AGE_DEFAULT_PAGE_LIMIT,
     ROOF_AGE_DEFAULT_RESOURCE_ID,
     ROOF_AGE_HILBERT_ID_FIELD,
     ROOF_AGE_MAPBROWSER_URL_FIELD,
@@ -82,19 +79,19 @@ class RoofAgeApi(BaseApiClient):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        cache_dir: Optional[Path] = None,
-        overwrite_cache: Optional[bool] = False,
-        compress_cache: Optional[bool] = False,
-        threads: Optional[int] = 10,
-        url_root: Optional[str] = None,
+        api_key: str | None = None,
+        cache_dir: Path | None = None,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
+        url_root: str | None = None,
         country: str = "us",
-        progress_counters: Optional[dict] = None,
+        progress_counters: dict | None = None,
         bulk_mode: bool = True,
         resource_id: str = ROOF_AGE_DEFAULT_RESOURCE_ID,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
-        bearer_token: Optional[str] = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
+        bearer_token: str | None = None,
         maxretry: int = MAX_RETRIES,
     ):
         """
@@ -108,7 +105,7 @@ class RoofAgeApi(BaseApiClient):
             threads: Number of threads for concurrent execution
             url_root: Override the default API root URL (for testing)
             country: Country code for address queries (e.g., 'us', 'au')
-            progress_counters: Optional dict with 'total', 'completed', and 'lock' for tracking progress across processes
+            progress_counters: Optional dict with 'total', 'completed', and 'lock' to track progress across processes
             bulk_mode: When True, uses bulk API mode with higher rate limits (1000 rps vs 20 rps)
             resource_id: Roof Age dataset resource id (e.g. ``"latest"`` for the API team's pointer to the
                 current default, or a UUID for a specific dataset). Resource ids identify *datasets*, not
@@ -156,12 +153,12 @@ class RoofAgeApi(BaseApiClient):
         self.base_url = f"https://{url_root}/{ROOF_AGE_RESOURCE_PATH}/{resource_id}"
 
         logger.debug(
-            f"Initialized RoofAgeApi with base_url: {self._clean_api_key(self.base_url)}, "
+            f"Initialized RoofAgeApi with base_url: {self._redact_api_key(self.base_url)}, "
             f"resource_id: {resource_id}, until_as_of_date: {until_as_of_date}, "
             f"since_as_of_date: {since_as_of_date}, bulk_mode: {bulk_mode}"
         )
 
-    def _qualifier_subdir(self, until_as_of_date: Optional[str], since_as_of_date: Optional[str]) -> str:
+    def _qualifier_subdir(self, until_as_of_date: str | None, since_as_of_date: str | None) -> str:
         """Build the cache sub-directory that scopes a request by dataset and cutoffs.
 
         Layout: ``roofage/<resource_id>/<until_or_none>/<since_or_none>``. Pulling these out of the
@@ -179,8 +176,8 @@ class RoofAgeApi(BaseApiClient):
         self,
         cache_key: str,
         *,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
     ) -> str:
         """
         Get the cache file path for a given key.
@@ -233,9 +230,9 @@ class RoofAgeApi(BaseApiClient):
         self,
         cache_key: str,
         *,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
-    ) -> Optional[Dict]:
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
+    ) -> dict | None:
         """Override of BaseApiClient._load_from_cache that routes through the qualifier-aware path."""
         if self.cache_dir is None or self.overwrite_cache:
             return None
@@ -248,17 +245,17 @@ class RoofAgeApi(BaseApiClient):
 
         try:
             return storage.read_json(cache_path, compressed=self.compress_cache)
-        except Exception as e:
-            logger.warning(f"Failed to load from cache: {e}")
+        except Exception as e:  # noqa: BLE001 -- an unreadable cache entry is a cache miss; the request is refetched
+            logger.warning(f"Failed to load from cache: {_cache_error_text(e)}")
             return None
 
     def _save_to_cache(
         self,
         cache_key: str,
-        data: Dict,
+        data: dict,
         *,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
     ) -> None:
         """Override of BaseApiClient._save_to_cache that routes through the qualifier-aware path."""
         if self.cache_dir is None:
@@ -269,18 +266,18 @@ class RoofAgeApi(BaseApiClient):
         )
         try:
             storage.write_json(cache_path, data, compressed=self.compress_cache)
-        except Exception as e:
-            logger.warning(f"Failed to save to cache: {e}")
+        except Exception as e:  # noqa: BLE001 -- cache writes are best-effort; the fetched response is still returned
+            logger.warning(f"Failed to save to cache: {_cache_error_text(e)}")
 
     def _build_request_payload(
         self,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
-        cursor: Optional[str] = None,
-        limit: Optional[int] = None,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
-    ) -> Dict:
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
+    ) -> dict:
         """
         Build the request payload for the Roof Age API.
 
@@ -311,6 +308,7 @@ class RoofAgeApi(BaseApiClient):
             payload["aoi"] = geojson["features"][0]["geometry"]
         else:
             # Validate address fields
+            assert address is not None
             for field in ADDRESS_FIELDS:
                 if field not in address:
                     raise ValueError(f"Address missing required field: {field}")
@@ -333,8 +331,8 @@ class RoofAgeApi(BaseApiClient):
 
     def _build_cache_key(
         self,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
     ) -> str:
         """Build a cache key identifying the request's geometry / address shape.
 
@@ -356,7 +354,7 @@ class RoofAgeApi(BaseApiClient):
         )
         return f"roofage_address_{address_path}"
 
-    def _parse_response(self, response_data: Dict, aoi_id: str) -> gpd.GeoDataFrame:
+    def _parse_response(self, response_data: dict, aoi_id: str) -> gpd.GeoDataFrame:
         """
         Parse Roof Age API response into a GeoDataFrame.
 
@@ -462,13 +460,13 @@ class RoofAgeApi(BaseApiClient):
     def _fetch_all_pages(
         self,
         url: str,
-        params: Dict,
-        aoi: Optional[Polygon] = None,
-        address: Optional[Dict[str, str]] = None,
-        limit: Optional[int] = None,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
-    ) -> Dict:
+        params: dict,
+        aoi: Polygon | None = None,
+        address: dict[str, str] | None = None,
+        limit: int | None = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
+    ) -> dict:
         """
         Fetch all pages of results from the Roof Age API, handling pagination.
 
@@ -516,7 +514,7 @@ class RoofAgeApi(BaseApiClient):
 
                 if not response.ok:
                     error_msg = f"Failed to get roof age data (page {page_count})"
-                    raise RoofAgeAPIError(response, self._clean_api_key(url), message=error_msg)
+                    raise RoofAgeAPIError(response, self._redact_api_key(url), message=error_msg)
 
                 response_data = response.json()
 
@@ -554,9 +552,9 @@ class RoofAgeApi(BaseApiClient):
         aoi: Polygon,
         aoi_id: str,
         file_format: str = "json",
-        limit: Optional[int] = None,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
+        limit: int | None = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
     ) -> gpd.GeoDataFrame:
         """
         Get roof age data for an area of interest.
@@ -596,7 +594,7 @@ class RoofAgeApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         if self.bulk_mode:
             params["bulk"] = "true"
 
@@ -619,12 +617,12 @@ class RoofAgeApi(BaseApiClient):
 
     def get_roof_age_by_address(
         self,
-        address: Dict[str, str],
+        address: dict[str, str],
         aoi_id: str,
         file_format: str = "json",
-        limit: Optional[int] = None,
-        until_as_of_date: Optional[str] = None,
-        since_as_of_date: Optional[str] = None,
+        limit: int | None = None,
+        until_as_of_date: str | None = None,
+        since_as_of_date: str | None = None,
     ) -> gpd.GeoDataFrame:
         """
         Get roof age data for a property address.
@@ -666,7 +664,7 @@ class RoofAgeApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = self._auth_params()
         if self.bulk_mode:
             params["bulk"] = "true"
 
@@ -690,7 +688,7 @@ class RoofAgeApi(BaseApiClient):
     def get_roof_age_bulk(
         self,
         aoi_gdf: gpd.GeoDataFrame,
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Get roof age data for multiple AOIs in parallel.
 
@@ -777,7 +775,7 @@ class RoofAgeApi(BaseApiClient):
                     metadata["resource_id"] = roofs_gdf["resource_id"].iloc[0]
 
                 return ("success", roofs_gdf, metadata, None)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- per-AOI: the failure is recorded in the errors table and the other AOIs continue
                 error_info = {
                     AOI_ID_COLUMN_NAME: aoi_id,
                     "status_code": getattr(e, "status_code", -1),
@@ -821,8 +819,7 @@ class RoofAgeApi(BaseApiClient):
         error_pct = (len(errors_df) / len(aoi_gdf)) * 100 if len(aoi_gdf) > 0 else 0
 
         logger.debug(
-            f"Roof age bulk query complete: {len(roofs_gdf)} roofs found, "
-            f"{len(errors_df)} errors ({error_pct:.1f}%)"
+            f"Roof age bulk query complete: {len(roofs_gdf)} roofs found, {len(errors_df)} errors ({error_pct:.1f}%)"
         )
 
         return roofs_gdf, metadata_df, errors_df

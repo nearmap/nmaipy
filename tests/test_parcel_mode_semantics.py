@@ -62,7 +62,7 @@ def split(parcels_2_gdf, tmp_path_factory):
     payloads_off = {side: fetch(geom, api_off) for side, geom in halves.items()}
     for side in halves:
         assert payloads_off[side]["surveyId"] == payloads[side]["surveyId"], f"Half {side}: both modes' survey"
-    return dict(roof_id=roof["id"], halves=halves, payloads=payloads, payloads_off=payloads_off)
+    return {"roof_id": roof["id"], "halves": halves, "payloads": payloads, "payloads_off": payloads_off}
 
 
 def _roof(split, side, payloads="payloads") -> dict:
@@ -88,17 +88,17 @@ def test_roof_attributes_are_whole_feature_in_every_parcel(split):
     assert west["attributes"] == east["attributes"], "Roof attributes should be identical in both halves"
     component = _tree_overhang_component(west)
     assert component["areaSqm"] > 0, "Fixture roof should carry some tree overhang"
-    assert component["ratio"] == pytest.approx(
-        component["areaSqm"] / west["unclippedAreaSqm"], abs=0.005
-    ), "Component ratio should be relative to the whole roof, not the parcel's clip"
+    assert component["ratio"] == pytest.approx(component["areaSqm"] / west["unclippedAreaSqm"], abs=0.005), (
+        "Component ratio should be relative to the whole roof, not the parcel's clip"
+    )
 
 
 @pytest.mark.live_api
 def test_includes_are_computed_per_parcel(split):
     west, east = _roof(split, "W"), _roof(split, "E")
-    assert _hurricane_tree_overhang_ratio(west) != pytest.approx(
-        _hurricane_tree_overhang_ratio(east), abs=0.01
-    ), "The hurricane include's tree overhang ratio should be computed on each half's clip"
+    assert _hurricane_tree_overhang_ratio(west) != pytest.approx(_hurricane_tree_overhang_ratio(east), abs=0.01), (
+        "The hurricane include's tree overhang ratio should be computed on each half's clip"
+    )
 
 
 @pytest.mark.live_api
@@ -179,9 +179,9 @@ def test_parcel_mode_off_omits_parcel_fields(split):
     for side in ("W", "E"):
         for f in split["payloads_off"][side]["features"]:
             assert "belongsToParcel" not in f, f"Half {side}: {f['description']} has belongsToParcel without parcelMode"
-            assert not f.get(
-                "clippedGeometry"
-            ), f"Half {side}: {f['description']} has clippedGeometry without parcelMode"
+            assert not f.get("clippedGeometry"), (
+                f"Half {side}: {f['description']} has clippedGeometry without parcelMode"
+            )
 
 
 @pytest.mark.live_api
@@ -199,9 +199,9 @@ def test_parcel_mode_changes_only_parcel_fields(split):
             for key in (set(f_on) | set(f_off)) - PARCEL_MODE_FIELDS - set(CLIPPED_AREA_TOLERANCE):
                 assert f_on.get(key) == f_off.get(key), f"Half {side}, {f_on['description']} {fid}: {key} differs"
             for key, tolerance in CLIPPED_AREA_TOLERANCE.items():
-                assert f_on[key] == pytest.approx(
-                    f_off[key], abs=tolerance
-                ), f"Half {side}, {f_on['description']} {fid}: {key} should agree within rounding"
+                assert f_on[key] == pytest.approx(f_off[key], abs=tolerance), (
+                    f"Half {side}, {f_on['description']} {fid}: {key} should agree within rounding"
+                )
 
 
 @pytest.mark.live_api

@@ -1,10 +1,10 @@
-#!/usr/bin/env python
 """Test that defensibleSpace is correctly handled in flatten_roof_attributes."""
 
 import io
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import geopandas as gpd
 import pandas as pd
@@ -13,6 +13,7 @@ from shapely.geometry import Polygon, box, shape
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
+from nmaipy.feature_attributes import _flatten_defensible_space, _flatten_include_params
 from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
 
 data_directory = Path(__file__).parent / "data"
@@ -25,7 +26,7 @@ def defensible_space_payload():
     if not raw_payload_file.exists():
         pytest.skip(f"Raw payload file {raw_payload_file} does not exist. Run test_gen_defensible_space_data first.")
 
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 
@@ -69,7 +70,7 @@ def test_gen_defensible_space_data(cache_directory: Path):
         crs="EPSG:4326",
     ).set_index(AOI_ID_COLUMN_NAME)
 
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("API_KEY", "")
     if not api_key:
         pytest.skip("API_KEY not found in environment")
 
@@ -91,7 +92,7 @@ def test_gen_defensible_space_data(cache_directory: Path):
         json.dump(raw_payload, f, indent=2)
 
     # Now get the processed GeoDataFrame (without date constraints)
-    features_gdf, metadata_df, errors_df = api.get_features_gdf_bulk(
+    features_gdf, _metadata_df, _errors_df = api.get_features_gdf_bulk(
         test_gdf,
         region="us",
         packs=["building"],
@@ -107,14 +108,14 @@ def test_gen_defensible_space_data(cache_directory: Path):
     roof_features = features_gdf[features_gdf["class_id"] == ROOF_ID]
     ds_count = 0
 
-    for idx, row in roof_features.iterrows():
+    for _, row in roof_features.iterrows():
         # Check for defensibleSpace as a root-level property
         has_defensible_space = False
 
         # Check both possible field names
-        if "defensible_space" in row.index and pd.notna(row.get("defensible_space")):
-            has_defensible_space = True
-        elif "defensibleSpace" in row.index and pd.notna(row.get("defensibleSpace")):
+        if ("defensible_space" in row.index and pd.notna(row.get("defensible_space"))) or (
+            "defensibleSpace" in row.index and pd.notna(row.get("defensibleSpace"))
+        ):
             has_defensible_space = True
 
         if has_defensible_space:
@@ -186,10 +187,10 @@ def test_handles_missing_defensible_space_gracefully():
     result = flatten_roof_attributes([roof], country="us")
 
     # Verify no defensibleSpace fields in result
-    for key in result.keys():
-        assert not key.startswith(
-            "defensible_space_"
-        ), "defensibleSpace fields should not be present when not in source data"
+    for key in result:
+        assert not key.startswith("defensible_space_"), (
+            "defensibleSpace fields should not be present when not in source data"
+        )
 
 
 def test_defensible_space_with_camel_case(roof_with_defensible_space):
@@ -252,7 +253,7 @@ def test_defensible_space_invalid_data():
     }
 
     result_scalar = flatten_roof_attributes([roof_scalar], country="us")
-    for key in result_scalar.keys():
+    for key in result_scalar:
         assert not key.startswith("defensible_space_")
 
     # Test with None defensibleSpace
@@ -264,7 +265,7 @@ def test_defensible_space_invalid_data():
     }
 
     result_none = flatten_roof_attributes([roof_none], country="us")
-    for key in result_none.keys():
+    for key in result_none:
         assert not key.startswith("defensible_space_")
 
 
@@ -388,7 +389,7 @@ def test_rollup_with_defensible_space(defensible_space_payload):
 class TestRiskObjects:
     """Tests for per-class risk object breakdown within defensible space zones."""
 
-    SAMPLE_DEFENSIBLE_SPACE = {
+    SAMPLE_DEFENSIBLE_SPACE: ClassVar[dict] = {
         "zones": [
             {
                 "zoneId": 0,
@@ -536,8 +537,6 @@ class TestSkipDetection:
         return {"feature_id": "r", "class_id": ROOF_ID, "attributes": [], **includes}
 
     def test_per_roof_defensible_space_skipped_true(self):
-        from nmaipy.feature_attributes import _flatten_defensible_space
-
         flat = {}
         _flatten_defensible_space(
             {"defensibleSpace": {"skipped": True, "modelVersion": "1.0.0"}},
@@ -549,8 +548,6 @@ class TestSkipDetection:
         assert not any(k.startswith("defensible_space_zone_") for k in flat)
 
     def test_per_roof_defensible_space_skipped_false_when_zones_present(self):
-        from nmaipy.feature_attributes import _flatten_defensible_space
-
         flat = {}
         _flatten_defensible_space(
             {
@@ -580,8 +577,6 @@ class TestSkipDetection:
     def test_per_roof_defensible_space_skip_column_absent_when_include_not_requested(self):
         # No defensibleSpace key on the feature → the function returns early
         # and no *_skipped column is emitted.
-        from nmaipy.feature_attributes import _flatten_defensible_space
-
         flat = {}
         _flatten_defensible_space({}, flat, country="us")
         assert "defensible_space_skipped" not in flat
@@ -590,8 +585,6 @@ class TestSkipDetection:
         # `hurricaneScore` is a known include with a snake_key in INCLUDE_FIELD_MAPPINGS.
         # When the API returns skipped:true, the *_skipped column is True and no
         # score-field columns are emitted.
-        from nmaipy.feature_attributes import _flatten_include_params
-
         flat = {}
         _flatten_include_params({"hurricaneScore": {"skipped": True, "modelVersion": "2.1.0"}}, flat)
         assert flat["hurricane_score_skipped"] is True
@@ -601,8 +594,6 @@ class TestSkipDetection:
         assert score_field_cols == []
 
     def test_include_param_skip_false_when_evaluated(self):
-        from nmaipy.feature_attributes import _flatten_include_params
-
         flat = {}
         _flatten_include_params(
             {
@@ -619,8 +610,6 @@ class TestSkipDetection:
         assert flat["hurricane_vulnerability_score"] == 4
 
     def test_include_param_no_column_when_include_absent(self):
-        from nmaipy.feature_attributes import _flatten_include_params
-
         flat = {}
         _flatten_include_params({}, flat)
         assert "hurricane_score_skipped" not in flat

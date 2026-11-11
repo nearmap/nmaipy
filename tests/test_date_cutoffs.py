@@ -86,7 +86,9 @@ class TestValidateDateCutoffs:
         with pytest.raises(ValueError, match=r"column 'until'.*'aoi1'"):
             validate_date_cutoffs(aois)
 
-    @pytest.mark.parametrize("flag,kwargs", [("--since", {"since": "2025/01/01"}), ("--until", {"until": "yesterday"})])
+    @pytest.mark.parametrize(
+        ("flag", "kwargs"), [("--since", {"since": "2025/01/01"}), ("--until", {"until": "yesterday"})]
+    )
     def test_malformed_bulk_value_is_rejected(self, flag, kwargs):
         with pytest.raises(ValueError, match=flag):
             validate_date_cutoffs(_aois(other=[1, 2]), **kwargs)
@@ -168,9 +170,11 @@ def _bad_until_aois():
 
 def test_feature_api_bulk_rejects_bad_per_row_dates_before_querying(tmp_path):
     api = FeatureApi(api_key="test-key", cache_dir=tmp_path)
-    with patch.object(api, "_get_features_gdf_bulk_inner") as inner:
-        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
-            api.get_features_gdf_bulk(_bad_until_aois(), region="us")
+    with (
+        patch.object(api, "_get_features_gdf_bulk_inner") as inner,
+        pytest.raises(ValueError, match=r"column 'until'.*'b'"),
+    ):
+        api.get_features_gdf_bulk(_bad_until_aois(), region="us")
     inner.assert_not_called()
 
 
@@ -193,7 +197,8 @@ def test_feature_api_bulk_sends_no_blank_bulk_date(tmp_path, blank):
             _bad_until_aois().drop(columns="until"), region="us", since_bulk=blank, until_bulk=blank
         )
     sent = inner.call_args.kwargs
-    assert sent["since_bulk"] is None and sent["until_bulk"] is None, "A blank bulk date means no date"
+    assert sent["since_bulk"] is None, "A blank bulk date means no date"
+    assert sent["until_bulk"] is None, "A blank bulk date means no date"
 
 
 @pytest.mark.parametrize("blank", ["", "  "])
@@ -205,7 +210,8 @@ def test_roof_age_api_sends_no_blank_cutoff(tmp_path, blank):
     ):
         api.get_roof_age_by_aoi(box(-74.29, 40.63, -74.2895, 40.6305), "a")
     sent = fetch.call_args.kwargs
-    assert sent["until_as_of_date"] is None and sent["since_as_of_date"] is None, "A blank cutoff means no cutoff"
+    assert sent["until_as_of_date"] is None, "A blank cutoff means no cutoff"
+    assert sent["since_as_of_date"] is None, "A blank cutoff means no cutoff"
     (cached,) = tmp_path.rglob("*.json*")
     assert (cached.parent.parent.name, cached.parent.name) == ("none", "none"), f"Cache path names a cutoff: {cached}"
 
@@ -221,7 +227,9 @@ def test_standalone_roof_age_export_rejects_bad_dates_before_querying(tmp_path):
     aoi_file = tmp_path / "aois.csv"
     _bad_until_aois().reset_index().to_wkt().to_csv(aoi_file, index=False)
     exporter = RoofAgeExporter(aoi_file=str(aoi_file), output_dir=str(tmp_path / "out"), country="us", api_key="test")
-    with patch.object(RoofAgeExporter, "split_into_chunks") as split_into_chunks:
-        with pytest.raises(ValueError, match=r"column 'until'.*'b'"):
-            exporter.run()
+    with (
+        patch.object(RoofAgeExporter, "split_into_chunks") as split_into_chunks,
+        pytest.raises(ValueError, match=r"column 'until'.*'b'"),
+    ):
+        exporter.run()
     split_into_chunks.assert_not_called()

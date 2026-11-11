@@ -2,15 +2,22 @@
 
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
+from nmaipy.constants import (
+    CLASSES_WITH_FIDELITY,
+    PRIMARY_FEATURE_CLASS_IDS,
+    PRIMARY_FEATURE_COLUMN_TO_CLASS,
+    ROOF_ID,
+    ROOF_INSTANCE_CLASS_ID,
+)
 from nmaipy.exporter import AOIExporter
 
 # Every test here runs an export against the real API.
@@ -20,7 +27,7 @@ pytestmark = pytest.mark.live_api
 @pytest.fixture
 def integration_test_dir():
     """Fixture for test output directory."""
-    if os.environ.get("CI"):
+    if os.environ.get("CI", ""):
         temp_dir = tempfile.mkdtemp(prefix="integration_test_")
         output_dir = Path(temp_dir)
     else:
@@ -30,7 +37,7 @@ def integration_test_dir():
     yield output_dir
 
     # Cleanup - skip if KEEP_TEST_FILES is set (useful for QGIS testing)
-    if output_dir.exists() and not os.environ.get("KEEP_TEST_FILES"):
+    if output_dir.exists() and not os.environ.get("KEEP_TEST_FILES", ""):
         shutil.rmtree(output_dir)
 
 
@@ -124,16 +131,6 @@ def test_rollup_and_features_consistency(integration_test_dir, test_aoi_with_fea
     dot_notation_cols = [c for c in features_columns if "." in c]
     assert len(dot_notation_cols) > 0, "Features should have dot-notation columns"
 
-    # Check for expected patterns in features
-    features_patterns = [
-        "Building 3d attributes.",  # Dot notation with description prefix
-        "Roof material.",
-        "damage.femaCategoryConfidences.",  # Damage with dot notation
-        ".components",  # Components as JSON strings
-    ]
-
-    has_features_patterns = any(any(pattern in col for col in dot_notation_cols) for pattern in features_patterns)
-
     # 3. Verify no internalClassId in features
     assert not any("internalClassId" in col for col in features_columns), "Features should not expose internalClassId"
 
@@ -201,9 +198,7 @@ def test_features_without_rollup(integration_test_dir):
     assert features_file.exists(), "Features file should exist"
 
     # Verify features have proper flattening
-    features_gdf = gpd.read_parquet(features_file)
-    if len(features_gdf) > 0:
-        dot_cols = [c for c in features_gdf.columns if "." in c]
+    gpd.read_parquet(features_file)
 
 
 @pytest.mark.integration
@@ -256,9 +251,10 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
 
     # 1. Verify rollup CSV exists and has include parameter columns
     rollup_file = final_dir / "rollup.csv"
-    assert (
-        rollup_file.exists()
-    ), f"Rollup CSV should be created at {rollup_file}. Files in final: {list(final_dir.iterdir()) if final_dir.exists() else []}"
+    assert rollup_file.exists(), (
+        f"Rollup CSV should be created at {rollup_file}. Files in final: "
+        f"{list(final_dir.iterdir()) if final_dir.exists() else []}"
+    )
 
     rollup_df = pd.read_csv(rollup_file)
     rollup_cols = rollup_df.columns.tolist()
@@ -280,9 +276,9 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
     confidence_bins = [
         col for col in rollup_cols if "confidence_stats_default_bin_" in col or "confidence_stats_extreme_bin_" in col
     ]
-    assert (
-        len(confidence_bins) > 0
-    ), f"Should have roofConditionConfidenceStats histogram bins in rollup. Columns: {rollup_cols[:20]}"
+    assert len(confidence_bins) > 0, (
+        f"Should have roofConditionConfidenceStats histogram bins in rollup. Columns: {rollup_cols[:20]}"
+    )
 
     # Verify both default and extreme bins are present
     default_bins = [col for col in confidence_bins if "_default_bin_" in col]
@@ -298,11 +294,11 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
 
     # 3. Verify rollup chunks were created
     rollup_chunks = list(chunk_dir.glob("rollup_*.parquet"))
-    assert len(rollup_chunks) > 0, f"Should have created rollup chunks"
+    assert len(rollup_chunks) > 0, "Should have created rollup chunks"
 
     # 4. Verify feature chunks were created
     feature_chunks = list(chunk_dir.glob("features_*.parquet"))
-    assert len(feature_chunks) > 0, f"Should have created feature chunks"
+    assert len(feature_chunks) > 0, "Should have created feature chunks"
 
     # 5. Verify chunk features match consolidated features
     chunk_features = []
@@ -313,9 +309,9 @@ def test_full_export_with_all_includes_and_chunks(integration_test_dir):
 
     if chunk_features:
         total_chunk_features = sum(len(df) for df in chunk_features)
-        assert total_chunk_features == len(
-            features_gdf
-        ), f"Chunk features ({total_chunk_features}) should match consolidated features ({len(features_gdf)})"
+        assert total_chunk_features == len(features_gdf), (
+            f"Chunk features ({total_chunk_features}) should match consolidated features ({len(features_gdf)})"
+        )
 
 
 @pytest.mark.integration
@@ -395,16 +391,16 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
             sample_value = non_null_values.iloc[0]
 
             # Value should be a JSON string
-            assert isinstance(
-                sample_value, str
-            ), f"{col_name} should be serialized as JSON string, got {type(sample_value)}"
+            assert isinstance(sample_value, str), (
+                f"{col_name} should be serialized as JSON string, got {type(sample_value)}"
+            )
 
             # Deserialize the JSON string
             try:
                 deserialized = json.loads(sample_value)
-                assert isinstance(
-                    deserialized, dict
-                ), f"Deserialized {col_name} should be a dict, got {type(deserialized)}"
+                assert isinstance(deserialized, dict), (
+                    f"Deserialized {col_name} should be a dict, got {type(deserialized)}"
+                )
 
                 # Verify the dict has expected structure (non-empty)
                 assert len(deserialized) > 0, f"Deserialized {col_name} should not be empty"
@@ -415,11 +411,11 @@ def test_parquet_deserialization_of_include_params(integration_test_dir):
                 pytest.fail(f"Failed to deserialize {col_name}: {e}")
 
     # Verify we found and deserialized at least one include parameter
-    assert (
-        len(found_includes) > 0
-    ), f"Should have at least one include parameter in features. Columns: {features_gdf.columns.tolist()}"
+    assert len(found_includes) > 0, (
+        f"Should have at least one include parameter in features. Columns: {features_gdf.columns.tolist()}"
+    )
 
-    assert len(deserialized_successfully) > 0, f"Should successfully deserialize at least one include parameter"
+    assert len(deserialized_successfully) > 0, "Should successfully deserialize at least one include parameter"
 
 
 @pytest.mark.integration
@@ -445,12 +441,6 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
     primary_*_feature_id IDs in the rollup. Per-class outputs use Y/N strings
     for boolean columns (see convert_bool_columns_to_yn).
     """
-    from nmaipy.constants import (
-        CLASSES_WITH_FIDELITY,
-        PRIMARY_FEATURE_CLASS_IDS,
-        PRIMARY_FEATURE_COLUMN_TO_CLASS,
-    )
-
     exporter = AOIExporter(
         aoi_file=str(test_aoi_with_features),
         output_dir=str(integration_test_dir),
@@ -479,9 +469,9 @@ def test_is_primary_in_per_class_exports(integration_test_dir, test_aoi_with_fea
     assert len(per_class_csvs) > 0, f"Should have per-class CSV files. Files in final: {list(final_dir.glob('*'))}"
 
     per_class_parquets = [f for f in final_dir.glob("*_features.parquet") if f.name != "features.parquet"]
-    assert (
-        len(per_class_parquets) > 0
-    ), f"Should have per-class GeoParquet files. Files in final: {list(final_dir.glob('*'))}"
+    assert len(per_class_parquets) > 0, (
+        f"Should have per-class GeoParquet files. Files in final: {list(final_dir.glob('*'))}"
+    )
 
     def _expect_columns(df, file_name: str):
         # `class_id` is always populated by the per-class assembler, so use it
@@ -576,9 +566,6 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
 
     This test ensures consistency across all export formats.
     """
-    from datetime import datetime
-
-    from nmaipy.constants import ROOF_ID, ROOF_INSTANCE_CLASS_ID
 
     # Run exporter with roof age enabled
     exporter = AOIExporter(
@@ -606,9 +593,9 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         # Check roof instances have roof_age_years_as_of_date
         roof_instances = features_gdf[features_gdf["class_id"] == ROOF_INSTANCE_CLASS_ID]
         if len(roof_instances) > 0:
-            assert (
-                "roof_age_years_as_of_date" in roof_instances.columns
-            ), "Roof instances should have roof_age_years_as_of_date in combined features"
+            assert "roof_age_years_as_of_date" in roof_instances.columns, (
+                "Roof instances should have roof_age_years_as_of_date in combined features"
+            )
 
         # Check roofs have primary_child_roof_age_years_as_of_date
         roofs = features_gdf[features_gdf["class_id"] == ROOF_ID]
@@ -618,9 +605,10 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
             if has_linkage:
                 roofs_with_age_data = roofs[roofs["primary_child_roof_age_installation_date"].notna()]
                 if len(roofs_with_age_data) > 0:
-                    assert (
-                        "primary_child_roof_age_years_as_of_date" in roofs_with_age_data.columns
-                    ), "Roofs with linked roof instances should have primary_child_roof_age_years_as_of_date in combined features"
+                    assert "primary_child_roof_age_years_as_of_date" in roofs_with_age_data.columns, (
+                        "Roofs with linked roof instances should have primary_child_roof_age_years_as_of_date in "
+                        "combined features"
+                    )
 
                     # Verify calculation is correct for a sample
                     sample = roofs_with_age_data.iloc[0]
@@ -633,9 +621,9 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                         as_of = pd.to_datetime(sample["primary_child_roof_age_as_of_date"])
                         expected_age = round((as_of - install).days / 365.25, 1)
                         actual_age = sample["primary_child_roof_age_years_as_of_date"]
-                        assert (
-                            abs(expected_age - actual_age) < 0.1
-                        ), f"Age calculation mismatch: expected {expected_age}, got {actual_age}"
+                        assert abs(expected_age - actual_age) < 0.1, (
+                            f"Age calculation mismatch: expected {expected_age}, got {actual_age}"
+                        )
 
     # 2. Check per-class CSV files
 
@@ -652,9 +640,9 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         if "primary_child_roof_age_installation_date" in roof_df.columns:
             roofs_with_age = roof_df[roof_df["primary_child_roof_age_installation_date"].notna()]
             if len(roofs_with_age) > 0:
-                assert (
-                    "primary_child_roof_age_years_as_of_date" in roof_df.columns
-                ), "Roof CSV should have primary_child_roof_age_years_as_of_date"
+                assert "primary_child_roof_age_years_as_of_date" in roof_df.columns, (
+                    "Roof CSV should have primary_child_roof_age_years_as_of_date"
+                )
 
     # 3. Check per-class parquet files
 
@@ -662,9 +650,9 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     roof_instance_parquet = final_dir / "roof_instance_features.parquet"
     if roof_instance_parquet.exists():
         ri_gdf = gpd.read_parquet(roof_instance_parquet)
-        assert (
-            "roof_age_years_as_of_date" in ri_gdf.columns
-        ), "Roof instance parquet should have roof_age_years_as_of_date"
+        assert "roof_age_years_as_of_date" in ri_gdf.columns, (
+            "Roof instance parquet should have roof_age_years_as_of_date"
+        )
 
     # Roofs parquet
     roof_parquet = final_dir / "roof_features.parquet"
@@ -673,9 +661,9 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
         if "primary_child_roof_age_installation_date" in roof_gdf.columns:
             roofs_with_age = roof_gdf[roof_gdf["primary_child_roof_age_installation_date"].notna()]
             if len(roofs_with_age) > 0:
-                assert (
-                    "primary_child_roof_age_years_as_of_date" in roof_gdf.columns
-                ), "Roof parquet should have primary_child_roof_age_years_as_of_date"
+                assert "primary_child_roof_age_years_as_of_date" in roof_gdf.columns, (
+                    "Roof parquet should have primary_child_roof_age_years_as_of_date"
+                )
 
     # 4. Check rollup CSV — roof age columns use rollup naming (primary_roof_instance_roof_age_*)
     rollup_csv = final_dir / "rollup.csv"
@@ -683,12 +671,13 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
     rollup_df = pd.read_csv(rollup_csv)
 
     # With roof_age=True, rollup must have roof instance roof age columns
-    assert (
-        "primary_roof_instance_roof_age_years_as_of_date" in rollup_df.columns
-    ), f"Rollup should have primary_roof_instance_roof_age_years_as_of_date, got columns: {[c for c in rollup_df.columns if 'roof' in c]}"
-    assert (
-        "primary_roof_instance_roof_age_trust_score" in rollup_df.columns
-    ), "Rollup should have primary_roof_instance_roof_age_trust_score"
+    assert "primary_roof_instance_roof_age_years_as_of_date" in rollup_df.columns, (
+        "Rollup should have primary_roof_instance_roof_age_years_as_of_date, got columns: "
+        f"{[c for c in rollup_df.columns if 'roof' in c]}"
+    )
+    assert "primary_roof_instance_roof_age_trust_score" in rollup_df.columns, (
+        "Rollup should have primary_roof_instance_roof_age_trust_score"
+    )
 
     # Verify at least some rows have data
     rollups_with_age = rollup_df[rollup_df["primary_roof_instance_roof_age_years_as_of_date"].notna()]
@@ -716,9 +705,9 @@ def test_roof_age_years_in_all_exports(integration_test_dir, test_us_aoi_for_roo
                         csv_val = csv_ages[fid]
                         parquet_val = parquet_ages[fid]
                         if pd.notna(csv_val) and pd.notna(parquet_val):
-                            assert (
-                                abs(csv_val - parquet_val) < 0.01
-                            ), f"Age mismatch for feature {fid}: CSV={csv_val}, Parquet={parquet_val}"
+                            assert abs(csv_val - parquet_val) < 0.01, (
+                                f"Age mismatch for feature {fid}: CSV={csv_val}, Parquet={parquet_val}"
+                            )
 
 
 @pytest.fixture
@@ -750,7 +739,6 @@ def test_rsi_in_rollup_and_per_class_exports(integration_test_dir, test_us_aoi_f
 
     This exercises resolve_footprint_rsi() in the per-class export path.
     """
-    from nmaipy.constants import BUILDING_NEW_ID, ROOF_ID
 
     exporter = AOIExporter(
         aoi_file=str(test_us_aoi_for_rsi),
@@ -804,6 +792,6 @@ def test_rsi_in_rollup_and_per_class_exports(integration_test_dir, test_us_aoi_f
     # 5. RSI min/max/mean in rollup
     assert "roof_spotlight_index_min" in rollup_df.columns, "Rollup missing roof_spotlight_index_min"
     assert "roof_spotlight_index_max" in rollup_df.columns, "Rollup missing roof_spotlight_index_max"
-    assert (
-        "roof_spotlight_index_area_weighted_mean" in rollup_df.columns
-    ), "Rollup missing roof_spotlight_index_area_weighted_mean"
+    assert "roof_spotlight_index_area_weighted_mean" in rollup_df.columns, (
+        "Rollup missing roof_spotlight_index_area_weighted_mean"
+    )

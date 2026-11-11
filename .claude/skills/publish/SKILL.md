@@ -28,7 +28,7 @@ Execute these steps in order, stopping if any step fails:
    - If version hasn't been bumped, stop and ask user to update version first
 
 3. **Enforce code formatting**
-   - Run `pixi run format` (black and isort, configured in `pyproject.toml`)
+   - Run `pixi run format` (ruff, configured in `pyproject.toml`)
    - If any files were reformatted, stage them and present a suggested commit message for user review
    - This ensures consistent formatting before release
 

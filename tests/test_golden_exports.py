@@ -7,13 +7,14 @@ refresh the fake when the live API changes (`python -m tests.golden.drift`).
 import csv
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 import pytest
 from shapely.geometry import Polygon, mapping
 
@@ -104,9 +105,9 @@ CACHE_PATHS = {
     "feature_compressed": "-74/40/f3d95bbe7e913c932a5c859c5ffa8c60.json.gz",
     "feature_address": "us/NJ/Springfield/07081/7a39b1da02b5dc33.json",
     "roof_age": "roofage/latest/none/none/10d4f48436b877450a335442d774c2ebadb2fab9283c9f8b93fad1c857497ea3.json",
-    "roof_age_dated": "roofage/latest/2025-01-01/2020-01-01/10d4f48436b877450a335442d774c2ebadb2fab9283c9f8b93fad1c857497ea3.json",
+    "roof_age_dated": "roofage/latest/2025-01-01/2020-01-01/10d4f48436b877450a335442d774c2ebadb2fab9283c9f8b93fad1c857497ea3.json",  # noqa: E501 -- exact cache path with content hash
     "roof_age_address": "roofage/latest/none/none/US/NJ/Springfield/07081/cc399247bbd1d063.json",
-    "damage": "damageconflation/00000000-0000-0000-0000-000000000000/f80e0c14f54d72746adf61139bedbc8b2d9e40c0e686384b9c647e40c9da9f28.json",
+    "damage": "damageconflation/00000000-0000-0000-0000-000000000000/f80e0c14f54d72746adf61139bedbc8b2d9e40c0e686384b9c647e40c9da9f28.json",  # noqa: E501 -- exact cache path with content hash
 }
 
 
@@ -201,9 +202,9 @@ def test_compare_detects_changes(tmp_path: Path) -> None:
     assert any(d.startswith("rollup.csv: column roof_count: 1 mismatches") for d in differences), differences
     assert f"building.csv: missing rows [{dropped_row!r}]" in differences, differences
     assert "roof.csv: missing columns ['area_sqft']" in differences, differences
-    assert any(
-        d.startswith("roof.csv: column primary_child_roof_age_feature_id: 1 mismatches") for d in differences
-    ), differences
+    assert any(d.startswith("roof.csv: column primary_child_roof_age_feature_id: 1 mismatches") for d in differences), (
+        differences
+    )
 
 
 def test_compare_detects_parquet_value_changes(golden_runs: dict[str, Path], tmp_path: Path) -> None:
@@ -223,7 +224,7 @@ def test_drift() -> None:
         [sys.executable, "-m", "tests.golden.drift"], cwd=REPO, capture_output=True, text=True, check=False
     )
     output = f"{result.stdout}\n{result.stderr}"
-    if key := os.environ.get("API_KEY"):
+    if key := os.environ.get("API_KEY", ""):
         output = output.replace(key, "APIKEYREMOVED")
     assert result.returncode == 0, f"the live API drifted from the golden fake:\n{output}"
 
@@ -252,9 +253,25 @@ def _cache_path(kind: str, cache_dir: Path) -> str:
     elif kind.startswith("roof_age"):
         api = RoofAgeApi(api_key="dummy", cache_dir=cache_dir)
         key = api._build_cache_key(address=ADDRESS) if kind == "roof_age_address" else api._build_cache_key(aoi=SQUARE)
-        dates = dict(until_as_of_date="2025-01-01", since_as_of_date="2020-01-01") if kind == "roof_age_dated" else {}
+        dates = {"until_as_of_date": "2025-01-01", "since_as_of_date": "2020-01-01"} if kind == "roof_age_dated" else {}
         path = api._get_cache_path(key, **dates)
     else:
         api = DamageConflationApi(event_id="00000000-0000-0000-0000-000000000000", api_key="dummy", cache_dir=cache_dir)
         path = api._get_cache_path(api._build_cache_key(aoi=SQUARE))
     return str(Path(path).relative_to(cache_dir))
+
+
+def test_nullable_input_columns_survive_per_class_files(tmp_path: Path) -> None:
+    """User columns with pandas extension dtypes and nulls reach the per-class files as they are (GeoParquet input)."""
+    aois = pd.read_csv(write_aois("us", tmp_path / "aois.csv")).dropna(subset=["geometry"])
+    aois_gdf = gpd.GeoDataFrame(aois[["aoi_id"]], geometry=gpd.GeoSeries.from_wkt(aois["geometry"]), crs="EPSG:4326")
+    aois_gdf["year_built"] = pd.array([3000, None] * len(aois_gdf), dtype="Int64")[: len(aois_gdf)]
+    aois_gdf["flag"] = pd.array([True, None] * len(aois_gdf), dtype="boolean")[: len(aois_gdf)]
+    aoi_file = tmp_path / "aois.parquet"
+    aois_gdf.to_parquet(aoi_file)
+    final = run_case("us", tmp_path / "run", aoi_file=aoi_file)
+    for name in ("building", "roof", "roof_instance"):
+        per_class = pd.read_csv(final / f"{name}.csv", dtype=str)
+        assert not per_class.empty, f"{name}.csv has no rows"
+        assert set(per_class["year_built"].dropna()) == {"3000"}, f"{name}: Int64 column changed"
+        assert set(per_class["flag"].dropna()) <= {"True", "true", "TRUE"}, f"{name}: boolean column converted"

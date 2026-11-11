@@ -9,11 +9,11 @@ can handle. Otherwise the response is kept and the skipped scores stay null.
 import geopandas as gpd
 import pytest
 import requests
-from shapely.geometry import Polygon, box, mapping
+from shapely.geometry import box, mapping
 
-import nmaipy.feature_api as feature_api_module
 from nmaipy.api_common import AIFeatureAPIError
 from nmaipy.constants import REALTIME_SKIP_GRID_SIZE_DEGREES, REALTIME_SKIP_RETRY_DELAY_SECONDS, ROOF_ID
+import nmaipy.feature_api as feature_api_module
 from nmaipy.feature_api import FeatureApi, _response_has_include_skips
 
 # Inside one realtime-skip grid cell, so gridding it wouldn't split the request.
@@ -98,7 +98,7 @@ class TestResponseHasIncludeSkips:
 
 @pytest.fixture
 def calls(monkeypatch):
-    """Record the skip-retry delays instead of sleeping; feature_api sleeps for other reasons too, so count only those."""
+    """Record skip-retry delays instead of sleeping; feature_api sleeps for other reasons too, so count only those."""
     record = {"sleeps": []}
 
     def sleep(seconds):
@@ -166,7 +166,8 @@ class TestIncludeSkipHandling:
         _install_stubs(api, monkeypatch, calls, responses=[SCORED])
         api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
         assert len(calls["requests"]) == 1
-        assert calls["sleeps"] == [] and calls["grids"] == []
+        assert calls["sleeps"] == []
+        assert calls["grids"] == []
 
     def test_skip_is_retried_once_unchanged_past_the_cache(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path)
@@ -177,7 +178,8 @@ class TestIncludeSkipHandling:
         assert retry == first, "The retry should repeat the request, parcelMode included"
         assert calls["sleeps"] == [REALTIME_SKIP_RETRY_DELAY_SECONDS]
         assert calls["grids"] == [], "A retry that scores should not be followed by gridding"
-        assert error is None and _skip_state(features) == SCORED
+        assert error is None
+        assert _skip_state(features) == SCORED
 
     @pytest.mark.parametrize(
         "failure",
@@ -195,7 +197,8 @@ class TestIncludeSkipHandling:
         features, metadata, error, _ = api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
         assert len(calls["requests"]) == 2
         assert error is None, f"A failed retry should not fail the AOI, got {error}"
-        assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
+        assert list(features["feature_id"]) == ["roof"]
+        assert metadata["survey_resource_id"] == "resource"
         assert _skip_state(features) == SKIPPED
         assert calls["grids"] == [], "Gridding after a failed retry would send more requests into the same failures"
 
@@ -217,7 +220,8 @@ class TestIncludeSkipHandling:
         _install_stubs(api, monkeypatch, calls, responses=[SKIPPED, SKIPPED])
         features, _, error, _ = api.get_features_gdf(geometry=SMALL_AOI, region="au", aoi_id="aoi")
         assert calls["grids"] == []
-        assert error is None and _skip_state(features) == SKIPPED
+        assert error is None
+        assert _skip_state(features) == SKIPPED
 
     def test_failed_grid_keeps_the_ungridded_response(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path)
@@ -226,7 +230,8 @@ class TestIncludeSkipHandling:
         assert len(calls["grids"]) == 1
         assert error is None, f"A failed grid should not fail the AOI, got {error}"
         assert grid_errors is None
-        assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
+        assert list(features["feature_id"]) == ["roof"]
+        assert metadata["survey_resource_id"] == "resource"
 
     def test_incomplete_grid_keeps_the_ungridded_response(self, tmp_path, monkeypatch, calls):
         """The cells that didn't answer would take their features with them; the response has every feature."""
@@ -236,15 +241,19 @@ class TestIncludeSkipHandling:
         assert len(calls["grids"]) == 1
         assert error is None, f"An incomplete grid should not fail the AOI, got {error}"
         assert grid_errors is None, "A response that was not gridded should not carry grid cell errors"
-        assert list(features["feature_id"]) == ["roof"] and metadata["survey_resource_id"] == "resource"
+        assert list(features["feature_id"]) == ["roof"]
+        assert metadata["survey_resource_id"] == "resource"
         assert _skip_state(features) == SKIPPED
 
     def test_off_leaves_skipped_scores_null(self, tmp_path, monkeypatch, calls):
         api = self._api(tmp_path, retry_on_realtime_skip=False)
         _install_stubs(api, monkeypatch, calls, responses=[SKIPPED])
         features, _, error, _ = api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="aoi")
-        assert len(calls["requests"]) == 1 and calls["sleeps"] == [] and calls["grids"] == []
-        assert error is None and _skip_state(features) == SKIPPED
+        assert len(calls["requests"]) == 1
+        assert calls["sleeps"] == []
+        assert calls["grids"] == []
+        assert error is None
+        assert _skip_state(features) == SKIPPED
 
     def test_deprecated_regrid_on_skip_false_turns_it_off(self, tmp_path):
         with pytest.warns(DeprecationWarning, match="regrid_on_skip is deprecated"):
@@ -263,7 +272,9 @@ class TestIncludeSkipHandling:
         api = self._api(tmp_path)
         _install_stubs(api, monkeypatch, calls, responses=[SKIPPED])
         api.get_features_gdf(geometry=LARGE_AOI, region="au", aoi_id="cell", in_gridding_mode=True)
-        assert len(calls["requests"]) == 1 and calls["grids"] == [] and calls["sleeps"] == []
+        assert len(calls["requests"]) == 1
+        assert calls["grids"] == []
+        assert calls["sleeps"] == []
 
 
 def test_refresh_cache_fetches_and_replaces_the_cached_response(tmp_path, monkeypatch):

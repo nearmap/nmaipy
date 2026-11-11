@@ -5,8 +5,8 @@ customer-facing documentation based on actual export files and columns.
 """
 
 import json
-import os
 from pathlib import Path
+import re
 from unittest.mock import patch
 
 import pyarrow as pa
@@ -14,9 +14,13 @@ import pyarrow.parquet as pq
 
 from nmaipy import storage
 from nmaipy.__version__ import __version__
+from nmaipy.column_metadata import ColumnMeta
 from nmaipy.readme_generator import (
     ADDRESS_QUERY_COLUMNS,
     COMMON_COLUMNS,
+    DEFENSIBLE_SPACE_ZONE_COLUMNS,
+    DOMINANT_ROOF_MATERIAL_COLUMNS,
+    DOMINANT_ROOF_TYPES_COLUMNS,
     ROOF_AGE_COLUMNS,
     RSI_COLUMNS,
     ReadmeGenerator,
@@ -39,7 +43,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert "README.md" not in filenames
         assert "rollup.csv" in filenames
 
@@ -50,7 +54,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert ".DS_Store" not in filenames
 
     def test_discover_files_excludes_export_config(self, tmp_path):
@@ -60,7 +64,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert "export_config.json" not in filenames
         assert "data.csv" in filenames
 
@@ -73,7 +77,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert "rollup.csv" in filenames
         assert "other_file.csv" not in filenames
 
@@ -135,17 +139,17 @@ class TestHasRsiColumns:
     """Tests for RSI column detection."""
 
     def test_has_rsi_columns_with_index(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_spotlight_index", "other_col"}
         assert gen._has_rsi_columns(columns) is True
 
     def test_has_rsi_columns_with_confidence(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_spotlight_index_confidence", "other_col"}
         assert gen._has_rsi_columns(columns) is True
 
     def test_has_rsi_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"aoi_id", "mesh_date", "roof_count"}
         assert gen._has_rsi_columns(columns) is False
 
@@ -154,17 +158,17 @@ class TestHasRoofAgeColumns:
     """Tests for roof age column detection."""
 
     def test_has_roof_age_columns_with_installation_date(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_age_installation_date", "other_col"}
         assert gen._has_roof_age_columns(columns) is True
 
     def test_has_roof_age_columns_with_years(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"roof_age_years_as_of_date", "other_col"}
         assert gen._has_roof_age_columns(columns) is True
 
     def test_has_roof_age_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"aoi_id", "mesh_date", "roof_count"}
         assert gen._has_roof_age_columns(columns) is False
 
@@ -173,17 +177,17 @@ class TestHasRccsColumns:
     """Tests for Roof Condition Confidence Stats (RCCS) column detection."""
 
     def test_has_rccs_columns_with_default_bin(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_structural_damage_confidence_stats_default_bin_0", "other_col"}
         assert gen._has_rccs_columns(columns) is True
 
     def test_has_rccs_columns_with_extreme_bin(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_zinc_staining_confidence_stats_extreme_bin_2", "other_col"}
         assert gen._has_rccs_columns(columns) is True
 
     def test_has_rccs_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         # `*_confidence` alone is not RCCS — only the histogram bin suffix counts.
         columns = {"aoi_id", "roof_count", "structural_damage_confidence"}
         assert gen._has_rccs_columns(columns) is False
@@ -193,7 +197,7 @@ class TestGenerateRccsSection:
     """The RCCS section recovers component names from scoped column names."""
 
     def test_strips_primary_roof_scope(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_structural_damage_confidence_stats_default_bin_0"}
         section = gen._generate_rccs_section(columns)
         assert "- `structural_damage`" in section
@@ -202,7 +206,7 @@ class TestGenerateRccsSection:
         # Regression: short-first scope iteration would match ``primary_roof_``
         # on a ``primary_roof_instance_…`` column and record component
         # ``instance_structural_damage`` instead of ``structural_damage``.
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {
             "primary_roof_instance_structural_damage_confidence_stats_default_bin_0",
             "primary_building_lifecycle_structural_damage_confidence_stats_extreme_bin_2",
@@ -217,7 +221,7 @@ class TestGenerateRccsSection:
         assert "age_zinc_staining" not in section
 
     def test_strips_low_conf_prefix(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"primary_roof_low_conf_roof_ponding_confidence_stats_extreme_bin_1"}
         section = gen._generate_rccs_section(columns)
         assert "- `roof_ponding`" in section
@@ -268,17 +272,17 @@ class TestHasAddressQueryColumns:
     """Tests for address/query column detection."""
 
     def test_has_address_query_columns_with_street_address(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"streetAddress", "city", "state", "zip"}
         assert gen._has_address_query_columns(columns) is True
 
     def test_has_address_query_columns_with_query_lat(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"query_aoi_lat", "query_aoi_lon"}
         assert gen._has_address_query_columns(columns) is True
 
     def test_has_address_query_columns_without(self):
-        gen = ReadmeGenerator(output_dir=Path("."))
+        gen = ReadmeGenerator(output_dir=Path())
         columns = {"aoi_id", "mesh_date", "roof_count"}
         assert gen._has_address_query_columns(columns) is False
 
@@ -301,13 +305,6 @@ class TestColumnMetadataTables:
 
     def test_column_dicts_are_columnmeta_instances(self):
         """Each entry is a ColumnMeta dataclass with required fields populated."""
-        from nmaipy.column_metadata import ColumnMeta
-        from nmaipy.readme_generator import (
-            DEFENSIBLE_SPACE_ZONE_COLUMNS,
-            DOMINANT_ROOF_MATERIAL_COLUMNS,
-            DOMINANT_ROOF_TYPES_COLUMNS,
-        )
-
         for label, columns in (
             ("COMMON_COLUMNS", COMMON_COLUMNS),
             ("ADDRESS_QUERY_COLUMNS", ADDRESS_QUERY_COLUMNS),
@@ -341,9 +338,9 @@ class TestColumnMetadataTables:
         # through the per-field overlay (even though both are also overridden
         # for description).
         assert any("2019-09-27" in row for row in rendered), "spec example for survey_date missing"
-        assert any(
-            "5a5cb214-eee3-4fdd-bfce-d21e9793cf6a" in row for row in rendered
-        ), "spec example for class_id missing"
+        assert any("5a5cb214-eee3-4fdd-bfce-d21e9793cf6a" in row for row in rendered), (
+            "spec example for class_id missing"
+        )
 
     def test_render_columns_table_substitutes_unit_placeholders(self):
         """`{unit}` in column names is resolved to the area suffix; `{unit_name}` is filled by lookup_column."""
@@ -380,7 +377,7 @@ class TestColumnMetadataTables:
         )
 
     def test_confidence_columns_dtype_marks_quantised_uint8(self):
-        """Confidence scores are stored as uint8 on the wire even though the value space is 0.0–1.0."""
+        """Confidence scores are stored as uint8 on the wire even though the value space is 0.0-1.0."""
         # The dtype label calls this out so downstream consumers know to expect 256 distinct values
         # rather than continuous floats.
         assert "quantised uint8" in RSI_COLUMNS["roof_spotlight_index_confidence"].dtype
@@ -402,8 +399,6 @@ class TestColumnMetadataTables:
         customers as a literal placeholder. Routing rendering through
         ``column_metadata.lookup_column`` fixes it; this test guards the fix.
         """
-        import re
-
         # Realistic exporter output: rollup with roof age + RSI columns plus per-class files.
         (tmp_path / "rollup.csv").write_text(
             "aoi_id,link,roof_spotlight_index,roof_age_installation_date,"
@@ -865,14 +860,12 @@ class TestGenerateAndSaveAtomicWrite:
         """If the move step fails (simulated), README.md must not exist —
         only the .tmp file. Next run sees no README and rebuilds normally,
         rather than fast-pathing on a phantom complete marker."""
-        from nmaipy import storage as storage_module
-
         (tmp_path / "rollup.csv").write_text("aoi_id\n0\n")
 
         def fail_move(src, dst):
             raise OSError("simulated failure during move")
 
-        monkeypatch.setattr(storage_module, "move_file", fail_move)
+        monkeypatch.setattr(storage, "move_file", fail_move)
 
         gen = ReadmeGenerator(output_dir=tmp_path)
         try:

@@ -13,20 +13,20 @@ or ~/.aws/credentials.
 import gzip
 import logging
 import os
+from pathlib import Path
 import shutil
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import boto3
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config as BotoConfig
 import fsspec
 import geopandas as gpd
 import orjson
 import pyarrow as pa
 import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
-from boto3.s3.transfer import TransferConfig
-from botocore.config import Config as BotoConfig
 
 from nmaipy.constants import GEOPARQUET_SCHEMA_VERSION
 
@@ -59,7 +59,7 @@ _s3_filesystem_cache = {}
 # hundreds of parallel S3 reads — under that load we hit the pool limit and
 # log a flurry of "Connection pool is full, discarding connection" warnings
 # on multi-million-parcel exports. Bump to 50 to match a typical
-# 32-process × 15-thread runner shape with headroom. Adaptive retry mode
+# 32-process x 15-thread runner shape with headroom. Adaptive retry mode
 # smooths transient 503s without changing correctness.
 _S3_CLIENT_CONFIG = BotoConfig(
     max_pool_connections=50,
@@ -98,7 +98,7 @@ def _get_s3_filesystem():
     return _s3_filesystem_cache[pid]
 
 
-def is_s3_path(path: Union[str, Path]) -> bool:
+def is_s3_path(path: str | Path) -> bool:
     """Check if a path is an S3 URI."""
     return str(path).startswith("s3://")
 
@@ -119,8 +119,7 @@ def join_path(base: str, *parts: str) -> str:
         for part in parts:
             result = result + "/" + part.strip("/")
         return result
-    else:
-        return str(Path(base).joinpath(*parts))
+    return str(Path(base).joinpath(*parts))
 
 
 def ensure_directory(path: str) -> None:
@@ -170,11 +169,11 @@ def file_exists(path: str) -> bool:
         return Path(path).exists()
 
     fs = _get_s3_filesystem()
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             return fs.exists(path)
-        except Exception as e:  # transient S3/network error — retry
+        except Exception as e:  # noqa: BLE001 -- transient S3/network errors vary by backend; retried, then re-raised
             last_exc = e
             if attempt < _S3_READ_RETRIES:
                 time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
@@ -204,7 +203,7 @@ def validate_parquet(path: str, min_rows: int = 0) -> bool:
     Returns:
         True if the file has a valid parquet footer with at least ``min_rows`` rows, False otherwise.
     """
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             with open_file(path, "rb") as f:
@@ -213,7 +212,7 @@ def validate_parquet(path: str, min_rows: int = 0) -> bool:
         except (pa.ArrowInvalid, FileNotFoundError):
             # Genuinely corrupt/truncated, or genuinely absent — retrying won't help.
             return False
-        except Exception as e:  # transient read error — retry before giving up
+        except Exception as e:  # noqa: BLE001 -- transient read errors vary by backend; retried, then reported
             last_exc = e
             if attempt < _S3_READ_RETRIES:
                 time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
@@ -226,7 +225,7 @@ def validate_parquet(path: str, min_rows: int = 0) -> bool:
     return False
 
 
-def glob_files(directory: str, pattern: str) -> List[str]:
+def glob_files(directory: str, pattern: str) -> list[str]:
     """
     Glob for files in a directory. Works for both local and S3.
 
@@ -249,7 +248,7 @@ def glob_files(directory: str, pattern: str) -> List[str]:
 
     fs = _get_s3_filesystem()
     full_pattern = join_path(directory, pattern)
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(_S3_READ_RETRIES + 1):
         try:
             # Force a fresh listing — never trust a possibly-stale dircache here.
@@ -257,7 +256,7 @@ def glob_files(directory: str, pattern: str) -> List[str]:
             # fsspec glob returns paths without the s3:// prefix
             results = fs.glob(full_pattern)
             return ["s3://" + r for r in results]
-        except Exception as e:  # transient S3/network error — retry
+        except Exception as e:  # noqa: BLE001 -- transient S3/network errors vary by backend; retried, then re-raised
             last_exc = e
             if attempt < _S3_READ_RETRIES:
                 time.sleep(_S3_READ_BACKOFF_SECONDS * (2**attempt))
@@ -282,11 +281,10 @@ def open_file(path: str, mode: str = "r", **kwargs):
     if is_s3_path(path):
         fs = _get_s3_filesystem()
         return fs.open(path, mode, **kwargs)
-    else:
-        return open(path, mode, **kwargs)
+    return open(path, mode, **kwargs)
 
 
-def pyarrow_read_paths(paths: List[str]) -> Tuple[List[str], Optional[pa_fs.FileSystem]]:
+def pyarrow_read_paths(paths: list[str]) -> tuple[list[str], pa_fs.FileSystem | None]:
     """Resolve same-scheme parquet paths for pyarrow readers sharing ONE filesystem.
 
     For s3:// URIs, returns scheme-stripped "bucket/key" paths plus a single
@@ -351,8 +349,7 @@ def file_size(path: str) -> int:
     if is_s3_path(path):
         fs = _get_s3_filesystem()
         return fs.size(path)
-    else:
-        return Path(path).stat().st_size
+    return Path(path).stat().st_size
 
 
 def _parse_s3_uri(uri: str) -> tuple:
@@ -385,9 +382,8 @@ def upload_file(local_path: str, remote_path: str) -> None:
             key,
             Config=config,
         )
-    else:
-        if str(local_path) != str(remote_path):
-            shutil.copy2(str(local_path), str(remote_path))
+    elif str(local_path) != str(remote_path):
+        shutil.copy2(str(local_path), str(remote_path))
 
 
 def remove_file(path: str) -> None:
@@ -402,7 +398,7 @@ def remove_file(path: str) -> None:
             fs = _get_s3_filesystem()
             fs.rm(path)
         else:
-            os.remove(path)
+            Path(path).unlink()
     except (OSError, FileNotFoundError):
         pass
 
@@ -430,10 +426,10 @@ def move_file(src: str, dst: str) -> None:
         fs = _get_s3_filesystem()
         fs.mv(src, dst)
     else:
-        os.replace(src, dst)
+        Path(src).replace(dst)
 
 
-def json_dumps_bytes(data: Any, default=None, indent: Optional[int] = None) -> bytes:
+def json_dumps_bytes(data: Any, default=None, indent: int | None = None) -> bytes:
     """
     Serialize data to JSON bytes via orjson (5-10x faster than stdlib json on
     the multi-MB API payloads that dominate cache writes).
@@ -465,7 +461,7 @@ def json_dumps_bytes(data: Any, default=None, indent: Optional[int] = None) -> b
     return orjson.dumps(data, default=default, option=option)
 
 
-def read_json(path: str, compressed: bool = False) -> Dict:
+def read_json(path: str, compressed: bool = False) -> dict:
     """
     Read a JSON file, optionally gzip-compressed. Works for both local and S3.
 
@@ -487,9 +483,8 @@ def read_json(path: str, compressed: bool = False) -> Dict:
         in their own try/except.
     """
     if compressed:
-        with open_file(path, "rb") as raw_f:
-            with gzip.GzipFile(fileobj=raw_f) as gz_f:
-                return orjson.loads(gz_f.read())
+        with open_file(path, "rb") as raw_f, gzip.GzipFile(fileobj=raw_f) as gz_f:
+            return orjson.loads(gz_f.read())
     else:
         with open_file(path, "rb") as f:
             return orjson.loads(f.read())
@@ -499,7 +494,7 @@ def write_json(
     path: str,
     data: Any,
     compressed: bool = False,
-    indent: Optional[int] = None,
+    indent: int | None = None,
     default=None,
 ) -> None:
     """
@@ -518,9 +513,8 @@ def write_json(
     """
     payload = json_dumps_bytes(data, default=default, indent=indent)
     if compressed:
-        with open_file(path, "wb") as raw_f:
-            with gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
-                gz_f.write(payload)
+        with open_file(path, "wb") as raw_f, gzip.GzipFile(fileobj=raw_f, mode="wb") as gz_f:
+            gz_f.write(payload)
     else:
         with open_file(path, "wb") as f:
             f.write(payload)
@@ -559,11 +553,10 @@ def write_parquet(data, path: str, **kwargs) -> None:
                 pq.write_table(data, f, **kwargs)
             else:
                 data.to_parquet(f, **kwargs)
+    elif isinstance(data, pa.Table):
+        pq.write_table(data, path, **kwargs)
     else:
-        if isinstance(data, pa.Table):
-            pq.write_table(data, path, **kwargs)
-        else:
-            data.to_parquet(path, **kwargs)
+        data.to_parquet(path, **kwargs)
 
 
 def basename(path: str) -> str:
@@ -578,5 +571,4 @@ def basename(path: str) -> str:
     """
     if is_s3_path(path):
         return path.rstrip("/").rsplit("/", 1)[-1]
-    else:
-        return Path(path).name
+    return Path(path).name

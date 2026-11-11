@@ -5,8 +5,8 @@ Claude Code from .claude/skills, where each skill is a symlink into .agents/skil
 SKILL.md frontmatter of the Agent Skills format (agentskills.io), so the skills keep to that format.
 """
 
-import re
 from pathlib import Path
+import re
 
 import pytest
 
@@ -40,7 +40,8 @@ def test_frontmatter_follows_the_agent_skills_format(skill_dir):
     fields = _frontmatter(skill_dir / "SKILL.md")
     assert set(fields) <= SPEC_FIELDS, f"Fields outside the Agent Skills format: {set(fields) - SPEC_FIELDS}"
     assert fields.get("name") == skill_dir.name, "name should match the skill's directory"
-    assert len(fields["name"]) <= 64 and NAME_PATTERN.fullmatch(fields["name"]), "name should be lowercase-hyphenated"
+    assert len(fields["name"]) <= 64, "name should be lowercase-hyphenated"
+    assert NAME_PATTERN.fullmatch(fields["name"]), "name should be lowercase-hyphenated"
     assert 0 < len(fields.get("description", "")) <= 1024, "description should be 1-1024 characters"
 
 

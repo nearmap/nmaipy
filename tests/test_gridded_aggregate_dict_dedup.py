@@ -36,7 +36,7 @@ def defensible_space_payload():
     raw_payload_file = data_directory / "test_defensible_space_raw_payload.json"
     if not raw_payload_file.exists():
         pytest.skip(f"Raw payload file {raw_payload_file} does not exist.")
-    with open(raw_payload_file, "r") as f:
+    with open(raw_payload_file) as f:
         return json.load(f)
 
 
@@ -84,7 +84,7 @@ def test_attempt_gridding_does_not_swallow_dict_aggregate(monkeypatch, defensibl
 
     monkeypatch.setattr(api, "get_features_gdf_gridded", fake_gridded)
 
-    features_gdf, metadata, error, errors_df = api._attempt_gridding(
+    _features_gdf, metadata, error, _errors_df = api._attempt_gridding(
         geometry=Polygon([(0, 0), (0, 1), (1, 1), (1, 0)]),
         region="us",
         aoi_id=999,

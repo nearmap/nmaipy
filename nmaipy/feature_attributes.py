@@ -16,14 +16,14 @@ Feature Classes:
 
 import ast
 import json
-from typing import Any, Dict, List, Optional, Union, overload
+from typing import Any, overload
 
+from dateutil.parser import parse as parse_date
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import stringcase
-from dateutil.parser import parse as parse_date
 from shapely import wkb
+import stringcase
 
 from nmaipy import log
 from nmaipy.constants import (
@@ -198,16 +198,23 @@ RESOLVED_SCORE_OUTPUT_COLUMNS = frozenset(
 # Narrow prefixes for columns whose full names are dynamic (not in
 # INCLUDE_FIELD_MAPPINGS): modelInputFeatures columns (one prefix per peril)
 # and defensible-space per-zone columns.
-RESOLVED_DYNAMIC_PREFIXES = tuple(
-    f"{config['model_input_prefix']}_" for config in INCLUDE_FIELD_MAPPINGS.values() if "model_input_prefix" in config
-) + ("defensible_space_zone_",)
+RESOLVED_DYNAMIC_PREFIXES = (
+    *(
+        f"{config['model_input_prefix']}_"
+        for config in INCLUDE_FIELD_MAPPINGS.values()
+        if "model_input_prefix" in config
+    ),
+    "defensible_space_zone_",
+)
 
 # RSI output columns — resolved via its own roof→BL fallback path that
 # predates the generalised score resolution. Exported separately for use
 # in consumers that want to exclude RSI raw columns from propagation.
 RSI_OUTPUT_COLUMNS = frozenset(
-    list(INCLUDE_FIELD_MAPPINGS["roofSpotlightIndex"]["fields"].values())
-    + [f"{INCLUDE_FIELD_MAPPINGS['roofSpotlightIndex']['snake_key']}_model_version"]
+    [
+        *INCLUDE_FIELD_MAPPINGS["roofSpotlightIndex"]["fields"].values(),
+        f"{INCLUDE_FIELD_MAPPINGS['roofSpotlightIndex']['snake_key']}_model_version",
+    ]
 )
 
 
@@ -371,13 +378,12 @@ def _get_feature_value(feature, key):
     """
     if isinstance(feature, dict):
         return feature.get(key)
-    elif isinstance(feature, pd.Series):
-        if key in feature.index:
-            val = feature.get(key)
-            # Handle NaN values
-            if pd.isna(val):
-                return None
-            return val
+    if isinstance(feature, pd.Series) and key in feature.index:
+        val = feature.get(key)
+        # Handle NaN values
+        if pd.isna(val):
+            return None
+        return val
     return None
 
 
@@ -403,9 +409,9 @@ def calculate_roof_age_years(
 
 
 def calculate_roof_age_years(
-    installation_date: Union[pd.Series, str, None],
-    as_of_date: Union[pd.Series, str, None],
-) -> Union[pd.Series, float, None]:
+    installation_date: pd.Series | str | None,
+    as_of_date: pd.Series | str | None,
+) -> pd.Series | float | None:
     """
     Calculate roof age in years from installation date to as-of date.
 
@@ -430,13 +436,12 @@ def calculate_roof_age_years(
             install = pd.to_datetime(installation_date, errors="coerce")
             as_of = pd.to_datetime(as_of_date, errors="coerce")
             return ((as_of - install).dt.days / 365.25).round(1)
-        else:
-            # Scalar calculation
-            install = parse_date(str(installation_date))
-            as_of = parse_date(str(as_of_date))
-            years = (as_of - install).days / 365.25
-            return round(years, 1)
-    except Exception:
+        # Scalar calculation
+        install = parse_date(str(installation_date))
+        as_of = parse_date(str(as_of_date))
+        years = (as_of - install).days / 365.25
+        return round(years, 1)
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
@@ -497,7 +502,7 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
             if value is not None:
                 # Find existing attribute with same description or create new
                 existing = next((a for a in attributes if a.get("description") == description), None)
-                if existing:
+                if existing is not None and existing:
                     existing[key] = value
                 else:
                     attributes.append({"description": description, key: value})
@@ -533,7 +538,7 @@ def _extract_building_3d_from_attribute_list(attribute_list: list) -> dict:
     return result
 
 
-def flatten_building_attributes(buildings: List[dict], country: str) -> dict:
+def flatten_building_attributes(buildings: list[dict], country: str) -> dict:
     """
     Flatten building attributes from Feature API.
 
@@ -605,7 +610,7 @@ _DOMINANT_ATTRIBUTE_DESCRIPTIONS = {"roof_material", "roof_types"}
 DOMINANT_MATERIAL_MIN_RATIO = 0.5
 
 
-def _get_component_stats(component: dict, recalc_attrs: Optional[dict], country: str) -> dict:
+def _get_component_stats(component: dict, recalc_attrs: dict | None, country: str) -> dict:
     """Get ratio, area, confidence, class_id for a component from the best available source.
 
     Uses recalc_attrs (clipped geometry intersection) when available,
@@ -631,7 +636,7 @@ def _get_component_stats(component: dict, recalc_attrs: Optional[dict], country:
     }
 
 
-def _build_dominant_columns(components: list, recalc_attrs: Optional[dict], country: str, attr_key: str) -> dict:
+def _build_dominant_columns(components: list, recalc_attrs: dict | None, country: str, attr_key: str) -> dict:
     """Build dominant summary columns for a roof attribute type.
 
     Selects the dominant component by highest ratio, applies UNKNOWN rules,
@@ -692,11 +697,11 @@ def _build_dominant_columns(components: list, recalc_attrs: Optional[dict], coun
 
 
 def flatten_roof_attributes(
-    roofs: List[dict],
+    roofs: list[dict],
     country: str,
-    child_features: gpd.GeoDataFrame = None,
+    child_features: gpd.GeoDataFrame | None = None,
     parent_projected=None,
-    children_projected: "gpd.GeoSeries" = None,
+    children_projected: "gpd.GeoSeries | None" = None,
 ) -> dict:
     """
     Flatten roof attributes from Feature API.
@@ -727,7 +732,7 @@ def flatten_roof_attributes(
     """
     # Circular import: feature_attributes.py <-> parcels.py
     # This must remain a function-level import to break the cycle.
-    from nmaipy.parcels import calculate_child_feature_attributes
+    from nmaipy.parcels import calculate_child_feature_attributes  # noqa: PLC0415 -- import cycle: parcels imports feature_attributes
 
     flattened = {}
 
@@ -741,13 +746,12 @@ def flatten_roof_attributes(
         # Safely access attributes - may not exist if dropped during process_chunk()
         # In that case, try to reconstruct from dot-notation columns
         attributes = roof.get("attributes")
-        if attributes:
-            if isinstance(attributes, str):
-                try:
-                    attributes = json.loads(attributes)
-                except (json.JSONDecodeError, TypeError):
-                    attributes = []
-        if not attributes:
+        if attributes and isinstance(attributes, str):
+            try:
+                attributes = json.loads(attributes)
+            except (json.JSONDecodeError, TypeError):
+                attributes = []
+        if attributes is None or not attributes:
             # Try to reconstruct from dot-notation columns (created by exporter.py's process_chunk)
             attributes = _reconstruct_attributes_from_dot_notation(roof)
 
@@ -850,7 +854,7 @@ def flatten_roof_attributes(
 
 
 def flatten_building_lifecycle_damage_attributes(
-    building_lifecycles: List[dict],
+    building_lifecycles: list[dict],
 ) -> dict:
     """
     Flatten building lifecycle damage attributes from Feature API.
@@ -942,7 +946,7 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
         Flattened dict: ``area_sqm``, ``area_sqft``, ``confidence``, ``hilbert_id``,
         and the ``damage_event_*`` / ``damage_pre_event_*`` column families.
     """
-    flattened: Dict[str, Any] = {}
+    flattened: dict[str, Any] = {}
 
     flattened["area_sqm"] = properties.get("areaSqm")
     flattened["area_sqft"] = properties.get("areaSqft")
@@ -982,7 +986,7 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
 
 
 def flatten_roof_instance_attributes(
-    roof_instance: Union[dict, pd.Series],
+    roof_instance: dict | pd.Series,
     country: str,
     prefix: str = "",
 ) -> dict:
@@ -1022,9 +1026,8 @@ def flatten_roof_instance_attributes(
         """Get value from dict or Series."""
         if isinstance(roof_instance, dict):
             return roof_instance.get(key)
-        elif isinstance(roof_instance, pd.Series):
-            if key in roof_instance.index:
-                return roof_instance.get(key)
+        if isinstance(roof_instance, pd.Series) and key in roof_instance.index:
+            return roof_instance.get(key)
         return None
 
     # Iterate the canonical ROOF_AGE_PREFIX_COLUMNS order so output columns

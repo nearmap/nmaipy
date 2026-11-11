@@ -3,15 +3,15 @@
 This is the only module that knows which HTTP library nmaipy uses.
 """
 
+from collections.abc import Callable, Generator
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 import functools
 import json
 import os
+from pathlib import Path
 import re
 import socket
-from collections.abc import Callable, Iterator
-from concurrent.futures import ProcessPoolExecutor
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -26,23 +26,28 @@ from .fake_api import FakeApi, UnknownRequest, key_paths
 
 GOLDEN_DIR = Path(__file__).parents[1] / "data" / "golden"
 CLASS_DESCRIPTIONS = Path(constants.__file__).parent / "class_descriptions.json"
-COMMON = dict(
-    processes=1,
-    threads=1,
-    chunk_size=100,
-    max_retries=0,
-    save_features=True,
-    class_level_files=True,
-    include_parcel_geometry=True,
-)
+COMMON = {
+    "processes": 1,
+    "threads": 1,
+    "chunk_size": 100,
+    "max_retries": 0,
+    "save_features": True,
+    "class_level_files": True,
+    "include_parcel_geometry": True,
+}
 CASES: dict[str, dict] = {
-    "us": dict(
-        country="us",
-        packs=["building", "building_char", "pool", "roof_char", "roof_cond", "solar", "surfaces", "vegetation"],
-        roof_age=True,
-        until="2025-03-18",
-    ),
-    "au": dict(country="au", packs=["building", "roof_char", "vegetation"], since="2025-01-20", until="2025-03-06"),
+    "us": {
+        "country": "us",
+        "packs": ["building", "building_char", "pool", "roof_char", "roof_cond", "solar", "surfaces", "vegetation"],
+        "roof_age": True,
+        "until": "2025-03-18",
+    },
+    "au": {
+        "country": "au",
+        "packs": ["building", "roof_char", "vegetation"],
+        "since": "2025-01-20",
+        "until": "2025-03-06",
+    },
 }
 
 _ANY_URL = re.compile(".*")
@@ -50,15 +55,15 @@ _REAL_CONNECT = socket.socket.connect
 _ACTIVE_MOCKS: list[responses.RequestsMock] = []
 
 
-def run_case(case: str, out_dir: Path) -> Path:
+def run_case(case: str, out_dir: Path, aoi_file: Path | None = None) -> Path:
     """Export a golden case offline into `out_dir` (markers and API cache under it too) and return its `final/`.
 
     Fails when the fake was not installed in a worker, when a request had no answer, or when the export rewrote
-    `nmaipy/class_descriptions.json`.
+    `nmaipy/class_descriptions.json`. `aoi_file` replaces the case's own AOI file.
     """
     marker_dir = out_dir / "markers"
     marker_dir.mkdir(parents=True)
-    aoi_file = write_aois(case, out_dir / "aois.csv")
+    aoi_file = aoi_file or write_aois(case, out_dir / "aois.csv")
     with pytest.MonkeyPatch.context() as m, _class_descriptions_unchanged():
         _go_offline(m)
         m.setattr("nmaipy.base_exporter.ProcessPoolExecutor", executor_with(install_fake, case, str(marker_dir)))
@@ -91,7 +96,7 @@ def install_fake(case: str, marker_dir: str) -> None:
 
 
 @contextmanager
-def serving(case: str, marker_dir: Path) -> Iterator[None]:
+def serving(case: str, marker_dir: Path) -> Generator[None]:
     """Answer the calling process's HTTP requests from the case's fake API, as `install_fake` does, until exit."""
     mock = _start_fake(case, marker_dir)
     socket.socket.connect = _connect_blocker(marker_dir)
@@ -168,7 +173,7 @@ def _go_offline(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @contextmanager
-def _class_descriptions_unchanged() -> Iterator[None]:
+def _class_descriptions_unchanged() -> Generator[None]:
     original = CLASS_DESCRIPTIONS.read_bytes()
     try:
         yield

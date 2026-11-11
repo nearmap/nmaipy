@@ -3,8 +3,8 @@ from unittest.mock import patch
 import psutil
 import pytest
 
-import nmaipy.cgroup_memory as cgroup_mod
 from nmaipy.base_exporter import BaseExporter
+import nmaipy.cgroup_memory as cgroup_mod
 from nmaipy.cgroup_memory import (
     _get_cgroup_cpu_percent,
     _get_cgroup_cpu_usage_ns,
@@ -115,6 +115,7 @@ class TestGetCgroupCpuUsage:
 
         # Simulate 2 seconds of wall time, 4 CPU-seconds of usage (= 100% of 4 CPUs for 1s... but 2s elapsed)
         # 4 CPU-seconds in 2 wall-seconds on 4 CPUs = 50%
+        assert cgroup_mod._prev_cgroup_cpu_time is not None, "first call should record a baseline"
         cgroup_mod._prev_cgroup_cpu_time -= 2.0  # pretend 2s ago
         cpu_stat.write_text("usage_usec 5000000\n")  # +4M usec = +4 CPU-seconds
 

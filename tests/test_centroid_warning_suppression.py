@@ -42,6 +42,7 @@ def test_centroid_warning_suppressed_in_production_environment():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
 
     assert result.returncode == 0, (

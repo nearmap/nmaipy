@@ -1,12 +1,9 @@
-#!/usr/bin/env python
 """
 Examples of common nmaipy use cases for data scientists.
 
 These examples show how to extract different types of Nearmap AI features
 for various analysis scenarios.
 """
-
-import os
 
 from nmaipy.exporter import NearmapAIExporter
 

@@ -136,7 +136,7 @@ def test_single_address_export(single_address_csv, tmp_path):
     assert "class_id" in df_features.columns or "description" in df_features.columns, "No class information in features"
 
     # Verify we got building features
-    assert len(df_features) > 0, f"No features found (expected building features)"
+    assert len(df_features) > 0, "No features found (expected building features)"
 
 
 @pytest.mark.live_api
@@ -162,7 +162,7 @@ def test_url_encoding_in_address_fields():
     geometry = Point(0, 0).buffer(0.001)
 
     # Create POST request parameters
-    url, body, exact = api._create_post_request(
+    url, _body, _exact = api._create_post_request(
         base_url=api.FEATURES_URL,
         geometry=geometry,
         address_fields=address_fields,
@@ -202,7 +202,7 @@ def test_invalid_region_validation():
     geometry = Point(0, 0).buffer(0.001)
 
     # Test with invalid region code
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="Invalid region") as exc_info:
         api._create_post_request(
             base_url=api.FEATURES_URL,
             geometry=geometry,

@@ -7,13 +7,14 @@ boundaries. Tests are skipped if API_KEY is not set.
 """
 
 import os
-import tempfile
 from pathlib import Path
+import sys
+import tempfile
 
-import geopandas as gpd
-import pandas as pd
-import pytest
 from dotenv import load_dotenv
+import pandas as pd
+from pyogrio.errors import DataSourceError
+import pytest
 
 from nmaipy.exporter import AOIExporter
 
@@ -156,7 +157,6 @@ class TestIntegration:
 
             # Check for feature files (parquet format)
             final_dir = output_dir / "final"
-            feature_files = list(final_dir.glob("*.parquet"))
             # Features may or may not be created depending on API response
             # Just verify the export completed
             assert final_dir.exists(), "Final directory not created"
@@ -185,9 +185,9 @@ class TestIntegration:
             csv_files = [final_dir / "rollup.csv"] if (final_dir / "rollup.csv").exists() else []
 
             # Either parquet or csv should exist
-            assert (
-                len(parquet_files) > 0 or len(csv_files) > 0
-            ), f"No output file created. Files: {list(final_dir.iterdir())}"
+            assert len(parquet_files) > 0 or len(csv_files) > 0, (
+                f"No output file created. Files: {list(final_dir.iterdir())}"
+            )
 
     @pytest.mark.integration
     @pytest.mark.skipif(not HAS_API_KEY, reason="API_KEY not set - skipping integration test")
@@ -229,7 +229,7 @@ class TestIntegration:
             )
 
             # Should raise an error when trying to run
-            with pytest.raises(Exception):
+            with pytest.raises(DataSourceError, match="No such file or directory"):
                 exporter.run()
 
     @pytest.mark.integration
@@ -248,12 +248,12 @@ class TestIntegration:
             )
 
             # Should handle invalid GeoJSON gracefully
-            with pytest.raises(Exception):
+            with pytest.raises(DataSourceError, match="not recognized as being in a supported file format"):
                 exporter.run()
 
 
 if __name__ == "__main__":
     # Run integration tests
-    current_file = os.path.abspath(__file__)
+    current_file = str(Path(__file__).resolve())
     # Run only integration tests by default
     sys.exit(pytest.main([current_file, "-m", "integration", "-v"]))

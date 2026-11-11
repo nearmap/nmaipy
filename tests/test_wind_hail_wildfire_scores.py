@@ -1,12 +1,9 @@
-#!/usr/bin/env python
 """Test that windScore, hailScore, wildfireScore, and windHailRiskScore are correctly handled."""
 
 # TODO: Replace fabricated test data with cached real API data (see project MEMORY.md)
 
 import json
 from pathlib import Path
-
-import pytest
 
 from nmaipy.constants import ROOF_ID
 from nmaipy.parcels import flatten_roof_attributes
