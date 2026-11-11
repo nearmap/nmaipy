@@ -22,7 +22,8 @@ Run any command inside an environment with `pixi run <cmd>` (e.g. `pixi run pyth
 Environments:
 - `default` — Python 3.14 with test, build (`python-build`, `twine`) and notebook (`ipykernel`, `matplotlib-base`) tools
 - `py312`, `py313`, `py314` — the test environment on each supported Python version
-- `lint` — `black` and `isort` only
+- `lint` — `ruff` only
+- `typecheck` — `ty`, with the test and notebook dependencies it reads
 - `docs` — `mystmd`, for the documentation site
 
 ## Key Commands
@@ -95,15 +96,19 @@ python -m tests.golden.compare LEFT RIGHT  # diff two exports (e.g. old versus n
 
 ### Code Formatting
 
-Format code with black and sort imports with isort:
+Fix lint findings that ruff can fix safely, then format and sort imports with ruff:
 ```bash
 pixi run format
 ```
 
-Check formatting without changing files:
+Check without changing files. This runs ty first, then ruff:
 ```bash
 pixi run lint
 ```
+
+Suppress a finding only on its line, always with the code and a reason: `# noqa: <code> -- <reason>` for ruff, `# ty: ignore[<rule>] -- <reason>` for ty.
+
+The commits that only reformat the code are listed in `.git-blame-ignore-revs`. Run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so that `git blame` skips them.
 
 ### Documentation Site
 

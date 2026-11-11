@@ -63,13 +63,176 @@ packages = ["nmaipy"]
 [tool.hatch.build.targets.sdist]
 include = ["/nmaipy"]
 
-[tool.black]
+[tool.ruff]
 line-length = 120
-target-version = ['py312']
+extend-exclude = ["*.md"]
 
-[tool.isort]
-profile = "black"
-line_length = 120
+[tool.ruff.lint]
+extend-select = ["I", "PD", "NPY", "RUF", "E", "W", "F", "UP", "C90", "B", "N", "A", "COM", "C4", "DTZ", "ARG", "PL", "RET",
+  "S108", "TID251", "ASYNC", "BLE001", "FAST001", "LOG", "PGH004", "PT", "PTH", "S113", "S307", "S324", "S501", "S506",
+  "S602", "S605", "T20", "TRY002", "TRY201", "TRY400", "TRY401"]
+ignore = ["PLR2004", "PLR0913", "PLR0917", "C901", "ARG001", "ARG002", "ARG005", "PLR0912", "COM812", "PTH118", "PTH123"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+"scripts/**" = ["T20"]
+"notebooks/**" = ["T20"]
+"bump_version.py" = ["T20"]
+"examples.py" = ["T20"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+
+[tool.ruff.lint.pylint]
+max-statements = 100
+max-args = 10
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"tempfile.gettempdir".msg = "Fixed names in the shared temp dir collide across processes; use tempfile.mkstemp(), tempfile.mkdtemp() or a caller-supplied directory."
+
+[tool.ty.rules]
+# Enforced.
+abstract-and-final-method = "error"
+abstract-method-in-final-class = "error"
+ambiguous-protocol-member = "error"
+assert-type-unspellable-subtype = "error"
+blanket-ignore-comment = "error"
+call-abstract-method = "error"
+call-non-callable = "error"
+call-top-callable = "error"
+conflicting-declarations = "error"
+conflicting-metaclass = "error"
+cyclic-class-definition = "error"
+cyclic-type-alias-definition = "error"
+dataclass-field-order = "error"
+deprecated = "error"
+disjoint-cast = "error"
+division-by-zero = "error"
+duplicate-base = "error"
+duplicate-kw-only = "error"
+dynamic-function-decorator-return = "error"
+empty-body = "error"
+escape-character-in-forward-annotation = "error"
+experimental-syntax = "error"
+final-on-non-method = "error"
+final-without-value = "error"
+ignore-comment-unknown-rule = "error"
+implicit-concatenated-string-type-annotation = "error"
+inconsistent-mro = "error"
+index-out-of-bounds = "error"
+ineffective-final = "error"
+instance-layout-conflict = "error"
+invalid-attribute-access = "error"
+invalid-attribute-override = "error"
+invalid-await = "error"
+invalid-base = "error"
+invalid-context-manager = "error"
+invalid-dataclass = "error"
+invalid-dataclass-override = "error"
+invalid-declaration = "error"
+invalid-enum-member-annotation = "error"
+invalid-exception-caught = "error"
+invalid-explicit-override = "error"
+invalid-frozen-dataclass-subclass = "error"
+invalid-generic-class = "error"
+invalid-generic-enum = "error"
+invalid-ignore-comment = "error"
+invalid-init-type-variable = "error"
+invalid-key = "error"
+invalid-legacy-positional-parameter = "error"
+invalid-legacy-type-variable = "error"
+invalid-match-pattern = "error"
+invalid-metaclass = "error"
+invalid-method-override = "error"
+invalid-module-getattr-call = "error"
+invalid-mutable-override = "error"
+invalid-named-tuple = "error"
+invalid-named-tuple-override = "error"
+invalid-newtype = "error"
+invalid-overload = "error"
+invalid-parameter-default = "error"
+invalid-paramspec = "error"
+invalid-property-type-override = "error"
+invalid-protocol = "error"
+invalid-raise = "error"
+invalid-super-argument = "error"
+invalid-syntax-in-forward-annotation = "error"
+invalid-total-ordering = "error"
+invalid-type-alias-type = "error"
+invalid-type-arguments = "error"
+invalid-type-checking-constant = "error"
+invalid-type-form = "error"
+invalid-type-guard-definition = "error"
+invalid-type-variable-bound = "error"
+invalid-type-variable-constraints = "error"
+invalid-type-variable-default = "error"
+invalid-typed-dict-field = "error"
+invalid-typed-dict-header = "error"
+invalid-typed-dict-statement = "error"
+invalid-yield = "error"
+isinstance-against-protocol = "error"
+isinstance-against-typed-dict = "error"
+mismatched-sentinel-name = "error"
+mismatched-type-name = "error"
+missing-argument = "error"
+missing-direct-dependency = "error"
+missing-slot = "error"
+missing-typed-dict-key = "error"
+non-callable-init-subclass = "error"
+not-iterable = "error"
+override-of-final-method = "error"
+override-of-final-variable = "error"
+parameter-already-assigned = "error"
+positional-only-parameter-as-kwarg = "error"
+possibly-missing-attribute = "error"
+possibly-missing-implicit-call = "error"
+possibly-missing-import = "error"
+possibly-missing-submodule = "error"
+pydantic-discarded-extra-argument = "error"
+raw-string-type-annotation = "error"
+redundant-cast = "error"
+redundant-condition = "error"
+redundant-final-classvar = "error"
+shadowed-type-variable = "error"
+static-assert-error = "error"
+subclass-of-dataclass-with-order = "error"
+subclass-of-final-class = "error"
+super-call-in-named-tuple-method = "error"
+too-many-positional-arguments = "error"
+truthiness-test-of-callable = "error"
+truthiness-test-of-iterable = "error"
+truthiness-test-of-none-union = "error"
+type-assertion-failure = "error"
+unavailable-implicit-super-arguments = "error"
+unbound-type-variable = "error"
+undefined-reveal = "error"
+unknown-argument = "error"
+unresolved-global = "error"
+unresolved-import = "error"
+unresolved-reference = "error"
+unsupported-base = "error"
+unsupported-bool-conversion = "error"
+unsupported-dynamic-base = "error"
+unsupported-operator = "error"
+unused-awaitable = "error"
+unused-ignore-comment = "error"
+unused-type-ignore-comment = "error"
+useless-overload-body = "error"
+zero-stepsize-in-slice = "error"
+# Not yet enforced.
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+invalid-return-type = "ignore"
+missing-override-decorator = "ignore"
+missing-type-argument = "ignore"
+no-matching-overload = "ignore"
+not-subscriptable = "ignore"
+possibly-unresolved-reference = "ignore"
+redundant-condition-strict = "ignore"
+unresolved-attribute = "ignore"
+unsound-assignment = "ignore"
+unsound-return-statement = "ignore"
+unsound-yield = "ignore"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -122,13 +285,19 @@ twine = "*"
 [tool.pixi.feature.build.tasks]
 build = "rm -rf dist && python -m build && twine check --strict dist/*"
 
+# Bump deliberately: a ruff minor changes the format style, and a ty release adds rules that check_ty_rules.py makes you list.
 [tool.pixi.feature.lint.dependencies]
-black = "*"
-isort = "*"
+ruff = "0.17.*"
 
 [tool.pixi.feature.lint.tasks]
-lint = "black --check nmaipy tests && isort --check-only nmaipy tests"
-format = "black nmaipy tests && isort nmaipy tests"
+lint = { cmd = "ruff check && ruff format --check", depends-on = [{ task = "typecheck", environment = "typecheck" }] }
+format = "ruff check --fix --exit-zero && ruff format"
+
+[tool.pixi.feature.typecheck.dependencies]
+ty = "0.0.92.*"
+
+[tool.pixi.feature.typecheck.tasks]
+typecheck = "python scripts/check_ty_rules.py && ty check --error-on-warning"
 
 [tool.pixi.feature.docs.dependencies]
 mystmd = "*"
@@ -142,5 +311,6 @@ default = { features = ["py314", "test", "build", "notebooks"], solve-group = "p
 py312 = { features = ["py312", "test"], solve-group = "py312" }
 py313 = { features = ["py313", "test"], solve-group = "py313" }
 py314 = { features = ["py314", "test"], solve-group = "py314" }
-lint = { features = ["py314", "lint"], no-default-feature = true }
+lint = { features = ["lint"], no-default-feature = true }
+typecheck = { features = ["py314", "test", "notebooks", "typecheck"], solve-group = "py314" }
 docs = { features = ["py314", "docs"], no-default-feature = true }
