@@ -118,8 +118,14 @@ class TestPartialGrid:
         smallest = cells.to_crs(AREA_CRS["au"]).area.nsmallest(2).index.tolist()
         api = _api(tmp_path, monkeypatch, {cid: 404 for cid in smallest}, aoi_grid_min_pct=50)
 
-        with caplog.at_level(logging.DEBUG, logger="nmaipy"):
-            _, metadata_df, errors_df, summary = _gridded(api)
+        # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level(logging.DEBUG, logger="nmaipy"):
+                _, metadata_df, errors_df, summary = _gridded(api)
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
 
         assert summary["grid_cells"] == n and summary["grid_cells_answered"] == n - 2
         expected = _area_share(cells, [c for c in cells.index if c not in smallest])

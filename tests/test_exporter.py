@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -659,8 +661,14 @@ class TestExporter:
             output_path = tmpdir / "merged.parquet"
             feature_paths = sorted(chunk_dir.glob("*.parquet"))
 
-            with caplog.at_level(logging.WARNING, logger="nmaipy"):
-                exporter._stream_and_convert_features(feature_paths, output_path)
+            # The nmaipy logger has propagate=False, so attach caplog's handler directly.
+            nmaipy_logger = logging.getLogger("nmaipy")
+            nmaipy_logger.addHandler(caplog.handler)
+            try:
+                with caplog.at_level(logging.WARNING, logger="nmaipy"):
+                    exporter._stream_and_convert_features(feature_paths, output_path)
+            finally:
+                nmaipy_logger.removeHandler(caplog.handler)
 
             # Should NOT produce per-chunk warning messages about schema casting
             warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
@@ -2649,6 +2657,58 @@ def test_cast_all_null_object_columns_keeps_typed_dtypes_through_concat():
     merged = pd.concat(cast, ignore_index=True)
     assert str(merged["area"].dtype) == "Float64", merged["area"].dtype
     assert merged["area"].isna().tolist() == [False, False, True, True]
+
+
+class TestAoiInputColumnsWithDates:
+    """Input AOI columns are carried onto every feature row and JSON-serialized for features.parquet. A nested
+    column holding dates (e.g. a list of structs with a date field, as read from a GeoParquet input) must
+    serialize, and the per-class export must still recompute clipped-roof components per parcel."""
+
+    @pytest.fixture
+    def exporter(self, tmp_path):
+        ex = AOIExporter(
+            aoi_file="data/examples/sydney_parcels.geojson",
+            output_dir=str(tmp_path),
+            country="us",
+            packs=["building"],
+            no_cache=True,
+            save_features=True,
+        )
+        Path(ex.chunk_path).mkdir(parents=True, exist_ok=True)
+        return ex
+
+    def test_date_valued_input_column_keeps_clipped_roof_components(self, exporter, clipped_roof):
+        captures = np.array([{"captureDate": datetime.date(2024, 5, 1), "source": "a"}], dtype=object)
+        aoi_gdf = gpd.GeoDataFrame(
+            {"captures": [captures]},
+            geometry=[clipped_roof.parcel],
+            crs=API_CRS,
+            index=pd.Index(["parcel-a"], name=AOI_ID_COLUMN_NAME),
+        )
+        features = gpd.GeoDataFrame(
+            [clipped_roof.roof_row(), clipped_roof.tile_child_row()], geometry="geometry", crs=API_CRS
+        ).set_index(AOI_ID_COLUMN_NAME)
+        # Gridded, so the roof parent is clipped to the parcel before the component recalculation.
+        metadata = pd.DataFrame(
+            {"system_version": ["gen6-x"], "survey_date": ["2026-03-28"], "gridded": [True]},
+            index=pd.Index(["parcel-a"], name=AOI_ID_COLUMN_NAME),
+        )
+        errors = pd.DataFrame([])
+        errors.index.name = AOI_ID_COLUMN_NAME
+        classes_df = pd.DataFrame({"description": ["Roof"]}, index=pd.Index([ROOF_ID], name="id"))
+
+        with (
+            patch("nmaipy.exporter.FeatureApi") as mock_api,
+            patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
+        ):
+            mock_api.return_value.get_features_gdf_bulk.return_value = (features, metadata, errors)
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=aoi_gdf, classes_df=classes_df)
+
+        chunk_path = Path(exporter.chunk_path)
+        roof = pd.read_parquet(chunk_path / "roof_0000.parquet").iloc[0]
+        assert roof["tile_area_sqft"] == pytest.approx(clipped_roof.clipped_sqft, rel=1e-3)
+        saved = pd.read_parquet(chunk_path / "features_0000.parquet")
+        assert json.loads(saved["captures"].iloc[0]) == [{"captureDate": "2024-05-01", "source": "a"}]
 
 
 class TestPacksAndClasses:
