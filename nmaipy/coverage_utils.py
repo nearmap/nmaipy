@@ -666,14 +666,15 @@ def threaded_get_coverage_from_survey_ids(
 
 def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT, bearer_token=None):
     # NOTE: this references `id_check_response_to_dataframe`, which is not defined
-    # anywhere in the package — the survey-ids path is pre-existing dead code with
-    # no callers. Left in place (out of scope for this cleanup); flagged so a
+    # anywhere in the package — the survey-ids path is unfinished: the public
+    # get_coverage_from_survey_ids reaches it, and any 200 response raises NameError.
+    # Left in place (out of scope for this cleanup); flagged so a
     # future reviver knows the response parser still needs implementing.
     fields = "id,captureDate,resources"
     url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
     response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
     if not isinstance(response, int):
-        return id_check_response_to_dataframe(response), response  # noqa: F821 -- dead path, see NOTE above  # ty: ignore[unresolved-reference] -- dead path
+        return id_check_response_to_dataframe(response), response  # noqa: F821 -- undefined parser, see NOTE above  # ty: ignore[unresolved-reference] -- undefined parser, see NOTE above
     if response == FORBIDDEN_403:
         logger.debug(f"Unauthorised area request at {survey_id=} with code {response}")
         return None, None
