@@ -20,7 +20,7 @@ pytestmark = pytest.mark.live_api
 @pytest.fixture
 def integration_test_dir():
     """Fixture for test output directory."""
-    if os.environ.get("CI"):
+    if os.environ.get("CI", ""):
         temp_dir = tempfile.mkdtemp(prefix="integration_test_")
         output_dir = Path(temp_dir)
     else:
@@ -30,7 +30,7 @@ def integration_test_dir():
     yield output_dir
 
     # Cleanup - skip if KEEP_TEST_FILES is set (useful for QGIS testing)
-    if output_dir.exists() and not os.environ.get("KEEP_TEST_FILES"):
+    if output_dir.exists() and not os.environ.get("KEEP_TEST_FILES", ""):
         shutil.rmtree(output_dir)
 
 

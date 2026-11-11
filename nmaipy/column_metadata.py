@@ -198,7 +198,7 @@ def _format_scope_phrase(scope_prefix: str | None) -> str:
 
     Empty/None → the parcel-wide phrase ("across the entire parcel").
     """
-    if not scope_prefix:
+    if scope_prefix is None or not scope_prefix:
         return _DEFAULT_SCOPE_PHRASE
     return _SCOPE_PHRASES.get(scope_prefix, _DEFAULT_SCOPE_PHRASE)
 
@@ -578,7 +578,7 @@ def lookup_column(
             scope_phrase_override = ""
             if not scope and class_label and class_label not in ("feature", "parcel"):
                 scope_phrase_override = f"on this {class_label}"
-            if extras:
+            if extras is not None and extras:
                 extra_groups.update(extras)
             rendered = _instantiate(
                 pattern.template,

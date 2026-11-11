@@ -10,6 +10,7 @@ import multiprocessing
 import pickle
 import threading
 import time
+from typing import Any
 
 import pytest
 
@@ -62,7 +63,8 @@ def worker_increment_counter(progress_counters, num_increments=5, simulate_gridd
 def test_progress_counters_basic():
     """Test that progress counters can be created and accessed"""
     manager = multiprocessing.Manager()
-    progress_counters = manager.dict({"total": 10, "completed": 0, "lock": manager.Lock()})
+    initial_counters: dict[str, Any] = {"total": 10, "completed": 0, "lock": manager.Lock()}
+    progress_counters = manager.dict(initial_counters)
 
     # Test basic access
     assert progress_counters["total"] == 10
@@ -234,7 +236,8 @@ def test_blocking_reader_not_starved_under_burst_writes():
     THREADS_PER_PROCESS = 20
     INC_PER_THREAD = 50
     expected = NUM_WRITER_PROCESSES * THREADS_PER_PROCESS * INC_PER_THREAD
-    progress_counters = manager.dict({"total": expected, "completed": 0, "lock": manager.Lock()})
+    initial_counters: dict[str, Any] = {"total": expected, "completed": 0, "lock": manager.Lock()}
+    progress_counters = manager.dict(initial_counters)
 
     observed: list = []
     stop = threading.Event()

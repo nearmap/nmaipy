@@ -441,7 +441,7 @@ def test_exporter_integration(test_aoi_file, test_output_dir):
     Requires valid API_KEY environment variable.
     Skipped if API_KEY is not set.
     """
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY", ""):
         pytest.skip("API_KEY not set - skipping integration test")
 
     exporter = RoofAgeExporter(

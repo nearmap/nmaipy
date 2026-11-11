@@ -257,7 +257,7 @@ class TestAddMissingColumns:
 
 class TestExporter:
     @pytest.mark.live_api
-    @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
+    @pytest.mark.skipif(not os.environ.get("API_KEY", ""), reason="API_KEY not set")
     def test_process_chunk_au(
         self,
         parcel_gdf_au_tests: gpd.GeoDataFrame,
@@ -337,7 +337,7 @@ class TestExporter:
         assert len(data) == len(parcel_gdf_au_tests)  # Assert got a result for every parcel.
 
     @pytest.mark.live_api
-    @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
+    @pytest.mark.skipif(not os.environ.get("API_KEY", ""), reason="API_KEY not set")
     def test_full_export_with_incremental_features(
         self,
         parcel_gdf_au_tests: gpd.GeoDataFrame,

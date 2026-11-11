@@ -220,7 +220,7 @@ def calculate_child_feature_attributes(
     country: str,
     name_prefix: str = "",
     parent_projected=None,
-    children_projected: gpd.GeoSeries = None,
+    children_projected: gpd.GeoSeries | None = None,
 ) -> dict:
     """
     Calculate component attributes by spatial intersection for clipped features.
@@ -840,8 +840,8 @@ def build_parent_lookup_by_aoi(features_gdf: gpd.GeoDataFrame) -> dict:
 
 def resolve_footprint_rsi(
     feature,
-    features_gdf: gpd.GeoDataFrame = None,
-    parent_lookup: dict = None,
+    features_gdf: gpd.GeoDataFrame | None = None,
+    parent_lookup: dict | None = None,
 ) -> dict:
     """
     Resolve the 'best' RSI for a feature by checking the feature itself then
@@ -923,11 +923,11 @@ def feature_attributes(
     country: str,
     parcel_geom: MultiPolygon | Polygon | None,
     primary_decision: str,
-    primary_lat: float = None,
-    primary_lon: float = None,
-    geometry_projected_col: str = None,
-    projected_crs: str = None,
-    parent_lookup: dict = None,
+    primary_lat: float | None = None,
+    primary_lon: float | None = None,
+    geometry_projected_col: str | None = None,
+    projected_crs: str | None = None,
+    parent_lookup: dict | None = None,
     clip_roof_to_parcel: bool = False,
 ) -> dict:
     """
@@ -1471,10 +1471,10 @@ def parcel_rollup(
     classes_df: pd.DataFrame,
     country: str,
     primary_decision: str,
-    api_metadata: list = None,
+    api_metadata: list | None = None,
     alpha: bool = False,
     beta: bool = False,
-    gridded_aoi_ids: set = None,
+    gridded_aoi_ids: set | None = None,
 ):
     """
     Summarize feature data to parcel attributes.
@@ -1519,7 +1519,7 @@ def parcel_rollup(
     #      under the active alpha/beta flags at that exact version.
     null_classes_by_aoi = {}
     _class_baseline_columns = {}
-    if api_metadata:
+    if api_metadata is not None and api_metadata:
         all_aoi_ids = set(parcels_gdf.index)
         for meta_df, meta_classes in api_metadata:
             successful_aois = set(meta_df.index) if len(meta_df) > 0 else set()
@@ -1547,7 +1547,7 @@ def parcel_rollup(
                 }
                 for aoi_id, sv in meta_df["system_version"].items():
                     unreturnable = unreturnable_by_sv.get(sv)
-                    if unreturnable:
+                    if unreturnable is not None and unreturnable:
                         null_classes_by_aoi.setdefault(aoi_id, set()).update(unreturnable)
         # Only compute baseline columns if at least one AOI needs nullification
         if null_classes_by_aoi:
@@ -1707,7 +1707,7 @@ def parcel_rollup(
     # ``{"skipped": true}`` — we record ``aggregate_defensible_space_skipped``
     # so downstream consumers can tell "API skipped this" from "no aggregate
     # data available".
-    if api_metadata:
+    if api_metadata is not None and api_metadata:
         meta_df = api_metadata[0][0]
         if "aggregate" in meta_df.columns:
             agg_rows = {}

@@ -223,7 +223,7 @@ def test_drift() -> None:
         [sys.executable, "-m", "tests.golden.drift"], cwd=REPO, capture_output=True, text=True, check=False
     )
     output = f"{result.stdout}\n{result.stderr}"
-    if key := os.environ.get("API_KEY"):
+    if key := os.environ.get("API_KEY", ""):
         output = output.replace(key, "APIKEYREMOVED")
     assert result.returncode == 0, f"the live API drifted from the golden fake:\n{output}"
 

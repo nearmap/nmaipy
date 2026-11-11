@@ -495,7 +495,7 @@ except (FileNotFoundError, json.JSONDecodeError):
     FEATURE_CLASS_DESCRIPTIONS = {}
 
 
-def refresh_class_descriptions(api_key: str = None):
+def refresh_class_descriptions(api_key: str | None = None):
     """Fetch class descriptions from the live Feature API and update class_descriptions.json.
 
     Preserves synthetic entries (e.g. Roof Instance from Roof Age API) that aren't

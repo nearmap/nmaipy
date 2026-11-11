@@ -3,7 +3,7 @@
 This is the only module that knows which HTTP library nmaipy uses.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 import functools
@@ -91,7 +91,7 @@ def install_fake(case: str, marker_dir: str) -> None:
 
 
 @contextmanager
-def serving(case: str, marker_dir: Path) -> Iterator[None]:
+def serving(case: str, marker_dir: Path) -> Generator[None]:
     """Answer the calling process's HTTP requests from the case's fake API, as `install_fake` does, until exit."""
     mock = _start_fake(case, marker_dir)
     socket.socket.connect = _connect_blocker(marker_dir)
@@ -168,7 +168,7 @@ def _go_offline(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @contextmanager
-def _class_descriptions_unchanged() -> Iterator[None]:
+def _class_descriptions_unchanged() -> Generator[None]:
     original = CLASS_DESCRIPTIONS.read_bytes()
     try:
         yield

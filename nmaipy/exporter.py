@@ -726,7 +726,7 @@ def _batch_project_geometries(
     parent_gdf: gpd.GeoDataFrame,
     child_by_aoi: dict,
     country: str,
-    aoi_geometries: dict = None,
+    aoi_geometries: dict | None = None,
 ) -> tuple:
     """Batch-project parent and child geometries to the local area CRS.
 
@@ -750,7 +750,7 @@ def _batch_project_geometries(
     """
     projected_crs = AREA_CRS[country.lower()]
     parent_geom = parent_gdf.geometry
-    if aoi_geometries:
+    if aoi_geometries is not None and aoi_geometries:
         parent_geom = _clip_roof_geoms_to_aoi(parent_gdf, aoi_geometries, "Roof component recalculation")
     parent_projected = parent_geom.to_crs(projected_crs)
     child_proj_by_aoi = {}
@@ -766,7 +766,7 @@ _LARGE_TYPE_MAP = {
 }
 
 
-def _promote_schema_types(schema: pa.Schema, column_types: dict = None) -> pa.Schema:
+def _promote_schema_types(schema: pa.Schema, column_types: dict | None = None) -> pa.Schema:
     """Promote null-type fields and 32-bit string/binary to 64-bit equivalents.
 
     This prevents ArrowInvalid offset overflow when many chunks are written
@@ -885,9 +885,9 @@ def _stream_merge_chunks_to_parquet(
     *,
     scan_workers: int,
     prefetch_workers: int,
-    geo_metadata: dict = None,
+    geo_metadata: dict | None = None,
     logger=None,
-    progress_desc: str = None,
+    progress_desc: str | None = None,
 ) -> int:
     """Stream-merge per-class chunk parquet files into one output file.
 
@@ -1270,10 +1270,10 @@ def _compute_all_per_class_data(
     chunk_gdf: gpd.GeoDataFrame,
     country: str,
     aoi_input_columns: list,
-    whitelisted_classes: list = None,
+    whitelisted_classes: list | None = None,
     logger_instance=None,
     threads: int = 1,
-    aoi_geometries: dict = None,
+    aoi_geometries: dict | None = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -1479,18 +1479,18 @@ def _compute_feature_class_data(
     class_id: str,
     class_description: str,
     country: str,
-    aoi_columns: list = None,
-    class_features: gpd.GeoDataFrame = None,
-    features_gdf: gpd.GeoDataFrame = None,
-    roof_features: gpd.GeoDataFrame = None,
-    non_roof_features: gpd.GeoDataFrame = None,
-    roof_instance_features: gpd.GeoDataFrame = None,
-    roof_attrs_cache: dict = None,
-    parent_lookup: dict = None,
-    roof_to_building_lookup: dict = None,
-    roofs_linked: gpd.GeoDataFrame = None,
-    buildings_linked: gpd.GeoDataFrame = None,
-    aoi_geometries: dict = None,
+    aoi_columns: list | None = None,
+    class_features: gpd.GeoDataFrame | None = None,
+    features_gdf: gpd.GeoDataFrame | None = None,
+    roof_features: gpd.GeoDataFrame | None = None,
+    non_roof_features: gpd.GeoDataFrame | None = None,
+    roof_instance_features: gpd.GeoDataFrame | None = None,
+    roof_attrs_cache: dict | None = None,
+    parent_lookup: dict | None = None,
+    roof_to_building_lookup: dict | None = None,
+    roofs_linked: gpd.GeoDataFrame | None = None,
+    buildings_linked: gpd.GeoDataFrame | None = None,
+    aoi_geometries: dict | None = None,
 ) -> tuple:
     """
     Compute the flat attribute DataFrame and GeoDataFrame for a single feature class.
@@ -1571,7 +1571,7 @@ def _compute_feature_class_data(
         "geocodeSource",  # Geocoding source
     ]
     # Add any additional AOI columns from the input file (e.g., "Property Id")
-    if aoi_columns:
+    if aoi_columns is not None and aoi_columns:
         metadata_cols = metadata_cols + [c for c in aoi_columns if c not in metadata_cols]
     for col in metadata_cols:
         if col in class_features.columns and col not in added_cols:
@@ -2304,7 +2304,7 @@ def _compute_feature_class_data(
                     for idx, (aoi, fid) in enumerate(zip(_aoi_id_values(roofs), roofs["feature_id"].values))
                 }
                 for (r_aoi, bl_fid), roof_fids in bl_to_roofs.items():
-                    if roof_area_col and len(roof_fids) > 1:
+                    if roof_area_col is not None and roof_area_col and len(roof_fids) > 1:
                         best = max(
                             roof_fids,
                             key=lambda f, _a=r_aoi: (
@@ -2494,14 +2494,14 @@ def export_feature_class(
     class_description: str,
     country: str,
     output_dir: str,
-    aoi_columns: list = None,
+    aoi_columns: list | None = None,
     tabular_file_format: str = "csv",
     export_geo_parquet: bool = True,
-    class_features: gpd.GeoDataFrame = None,
-    roof_features: gpd.GeoDataFrame = None,
-    non_roof_features: gpd.GeoDataFrame = None,
-    roof_instance_features: gpd.GeoDataFrame = None,
-    roof_attrs_cache: dict = None,
+    class_features: gpd.GeoDataFrame | None = None,
+    roof_features: gpd.GeoDataFrame | None = None,
+    non_roof_features: gpd.GeoDataFrame | None = None,
+    roof_instance_features: gpd.GeoDataFrame | None = None,
+    roof_attrs_cache: dict | None = None,
 ) -> tuple:
     """
     Export features of a single class to tabular file (CSV or Parquet) and/or GeoParquet.
@@ -3302,7 +3302,7 @@ class NearmapAIExporter(BaseExporter):
         # pyarrow_read_paths); bare-URI pq.read_*() constructs a fresh S3
         # filesystem per file. feature_paths are kept for log messages.
         read_paths, read_fs = storage.pyarrow_read_paths(list(feature_paths))
-        chunk_schemas = [None] * total
+        chunk_schemas: list[pa.Schema | None] = [None] * total
         with ThreadPoolExecutor(max_workers=scan_workers) as scan_executor:
             futures = {scan_executor.submit(pq.read_schema, read_paths[i], filesystem=read_fs): i for i in range(total)}
             for future in as_completed(futures):
@@ -3313,7 +3313,7 @@ class NearmapAIExporter(BaseExporter):
                     self.logger.error(f"Failed to read schema from {feature_paths[idx]}: {e}")
 
         valid_indices = {i for i, s in enumerate(chunk_schemas) if s is not None}
-        valid_schemas = [chunk_schemas[i] for i in sorted(valid_indices)]
+        valid_schemas = [s for s in chunk_schemas if s is not None]
         if not valid_schemas:
             self.logger.error("All chunk schemas failed to read — cannot proceed")
             return None
@@ -3455,6 +3455,7 @@ class NearmapAIExporter(BaseExporter):
                     # Null-type columns (from all-null chunks) are promoted silently.
                     # Only genuine type mismatches that lose data are warned.
                     elif table.schema != reference_schema:
+                        assert reference_schema is not None, "set with the writer on the first chunk"
                         arrays = []
                         type_warnings = []
                         for field in reference_schema:
@@ -3544,7 +3545,7 @@ class NearmapAIExporter(BaseExporter):
     def _merge_per_class_chunks(
         self,
         tabular_file_format: str = "parquet",
-        requested_class_ids: set = None,
+        requested_class_ids: set | None = None,
     ):
         """Merge per-class chunk files into final per-class output files.
 
@@ -3734,8 +3735,8 @@ class NearmapAIExporter(BaseExporter):
         self,
         chunk_id: str,
         aoi_gdf: gpd.GeoDataFrame,
-        classes_df: pd.DataFrame = None,
-        progress_counters: dict = None,
+        classes_df: pd.DataFrame | None = None,
+        progress_counters: dict | None = None,
         **kwargs,
     ):
         """

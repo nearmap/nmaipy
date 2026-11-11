@@ -343,7 +343,7 @@ def test_get_damage_by_aoi_real_api(test_aoi):
 
     Requires a valid API_KEY env var and access to the Hurricane Milton event.
     """
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY", ""):
         pytest.skip("API_KEY not set")
 
     api = DamageConflationApi(event_id=EVENT_ID)  # api key from environment

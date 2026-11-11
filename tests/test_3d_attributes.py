@@ -19,7 +19,7 @@ from nmaipy.feature_api import FeatureApi
 def test_output_dir():
     """Fixture to create and clean up test output directory."""
     # Use a temporary directory for CI/CD, but a known location for local debugging
-    if os.environ.get("CI"):
+    if os.environ.get("CI", ""):
         # In CI, use temp directory
         temp_dir = tempfile.mkdtemp(prefix="3d_test_")
         output_dir = Path(temp_dir)

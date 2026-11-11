@@ -59,7 +59,7 @@ def test_gen_rsi_data(cache_directory: Path):
         AOI_ID_COLUMN_NAME
     )
 
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("API_KEY", "")
     if not api_key:
         pytest.skip("API_KEY not found in environment")
 

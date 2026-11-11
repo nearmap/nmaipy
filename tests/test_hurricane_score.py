@@ -78,7 +78,7 @@ def test_gen_hurricane_score_data(cache_directory: Path):
         [{"aoi_id": "hurricane_score_test_area", "geometry": test_polygon}], crs="EPSG:4326"
     ).set_index(AOI_ID_COLUMN_NAME)
 
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("API_KEY", "")
     if not api_key:
         pytest.skip("API_KEY not found in environment")
 

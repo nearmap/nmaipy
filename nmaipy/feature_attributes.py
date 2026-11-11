@@ -496,7 +496,7 @@ def _reconstruct_attributes_from_dot_notation(feature) -> list:
             if value is not None:
                 # Find existing attribute with same description or create new
                 existing = next((a for a in attributes if a.get("description") == description), None)
-                if existing:
+                if existing is not None and existing:
                     existing[key] = value
                 else:
                     attributes.append({"description": description, key: value})
@@ -693,9 +693,9 @@ def _build_dominant_columns(components: list, recalc_attrs: dict | None, country
 def flatten_roof_attributes(
     roofs: list[dict],
     country: str,
-    child_features: gpd.GeoDataFrame = None,
+    child_features: gpd.GeoDataFrame | None = None,
     parent_projected=None,
-    children_projected: "gpd.GeoSeries" = None,
+    children_projected: "gpd.GeoSeries | None" = None,
 ) -> dict:
     """
     Flatten roof attributes from Feature API.
@@ -746,7 +746,7 @@ def flatten_roof_attributes(
                     attributes = json.loads(attributes)
                 except (json.JSONDecodeError, TypeError):
                     attributes = []
-        if not attributes:
+        if attributes is None or not attributes:
             # Try to reconstruct from dot-notation columns (created by exporter.py's process_chunk)
             attributes = _reconstruct_attributes_from_dot_notation(roof)
 

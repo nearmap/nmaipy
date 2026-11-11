@@ -66,7 +66,6 @@ class TestConstants:
 
     def test_column_names(self):
         """Test that column names are defined."""
-        assert AOI_ID_COLUMN_NAME, "AOI ID column name should be defined"
         assert isinstance(AOI_ID_COLUMN_NAME, str), "Column name should be a string"
         assert AOI_ID_COLUMN_NAME == "aoi_id", "Standard AOI ID column name"
 

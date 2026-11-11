@@ -1279,7 +1279,9 @@ class TestTruncatedJsonLogging:
         ],
         ids=["truncated", "empty", "whitespace-only", "nan-literal", "bom"],
     )
-    def test_parse_error_grids_and_logs_at_expected_level(self, caplog, content, expected_level):
+    def test_parse_error_grids_and_logs_at_expected_level(
+        self, caplog: pytest.LogCaptureFixture, content: bytes, expected_level: int
+    ):
         """Every unparseable 200 raises a size error; only non-truncation errors warn."""
         api = FeatureApi(api_key="TEST_KEY", cache_dir=None)
         response = MagicMock()

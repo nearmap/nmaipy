@@ -190,7 +190,9 @@ def split_geometry_into_grid(geometry: Polygon | MultiPolygon, cell_size: float)
     return df_gridded
 
 
-def combine_features_from_grid(features_gdf: gpd.GeoDataFrame, connected_class_ids: list = None) -> gpd.GeoDataFrame:
+def combine_features_from_grid(
+    features_gdf: gpd.GeoDataFrame, connected_class_ids: list | None = None
+) -> gpd.GeoDataFrame:
     """
     Combine features from multiple grid cells, removing duplicates and merging connected features.
 

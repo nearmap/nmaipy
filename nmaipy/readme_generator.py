@@ -272,14 +272,14 @@ class ReadmeGenerator:
             elif name == "rollup.parquet":
                 rollup_parquet = f
 
-        if rollup_csv:
+        if rollup_csv is not None and rollup_csv:
             try:
                 df = pd.read_csv(rollup_csv, nrows=0)
                 return set(df.columns)
             except Exception:
                 pass
 
-        if rollup_parquet:
+        if rollup_parquet is not None and rollup_parquet:
             try:
                 schema = pq.read_schema(rollup_parquet)
                 return set(schema.names)

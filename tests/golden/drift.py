@@ -80,7 +80,7 @@ def main() -> None:
     parser.add_argument("--probe", action="store_true", help="print error-body keys and live survey dates")
     parser.add_argument("--write-vocabulary", action="store_true", help=f"rewrite {world.VOCABULARY_PATH.name}")
     args = parser.parse_args()
-    api_key = os.environ.get("API_KEY")
+    api_key = os.environ.get("API_KEY", "")
     assert api_key, "the drift check needs API_KEY"
     try:
         _run(args, api_key)

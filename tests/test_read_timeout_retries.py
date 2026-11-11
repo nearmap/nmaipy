@@ -33,6 +33,7 @@ import json
 import socket
 import threading
 import time
+from typing import Any, override
 from unittest.mock import patch
 import weakref
 
@@ -74,7 +75,8 @@ class _RecordingHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # client already gave up on this attempt and closed the connection
 
-    def log_message(self, *args):
+    @override
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
 
@@ -101,7 +103,7 @@ def aborting_server():
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen(50)
-    state = {"attempts": 0, "abort_first": 0, "port": sock.getsockname()[1], "lock": threading.Lock()}
+    state: dict[str, Any] = {"attempts": 0, "abort_first": 0, "port": sock.getsockname()[1], "lock": threading.Lock()}
 
     def handle(conn):
         with state["lock"]:

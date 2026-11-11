@@ -310,7 +310,7 @@ def test_discover_event_returns_id_and_boundary(coverage_point_response, coverag
 def test_discover_event_live():
     """Live: a point in the Hurricane Milton footprint resolves to the Milton event id and a
     non-empty boundary. Requires API_KEY."""
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY", ""):
         pytest.skip("API_KEY not set")
     event_id, boundary = cu.discover_event(lat=27.742889, lon=-82.754961)
     assert event_id == MILTON_EVENT_ID

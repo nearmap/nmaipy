@@ -225,7 +225,7 @@ class RoofAgeExporter(BaseExporter):
         aoi_file: str,
         output_dir: str,
         output_format: str = "geoparquet",
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         no_cache: bool = False,
         overwrite_cache: bool = False,
         compress_cache: bool = False,
@@ -233,12 +233,12 @@ class RoofAgeExporter(BaseExporter):
         threads: int = 10,
         chunk_size: int = 500,
         country: str = "us",
-        api_key: str = None,
+        api_key: str | None = None,
         log_level: str = "INFO",
         include_aoi_geometry: bool = False,
         roof_age_dataset: str = "latest",
-        until: str = None,
-        since: str = None,
+        until: str | None = None,
+        since: str | None = None,
         api_warmup_interval_seconds: float = API_WARMUP_INTERVAL_SECONDS,
     ):
         """
@@ -277,7 +277,9 @@ class RoofAgeExporter(BaseExporter):
         # RoofAgeExporter-specific attributes
         self.aoi_file = aoi_file
         self.output_format = output_format
-        self.cache_dir = str(cache_dir) if cache_dir else storage.join_path(self.output_dir, "cache")
+        self.cache_dir = (
+            str(cache_dir) if cache_dir is not None and cache_dir else storage.join_path(self.output_dir, "cache")
+        )
         self.no_cache = no_cache
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache

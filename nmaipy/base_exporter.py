@@ -179,7 +179,7 @@ class BaseExporter(ABC):
 
     def _cleanup_staging(self):
         """Remove the local staging directory created for S3 output."""
-        if self.is_s3_output and self._local_staging_dir:
+        if self.is_s3_output and self._local_staging_dir is not None and self._local_staging_dir:
             shutil.rmtree(self._local_staging_dir, ignore_errors=True)
             self._local_staging_dir = None
             self._local_final_staging = None
@@ -456,13 +456,8 @@ class BaseExporter(ABC):
         if use_progress_tracking:
             manager = mp_context.Manager()
             # Estimate 1 request per AOI initially (may grow if gridding occurs)
-            progress_counters = manager.dict(
-                {
-                    "total": initial_aoi_count,
-                    "completed": 0,
-                    "lock": manager.Lock(),
-                }
-            )
+            initial_counters: dict[str, Any] = {"total": initial_aoi_count, "completed": 0, "lock": manager.Lock()}
+            progress_counters = manager.dict(initial_counters)
             # Add progress_counters to kwargs if subclass expects it
             if "progress_counters" not in process_chunk_kwargs:
                 process_chunk_kwargs["progress_counters"] = progress_counters
@@ -661,7 +656,7 @@ class BaseExporter(ABC):
         total_cache_hits = 0  # Cumulative across completed chunks, for hit-rate display
         total_cache_misses = 0
 
-        def build_lat_str():
+        def build_lat_str(latest_latency_stats: dict | None, total_cache_hits: int, total_cache_misses: int) -> str:
             """Latency + cache hit-rate segment of the progress description.
 
             Both figures update as chunks complete: latency shows the P50 of the
@@ -669,7 +664,11 @@ class BaseExporter(ABC):
             no latency signal, so they don't blank the readout), the cache hit
             rate is cumulative over all completed chunks.
             """
-            lat_str = f"P50={latest_latency_stats['p50']:.0f}ms" if latest_latency_stats else "Lat: ---"
+            lat_str = (
+                f"P50={latest_latency_stats['p50']:.0f}ms"
+                if latest_latency_stats is not None and latest_latency_stats
+                else "Lat: ---"
+            )
             cache_checked = total_cache_hits + total_cache_misses
             if cache_checked > 0:
                 lat_str += f" | Cache {100 * total_cache_hits / cache_checked:.0f}%"
@@ -721,7 +720,11 @@ class BaseExporter(ABC):
                             pbar.n = requests_completed
 
                             pbar.set_description(
-                                self._format_progress_description(completed_jobs, num_jobs, lat_str=build_lat_str())
+                                self._format_progress_description(
+                                    completed_jobs,
+                                    num_jobs,
+                                    lat_str=build_lat_str(latest_latency_stats, total_cache_hits, total_cache_misses),
+                                )
                             )
                             pbar.refresh()
 
@@ -758,7 +761,11 @@ class BaseExporter(ABC):
                     # Update position and description
                     pbar.n = requests_completed
                     pbar.set_description(
-                        self._format_progress_description(completed_jobs, num_jobs, lat_str=build_lat_str())
+                        self._format_progress_description(
+                            completed_jobs,
+                            num_jobs,
+                            lat_str=build_lat_str(latest_latency_stats, total_cache_hits, total_cache_misses),
+                        )
                     )
                     pbar.refresh()
                     last_progress_check = current_time
@@ -770,7 +777,13 @@ class BaseExporter(ABC):
 
             pbar.n = requests_completed
             pbar.total = requests_total
-            pbar.set_description(self._format_progress_description(num_jobs, num_jobs, lat_str=build_lat_str()))
+            pbar.set_description(
+                self._format_progress_description(
+                    num_jobs,
+                    num_jobs,
+                    lat_str=build_lat_str(latest_latency_stats, total_cache_hits, total_cache_misses),
+                )
+            )
             pbar.refresh()
 
         finally:

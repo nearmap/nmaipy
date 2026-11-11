@@ -289,7 +289,11 @@ class FakeApi:
         selected = {f.name: f for f in candidates if _intersection_area(f, request, self.world.country) > 0}
         roofs = {name for name, f in selected.items() if f.class_id == ROOF_ID}
         selected |= {f.name: f for f in candidates if f.parent in roofs}
-        flags = {name: self._flag(f, parcel_aoi, selected) for name, f in selected.items()} if parcel_aoi else {}
+        flags = (
+            {name: self._flag(f, parcel_aoi, selected) for name, f in selected.items()}
+            if parcel_aoi is not None and parcel_aoi
+            else {}
+        )
         records = [
             self._feature(f, request, survey, attribute_classes, flags.get(f.name))
             for f in sorted(selected.values(), key=lambda f: f.id)

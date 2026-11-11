@@ -283,7 +283,7 @@ class TestDamageClassification:
         assert "primary_building_lifecycle_damage_class" not in result
 
     @pytest.mark.live_api
-    @pytest.mark.skipif(not os.environ.get("API_KEY"), reason="API_KEY not set")
+    @pytest.mark.skipif(not os.environ.get("API_KEY", ""), reason="API_KEY not set")
     def test_damage_classification_api_basic(self, cache_directory):
         """Test basic damage classification API call with Hurricane Beryl data."""
         # A 200 m box in Houston affected by Hurricane Beryl, holding about 18 buildings. The damage include
@@ -344,7 +344,7 @@ class TestDamageClassification:
 
         # Optional: Save results for inspection
         TEST_OUTPUT_DIR = Path(__file__).parent / "data" / "damage_classification_results"
-        if os.environ.get("SAVE_TEST_OUTPUT"):
+        if os.environ.get("SAVE_TEST_OUTPUT", ""):
             TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
             output_file = TEST_OUTPUT_DIR / "beryl_damage_test.gpkg"
             features_gdf.to_file(output_file, driver="GPKG", layer="damage_features")

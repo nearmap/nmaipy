@@ -923,7 +923,7 @@ def test_bulk_export_with_parcels_2(parcels_2_gdf):
     Fetches roof instances from the Roof Age API and exports them via
     export_feature_class, verifying the output contains expected columns.
     """
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY", ""):
         pytest.skip("API_KEY not set")
 
     api = RoofAgeApi()

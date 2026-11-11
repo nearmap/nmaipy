@@ -108,6 +108,7 @@ def test_packs_bearer_sends_header_and_no_apikey():
     api = FeatureApi(api_key=None, bearer_token=_JWT)
     api.get_packs()
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
     assert req.url.startswith(api_url)
@@ -122,6 +123,7 @@ def test_packs_key_mode_no_auth_header():
     api = FeatureApi(api_key="dummy")
     api.get_packs()
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -177,6 +179,7 @@ def test_coverage_get_payload_bearer_header():
     responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0", json={"surveys": []}, status=200)
     coverage_utils.get_payload("https://api.nearmap.com/coverage/v2/point/0,0", bearer_token=_JWT)
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -187,6 +190,7 @@ def test_coverage_get_payload_apikey_mode():
     responses.add(responses.GET, "https://api.nearmap.com/coverage/v2/point/0,0", json={"surveys": []}, status=200)
     coverage_utils.get_payload("https://api.nearmap.com/coverage/v2/point/0,0", apikey="dummy")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -241,6 +245,7 @@ def test_damage_conflation_bearer_sends_header_and_no_apikey(monkeypatch):
     api = DamageConflationApi(event_id=_EVENT_ID, bearer_token=_JWT)
     api.get_damage_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -252,6 +257,7 @@ def test_damage_conflation_key_mode_no_auth_header():
     api = DamageConflationApi(event_id=_EVENT_ID, api_key="dummy")
     api.get_damage_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -267,6 +273,7 @@ def test_damage_conflation_address_bearer_sends_header_and_no_apikey(monkeypatch
     api = DamageConflationApi(event_id=_EVENT_ID, bearer_token=_JWT)
     api.get_damage_by_address(_ADDRESS, aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -278,6 +285,7 @@ def test_damage_conflation_address_key_mode_sends_apikey():
     api = DamageConflationApi(event_id=_EVENT_ID, api_key="dummy")
     api.get_damage_by_address(_ADDRESS, aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers
 
@@ -295,6 +303,7 @@ def test_roof_age_aoi_bearer_omits_apikey_param(monkeypatch):
     api = RoofAgeApi(bearer_token=_JWT)
     api.get_roof_age_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert req.headers["Authorization"] == f"Bearer {_JWT}"
     assert "apikey=" not in req.url
 
@@ -306,5 +315,6 @@ def test_roof_age_aoi_key_mode_sends_apikey_param():
     api = RoofAgeApi(api_key="dummy")
     api.get_roof_age_by_aoi(box(0, 0, 1, 1), aoi_id="a")
     req = responses.calls[0].request
+    assert req.url is not None
     assert "apikey=dummy" in req.url
     assert "Authorization" not in req.headers

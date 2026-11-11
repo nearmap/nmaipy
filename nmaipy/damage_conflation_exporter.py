@@ -242,7 +242,7 @@ class DamageConflationExporter(BaseExporter):
         rollup: bool = False,
         parcel_mode: bool = False,
         primary_decision: str = "largest",
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         no_cache: bool = False,
         overwrite_cache: bool = False,
         compress_cache: bool = False,
@@ -251,7 +251,7 @@ class DamageConflationExporter(BaseExporter):
         max_retries: int = MAX_RETRIES,
         chunk_size: int = 500,
         country: str = "us",
-        api_key: str = None,
+        api_key: str | None = None,
         log_level: str = "INFO",
         include_aoi_geometry: bool = False,
         api_warmup_interval_seconds: float = API_WARMUP_INTERVAL_SECONDS,
@@ -273,7 +273,9 @@ class DamageConflationExporter(BaseExporter):
         self.rollup = rollup
         self.parcel_mode = parcel_mode
         self.primary_decision = primary_decision
-        self.cache_dir = str(cache_dir) if cache_dir else storage.join_path(self.output_dir, "cache")
+        self.cache_dir = (
+            str(cache_dir) if cache_dir is not None and cache_dir else storage.join_path(self.output_dir, "cache")
+        )
         self.no_cache = no_cache
         self.overwrite_cache = overwrite_cache
         self.compress_cache = compress_cache

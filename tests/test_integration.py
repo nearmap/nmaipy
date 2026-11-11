@@ -8,6 +8,7 @@ boundaries. Tests are skipped if API_KEY is not set.
 
 import os
 from pathlib import Path
+import sys
 import tempfile
 
 from dotenv import load_dotenv

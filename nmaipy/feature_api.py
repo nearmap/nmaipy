@@ -205,26 +205,26 @@ class FeatureApi(GriddedApiClient):
     def __init__(
         self,
         api_key: str | None = API_KEY,
-        bulk_mode: bool | None = True,
+        bulk_mode: bool = True,
         cache_dir: Path | None = None,
-        overwrite_cache: bool | None = False,
-        compress_cache: bool | None = False,
-        threads: int | None = 10,
-        alpha: bool | None = False,
-        beta: bool | None = False,
-        prerelease: bool | None = False,
-        only3d: bool | None = False,
-        prefer3d: bool | None = False,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
+        alpha: bool = False,
+        beta: bool = False,
+        prerelease: bool = False,
+        only3d: bool = False,
+        prefer3d: bool = False,
         url_root: str | None = "api.nearmap.com/ai/features/v4/bulk",
         system_version_prefix: str | None = "gen6-",
         system_version: str | None = None,
-        aoi_grid_min_pct: int | None = 100,
-        aoi_grid_inexact: bool | None = False,
-        parcel_mode: bool | None = True,
+        aoi_grid_min_pct: int = 100,
+        aoi_grid_inexact: bool = False,
+        parcel_mode: bool = True,
         maxretry: int = MAX_RETRIES,
-        rapid: bool | None = False,
+        rapid: bool = False,
         order: str | None = None,
-        exclude_tiles_with_occlusion: bool | None = False,
+        exclude_tiles_with_occlusion: bool = False,
         progress_counters: dict | None = None,
         grid_size: float | None = GRID_SIZE_DEGREES,
         regrid_on_skip: bool | None = None,
@@ -368,7 +368,7 @@ class FeatureApi(GriddedApiClient):
         """
         with self._session_scope() as session:
             # In bearer mode the apikey param is omitted (auth is the session header).
-            query_params = [] if self.bearer_token else [f"apikey={self.api_key}"]
+            query_params = [] if self.bearer_token is not None and self.bearer_token else [f"apikey={self.api_key}"]
             if self.alpha:
                 query_params.append("alpha=true")
             if self.beta:
@@ -388,7 +388,7 @@ class FeatureApi(GriddedApiClient):
         response, data = self._get_feature_api_results_as_data(self.PACKS_URL)
         return {p["code"]: [c["id"] for c in p["featureClasses"]] for p in data["packs"]}
 
-    def get_feature_classes(self, packs: list[str] = None) -> pd.DataFrame:
+    def get_feature_classes(self, packs: list[str] | None = None) -> pd.DataFrame:
         """
         Get the feature class IDs and descriptions as a dataframe.
 
@@ -404,7 +404,7 @@ class FeatureApi(GriddedApiClient):
         df_classes = pd.DataFrame(data["classes"]).set_index("id")
 
         # Filter classes to packs
-        if packs:
+        if packs is not None and packs:
             pack_classes = self.get_packs()
             if diff := set(packs) - set(pack_classes.keys()):
                 raise ValueError(f"Unknown packs: {diff}")
@@ -416,22 +416,22 @@ class FeatureApi(GriddedApiClient):
 
         return df_classes
 
-    def _clean_api_key(self, request_string: str) -> str:
+    def _clean_api_key(self, text: str) -> str:
         """
         Remove the API key from a request string using proper URL parsing.
         This ensures URL-encoded API keys are also properly redacted.
         """
-        result = request_string
+        result = text
 
         # First, try to parse as URL and clean any apikey parameters
         try:
-            parsed = urlparse(request_string)
+            parsed = urlparse(text)
 
             # If we have query parameters, clean them
-            if parsed.query or "?" in request_string:
+            if parsed.query or "?" in text:
                 # Handle case where there's no scheme (e.g., "/path?query")
-                if not parsed.scheme and "?" in request_string:
-                    path_part, query_part = request_string.split("?", 1)
+                if not parsed.scheme and "?" in text:
+                    path_part, query_part = text.split("?", 1)
                     query_params = parse_qsl(query_part, keep_blank_values=True)
                 else:
                     query_params = parse_qsl(parsed.query, keep_blank_values=True)
@@ -442,7 +442,7 @@ class FeatureApi(GriddedApiClient):
                 ]
 
                 # Reconstruct the URL
-                if not parsed.scheme and "?" in request_string:
+                if not parsed.scheme and "?" in text:
                     result = f"{path_part}?{urlencode(cleaned_params)}"
                 else:
                     result = urlunparse(
@@ -460,7 +460,7 @@ class FeatureApi(GriddedApiClient):
 
         # Always do simple replacement as a catch-all
         # This handles API keys in non-URL contexts or different formats
-        if hasattr(self, "api_key") and self.api_key:
+        if hasattr(self, "api_key") and self.api_key is not None and self.api_key:
             result = result.replace(self.api_key, "APIKEYREMOVED")
         # Catch a raw bearer token that lacks the "Bearer " prefix the log filters key on.
         if getattr(self, "bearer_token", None):
@@ -629,7 +629,7 @@ class FeatureApi(GriddedApiClient):
 
         # Bearer mode omits the apikey but still opens the query with "?" so the
         # "&param" appends below stay well-formed (the "?&" is collapsed at the end).
-        url = f"{url}?" if self.bearer_token else f"{url}?apikey={self.api_key}"
+        url = f"{url}?" if self.bearer_token is not None and self.bearer_token else f"{url}?apikey={self.api_key}"
 
         # Create request body - only include 'aoi' in the body
         body = {}
@@ -667,48 +667,48 @@ class FeatureApi(GriddedApiClient):
                 f"Request made with survey_resource_id {survey_resource_id} and either since or until - ignoring dates."
             )
         elif (since is not None) or (until is not None):
-            if since:
+            if since is not None and since:
                 if not isinstance(since, str):
                     raise ValueError("Since must be a string")
                 url += f"&since={since}"
-            if until:
+            if until is not None and until:
                 if not isinstance(until, str):
                     raise ValueError("Until must be a string")
                 url += f"&until={until}"
 
         # Add packs as query parameters if given
-        if packs:
+        if packs is not None and packs:
             pack_param = packs if isinstance(packs, str) else ",".join(packs)
             url += f"&packs={pack_param}"
 
         # Add classes as query parameters if given
-        if classes:
+        if classes is not None and classes:
             class_param = classes if isinstance(classes, str) else ",".join(classes)
             url += f"&classes={class_param}"
 
         # Add include as query parameters if given
-        if include:
+        if include is not None and include:
             include_param = include if isinstance(include, str) else ",".join(include)
             url += f"&include={include_param}"
 
         # Add address fields as query parameters if given (for address-based queries)
-        if address_fields:
+        if address_fields is not None and address_fields:
             # Add country parameter for address-based queries (API requires uppercase)
             # The region parameter uses the same values as AREA_CRS keys (au, ca, nz, us)
-            if region:
+            if region is not None and region:
                 region_lower = region.lower()
                 if region_lower not in AREA_CRS:
                     valid_regions = ", ".join(sorted(AREA_CRS.keys()))
                     raise ValueError(f"Invalid region '{region}'. Must be one of: {valid_regions}")
                 url += f"&country={region_lower.upper()}"
             for field in ADDRESS_FIELDS:
-                if address_fields.get(field):
+                if address_fields.get(field, ""):
                     # URL-encode address values to handle spaces, apostrophes, etc.
                     encoded_value = quote(str(address_fields[field]))
                     url += f"&{field}={encoded_value}"
 
         # Add custom parameters from param_dic if provided
-        if param_dic:
+        if param_dic is not None and param_dic:
             for key, value in param_dic.items():
                 # URL-encode values to handle special characters
                 encoded_value = quote(str(value))
@@ -717,7 +717,7 @@ class FeatureApi(GriddedApiClient):
         # With POST requests, we always get the exact geometry processed
         exact = True
 
-        if self.bearer_token:
+        if self.bearer_token is not None and self.bearer_token:
             url = self._strip_empty_query(url)
 
         return url, body, exact
@@ -1045,7 +1045,7 @@ class FeatureApi(GriddedApiClient):
                 text = ""
 
             # Clean up cache if we're overwriting
-            if self.overwrite_cache and cache_path:
+            if self.overwrite_cache and cache_path is not None and cache_path:
                 storage.remove_file(cache_path)
 
             # An empty-body 502 is the API gateway timing out the backend (it answers at its
@@ -1088,7 +1088,7 @@ class FeatureApi(GriddedApiClient):
         cls,
         payload: dict,
         aoi_id: str | None = None,
-        parcel_mode: bool | None = False,
+        parcel_mode: bool = False,
     ) -> tuple[gpd.GeoDataFrame, dict]:
         """
         Create a GeoDataFrame from a feature API response dictionary.
@@ -1392,7 +1392,7 @@ class FeatureApi(GriddedApiClient):
         until: str | None = None,
         address_fields: dict[str, str] | None = None,
         survey_resource_id: str | None = None,
-        fail_hard_regrid: bool | None = False,
+        fail_hard_regrid: bool = False,
         in_gridding_mode: bool = False,
         param_dic: dict[str, str] | None = None,
         disable_parcel_mode: bool = False,
@@ -1625,7 +1625,7 @@ class FeatureApi(GriddedApiClient):
             }
 
         except requests.exceptions.RetryError as e:
-            status_code = e.response.status_code if e.response else DUMMY_STATUS_CODE
+            status_code = e.response.status_code if e.response is not None else DUMMY_STATUS_CODE
             logger.warning(
                 f"Retry Exception - gave up retrying on aoi_id: {aoi_id} near {geometry.representative_point()}. Status code: {status_code}"
             )
@@ -1706,7 +1706,7 @@ class FeatureApi(GriddedApiClient):
         since: str | None = None,
         until: str | None = None,
         survey_resource_id: str | None = None,
-        aoi_grid_inexact: bool | None = False,
+        aoi_grid_inexact: bool = False,
         grid_size: float | None = GRID_SIZE_DEGREES,
         reason: str | None = None,
         disable_parcel_mode: bool = False,
@@ -1751,7 +1751,7 @@ class FeatureApi(GriddedApiClient):
 
             df_gridded = geometry_utils.split_geometry_into_grid(geometry=geometry, cell_size=grid_size)
 
-            reason_str = f" (reason: {reason})" if reason else ""
+            reason_str = f" (reason: {reason})" if reason is not None and reason else ""
             logger.debug(f"Gridding AOI {aoi_id}: split into {len(df_gridded)} grid cells{reason_str}")
 
             # Update progress counter: we're splitting 1 AOI into N grid cells, so add (N-1) to total
@@ -1900,8 +1900,8 @@ class FeatureApi(GriddedApiClient):
         since_bulk: str | None = None,
         until_bulk: str | None = None,
         survey_resource_id_bulk: str | None = None,
-        max_allowed_error_pct: int | None = 100,
-        fail_hard_regrid: bool | None = False,
+        max_allowed_error_pct: int = 100,
+        fail_hard_regrid: bool = False,
         in_gridding_mode: bool = False,
         disable_parcel_mode: bool = False,
     ) -> tuple[gpd.GeoDataFrame | None, pd.DataFrame | None, pd.DataFrame]:
@@ -1961,8 +1961,8 @@ class FeatureApi(GriddedApiClient):
         since_bulk: str | None = None,
         until_bulk: str | None = None,
         survey_resource_id_bulk: str | None = None,
-        max_allowed_error_pct: int | None = 100,
-        fail_hard_regrid: bool | None = False,
+        max_allowed_error_pct: int = 100,
+        fail_hard_regrid: bool = False,
         disable_parcel_mode: bool = False,
     ) -> tuple[gpd.GeoDataFrame | None, pd.DataFrame | None, pd.DataFrame]:
         """Two-pass prefer3d orchestrator: 3D-only, then 2D fallback.
@@ -2147,8 +2147,8 @@ class FeatureApi(GriddedApiClient):
         since_bulk: str | None = None,
         until_bulk: str | None = None,
         survey_resource_id_bulk: str | None = None,
-        max_allowed_error_pct: int | None = 100,
-        fail_hard_regrid: bool | None = False,
+        max_allowed_error_pct: int = 100,
+        fail_hard_regrid: bool = False,
         in_gridding_mode: bool = False,
         disable_parcel_mode: bool = False,
     ) -> tuple[gpd.GeoDataFrame | None, pd.DataFrame | None, pd.DataFrame]:

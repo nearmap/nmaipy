@@ -93,9 +93,9 @@ class DamageConflationApi(BaseApiClient):
         event_id: str,
         api_key: str | None = None,
         cache_dir: str | None = None,
-        overwrite_cache: bool | None = False,
-        compress_cache: bool | None = False,
-        threads: int | None = 10,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         maxretry: int = MAX_RETRIES,
         url_root: str | None = None,
         country: str = "us",
@@ -261,6 +261,7 @@ class DamageConflationApi(BaseApiClient):
         if aoi is not None:
             payload["aoi"] = mapping(aoi)
         else:
+            assert address is not None
             for field in ADDRESS_FIELDS:
                 if field not in address:
                     raise ValueError(f"Address missing required field: {field}")
@@ -423,7 +424,7 @@ class DamageConflationApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
         response_data = self._fetch_all_pages(url=url, params=params, aoi=aoi, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)
@@ -457,7 +458,7 @@ class DamageConflationApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
         response_data = self._fetch_all_pages(url=url, params=params, address=address, limit=limit)
         self._save_to_cache(cache_key, response_data)
         return self._parse_response(response_data, aoi_id)

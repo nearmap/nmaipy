@@ -80,7 +80,7 @@ def select_primary_by_largest(
     sort_ascending = [False]
 
     # Add secondary sort column if provided and exists
-    if secondary_area_col and secondary_area_col in gdf.columns:
+    if secondary_area_col is not None and secondary_area_col and secondary_area_col in gdf.columns:
         sort_cols.append(secondary_area_col)
         sort_ascending.append(False)
 
@@ -220,7 +220,7 @@ def _select_best_by_confidence(
     high_confidence_threshold: float,
 ) -> int:
     """Select the best feature index, preferring high-confidence features."""
-    if confidence_col and confidence_col in gdf.columns:
+    if confidence_col is not None and confidence_col and confidence_col in gdf.columns:
         high_conf_mask = gdf[confidence_col] >= high_confidence_threshold
         if high_conf_mask.any():
             # Return first high-confidence feature
@@ -236,7 +236,7 @@ def _select_best_by_confidence_and_distance(
     high_confidence_threshold: float,
 ) -> int:
     """Select the best feature index, preferring high-confidence then nearest."""
-    if confidence_col and confidence_col in gdf.columns:
+    if confidence_col is not None and confidence_col and confidence_col in gdf.columns:
         high_conf_mask = gdf[confidence_col] >= high_confidence_threshold
         if high_conf_mask.any():
             # Select nearest among high-confidence features
@@ -398,12 +398,12 @@ def select_primary(
             logger.debug("For 'nearest' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
-        if not geometry_projected_col or geometry_projected_col not in gdf.columns:
+        if geometry_projected_col is None or not geometry_projected_col or geometry_projected_col not in gdf.columns:
             raise ValueError(
                 f"geometry_projected_col='{geometry_projected_col}' is required for 'nearest' method "
                 "and must exist in the GeoDataFrame"
             )
-        if not projected_crs:
+        if projected_crs is None or not projected_crs:
             raise ValueError("projected_crs is required for 'nearest' method")
 
         return select_primary_by_nearest(
@@ -424,12 +424,12 @@ def select_primary(
             logger.debug("For 'optimal' method, lat/lon is required but was null - falling back to 'largest'")
             return select_primary_by_largest(gdf, area_col, secondary_area_col)
 
-        if not geometry_projected_col or geometry_projected_col not in gdf.columns:
+        if geometry_projected_col is None or not geometry_projected_col or geometry_projected_col not in gdf.columns:
             raise ValueError(
                 f"geometry_projected_col='{geometry_projected_col}' is required for 'optimal' method "
                 "and must exist in the GeoDataFrame"
             )
-        if not projected_crs:
+        if projected_crs is None or not projected_crs:
             raise ValueError("projected_crs is required for 'optimal' method")
 
         return select_primary_optimal(

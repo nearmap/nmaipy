@@ -174,7 +174,7 @@ def read_header_columns(path: str | Path) -> set[str]:
 
 def read_from_file(
     path: str | Path,
-    drop_empty: bool | None = True,
+    drop_empty: bool = True,
     id_column: str | None = AOI_ID_COLUMN_NAME,
     source_crs: str | None = LAT_LONG_CRS,
     target_crs: str | None = LAT_LONG_CRS,

@@ -115,7 +115,7 @@ def _resolve_apikey(apikey, bearer_token=None):
     if bearer_token:
         return None
     key = apikey or os.environ.get("API_KEY")
-    if not key:
+    if key is None or not key:
         raise ValueError("No API key or bearer token provided and the API_KEY environment variable is not set")
     return key
 

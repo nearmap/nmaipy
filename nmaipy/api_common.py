@@ -526,9 +526,9 @@ class BaseApiClient:
         self,
         api_key: str | None = None,
         cache_dir: Path | None = None,
-        overwrite_cache: bool | None = False,
-        compress_cache: bool | None = False,
-        threads: int | None = 10,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         maxretry: int = MAX_RETRIES,
         bearer_token: str | None = None,
     ):
@@ -574,12 +574,12 @@ class BaseApiClient:
         # A bearer token authenticates via an Authorization header and takes precedence
         # over any api key; otherwise fall back to the api key (arg or env).
         self.bearer_token = bearer_token
-        if api_key:
+        if api_key is not None and api_key:
             self.api_key = api_key
         else:
             self.api_key = os.environ.get("API_KEY", None)
-        if self.bearer_token:
-            if api_key:
+        if self.bearer_token is not None and self.bearer_token:
+            if api_key is not None and api_key:
                 # Phrased to dodge the APIKeyFilter's "Bearer <x>" redaction regex.
                 logger.warning(
                     "Both api_key and bearer_token provided — the api_key is ignored; "
@@ -844,7 +844,7 @@ class BaseApiClient:
         session = requests.Session()
         session.mount("https://", adapter)
         session._timeout = (TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
-        if self.bearer_token:
+        if self.bearer_token is not None and self.bearer_token:
             session.headers["Authorization"] = f"Bearer {self.bearer_token}"
 
         try:
@@ -1043,7 +1043,7 @@ class BaseApiClient:
         """
         text = clean_api_key_from_string(text)
         # Catch a raw token that lacks the "Bearer " prefix the regex keys on.
-        if self.bearer_token:
+        if self.bearer_token is not None and self.bearer_token:
             text = text.replace(self.bearer_token, "REMOVED")
         return text
 
@@ -1229,9 +1229,9 @@ class GriddedApiClient(BaseApiClient):
         self,
         api_key: str | None = None,
         cache_dir: Path | None = None,
-        overwrite_cache: bool | None = False,
-        compress_cache: bool | None = False,
-        threads: int | None = 10,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         maxretry: int = MAX_RETRIES,
         grid_cell_size: float = 0.002,
         max_aoi_area_sqm: float = 1_000_000,
@@ -1290,7 +1290,7 @@ class GriddedApiClient(BaseApiClient):
         return area_sqm > self.max_aoi_area_sqm
 
 
-def generate_curl_command(url: str, body: dict = None, method: str = "POST", timeout: int = 90) -> str:
+def generate_curl_command(url: str, body: dict | None = None, method: str = "POST", timeout: int = 90) -> str:
     """
     Generate a curl command for debugging HTTP requests.
 
@@ -1315,7 +1315,7 @@ def generate_curl_command(url: str, body: dict = None, method: str = "POST", tim
     # Clean the API key from the URL
     clean_url = clean_api_key_from_string(url)
 
-    if method == "POST" and body:
+    if method == "POST" and body is not None and body:
         # Format the JSON body nicely
         json_body = json.dumps(body, indent=2)
 
@@ -1606,7 +1606,7 @@ def save_chunk_latency_stats(stats: dict, chunk_path: Path, chunk_id: str, extra
     if row is None:
         return
 
-    if extra_columns:
+    if extra_columns is not None and extra_columns:
         row.update(extra_columns)
 
     df = pd.DataFrame([row])

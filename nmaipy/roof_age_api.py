@@ -84,9 +84,9 @@ class RoofAgeApi(BaseApiClient):
         self,
         api_key: str | None = None,
         cache_dir: Path | None = None,
-        overwrite_cache: bool | None = False,
-        compress_cache: bool | None = False,
-        threads: int | None = 10,
+        overwrite_cache: bool = False,
+        compress_cache: bool = False,
+        threads: int = 10,
         url_root: str | None = None,
         country: str = "us",
         progress_counters: dict | None = None,
@@ -311,6 +311,7 @@ class RoofAgeApi(BaseApiClient):
             payload["aoi"] = geojson["features"][0]["geometry"]
         else:
             # Validate address fields
+            assert address is not None
             for field in ADDRESS_FIELDS:
                 if field not in address:
                     raise ValueError(f"Address missing required field: {field}")
@@ -596,7 +597,7 @@ class RoofAgeApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
         if self.bulk_mode:
             params["bulk"] = "true"
 
@@ -666,7 +667,7 @@ class RoofAgeApi(BaseApiClient):
         self._count_cache_miss()
         url = f"{self.base_url}.{file_format}"
         # In bearer mode the apikey param is omitted (auth is the session header).
-        params = {} if self.bearer_token else {"apikey": self.api_key}
+        params = {} if self.bearer_token is not None and self.bearer_token else {"apikey": self.api_key}
         if self.bulk_mode:
             params["bulk"] = "true"
 

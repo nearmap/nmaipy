@@ -469,7 +469,9 @@ class _Builder:
         geometry: BaseGeometry | None = None,
         **kwargs: object,
     ) -> None:
-        geometry = geometry if geometry is not None else _rect(self.origin, *box)
+        if geometry is None:
+            assert box is not None, "a feature needs a box or a geometry"
+            geometry = _rect(self.origin, *box)
         self.features.append(Feature(name, class_id(description), geometry, confidence, **kwargs))
 
     def block(
