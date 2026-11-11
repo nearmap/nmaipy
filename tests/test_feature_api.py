@@ -2,7 +2,6 @@ from http import HTTPStatus
 import json
 import logging
 import math
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -1441,7 +1440,7 @@ class TestMaxAllowedErrorBudget:
 
 
 if __name__ == "__main__":
-    current_file = os.path.abspath(__file__)
+    current_file = str(Path(__file__).resolve())
     sys.exit(pytest.main([current_file]))
 
 

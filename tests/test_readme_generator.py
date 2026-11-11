@@ -5,7 +5,6 @@ customer-facing documentation based on actual export files and columns.
 """
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -39,7 +38,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert "README.md" not in filenames
         assert "rollup.csv" in filenames
 
@@ -50,7 +49,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert ".DS_Store" not in filenames
 
     def test_discover_files_excludes_export_config(self, tmp_path):
@@ -60,7 +59,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert "export_config.json" not in filenames
         assert "data.csv" in filenames
 
@@ -73,7 +72,7 @@ class TestDiscoverFiles:
         gen = ReadmeGenerator(output_dir=tmp_path)
         files = gen._discover_files()
 
-        filenames = [os.path.basename(f) for f in files]
+        filenames = [Path(f).name for f in files]
         assert "rollup.csv" in filenames
         assert "other_file.csv" not in filenames
 

@@ -172,7 +172,7 @@ class BaseExporter(ABC):
         if self.is_s3_output:
             self._local_staging_dir = tempfile.mkdtemp(prefix="nmaipy_staging_")
             self._local_final_staging = os.path.join(self._local_staging_dir, "final")
-            os.makedirs(self._local_final_staging, exist_ok=True)
+            Path(self._local_final_staging).mkdir(parents=True, exist_ok=True)
         else:
             self._local_staging_dir = None
             self._local_final_staging = None
@@ -837,9 +837,9 @@ class BaseExporter(ABC):
 
         # Count open file descriptors (Linux only — /proc is absent on macOS and Windows)
         try:
-            pid = os.getpid()
-            if os.path.exists(f"/proc/{pid}/fd"):
-                fd_count = len(os.listdir(f"/proc/{pid}/fd"))
+            fd_dir = Path(f"/proc/{os.getpid()}/fd")
+            if fd_dir.exists():
+                fd_count = len(list(fd_dir.iterdir()))
             else:
                 fd_count = "unknown"
         except Exception:

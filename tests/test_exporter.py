@@ -1458,7 +1458,7 @@ class TestStreamMergeChunksToParquet:
     def test_empty_input_list_returns_zero(self, tmp_path):
         out = str(tmp_path / "merged.parquet")
         assert _stream_merge_chunks_to_parquet([], out, scan_workers=2, prefetch_workers=1) == 0
-        assert not os.path.exists(out)
+        assert not Path(out).exists()
 
     def test_all_unreadable_chunks_returns_zero(self, tmp_path, caplog):
         """If no chunk schema can be read, the merge logs and returns 0 rather
@@ -1605,8 +1605,8 @@ class TestStreamMergeChunksToParquet:
         with pytest.raises(OSError):
             _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=2)
 
-        assert not os.path.exists(out), "truncated parquet must not be left at output_path"
-        assert not os.path.exists(out + ".tmp"), "temp file must be cleaned on failure"
+        assert not Path(out).exists(), "truncated parquet must not be left at output_path"
+        assert not Path(out + ".tmp").exists(), "temp file must be cleaned on failure"
         assert threading.active_count() <= threads_before, "prefetch pool leaked threads"
 
     def test_all_data_reads_fail_writes_no_file(self, tmp_path, monkeypatch):
@@ -1622,7 +1622,7 @@ class TestStreamMergeChunksToParquet:
         monkeypatch.setattr("nmaipy.exporter.pq.read_table", failing_read_table)
         rows = _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
         assert rows == 0
-        assert not os.path.exists(out)
+        assert not Path(out).exists()
 
     def test_one_corrupt_chunk_among_good_is_skipped(self, tmp_path):
         """A single unreadable chunk (bad footer) is skipped; the others merge."""
@@ -1672,7 +1672,7 @@ class TestStreamMergeChunksToParquet:
 
         rows = _stream_merge_chunks_to_parquet([bad], out, scan_workers=2, prefetch_workers=1)
         assert rows == 0
-        assert not os.path.exists(out)
+        assert not Path(out).exists()
 
 
 class TestParquetToCsvStreaming:
@@ -1776,24 +1776,24 @@ class TestMergePerClassChunks:
 
         # Tabular -> CSV: union of rows and columns, height_m null for chunk 1.
         building_csv = os.path.join(exporter.final_path, f"{b_cname}.csv")
-        assert os.path.exists(building_csv)
+        assert Path(building_csv).exists()
         bdf = pd.read_csv(building_csv)
         assert len(bdf) == 3
         assert set(bdf.columns) == {"aoi_id", "area_sqm", "height_m"}  # no unexpected columns
         assert bdf.set_index("aoi_id").loc["c", "height_m"] != bdf.set_index("aoi_id").loc["c", "height_m"]  # NaN
         # No stray intermediate parquet left next to the CSV.
-        assert not os.path.exists(os.path.join(exporter.final_path, f"{b_cname}.parquet"))
+        assert not Path(os.path.join(exporter.final_path, f"{b_cname}.parquet")).exists()
 
         # Geo -> GeoParquet: opens in geopandas with CRS and the union of rows.
         roof_parquet = os.path.join(exporter.final_path, f"{r_cname}_features.parquet")
-        assert os.path.exists(roof_parquet)
+        assert Path(roof_parquet).exists()
         rgdf = gpd.read_parquet(roof_parquet)
         assert len(rgdf) == 3
         assert rgdf.crs is not None and rgdf.crs.to_epsg() == pyproj.CRS(API_CRS).to_epsg()
         assert rgdf.geometry.is_valid.all()
 
         # Staging dir removed after a clean local merge.
-        assert not os.path.exists(os.path.join(exporter.final_path, ".per_class_staging"))
+        assert not Path(os.path.join(exporter.final_path, ".per_class_staging")).exists()
 
 
 class TestCoverageGapChunks:
@@ -1918,7 +1918,7 @@ class TestCoverageGapChunks:
         real_write = exporter_mod.storage.write_parquet
 
         def write_parquet(data, path, *args, **kwargs):
-            if os.path.basename(str(path)) in names:
+            if Path(str(path)).name in names:
                 raise OSError("simulated write failure")
             return real_write(data, path, *args, **kwargs)
 
@@ -1994,7 +1994,7 @@ class TestCoverageGapChunks:
         real_write = exporter_mod.storage.write_parquet
 
         def write_parquet(data, path, *args, **kwargs):
-            writes.append(os.path.basename(str(path)))
+            writes.append(Path(str(path)).name)
             return real_write(data, path, *args, **kwargs)
 
         monkeypatch.setattr(exporter_mod.storage, "write_parquet", write_parquet)
@@ -2338,7 +2338,7 @@ class TestCoverageGapChunks:
 
 
 if __name__ == "__main__":
-    current_file = os.path.abspath(__file__)
+    current_file = str(Path(__file__).resolve())
     sys.exit(pytest.main([current_file]))
 
 

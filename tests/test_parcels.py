@@ -1,6 +1,5 @@
 import ast
 import json
-import os
 from pathlib import Path
 import sys
 
@@ -2367,5 +2366,5 @@ class TestFlattenPoolAttributes:
 
 
 if __name__ == "__main__":
-    current_file = os.path.abspath(__file__)
+    current_file = str(Path(__file__).resolve())
     sys.exit(pytest.main([current_file]))

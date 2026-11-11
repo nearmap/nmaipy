@@ -876,10 +876,7 @@ def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
 
 def _safe_unlink(path: str) -> None:
     """Remove a file if it exists, ignoring a concurrent/absent removal."""
-    try:
-        os.remove(path)
-    except FileNotFoundError:
-        pass
+    Path(path).unlink(missing_ok=True)
 
 
 def _stream_merge_chunks_to_parquet(
@@ -1059,7 +1056,7 @@ def _stream_merge_chunks_to_parquet(
         _safe_unlink(output_path)
         return 0
 
-    os.replace(tmp_path, output_path)
+    Path(tmp_path).replace(output_path)
     return rows_written
 
 
@@ -3584,7 +3581,7 @@ class NearmapAIExporter(BaseExporter):
             staging_dir = self._local_final_staging
         else:
             staging_dir = os.path.join(self.final_path, ".per_class_staging")
-            os.makedirs(staging_dir, exist_ok=True)
+            Path(staging_dir).mkdir(parents=True, exist_ok=True)
 
         # Build geoparquet metadata (shared across all per-class geo files)
         crs_projjson = pyproj.CRS(API_CRS).to_json_dict()
@@ -3640,7 +3637,7 @@ class NearmapAIExporter(BaseExporter):
                     logger=self.logger,
                     progress_desc=f"{desc} tabular",
                 )
-                if rows or os.path.exists(staging_path):
+                if rows or Path(staging_path).exists():
                     tabular_count += 1
 
             if geo_chunks:
@@ -3655,7 +3652,7 @@ class NearmapAIExporter(BaseExporter):
                     logger=self.logger,
                     progress_desc=f"{desc} geo",
                 )
-                if rows or os.path.exists(staging_path):
+                if rows or Path(staging_path).exists():
                     geo_count += 1
 
         # Convert tabular parquet to CSV if requested
@@ -3664,15 +3661,15 @@ class NearmapAIExporter(BaseExporter):
                 desc = FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}")
                 cname = _description_to_cname(desc)
                 parquet_path = os.path.join(staging_dir, f"{cname}.parquet")
-                if os.path.exists(parquet_path):
+                if Path(parquet_path).exists():
                     csv_path = os.path.join(staging_dir, f"{cname}.csv")
                     _parquet_to_csv_streaming(parquet_path, csv_path)
-                    os.remove(parquet_path)
+                    Path(parquet_path).unlink()
 
         # Move files from staging to final destination (or upload to S3)
         staged_files = (
-            [f for f in os.listdir(staging_dir) if f.endswith((".parquet", ".csv"))]
-            if os.path.isdir(staging_dir)
+            [f.name for f in Path(staging_dir).iterdir() if f.name.endswith((".parquet", ".csv"))]
+            if Path(staging_dir).is_dir()
             else []
         )
 
@@ -3689,7 +3686,7 @@ class NearmapAIExporter(BaseExporter):
                 # HEAD doesn't get misread as "absent" and trigger a redundant
                 # multi-hundred-GB upload.
                 remote_size = storage.file_size(s3_path) if storage.file_exists(s3_path) else None
-                local_size = os.path.getsize(local_path)
+                local_size = Path(local_path).stat().st_size
                 if not _staged_file_needs_upload(local_size, remote_size):
                     self.logger.info(f"  Skipped {fname} (already in S3, {local_size} bytes)")
                     continue
@@ -3699,9 +3696,9 @@ class NearmapAIExporter(BaseExporter):
             for fname in staged_files:
                 src = os.path.join(staging_dir, fname)
                 dst = os.path.join(self.final_path, fname)
-                os.replace(src, dst)
+                Path(src).replace(dst)
             try:
-                os.rmdir(staging_dir)
+                Path(staging_dir).rmdir()
             except OSError:
                 pass
 
@@ -4160,8 +4157,8 @@ class NearmapAIExporter(BaseExporter):
             )
             if chunk_id == _profile_chunk:
                 _pr.disable()
-                _profile_path = os.path.join(tempfile.gettempdir(), f"nmaipy_profile_chunk_{chunk_id}.txt")
-                with open(_profile_path, "w", encoding="utf-8") as _pf:
+                _profile_fd, _profile_path = tempfile.mkstemp(prefix=f"nmaipy_profile_chunk_{chunk_id}_", suffix=".txt")
+                with os.fdopen(_profile_fd, "w", encoding="utf-8") as _pf:
                     pstats.Stats(_pr, stream=_pf).sort_stats("cumulative").print_stats(40)
                 self.logger.info(f"CHUNK_PROFILE parcel_rollup stats saved to {_profile_path}")
             _t_rollup_end = time.monotonic()

@@ -398,7 +398,7 @@ def remove_file(path: str) -> None:
             fs = _get_s3_filesystem()
             fs.rm(path)
         else:
-            os.remove(path)
+            Path(path).unlink()
     except (OSError, FileNotFoundError):
         pass
 
@@ -426,7 +426,7 @@ def move_file(src: str, dst: str) -> None:
         fs = _get_s3_filesystem()
         fs.mv(src, dst)
     else:
-        os.replace(src, dst)
+        Path(src).replace(dst)
 
 
 def json_dumps_bytes(data: Any, default=None, indent: int | None = None) -> bytes:

@@ -12,11 +12,11 @@ Cross-platform: cgroup files live under /sys/fs/cgroup, which only exists on
 Linux. On Windows, macOS, and Linux outside a container, `is_running_in_container`
 returns False (the cgroup paths don't exist) and `get_*_cgroup_aware` functions
 fall back to psutil for the host's view. Each helper that touches a cgroup file
-guards on `os.path.exists` first.
+guards on `Path.exists` first.
 """
 
 import logging
-import os
+from pathlib import Path
 import time
 from typing import Optional, Tuple
 
@@ -53,7 +53,7 @@ def is_running_in_container() -> bool:
     Returns:
         True if cgroup memory files are accessible, False otherwise.
     """
-    return os.path.exists(CGROUP_V2_MEMORY_MAX) or os.path.exists(CGROUP_V1_MEMORY_LIMIT)
+    return Path(CGROUP_V2_MEMORY_MAX).exists() or Path(CGROUP_V1_MEMORY_LIMIT).exists()
 
 
 def get_cgroup_memory_limit_bytes() -> int | None:
@@ -66,7 +66,7 @@ def get_cgroup_memory_limit_bytes() -> int | None:
         Memory limit in bytes, or None if not in a container or unlimited.
     """
     # Try cgroup v2 first (newer K8s versions)
-    if os.path.exists(CGROUP_V2_MEMORY_MAX):
+    if Path(CGROUP_V2_MEMORY_MAX).exists():
         try:
             with open(CGROUP_V2_MEMORY_MAX) as f:
                 value = f.read().strip()
@@ -82,7 +82,7 @@ def get_cgroup_memory_limit_bytes() -> int | None:
             logger.debug(f"Could not read cgroup v2 memory limit: {e}")
 
     # Try cgroup v1 (older K8s versions)
-    if os.path.exists(CGROUP_V1_MEMORY_LIMIT):
+    if Path(CGROUP_V1_MEMORY_LIMIT).exists():
         try:
             with open(CGROUP_V1_MEMORY_LIMIT) as f:
                 limit = int(f.read().strip())
@@ -106,7 +106,7 @@ def get_cgroup_memory_usage_bytes() -> int | None:
         Current memory usage in bytes, or None if not in a container.
     """
     # Try cgroup v2 first
-    if os.path.exists(CGROUP_V2_MEMORY_CURRENT):
+    if Path(CGROUP_V2_MEMORY_CURRENT).exists():
         try:
             with open(CGROUP_V2_MEMORY_CURRENT) as f:
                 return int(f.read().strip())
@@ -114,7 +114,7 @@ def get_cgroup_memory_usage_bytes() -> int | None:
             logger.debug(f"Could not read cgroup v2 memory usage: {e}")
 
     # Try cgroup v1
-    if os.path.exists(CGROUP_V1_MEMORY_USAGE):
+    if Path(CGROUP_V1_MEMORY_USAGE).exists():
         try:
             with open(CGROUP_V1_MEMORY_USAGE) as f:
                 return int(f.read().strip())
@@ -140,7 +140,7 @@ def _read_memory_stat_field(stat_path: str, field: str) -> int | None:
     Returns:
         The field value in bytes, or None if the file/field is unavailable.
     """
-    if not os.path.exists(stat_path):
+    if not Path(stat_path).exists():
         return None
     try:
         with open(stat_path) as f:
@@ -274,7 +274,7 @@ def get_cgroup_cpu_limit() -> float | None:
         or None if not in a container or unlimited.
     """
     # Try cgroup v2 first
-    if os.path.exists(CGROUP_V2_CPU_MAX):
+    if Path(CGROUP_V2_CPU_MAX).exists():
         try:
             with open(CGROUP_V2_CPU_MAX) as f:
                 value = f.read().strip()
@@ -288,14 +288,14 @@ def get_cgroup_cpu_limit() -> float | None:
             logger.debug(f"Could not read cgroup v2 CPU limit: {e}")
 
     # Try cgroup v1
-    if os.path.exists(CGROUP_V1_CPU_QUOTA):
+    if Path(CGROUP_V1_CPU_QUOTA).exists():
         try:
             with open(CGROUP_V1_CPU_QUOTA) as f:
                 quota = int(f.read().strip())
             if quota == -1:
                 return None  # Unlimited
             period = 100000  # Default period
-            if os.path.exists(CGROUP_V1_CPU_PERIOD):
+            if Path(CGROUP_V1_CPU_PERIOD).exists():
                 with open(CGROUP_V1_CPU_PERIOD) as f:
                     period = int(f.read().strip())
             return quota / period
@@ -315,7 +315,7 @@ def _get_cgroup_cpu_usage_ns() -> int | None:
         Total CPU time consumed by the cgroup in nanoseconds, or None.
     """
     # Try cgroup v2: cpu.stat has "usage_usec <value>" line
-    if os.path.exists(CGROUP_V2_CPU_STAT):
+    if Path(CGROUP_V2_CPU_STAT).exists():
         try:
             with open(CGROUP_V2_CPU_STAT) as f:
                 for line in f:
@@ -325,7 +325,7 @@ def _get_cgroup_cpu_usage_ns() -> int | None:
             logger.debug(f"Could not read cgroup v2 CPU usage: {e}")
 
     # Try cgroup v1: cpuacct.usage is total nanoseconds
-    if os.path.exists(CGROUP_V1_CPUACCT_USAGE):
+    if Path(CGROUP_V1_CPUACCT_USAGE).exists():
         try:
             with open(CGROUP_V1_CPUACCT_USAGE) as f:
                 return int(f.read().strip())

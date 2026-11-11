@@ -254,6 +254,6 @@ class TestIntegration:
 
 if __name__ == "__main__":
     # Run integration tests
-    current_file = os.path.abspath(__file__)
+    current_file = str(Path(__file__).resolve())
     # Run only integration tests by default
     sys.exit(pytest.main([current_file, "-m", "integration", "-v"]))

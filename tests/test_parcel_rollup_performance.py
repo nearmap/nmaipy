@@ -159,8 +159,8 @@ def test_parcel_rollup_performance(parcels_2_gdf: gpd.GeoDataFrame):
 
     if do_profile:
         pr.disable()
-        profile_path = os.path.join(tempfile.gettempdir(), "nmaipy_profile_parcel_rollup.txt")
-        with open(profile_path, "w", encoding="utf-8") as pf:
+        profile_fd, profile_path = tempfile.mkstemp(prefix="nmaipy_profile_parcel_rollup_", suffix=".txt")
+        with os.fdopen(profile_fd, "w", encoding="utf-8") as pf:
             pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
             pf.write("\n=== Top 40 by self (tottime) ===\n")
@@ -238,8 +238,8 @@ def test_parcel_rollup_performance_au(parcels_gdf: gpd.GeoDataFrame):
 
     if do_profile:
         pr.disable()
-        profile_path = os.path.join(tempfile.gettempdir(), "nmaipy_profile_parcel_rollup_au.txt")
-        with open(profile_path, "w", encoding="utf-8") as pf:
+        profile_fd, profile_path = tempfile.mkstemp(prefix="nmaipy_profile_parcel_rollup_au_", suffix=".txt")
+        with os.fdopen(profile_fd, "w", encoding="utf-8") as pf:
             pf.write("=== Top 40 by cumulative time ===\n")
             pstats.Stats(pr, stream=pf).sort_stats("cumulative").print_stats(40)
             pf.write("\n=== Top 40 by self (tottime) ===\n")
