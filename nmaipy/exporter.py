@@ -57,7 +57,7 @@ import signal
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import psutil
 
@@ -568,6 +568,21 @@ def _flatten_damage(damage_obj):
                     flat_dict[f"damage.ratios.{description}"] = ratio_value
 
     return flat_dict
+
+
+def _json_default(value):
+    """``json.dumps`` default for the nested values pyarrow hands back: arrays, numpy scalars and dates.
+
+    Anything else raises, as ``json.dumps`` does without a default, so an unexpected type fails the
+    chunk's features preparation instead of being written as its ``str()``.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, date):  # datetime and pd.Timestamp are dates too
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _group_children_by_aoi(
@@ -4311,10 +4326,9 @@ class NearmapAIExporter(BaseExporter):
                 raise ValueError(error_msg)
             del merged2  # wrapper cleanup; array buffers are shared with final_features_df
 
-            # The merges leave aoi_id in the index; make it a column now, before the
-            # features save below. The per-class export reads this same frame and
-            # groups child features by the aoi_id column, so it must not depend on
-            # the save getting that far.
+            # The merges leave aoi_id in the index; make it a column now. The features
+            # save and the per-class export both read this frame, and the per-class
+            # export groups child features by the aoi_id column.
             if final_features_df.index.name == AOI_ID_COLUMN_NAME:
                 final_features_df = final_features_df.reset_index()
 
@@ -4396,12 +4410,12 @@ class NearmapAIExporter(BaseExporter):
                         # Build a boolean mask of cells that actually need
                         # json.dumps, then map only those positions. NaN/None
                         # cells are left untouched (already valid for parquet).
-                        # default=str covers values JSON has no type for, such as
-                        # dates nested in an input AOI column (ISO strings).
+                        # _json_default converts what an input AOI column can nest:
+                        # arrays, numpy scalars and dates (ISO strings).
                         mask = s.map(lambda v: isinstance(v, (dict, list, np.ndarray)))
                         if mask.any():
                             final_features_df.loc[mask, col] = s[mask].map(
-                                lambda v: json.dumps(v.tolist() if isinstance(v, np.ndarray) else v, default=str)
+                                lambda v: json.dumps(v, default=_json_default)
                             )
 
                     # Ensure it's a proper GeoDataFrame before saving to parquet

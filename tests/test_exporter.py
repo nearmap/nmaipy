@@ -41,6 +41,7 @@ from nmaipy.exporter import (
     _cast_all_null_object_columns,
     _dataframe_to_records_with_index,
     _description_to_cname,
+    _json_default,
     _nonnegative_int,
     _parquet_to_csv_streaming,
     _per_class_chunk_regexes,
@@ -2678,7 +2679,14 @@ class TestAoiInputColumnsWithDates:
         return ex
 
     def test_date_valued_input_column_keeps_clipped_roof_components(self, exporter, clipped_roof):
-        captures = np.array([{"captureDate": datetime.date(2024, 5, 1), "source": "a"}], dtype=object)
+        # Nested as pyarrow's to_pandas returns a list<struct<...>> column: arrays inside the struct too.
+        capture = {
+            "captureDate": datetime.date(2024, 5, 1),
+            "capturedAt": datetime.datetime(2024, 5, 1, 10, 30),
+            "ids": np.arange(1500),
+            "source": "a",
+        }
+        captures = np.array([capture], dtype=object)
         aoi_gdf = gpd.GeoDataFrame(
             {"captures": [captures]},
             geometry=[clipped_roof.parcel],
@@ -2708,7 +2716,17 @@ class TestAoiInputColumnsWithDates:
         roof = pd.read_parquet(chunk_path / "roof_0000.parquet").iloc[0]
         assert roof["tile_area_sqft"] == pytest.approx(clipped_roof.clipped_sqft, rel=1e-3)
         saved = pd.read_parquet(chunk_path / "features_0000.parquet")
-        assert json.loads(saved["captures"].iloc[0]) == [{"captureDate": "2024-05-01", "source": "a"}]
+        expected = {
+            "captureDate": "2024-05-01",
+            "capturedAt": "2024-05-01T10:30:00",
+            "ids": list(range(1500)),
+            "source": "a",
+        }
+        assert json.loads(saved["captures"].iloc[0]) == [expected]
+
+    def test_unknown_nested_type_is_not_written_as_its_str(self):
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            json.dumps({"value": object()}, default=_json_default)
 
 
 class TestPacksAndClasses:
