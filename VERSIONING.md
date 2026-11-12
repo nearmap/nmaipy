@@ -44,7 +44,7 @@ Review every change since the last release: `git fetch origin && git diff $(git 
 
    The notes stay editable on an immutable release. Its assets and its tag do not.
 
-Only the Release workflow creates tags and publishes to PyPI. It also creates each version's GitHub release, which is immutable and has the PyPI files.
+Only the Release workflow publishes to PyPI, and by policy it is the only thing that creates tags. It also creates each version's GitHub release, which is immutable and has the PyPI files.
 
 ### Why the release is trusted
 
@@ -59,7 +59,7 @@ Only the Release workflow creates tags and publishes to PyPI. It also creates ea
 - If the run fails in `publish`, re-run the failed jobs ("Re-run failed jobs" on the run's page, or `gh run rerun <run id> --failed`), and do not start a new run: once PyPI has a file of the version, `build` refuses it. The re-run needs a new approval. Its tag step accepts the tag that an earlier attempt of the run pushed, and PyPI accepts the identical files again.
 - If the run fails in `github-release` at the release creation, re-run that job. `gh release create` deletes its own draft release when it fails. If it fails at the asset check, the release exists and its files differ from the ones published to PyPI: ask a repository admin, and do not re-run the job.
 - If `publish` fails with `invalid-publisher`, the trusted publisher on pypi.org is missing or no longer matches the repository, workflow file name or environment name (for example after a rename). A re-run does not fix it: a PyPI owner of nmaipy corrects the publisher, and then someone re-runs the failed jobs. The tag from the failed attempt stays and the re-run accepts it.
-- A version that can never be published leaves a tag that only a repository admin can remove. Bump to the next version and release that instead.
+- A version that can never be published leaves a tag that only someone who can bypass the tag ruleset (a repository admin) can remove. Bump to the next version and release that instead.
 
 ## conda-forge feedstock
 
