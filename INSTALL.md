@@ -70,7 +70,7 @@ The `s3fs` package (installed as a core dependency) handles S3 authentication au
 
 ## Requirements
 
-- Python 3.12 or higher
+- Python 3.13 or higher
 - Nearmap API key
 - 4GB+ RAM for large area extractions
 - Internet connection for API access

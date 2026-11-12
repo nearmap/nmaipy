@@ -21,14 +21,13 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 keywords = ["nearmap", "ai", "geospatial", "gis", "aerial", "imagery", "buildings", "vegetation"]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.40.0",
     "fsspec>=2025.3.0",
@@ -258,9 +257,6 @@ pypi-conda-map = { geopandas = "geopandas", pyarrow = "pyarrow" }
 [tool.pixi.dependencies]
 nmaipy = { path = "." }
 
-[tool.pixi.feature.py312.dependencies]
-python = "3.12.*"
-
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
 
@@ -308,7 +304,6 @@ docs = { cmd = "rm -rf _build/html && myst build --html --strict && cp -r _stati
 
 [tool.pixi.environments]
 default = { features = ["py314", "test", "build", "notebooks"], solve-group = "py314" }
-py312 = { features = ["py312", "test"], solve-group = "py312" }
 py313 = { features = ["py313", "test"], solve-group = "py313" }
 py314 = { features = ["py314", "test"], solve-group = "py314" }
 lint = { features = ["lint"], no-default-feature = true }

@@ -21,7 +21,7 @@ Run any command inside an environment with `pixi run <cmd>` (e.g. `pixi run pyth
 
 Environments:
 - `default` — Python 3.14 with test, build (`python-build`, `twine`) and notebook (`ipykernel`, `matplotlib-base`) tools
-- `py312`, `py313`, `py314` — the test environment on each supported Python version
+- `py313`, `py314` — the test environment on each supported Python version
 - `lint` — `ruff` only
 - `typecheck` — `ty`, with the test and notebook dependencies it reads
 - `docs` — `mystmd`, for the documentation site
@@ -37,7 +37,7 @@ pixi run test
 
 Run them on a specific Python version:
 ```bash
-pixi run -e py312 test
+pixi run -e py313 test
 ```
 
 Run all tests including live API (requires `API_KEY` env var):
@@ -436,7 +436,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 
 ### Configuration Files
 
-- **pyproject.toml**: Package metadata and dependencies, the hatchling build config, and the pixi workspace, package and environments. Python >=3.12 required.
+- **pyproject.toml**: Package metadata and dependencies, the hatchling build config, and the pixi workspace, package and environments. Python >=3.13 required.
 - **pixi.lock**: Locked conda-forge solve for every pixi environment. Regenerate with `pixi lock` after changing `pyproject.toml`; never edit by hand.
 
 ### Data Flow
