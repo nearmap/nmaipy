@@ -24,17 +24,7 @@ python -c "from nmaipy.exporter import NearmapAIExporter; print('nmaipy installe
 
 ## Development Setup
 
-Contributors use [pixi](https://pixi.sh) (0.83 or newer), which builds a locked conda-forge environment from `pyproject.toml` and `pixi.lock`:
-
-```bash
-curl -fsSL https://pixi.sh/install.sh | sh
-git clone https://github.com/nearmap/nmaipy.git
-cd nmaipy
-pixi install
-pixi run test
-```
-
-See [CLAUDE.md](CLAUDE.md) for the available environments and tasks.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup.
 
 ## Configuration
 
