@@ -35,7 +35,7 @@ Run all tests (excluding live API tests; the `test` task runs `pytest -m "not li
 pixi run test
 ```
 
-The Tests workflow (`.github/workflows/test.yml`) runs the `test` task on `py313` and `py314` on every pull request and on pushes to main. It also builds the wheel, installs it with the bundled pip of a clean Python 3.13 venv, and runs `scripts/check_wheel.py`, to catch a module-level import that a pip install of the wheel does not satisfy, or a `.py` or `.json` file missing from the wheel.
+The Tests workflow (`.github/workflows/test.yml`) runs the `test` task on `py313` and `py314` on every pull request and on pushes to main. It also builds the wheel, installs it with the bundled pip of a clean Python 3.13 venv, and runs `scripts/check_wheel.py`, to catch a module-level import that a pip install of the wheel does not satisfy, or a `.py` or `.json` file missing from the wheel. The Memory benchmark workflow (`.github/workflows/memory-benchmark.yml`) runs the offline memory benchmark at 1,000 AOIs on pull requests that change `tests/golden/` or the workflow, and at 1,000, 10,000 and 100,000 AOIs on each release tag, when it adds the results to the release notes.
 
 Run them on a specific Python version:
 ```bash
@@ -94,6 +94,7 @@ Deselect markers with `-m`, e.g.: `pixi run pytest -m "not live_api and not slow
 python -m tests.golden.regenerate          # re-baseline expected outputs after an intended change (offline)
 python -m tests.golden.drift               # check the fake against the live API (needs API_KEY)
 python -m tests.golden.compare LEFT RIGHT  # diff two exports (e.g. old versus new code on the same input)
+python -m tests.golden.benchmark --work-dir DIR --results CSV  # peak memory of offline exports of 1k/10k/100k AOIs
 ```
 
 ### Code Formatting
