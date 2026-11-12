@@ -306,7 +306,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 
 4. **api_common.py**: Shared infrastructure for all API clients
    - `BaseApiClient`: Session management with connection pooling, request retry via `urllib3.Retry`, file-based caching (with optional gzip compression), API key handling, secure logging via `APIKeyFilter`, latency histogram tracking per-request
-   - `GriddedApiClient(BaseApiClient)`: Extends with automatic AOI gridding for large areas, semaphore-based concurrency control, `should_grid_aoi()` size check
+   - `GriddedApiClient(BaseApiClient)`: Holds the semaphore that caps concurrent gridded requests (`max_concurrent_gridding`); `should_grid_aoi`, `max_aoi_area_sqm` and `grid_cell_size` are deprecated until 6.0, and `FeatureApi` grids by `MAX_AOI_AREA_SQM_BEFORE_GRIDDING`
    - `RetryRequest(Retry)`: Configurable retry strategy; handles 429/500/502/503/504, exponential backoff (2-10s)
    - Error hierarchy: `APIError` (base) → `AIFeatureAPIError`, `RoofAgeAPIError`, `APIRequestSizeError` (413/504 triggers gridding); `APIGridError` for gridding failures
    - Latency stats: `collect_latency_stats_from_apis()`, `combine_chunk_latency_stats()`, `compute_global_latency_stats()` — histogram-based P50/P90/P95/P99 aggregation across chunks
@@ -457,7 +457,7 @@ Memory monitoring reports the working set (`memory.current − inactive_file`), 
 
 Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`. If the per-class merge is the bottleneck on a roomy box, raise `--merge-read-workers`.
 
-For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` and `GriddedApiClient` in `nmaipy/api_common.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
+For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` in `nmaipy/api_common.py` and `FeatureApi.get_features_gdf_gridded` in `nmaipy/feature_api.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
 
 ### API Authentication
 

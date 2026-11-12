@@ -43,7 +43,6 @@ dependencies = [
     "rtree",
     "s3fs>=2025.3.0",
     "shapely>=2.1.1",
-    "stringcase>=1.2.0",
     "tqdm>=4.67.1",
 ]
 
