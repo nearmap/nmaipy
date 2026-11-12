@@ -21,9 +21,9 @@ import requests
 import shapely.geometry
 from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
-from nmaipy._naming import snake_case
 
 from nmaipy import geometry_utils, log, storage
+from nmaipy._naming import snake_case
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,

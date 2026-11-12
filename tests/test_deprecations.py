@@ -80,7 +80,7 @@ def test_feature_api_builds_without_warnings_and_keeps_its_deprecated_gridding_s
 
 
 def test_gridded_api_client_deprecated_arguments_attributes_and_helpers_still_work():
-    with pytest.warns(DeprecationWarning) as record:
+    with pytest.warns(DeprecationWarning, match="will be removed in nmaipy 6.0") as record:
         client = GriddedApiClient(api_key="test-key", grid_cell_size=0.004, max_aoi_area_sqm=10.0)
     messages = [str(w.message) for w in record if issubclass(w.category, DeprecationWarning)]
     assert sum("grid_cell_size is deprecated" in m for m in messages) == 1, messages

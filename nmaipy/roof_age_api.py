@@ -38,9 +38,9 @@ import time
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon, shape
-from nmaipy._naming import snake_case
 
 from nmaipy import log, storage
+from nmaipy._naming import snake_case
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import BaseApiClient, RoofAgeAPIError, _cache_error_text
 from nmaipy.constants import (

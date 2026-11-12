@@ -9,8 +9,8 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon, box, shape
-from nmaipy._naming import snake_case
 
+from nmaipy._naming import snake_case
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
 from nmaipy.parcels import flatten_roof_attributes, parcel_rollup

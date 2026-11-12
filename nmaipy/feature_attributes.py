@@ -23,9 +23,9 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely import wkb
-from nmaipy._naming import snake_case
 
 from nmaipy import log
+from nmaipy._naming import snake_case
 from nmaipy.constants import (
     DAMAGE_CONFLATION_RAW_RATING_KEYS,
     IMPERIAL_COUNTRIES,

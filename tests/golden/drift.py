@@ -29,7 +29,12 @@ from shapely.geometry import Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from nmaipy.api_common import APIError
-from nmaipy.constants import AREA_CRS, GRID_SIZE_DEGREES, MAX_AOI_AREA_SQM_BEFORE_GRIDDING, SQUARED_METERS_TO_SQUARED_FEET
+from nmaipy.constants import (
+    AREA_CRS,
+    GRID_SIZE_DEGREES,
+    MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
+    SQUARED_METERS_TO_SQUARED_FEET,
+)
 from nmaipy.feature_api import FeatureApi
 from nmaipy.geometry_utils import split_geometry_into_grid
 from nmaipy.roof_age_api import RoofAgeApi

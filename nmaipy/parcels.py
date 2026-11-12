@@ -21,9 +21,9 @@ from shapely import make_valid
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
-from nmaipy._naming import snake_case
 
 from nmaipy import log
+from nmaipy._naming import snake_case
 from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
 from nmaipy.constants import (
     AOI_ID_COLUMN_NAME,
