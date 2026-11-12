@@ -15,6 +15,7 @@ Every pull request runs these workflows from `.github/workflows/`:
 - Tests (`test.yml`): `pixi run test` in each test environment, and a check that the built wheel installs with pip into a clean virtual environment, imports, and carries every `.py` and `.json` file of the package (`scripts/check_wheel.py`).
 - Lint (`lint.yml`): `pixi run lint`.
 - Docs (`docs.yml`): `pixi run docs`, when the pull request changes `docs/`, `README.md`, `pyproject.toml`, `pixi.lock` or the workflow file.
+- Memory benchmark (`memory-benchmark.yml`): the offline memory benchmark (`python -m tests.golden.benchmark`) at 1,000 AOIs, when the pull request changes `tests/golden/` or the workflow file. Each release tag runs it at 1,000, 10,000 and 100,000 AOIs and adds a "Memory benchmark" section with the results to the release notes.
 
 Pull request CI does not run the live API tests.
 
