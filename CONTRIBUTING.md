@@ -77,10 +77,10 @@ To sign every commit of an existing branch without moving its base, and keep any
 git fetch https://github.com/nearmap/nmaipy.git main
 before=$(git rev-parse HEAD)
 git rebase --rebase-merges --force-rebase --gpg-sign "$(git merge-base HEAD FETCH_HEAD)"
-git diff --quiet "$before" HEAD && git push --force-with-lease
+git diff --stat --exit-code "$before" HEAD && git push --force-with-lease
 ```
 
-If the rebase stops on a merge commit, resolve that merge again and run `git rebase --continue`. If the diff check fails, the rebase dropped an edit that was made in a merge commit: re-apply it, amend, and check again before you push.
+If the rebase stops on a conflict, resolve it and run `git rebase --continue` until the rebase finishes. Then run the last line again, not the whole block, which resets `before`. If the last line lists files instead of pushing, the rebase dropped an edit that was made in a merge commit: re-apply it (`git diff HEAD "$before"` shows it), amend, and run the last line again.
 
 ## Public content
 
