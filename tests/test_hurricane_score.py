@@ -9,7 +9,7 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon, box, shape
-import stringcase
+from nmaipy._naming import snake_case
 
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
@@ -184,7 +184,7 @@ def test_hurricane_score_with_real_data(roof_with_hurricane_score):
     # Verify modelInputFeatures ARE flattened
     mif = roof_with_hurricane_score["hurricaneScore"].get("modelInputFeatures", {})
     for camel_key, expected_value in mif.items():
-        col = f"hurricane_vulnerability_model_input_{stringcase.snakecase(camel_key)}"
+        col = f"hurricane_vulnerability_model_input_{snake_case(camel_key)}"
         assert col in result, f"Expected column {col} not found"
         assert result[col] == expected_value
 

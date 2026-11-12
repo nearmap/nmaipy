@@ -23,7 +23,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely import wkb
-import stringcase
+from nmaipy._naming import snake_case
 
 from nmaipy import log
 from nmaipy.constants import (
@@ -324,7 +324,7 @@ def _flatten_include_params(feature: dict, flattened: dict) -> None:
             model_input = data["modelInputFeatures"]
             if isinstance(model_input, dict):
                 for mif_key, mif_value in model_input.items():
-                    flattened[f"{model_input_prefix}_{stringcase.snakecase(mif_key)}"] = mif_value
+                    flattened[f"{model_input_prefix}_{snake_case(mif_key)}"] = mif_value
             else:
                 logger.debug(
                     f"Skipping modelInputFeatures for {camel_key}: expected dict, got {type(model_input).__name__}"
@@ -933,7 +933,7 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
     absent — ``preEvent`` can be missing for new construction with no baseline — its
     columns are emitted as ``None`` so column ordering stays stable across rows.
 
-    camelCase keys are converted with ``stringcase.snakecase`` (``preEvent`` →
+    camelCase keys are converted with ``snake_case`` (``preEvent`` →
     ``pre_event``, ``NoDamage`` → ``no_damage``), matching the snake_case conversion
     used elsewhere in this module rather than the naive ``.lower().replace(" ","_")``
     that only suits space-separated ``description`` strings.
@@ -970,7 +970,7 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
         if not isinstance(raw, dict):
             raw = {}
         for rating_key in DAMAGE_CONFLATION_RAW_RATING_KEYS:
-            flattened[f"damage_{prefix}_raw_{stringcase.snakecase(rating_key)}"] = raw.get(rating_key)
+            flattened[f"damage_{prefix}_raw_{snake_case(rating_key)}"] = raw.get(rating_key)
 
         # classRatios is variable-length / variable-class; serialise to JSON rather
         # than exploding into sparse per-class columns.

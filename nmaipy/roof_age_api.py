@@ -38,7 +38,7 @@ import time
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon, shape
-import stringcase
+from nmaipy._naming import snake_case
 
 from nmaipy import log, storage
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
@@ -450,7 +450,7 @@ class RoofAgeApi(BaseApiClient):
             gdf[ROOF_AGE_MODEL_VERSION_FIELD] = response_data[ROOF_AGE_MODEL_VERSION_FIELD]
 
         # Convert camelCase API columns to snake_case, matching feature_api.py pattern
-        gdf.columns = [stringcase.snakecase(c) for c in gdf.columns]
+        gdf.columns = [snake_case(c) for c in gdf.columns]
 
         # Drop redundant/internal columns (originals already mapped above)
         gdf = gdf.drop(columns=[c for c in ["timeline", "hilbert_id", "area"] if c in gdf.columns])

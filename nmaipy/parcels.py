@@ -21,7 +21,7 @@ from shapely import make_valid
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
-import stringcase
+from nmaipy._naming import snake_case
 
 from nmaipy import log
 from nmaipy.aoi_io import read_from_file  # Re-export for backwards compatibility
@@ -1841,7 +1841,7 @@ def conflation_rollup(
         ``n_minor``, ``n_major``, ``n_destroyed``), and the primary building's
         ``primary_*`` attributes.
     """
-    rating_to_count = {k: f"n_{stringcase.snakecase(k)}" for k in DAMAGE_CONFLATION_RAW_RATING_KEYS}
+    rating_to_count = {k: f"n_{snake_case(k)}" for k in DAMAGE_CONFLATION_RAW_RATING_KEYS}
     count_cols = ["n_buildings", *rating_to_count.values()]
     event_meta_cols = [
         "event_uuid",

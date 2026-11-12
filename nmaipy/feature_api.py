@@ -21,7 +21,7 @@ import requests
 import shapely.geometry
 from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
-import stringcase
+from nmaipy._naming import snake_case
 
 from nmaipy import geometry_utils, log, storage
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
@@ -144,7 +144,7 @@ def is_class_returnable_at_version(
 # Include columns as ``payload_gdf`` leaves them (snake-cased key, raw API dict), mapped to the
 # ``<snake_key>`` that flattening later uses for its ``<snake_key>_skipped`` column.
 _SKIPPABLE_INCLUDE_COLUMNS = {
-    **{stringcase.snakecase(camel_key): config["snake_key"] for camel_key, config in INCLUDE_FIELD_MAPPINGS.items()},
+    **{snake_case(camel_key): config["snake_key"] for camel_key, config in INCLUDE_FIELD_MAPPINGS.items()},
     "defensible_space": "defensible_space",
 }
 
@@ -1180,7 +1180,7 @@ class FeatureApi(GriddedApiClient):
                 df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
-        df.columns = [stringcase.snakecase(c) for c in df.columns]
+        df.columns = [snake_case(c) for c in df.columns]
 
         # Add AOI ID if specified
         if aoi_id is not None:
