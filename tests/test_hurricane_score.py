@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 from shapely.geometry import Polygon, box, shape
 
-from nmaipy._naming import snake_case
 from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID
 from nmaipy.feature_api import FeatureApi
 from nmaipy.parcels import flatten_roof_attributes, parcel_rollup
@@ -183,8 +182,21 @@ def test_hurricane_score_with_real_data(roof_with_hurricane_score):
 
     # Verify modelInputFeatures ARE flattened
     mif = roof_with_hurricane_score["hurricaneScore"].get("modelInputFeatures", {})
+    expected_columns = {
+        "defensibleSpaceWeightedCoverage": "defensible_space_weighted_coverage",
+        "flatPresent": "flat_present",
+        "hipPresent": "hip_present",
+        "missingRoofTileOrShingleRatio": "missing_roof_tile_or_shingle_ratio",
+        "roofPatchingRatio": "roof_patching_ratio",
+        "roofRustingRatio": "roof_rusting_ratio",
+        "roofStainingRatio": "roof_staining_ratio",
+        "shinglePresent": "shingle_present",
+        "treeOverhangRatio": "tree_overhang_ratio",
+        "wornShinglesRatio": "worn_shingles_ratio",
+    }
+    assert set(mif) == set(expected_columns)
     for camel_key, expected_value in mif.items():
-        col = f"hurricane_vulnerability_model_input_{snake_case(camel_key)}"
+        col = f"hurricane_vulnerability_model_input_{expected_columns[camel_key]}"
         assert col in result, f"Expected column {col} not found"
         assert result[col] == expected_value
 

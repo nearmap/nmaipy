@@ -168,8 +168,6 @@ def _response_has_include_skips(features_gdf) -> tuple[bool, list[str]]:
 class FeatureApi(GriddedApiClient):
     """
     Client for the Nearmap AI Feature API.
-
-    Inherits from GriddedApiClient for automatic gridding support.
     """
 
     SOURCE_CRS = LAT_LONG_CRS

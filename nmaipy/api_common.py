@@ -1251,22 +1251,9 @@ class _DeprecatedAttr:
 
 class GriddedApiClient(BaseApiClient):
     """
-    Base class for API clients that support automatic gridding of large AOIs.
+    Base class for API clients that grid large AOIs themselves.
 
-    Extends BaseApiClient with the ability to automatically split large geometries
-    into grid cells for parallel processing. This is useful for APIs that have
-    size limits on individual requests.
-
-    Features:
-    - Automatic gridding when AOI exceeds size threshold
-    - Parallel processing of grid cells with thread pool
-    - Semaphore-based concurrency control to prevent resource exhaustion
-    - Result combination with deduplication
-    - Proactive and reactive gridding strategies
-
-    Subclasses should implement:
-    - Query methods that may need gridding support
-    - _combine_grid_results() if custom result combination is needed
+    Holds the semaphore that caps how many gridded requests run at once (max_concurrent_gridding).
     """
 
     grid_cell_size = _DeprecatedAttr("_grid_cell_size", _GRID_CELL_SIZE_DEPRECATION)

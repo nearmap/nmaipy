@@ -377,11 +377,10 @@ def get_survey_resource_id_from_survey_id_query(resources):
     Get the survey resource id from the resources list, after being given the "resources" field from the survey_id
     query coverage/v2/surveys/{survey_id} API.
 
-    Deprecated, to be removed in nmaipy 6.0: read ``resources[0]["id"]`` from the Coverage API response.
+    Deprecated, to be removed in nmaipy 6.0.
     """
     warnings.warn(
-        "get_survey_resource_id_from_survey_id_query is deprecated and will be removed in nmaipy 6.0; read "
-        'resources[0]["id"] from the Coverage API response.',
+        "get_survey_resource_id_from_survey_id_query is deprecated and will be removed in nmaipy 6.0.",
         DeprecationWarning,
         stacklevel=2,
     )
