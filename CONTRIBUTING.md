@@ -6,7 +6,7 @@ Anyone can open an [issue](https://github.com/nearmap/nmaipy/issues) or a pull r
 
 If you do not have write access to `nearmap/nmaipy` (you are outside Nearmap, or at Nearmap without write access), fork the repository and open a pull request against `main`. Nearmap engineers with write access push a branch to `nearmap/nmaipy` and open the pull request from it.
 
-A pull request merges only when a code owner (`@bretttully`, `@mbewley` or `@adriancaruana`, from `.github/CODEOWNERS`) has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge. A push after an approval dismisses it, and the most recent push must be approved by someone other than its author.
+A pull request merges only when a code owner listed in `.github/CODEOWNERS` has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge. A push after an approval dismisses it, and the most recent push must be approved by someone other than its author.
 
 There is no CHANGELOG file. The notes of a release start from the titles of the pull requests merged since the previous release, as GitHub's generated notes list them. The generated notes do not include pull request descriptions. Write the title as the change that users get, and name each deprecation and removal in it.
 
