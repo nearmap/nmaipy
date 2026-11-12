@@ -63,14 +63,12 @@ BENCHMARK = {
 }
 
 _ANY_URL = re.compile(".*")
+_REAL_CONNECT = socket.socket.connect
+_ACTIVE_MOCKS: list[responses.RequestsMock] = []
 
 
 class _Answerer(Protocol):
     def handle(self, method: str, url: str, body: bytes | str | None) -> FakeResponse: ...
-
-
-_REAL_CONNECT = socket.socket.connect
-_ACTIVE_MOCKS: list[responses.RequestsMock] = []
 
 
 def run_case(case: str, out_dir: Path, aoi_file: Path | None = None) -> Path:
