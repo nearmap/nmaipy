@@ -69,15 +69,18 @@ git config --global user.signingkey <path to the .pub key>
 git config --global commit.gpgsign true
 ```
 
-Then add the key on GitHub as a signing key. For GPG keys and the other options, see [GitHub's documentation on commit signature verification](https://docs.github.com/en/authentication/managing-commit-signature-verification).
+Then add the key on GitHub as a signing key, and commit with an email address (`user.email`) that is verified on that account. For GPG keys and the other options, see [GitHub's documentation on commit signature verification](https://docs.github.com/en/authentication/managing-commit-signature-verification).
 
-To sign every commit of an existing branch without moving its base, and keep any merge commits on it, run this on the branch and then force-push it:
+To sign every commit of an existing branch without moving its base, and keep any merge commits on it, run this on the branch:
 
 ```bash
 git fetch https://github.com/nearmap/nmaipy.git main
+before=$(git rev-parse HEAD)
 git rebase --rebase-merges --force-rebase --gpg-sign "$(git merge-base HEAD FETCH_HEAD)"
-git push --force-with-lease
+git diff --quiet "$before" HEAD && git push --force-with-lease
 ```
+
+If the rebase stops on a merge commit, resolve that merge again and run `git rebase --continue`. If the diff check fails, the rebase dropped an edit that was made in a merge commit: re-apply it, amend, and check again before you push.
 
 ## Public content
 
