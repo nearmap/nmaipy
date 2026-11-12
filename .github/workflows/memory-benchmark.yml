@@ -1,0 +1,102 @@
+name: Memory benchmark
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/memory-benchmark.yml
+      - tests/golden/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-benchmark-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: prefix-dev/setup-pixi@9936258fee697aff89b3fed6ca1f80a382ef694e # v0.11.3
+        with:
+          pixi-version: v0.83.0
+          environments: py314
+          locked: true
+          # the results feed the release notes, so a tag run never restores a cache that another workflow wrote
+          cache: ${{ github.ref_type != 'tag' }}
+
+      - name: Run the benchmark
+        env:
+          SIZES: ${{ github.event_name == 'pull_request' && '1000' || '1000 10000 100000' }}
+        run: |
+          read -ra sizes <<<"$SIZES"
+          pixi run --frozen -e py314 python -m tests.golden.benchmark --aois "${sizes[@]}" \
+            --work-dir "$RUNNER_TEMP/benchmark" --results memory-benchmark.csv
+
+      - if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: memory-benchmark-logs
+          path: ${{ runner.temp }}/benchmark/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Write the results to the job summary
+        run: |
+          {
+            echo '```'
+            cat memory-benchmark.csv
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: memory-benchmark
+          path: memory-benchmark.csv
+          if-no-files-found: error
+          retention-days: 90
+
+  notes:
+    needs: benchmark
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # to edit the release notes
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: memory-benchmark
+
+      - name: Add the results to the release notes
+        run: |
+          if ! release=$(gh release view "$GITHUB_REF_NAME" --json body,databaseId); then
+            echo "::error::There is no GitHub release for $GITHUB_REF_NAME yet." \
+              "Re-run the notes job of this workflow run after the release exists, or, after 30 days, run gh workflow run memory-benchmark.yml --ref $GITHUB_REF_NAME."
+            exit 1
+          fi
+          jq -r '.body // ""' <<<"$release" >"$RUNNER_TEMP/body.md"
+          release_id=$(jq -r .databaseId <<<"$release")
+          python3 -I scripts/benchmark_notes.py --body "$RUNNER_TEMP/body.md" --results memory-benchmark.csv \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --out "$RUNNER_TEMP/new-body.md"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F "body=@$RUNNER_TEMP/new-body.md"

@@ -35,7 +35,7 @@ Review every change since the last release: `git fetch origin && git diff $(git 
    - `check-wheel` installs the built wheel into a clean virtual environment and checks it, before `publish` starts.
    - `publish` waits for the approval, tags the run's commit `vX.Y.Z` and publishes the sdist and the wheel to PyPI through trusted publishing, with attestations.
    - `github-release` creates the GitHub release `vX.Y.Z` with generated notes and the same two files, marked as a pre-release for an `a`, `b` or `rc` version, and fails unless the release's assets have the same SHA-256 digests as the files.
-5. Replace the generated notes with `gh release edit vX.Y.Z --notes-file <file>`. Write them from `git log <previous tag>..vX.Y.Z --oneline`, with this outline:
+5. Replace the generated notes with `gh release edit vX.Y.Z --notes-file <file>`. The tag's Memory benchmark run (`.github/workflows/memory-benchmark.yml`) adds a "Memory benchmark" section to the notes when it finishes, and `--notes-file` replaces the whole body, so write the notes before that run finishes, or re-run that run's `notes` job after any `--notes-file` edit (the merge is idempotent). A run's jobs can be re-run only for 30 days; after that, run `gh workflow run memory-benchmark.yml --ref vX.Y.Z`, which measures again (up to 5 hours) and replaces the section. Write them from `git log <previous tag>..vX.Y.Z --oneline`, with this outline:
    - **What's New**: One sentence summary of the release
    - **Features**: Bullet points for new functionality (use `**bold**` for feature names)
    - **Bug Fixes**: Any bugs fixed
