@@ -93,13 +93,11 @@ def main():
     write_version(new_version)
 
     print("\n📋 Next steps:")
-    print("1. Commit the version changes:")
-    print(f"   git add -A && git commit -m 'Bump version to {new_version}'")
-    print("2. Create a git tag:")
-    print(f"   git tag -a v{new_version} -m 'Release version {new_version}'")
-    print("3. Push changes and tag:")
-    print("   git push && git push --tags")
-    print("4. Create a GitHub release from the tag")
+    print("1. Commit the version change on a branch and open a pull request:")
+    print(f"   git commit -am 'Bump version to {new_version}'")
+    print("2. After it merges, run the Release workflow from main:")
+    print("   gh workflow run release.yml --ref main")
+    print("3. A member of @nearmap/ai-systems approves the run's pypi deployment")
 
 
 def _substitute_once(path: Path, pattern: str, replacement: str) -> tuple[Path, str]:
