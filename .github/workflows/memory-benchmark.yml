@@ -45,7 +45,7 @@ jobs:
           pixi run --frozen -e py314 python -m tests.golden.benchmark --aois "${sizes[@]}" \
             --work-dir "$RUNNER_TEMP/benchmark" --results memory-benchmark.csv
 
-      - if: failure()
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: memory-benchmark-logs
@@ -91,7 +91,7 @@ jobs:
         run: |
           if ! release=$(gh release view "$GITHUB_REF_NAME" --json body,databaseId); then
             echo "::error::There is no GitHub release for $GITHUB_REF_NAME yet." \
-              "Re-run the notes job of this workflow run after the release exists."
+              "Re-run the notes job of this workflow run after the release exists, or, after 30 days, run gh workflow run memory-benchmark.yml --ref $GITHUB_REF_NAME."
             exit 1
           fi
           jq -r '.body // ""' <<<"$release" >"$RUNNER_TEMP/body.md"
