@@ -457,7 +457,7 @@ Memory monitoring reports the working set (`memory.current − inactive_file`), 
 
 Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`. If the per-class merge is the bottleneck on a roomy box, raise `--merge-read-workers`.
 
-For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` and `GriddedApiClient` in `nmaipy/api_common.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
+For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` in `nmaipy/api_common.py` and `FeatureApi.get_features_gdf_gridded` in `nmaipy/feature_api.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
 
 ### API Authentication
 
