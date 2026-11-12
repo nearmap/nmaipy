@@ -124,6 +124,10 @@ Execute these steps in order, stopping if any step fails:
      `requirements.host` still lists `setuptools` and `wheel`, replace them with
      `hatchling >=1.27` in the same push.
 
+   - **Reconcile the Python floor — the bot does NOT do this either.** If `requires-python` in `pyproject.toml` moved
+     since the last conda release, set `context.python_min` in `recipe/recipe.yaml` to its floor (e.g. `"3.13"`) in
+     the same push.
+
    - **Merge on green CI.** You must be a listed maintainer
      (`extra.recipe-maintainers` — currently `mbewley`, `bretttully`).
 
