@@ -6,7 +6,7 @@ Anyone can open an [issue](https://github.com/nearmap/nmaipy/issues) or a pull r
 
 If you do not have write access to `nearmap/nmaipy` (you are outside Nearmap, or at Nearmap without write access), fork the repository and open a pull request against `main`. Nearmap engineers with write access push a branch to `nearmap/nmaipy` and open the pull request from it.
 
-A pull request merges only when a code owner (`@nearmap/ai-systems`, from `.github/CODEOWNERS`) has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge.
+A pull request merges only when a code owner (`@nearmap/ai-systems`, from `.github/CODEOWNERS`) has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge. A push after an approval dismisses it, and the most recent push must be approved by someone other than its author.
 
 There is no CHANGELOG file. The notes of a release start from the titles of the pull requests merged since the previous release, either as GitHub's generated notes or as the list that a maintainer writes the notes from. The generated notes do not include pull request descriptions. Write the title as the change that users get, and name each deprecation and removal in it.
 
@@ -21,6 +21,10 @@ Every pull request runs these workflows from `.github/workflows/`:
 Pull request CI does not run the live API tests.
 
 For an author outside the Nearmap GitHub organization, a maintainer approves the workflow runs before they start.
+
+## Releases
+
+By policy, only the Release workflow (`.github/workflows/release.yml`) publishes to PyPI or creates tags, and it publishes after a code owner approves its run. It also creates each version's GitHub release. The steps are in `VERSIONING.md`.
 
 ## Development setup
 

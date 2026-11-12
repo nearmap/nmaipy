@@ -480,6 +480,6 @@ For S3 output, AWS credentials are resolved from environment variables (`AWS_ACC
 
 See `VERSIONING.md` for instructions on:
 - Updating version numbers
-- Building and testing packages
-- Deploying to PyPI
-- Creating releases
+- Testing and reviewing before a release
+- Releasing through the Release workflow (`.github/workflows/release.yml`), which tags the commit, publishes to PyPI and creates the GitHub release
+- Updating the conda-forge feedstock
