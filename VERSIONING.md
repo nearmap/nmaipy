@@ -31,7 +31,7 @@ Review every change since the last release: `git fetch origin && git diff $(git 
 2. Check that the trusted publisher exists on pypi.org (see "Why the release is trusted"): without it the `publish` job tags the commit and then fails at the upload, which leaves a stray tag. Run the Release workflow (`.github/workflows/release.yml`) from `main`: `gh workflow run release.yml --ref main`, or "Run workflow" on the workflow's page in the Actions tab.
 3. A member of `@nearmap/ai-systems` approves the run's deployment to the `pypi` environment, only when CI is green on `main` at the commit that the run shows. The environment accepts only runs from `main`.
 4. The workflow runs four jobs:
-   - `build` runs the offline tests, reads `__version__`, and fails if the tag `vX.Y.Z` exists at another commit or PyPI already has the version. Then it builds the sdist and the wheel with `pixi run build`.
+   - `build` runs the offline tests, reads `__version__`, and fails if the tag `vX.Y.Z` exists at another commit or PyPI already has the version. For a stable version, it checks that the conda-forge recipe can build the version. Then it builds the sdist and the wheel with `pixi run build`.
    - `check-wheel` installs the built wheel into a clean virtual environment and checks it, before `publish` starts.
    - `publish` waits for the approval, tags the run's commit `vX.Y.Z` and publishes the sdist and the wheel to PyPI through trusted publishing, with attestations.
    - `github-release` creates the GitHub release `vX.Y.Z` with generated notes and the same two files, marked as a pre-release for an `a`, `b` or `rc` version, and fails unless the release's assets have the same SHA-256 digests as the files.
@@ -59,31 +59,19 @@ By policy, only the Release workflow publishes to PyPI or creates tags. It also 
 - If the run fails in `publish`, re-run the failed jobs ("Re-run failed jobs" on the run's page, or `gh run rerun <run id> --failed`), and do not start a new run: once PyPI has a file of the version, `build` refuses it. The re-run needs a new approval. Its tag step accepts the tag that an earlier attempt of the run pushed, and PyPI accepts the identical files again.
 - If the run fails in `github-release` at the release creation, re-run that job. `gh release create` deletes its own draft release when it fails. If it fails at the asset check, the release exists and its files differ from the ones published to PyPI: ask a repository admin, and do not re-run the job.
 - If `publish` fails with `invalid-publisher`, the trusted publisher on pypi.org is missing or no longer matches the repository, workflow file name or environment name (for example after a rename). A re-run does not fix it: a PyPI owner of nmaipy corrects the publisher, and then someone re-runs the failed jobs. The tag from the failed attempt stays and the re-run accepts it.
+- If `build` fails at the conda-forge recipe check, open the feedstock pull request that [conda-forge feedstock](#conda-forge-feedstock) describes, or merge it if it is open. Wait a few minutes after the merge, because the check reads the recipe through a cache, then run the workflow again.
 - A version that can never be published leaves a tag that only someone who can bypass the tag ruleset (for example, a repository admin) can remove. Bump to the next version and release that instead.
 
 ## conda-forge feedstock
 
-nmaipy is also distributed on conda-forge via the feedstock at `https://github.com/conda-forge/nmaipy-feedstock` (recipe: `recipe/recipe.yaml`, `schema_version: 1` / rattler-build format). This step depends on the PyPI sdist already being live and does **not** complete in the same session as the PyPI publish — treat it as a follow-up to poll for, not a blocking step. Skip it entirely for pre-releases (versions containing 'a', 'b', or 'rc'): conda-forge tracks stable releases only.
+nmaipy is also on conda-forge, from the feedstock at `https://github.com/conda-forge/nmaipy-feedstock`. The recipe is `recipe/recipe.yaml`.
 
-- **Wait for the autotick bot.** Within a few hours of the PyPI release the `regro-cf-autotick-bot` opens a version-bump PR on the feedstock that updates only `context.version` and `source.sha256` (a 2-line change). Find it with: `gh pr list --repo conda-forge/nmaipy-feedstock`. Do **not** upload to anaconda.org yourself — merging the feedstock PR is what makes conda-forge CI build the `noarch: python` package and publish it to the channel.
+About 1 to 2 hours after a stable version is on PyPI, `regro-cf-autotick-bot` opens the pull request `[bot-automerge] nmaipy vX.Y.Z` on the feedstock. It updates `context.version`, `source.sha256` and `requirements.run` from the sdist: it adds and removes run dependencies and changes their floors. It merges the pull request itself when the `linter` and `github-actions` checks pass. A pre-release gets no pull request.
 
-- **Reconcile run dependencies — the bot does NOT do this.** This is the whole reason the step exists: the bot bumps version + hash only, so a dependency added, removed, or re-floored in nmaipy since the last conda release silently leaves the recipe wrong and the conda package ships with the wrong deps. Compare the two sources of truth:
-    - nmaipy: `[project].dependencies` in `pyproject.toml`
-    - recipe: `requirements.run` in `recipe/recipe.yaml`
+Do not open a version pull request by hand. Once the version is on the feedstock, the bot opens no pull request, so a pull request by hand repeats the bot's work and skips its update of the run dependencies.
 
-  `grayskull pypi nmaipy==X.Y.Z` regenerates the run list from the published sdist metadata if you'd rather diff against a fresh generation than eyeball it. If they differ, push the fix to the bot's PR branch (the bot PR explicitly invites "Feel free to push to the bot's branch"):
-  ```
-  gh repo clone conda-forge/nmaipy-feedstock
-  cd nmaipy-feedstock && git checkout <bot-branch>   # e.g. 5.0.17_h00a991, from the PR
-  # edit recipe/recipe.yaml requirements.run to match pyproject deps (conda spacing: "name >=x.y")
-  git commit -am "Sync run requirements with nmaipy X.Y.Z" && git push
-  ```
-  The recipe's `pip_check: true` test fails CI when a declared dep is missing, so a red CI on the bot PR usually means a `run:` dep needs adding.
+The bot never edits `requirements.host` or `context.python_min`. When a change to `[build-system].requires` or `requires-python` in `pyproject.toml` is merged, open a feedstock pull request before the next release. It adds the new build backend to `requirements.host` beside the old one, sets `context.python_min` to the new floor, and bumps `build.number`. The `build` job of the Release workflow refuses a stable release until the recipe matches.
 
-- **Reconcile the build backend.** nmaipy builds with hatchling. If the recipe's `requirements.host` still lists `setuptools` and `wheel`, replace them with `hatchling >=1.27` in the same push.
+If a bot pull request fails, push the fix to the bot's branch, then add the `automerge` label: a commit by anyone but the bot stops the automatic merge.
 
-- **Reconcile the Python floor — the bot does NOT do this either.** If `requires-python` in `pyproject.toml` moved since the last conda release, set `context.python_min` in `recipe/recipe.yaml` to its floor (e.g. `"3.13"`) in the same push.
-
-- **Merge on green CI.** You must be a listed maintainer (`extra.recipe-maintainers` — currently `mbewley`, `bretttully`).
-
-- **Manual fallback** if you can't wait for the bot: branch the feedstock, bump `context.version` + `source.sha256` (sha256 of the PyPI sdist tarball), then apply the three reconciliations above to the same `recipe.yaml`: run deps, the `hatchling` build backend and `context.python_min`. Open a PR, merge once CI passes.
+Merging a feedstock pull request needs a recipe maintainer (`extra.recipe-maintainers` in the recipe).
