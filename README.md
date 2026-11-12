@@ -14,7 +14,7 @@ Extract building footprints, vegetation, damage assessments, roof condition, and
 pip install nmaipy
 ```
 
-Requires Python 3.12 or later.
+Requires Python 3.13 or later.
 
 ### 2. Set your API key
 
@@ -508,7 +508,7 @@ See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 
 ## Requirements
 
-- **Python 3.12+**
+- **Python 3.13+**
 - **Nearmap API key** (contact Nearmap for access)
 - **Memory**: assume ~1 GB per process for large exports. The default `processes=N` (CPU count) on a 16-core box with `chunk_size=500` typically uses 10–20 GB.
 - **AWS credentials** (only if writing to S3)

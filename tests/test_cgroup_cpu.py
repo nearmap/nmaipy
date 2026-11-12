@@ -1,3 +1,4 @@
+import types
 from unittest.mock import patch
 
 import psutil
@@ -110,17 +111,15 @@ class TestGetCgroupCpuUsage:
         cpu_stat.write_text("usage_usec 1000000\n")
         monkeypatch.setattr("nmaipy.cgroup_memory.CGROUP_V2_CPU_STAT", str(cpu_stat))
 
-        # First call — baseline
-        _get_cgroup_cpu_percent(4.0)
+        clock = iter([100.0, 102.0])
+        monkeypatch.setattr(cgroup_mod, "time", types.SimpleNamespace(monotonic=lambda: next(clock)))
 
-        # Simulate 2 seconds of wall time, 4 CPU-seconds of usage (= 100% of 4 CPUs for 1s... but 2s elapsed)
+        _get_cgroup_cpu_percent(4.0)  # baseline
         # 4 CPU-seconds in 2 wall-seconds on 4 CPUs = 50%
-        assert cgroup_mod._prev_cgroup_cpu_time is not None, "first call should record a baseline"
-        cgroup_mod._prev_cgroup_cpu_time -= 2.0  # pretend 2s ago
-        cpu_stat.write_text("usage_usec 5000000\n")  # +4M usec = +4 CPU-seconds
+        cpu_stat.write_text("usage_usec 5000000\n")
 
         pct = _get_cgroup_cpu_percent(4.0)
-        assert pct == pytest.approx(50.0, abs=1.0)
+        assert pct == pytest.approx(50.0)
 
 
 class TestGetCpuInfoCgroupAware:

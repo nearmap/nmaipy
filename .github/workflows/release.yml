@@ -18,16 +18,16 @@ jobs:
       uses: prefix-dev/setup-pixi@9936258fee697aff89b3fed6ca1f80a382ef694e # v0.11.3
       with:
         pixi-version: v0.83.0
-        environments: py312 default
+        environments: py313 default
         locked: true
 
     - name: Run tests
-      run: pixi run -e py312 test
+      run: pixi run -e py313 test
 
     - name: Get version
       id: get_version
       run: |
-        echo "VERSION=$(pixi run -e py312 python -c 'from nmaipy import __version__; print(__version__)')" >> $GITHUB_OUTPUT
+        echo "VERSION=$(pixi run -e py313 python -c 'from nmaipy import __version__; print(__version__)')" >> $GITHUB_OUTPUT
 
     - name: Verify tag matches version
       run: |
