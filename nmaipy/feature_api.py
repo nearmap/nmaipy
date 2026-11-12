@@ -21,9 +21,9 @@ import requests
 import shapely.geometry
 from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.base import BaseGeometry
-import stringcase
 
 from nmaipy import geometry_utils, log, storage
+from nmaipy._naming import snake_case
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
 from nmaipy.api_common import (
     API_KEY,
@@ -144,7 +144,7 @@ def is_class_returnable_at_version(
 # Include columns as ``payload_gdf`` leaves them (snake-cased key, raw API dict), mapped to the
 # ``<snake_key>`` that flattening later uses for its ``<snake_key>_skipped`` column.
 _SKIPPABLE_INCLUDE_COLUMNS = {
-    **{stringcase.snakecase(camel_key): config["snake_key"] for camel_key, config in INCLUDE_FIELD_MAPPINGS.items()},
+    **{snake_case(camel_key): config["snake_key"] for camel_key, config in INCLUDE_FIELD_MAPPINGS.items()},
     "defensible_space": "defensible_space",
 }
 
@@ -168,8 +168,6 @@ def _response_has_include_skips(features_gdf) -> tuple[bool, list[str]]:
 class FeatureApi(GriddedApiClient):
     """
     Client for the Nearmap AI Feature API.
-
-    Inherits from GriddedApiClient for automatic gridding support.
     """
 
     SOURCE_CRS = LAT_LONG_CRS
@@ -252,7 +250,7 @@ class FeatureApi(GriddedApiClient):
             order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters to track progress across processes
-            grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
+            grid_size: Grid cell size in degrees for subdividing large AOIs (default ``GRID_SIZE_DEGREES``)
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
             regrid_on_skip: Deprecated, to be removed in nmaipy 6.0; ``False`` turns off ``retry_on_realtime_skip``.
@@ -273,7 +271,6 @@ class FeatureApi(GriddedApiClient):
             compress_cache=compress_cache,
             threads=threads,
             maxretry=maxretry,
-            grid_cell_size=grid_size,
             bearer_token=bearer_token,
         )
 
@@ -313,7 +310,6 @@ class FeatureApi(GriddedApiClient):
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
 
-        # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
 
         if regrid_on_skip is not None:
@@ -1180,7 +1176,7 @@ class FeatureApi(GriddedApiClient):
                 df[col] = df[col].astype("float")
 
         df = df.rename(columns={"id": "feature_id"})
-        df.columns = [stringcase.snakecase(c) for c in df.columns]
+        df.columns = [snake_case(c) for c in df.columns]
 
         # Add AOI ID if specified
         if aoi_id is not None:
