@@ -132,8 +132,9 @@ Execute these steps in order, stopping if any step fails:
      (`extra.recipe-maintainers` — currently `mbewley`, `bretttully`).
 
    - **Manual fallback** if you can't wait for the bot: branch the feedstock, bump
-     `context.version` + `source.sha256` (sha256 of the PyPI sdist tarball) and the run-deps
-     in `recipe.yaml`, open a PR, merge once CI passes.
+     `context.version` + `source.sha256` (sha256 of the PyPI sdist tarball), then apply the
+     three reconciliations above to the same `recipe.yaml`: run deps, the `hatchling` build
+     backend and `context.python_min`. Open a PR, merge once CI passes.
 
 ### Output
 
