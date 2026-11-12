@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import tomllib
 
 import pytest
 
@@ -49,3 +50,17 @@ def test_check(recipe: str, requires_python: str, expected: list[list[str]]) -> 
     assert len(problems) == len(expected), f"expected problems naming {expected}, got {problems}"
     for problem, words in zip(problems, expected, strict=True):
         assert all(word in problem for word in words), f"expected a problem naming {words}, got {problem!r}"
+
+
+def test_pyproject_problems_point_at_pyproject() -> None:
+    problems = check_feedstock_recipe.check(PREPARED, {"build-system": {}, "project": {"requires-python": ">=3.13,<4"}})
+    assert len(problems) == 2, f"expected a requires-python and a build-system problem, got {problems}"
+    assert all(check_feedstock_recipe.PYPROJECT_FIX in problem for problem in problems), problems
+
+
+def test_repo_pyproject_is_readable() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    problems: list[str] = []
+    assert check_feedstock_recipe._python_floor(pyproject, problems)
+    assert check_feedstock_recipe._build_requirement_names(pyproject, problems)
+    assert not problems, problems

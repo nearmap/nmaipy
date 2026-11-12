@@ -20,6 +20,7 @@ import yaml
 RECIPE_URL = "https://raw.githubusercontent.com/conda-forge/nmaipy-feedstock/main/recipe/recipe.yaml"
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 FIX = "Open a feedstock pull request first, see VERSIONING.md § conda-forge feedstock."
+PYPROJECT_FIX = "Fix pyproject.toml or extend scripts/check_feedstock_recipe.py."
 
 
 def main() -> int:
@@ -61,6 +62,10 @@ def _problem(message: str) -> str:
     return f"{message} {FIX}"
 
 
+def _pyproject_problem(message: str) -> str:
+    return f"{message} {PYPROJECT_FIX}"
+
+
 def _python_min(recipe: dict, problems: list[str]) -> str | None:
     context = recipe.get("context")
     python_min = context.get("python_min") if isinstance(context, dict) else None
@@ -87,7 +92,9 @@ def _python_floor(pyproject: dict, problems: list[str]) -> str | None:
         specifiers = []
     parts = specifiers[0].version.split(".") if len(specifiers) == 1 and specifiers[0].operator == ">=" else []
     if len(parts) not in (2, 3) or not all(part.isdigit() for part in parts):
-        problems.append(_problem(f"requires-python is {requires_python!r}, not one >=X.Y or >=X.Y.Z specifier."))
+        problems.append(
+            _pyproject_problem(f"requires-python is {requires_python!r}, not one >=X.Y or >=X.Y.Z specifier.")
+        )
         return None
     return ".".join(parts[:2])
 
@@ -99,7 +106,7 @@ def _build_requirement_names(pyproject: dict, problems: list[str]) -> list[str]:
             return [canonicalize_name(Requirement(entry).name) for entry in requires]
     except InvalidRequirement:
         pass
-    problems.append(_problem(f"[build-system].requires is {requires!r}, not a list of requirement strings."))
+    problems.append(_pyproject_problem(f"[build-system].requires is {requires!r}, not a list of requirement strings."))
     return []
 
 
