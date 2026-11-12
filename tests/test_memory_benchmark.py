@@ -1,7 +1,11 @@
+import csv
 import importlib.util
 from pathlib import Path
+import sys
 
 import pytest
+
+from .golden import benchmark
 
 _SCRIPT = Path(__file__).parents[1] / "scripts" / "benchmark_notes.py"
 _SPEC = importlib.util.spec_from_file_location("benchmark_notes", _SCRIPT)
@@ -72,3 +76,15 @@ def test_main_writes_merged_body(tmp_path: Path) -> None:
     )
     written = out.read_text(encoding="utf-8")
     assert written == expected, f"wrote {written!r}, expected {expected!r}"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PSS and VmHWM exist only on Linux")
+def test_benchmark_two_blocks(tmp_path: Path) -> None:
+    results = tmp_path / "results.csv"
+    benchmark.main(["--aois", "10", "--work-dir", str(tmp_path / "work"), "--results", str(results)])
+    with results.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [row["aois"] for row in rows] == ["10"], f"expected one row for 10 AOIs, got {rows}"
+    peaks = {column: float(rows[0][column]) for column in rows[0] if column.startswith("peak_")}
+    assert len(peaks) == 3, f"expected three peak columns, got {peaks}"
+    assert all(peak > 0 for peak in peaks.values()), f"a peak is not positive: {peaks}"
