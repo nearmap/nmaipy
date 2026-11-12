@@ -41,7 +41,8 @@ jobs:
         run: |
           version=$(pixi run --frozen -e py313 python -c 'from nmaipy import __version__; print(__version__)')
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
-            echo "::error::__version__ is '$version', which is not X.Y.Z, X.Y.ZaN, X.Y.ZbN or X.Y.ZrcN. Fix it with bump_version.py in a pull request."
+            echo "::error::__version__ is '$version', which is not X.Y.Z, X.Y.ZaN, X.Y.ZbN or X.Y.ZrcN." \
+              "Fix it with bump_version.py in a pull request."
             exit 1
           fi
           echo "version=$version" >>"$GITHUB_OUTPUT"
@@ -50,17 +51,20 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          bump="Bump the version with bump_version.py in a pull request, merge it and run this workflow again."
           refs=$(git ls-remote origin "refs/tags/v$VERSION" "refs/tags/v$VERSION^{}")
-          tag_sha=$(awk -v tag="refs/tags/v$VERSION" '$2 == tag "^{}" {peeled = $1} $2 == tag {plain = $1} END {print (peeled != "" ? peeled : plain)}' <<<"$refs")
+          tag_sha=$(awk -v tag="refs/tags/v$VERSION" \
+            '$2 == tag "^{}" {peeled = $1} $2 == tag {plain = $1}
+             END {print (peeled != "" ? peeled : plain)}' <<<"$refs")
           if [[ -n "$tag_sha" && "$tag_sha" != "$GITHUB_SHA" ]]; then
-            echo "::error::Tag v$VERSION already exists at $tag_sha, not at $GITHUB_SHA. Bump the version with bump_version.py in a pull request, merge it and run this workflow again."
+            echo "::error::Tag v$VERSION already exists at $tag_sha, not at $GITHUB_SHA. $bump"
             exit 1
           fi
           status=$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/nmaipy/$VERSION/json")
           case $status in
             404) ;;
             200)
-              echo "::error::nmaipy $VERSION is already on PyPI. Bump the version with bump_version.py in a pull request, merge it and run this workflow again."
+              echo "::error::nmaipy $VERSION is already on PyPI. $bump"
               exit 1
               ;;
             *)
@@ -70,6 +74,18 @@ jobs:
           esac
 
       - run: pixi run --frozen build
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          # this patch release fixes the bundled pip that the next step installs the wheel with
+          python-version: "3.13.18"
+
+      # pip, not pixi, because this checks the wheel the way a pip user installs it
+      - name: Install the wheel into a clean virtual environment and check it
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/venv/bin/python" -I scripts/check_wheel.py
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -103,24 +119,35 @@ jobs:
           DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
+          if [[ -z "$DEPLOY_KEY" ]]; then
+            echo "::error::RELEASE_DEPLOY_KEY is empty." \
+              "Ask a repository admin to set it as a secret of the pypi environment."
+            exit 1
+          fi
           key="$RUNNER_TEMP/release_deploy_key"
           known_hosts="$RUNNER_TEMP/release_known_hosts"
           trap 'rm -f "$key" "$known_hosts"' EXIT
           (umask 077 && printf '%s\n' "$DEPLOY_KEY" >"$key")
-          # GitHub's published host key (api.github.com/meta), so the push never trusts a key on first use
-          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >"$known_hosts"
-          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts"
+          # GitHub's published host key (api.github.com/meta): the push never trusts a key on first use
+          echo 'github.com ssh-ed25519' \
+            'AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >"$known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=$known_hosts"
           remote="git@github.com:$GITHUB_REPOSITORY.git"
           refs=$(git ls-remote "$remote" "refs/tags/v$VERSION" "refs/tags/v$VERSION^{}")
-          tag_sha=$(awk -v tag="refs/tags/v$VERSION" '$2 == tag "^{}" {peeled = $1} $2 == tag {plain = $1} END {print (peeled != "" ? peeled : plain)}' <<<"$refs")
+          tag_sha=$(awk -v tag="refs/tags/v$VERSION" \
+            '$2 == tag "^{}" {peeled = $1} $2 == tag {plain = $1}
+             END {print (peeled != "" ? peeled : plain)}' <<<"$refs")
           if [[ -z "$tag_sha" ]]; then
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
               tag -a "v$VERSION" -m "Release $VERSION" "$GITHUB_SHA"
             git push "$remote" "refs/tags/v$VERSION"
           elif [[ "$tag_sha" == "$GITHUB_SHA" ]]; then
             echo "Tag v$VERSION already points at $GITHUB_SHA, from an earlier attempt of this run"
           else
-            echo "::error::Tag v$VERSION exists at $tag_sha, not at $GITHUB_SHA. Bump the version with bump_version.py in a pull request, merge it and run this workflow again."
+            echo "::error::Tag v$VERSION exists at $tag_sha, not at $GITHUB_SHA." \
+              "Bump the version with bump_version.py in a pull request, merge it and run this workflow again."
             exit 1
           fi
 
@@ -145,14 +172,17 @@ jobs:
         run: |
           prerelease=()
           if [[ "$VERSION" =~ (a|b|rc)[0-9]+$ ]]; then prerelease=(--prerelease); fi
-          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "v$VERSION" --generate-notes "${prerelease[@]}"
+          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "v$VERSION" --generate-notes "${prerelease[@]}"
 
       - name: Check that the release assets are the files published to PyPI
         run: |
           expected=$(cd dist && sha256sum -- * | awk '{print $2 " sha256:" $1}' | sort)
-          actual=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" --jq '.assets[] | .name + " " + .digest' | sort)
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" \
+            --jq '.assets[] | .name + " " + .digest' | sort)
           if ! diff <(echo "$expected") <(echo "$actual"); then
-            echo "::error::The assets of release v$VERSION are not the files in dist/ (lines above: < dist/, > release)."
+            echo "::error::The assets of release v$VERSION are not the files in dist/" \
+              "(lines above: < dist/, > release)."
             exit 1
           fi
           echo "$actual"

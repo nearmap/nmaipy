@@ -22,7 +22,7 @@ For an author outside the Nearmap GitHub organization, a maintainer approves the
 
 ## Releases
 
-Only the Release workflow (`.github/workflows/release.yml`) creates tags, PyPI releases and GitHub releases, after a code owner approves its run. The steps are in `VERSIONING.md`.
+Only the Release workflow (`.github/workflows/release.yml`) creates tags and publishes to PyPI, after a code owner approves its run. It also creates each version's GitHub release. The steps are in `VERSIONING.md`.
 
 ## Development setup
 

@@ -29,9 +29,9 @@ Review every change since the last release: `git fetch origin && git diff $(git 
 
 1. On a branch, bump the version with `bump_version.py`, open a pull request and merge it.
 2. Run the Release workflow (`.github/workflows/release.yml`) from `main`: `gh workflow run release.yml --ref main`, or "Run workflow" on the workflow's page in the Actions tab.
-3. A member of `@nearmap/ai-systems` approves the run's deployment to the `pypi` environment. The environment accepts only runs from `main`.
+3. A member of `@nearmap/ai-systems` approves the run's deployment to the `pypi` environment, only when CI is green on `main` at the commit that the run shows. The environment accepts only runs from `main`.
 4. The workflow runs three jobs:
-   - `build` runs the offline tests, reads `__version__`, and fails if the tag `vX.Y.Z` exists at another commit or PyPI already has the version. Then it builds the sdist and the wheel with `pixi run build`.
+   - `build` runs the offline tests, reads `__version__`, and fails if the tag `vX.Y.Z` exists at another commit or PyPI already has the version. Then it builds the sdist and the wheel with `pixi run build`, and checks that the wheel installs into a clean virtual environment.
    - `publish` waits for the approval, tags the run's commit `vX.Y.Z` and publishes the sdist and the wheel to PyPI through trusted publishing, with attestations.
    - `github-release` creates the GitHub release `vX.Y.Z` with generated notes and the same two files, marked as a pre-release for an `a`, `b` or `rc` version, and fails unless the release's assets have the same SHA-256 digests as the files.
 5. Replace the generated notes with `gh release edit vX.Y.Z --notes-file <file>`. Write them from `git log <previous tag>..vX.Y.Z --oneline`, with this outline:
@@ -43,13 +43,21 @@ Review every change since the last release: `git fetch origin && git diff $(git 
 
    The notes stay editable on an immutable release. Its assets and its tag do not.
 
-Only the Release workflow can create a tag or publish to PyPI.
+Only the Release workflow creates tags and publishes to PyPI. It also creates each version's GitHub release, which is immutable and has the PyPI files.
+
+### Why the release is trusted
+
+- The `publish` job has `id-token: write`, so GitHub gives it a short-lived OIDC token that names the repository, the workflow file and the environment. PyPI exchanges the token for an upload token only when those names match the trusted publisher that a PyPI owner of nmaipy registered on pypi.org (Manage, Publishing): `nearmap`, `nmaipy`, `release.yml`, `pypi`. The workflow holds no PyPI token.
+- PyPI does not check the branch. The `pypi` environment's rule that accepts only `main`, and its required approval, are what hold.
+- The tag is pushed with a deploy key that the tag ruleset lets bypass. The ruleset's `DeployKey` bypass has no actor id, so it covers every deploy key of the repository: keep one deploy key.
+- `RELEASE_DEPLOY_KEY` is a secret of the `pypi` environment. Keep it there. As a repository secret, any workflow on any branch could read it.
 
 ## A failed run
 
 - If the run fails in `build`, nothing is tagged or published. Fix the cause in a pull request and run the workflow again.
 - If the run fails in `publish`, re-run the failed jobs ("Re-run failed jobs" on the run's page, or `gh run rerun <run id> --failed`), and do not start a new run: once PyPI has a file of the version, `build` refuses it. The re-run needs a new approval. Its tag step accepts the tag that an earlier attempt of the run pushed, and PyPI accepts the identical files again.
 - If the run fails in `github-release` at the release creation, re-run that job. `gh release create` deletes its own draft release when it fails. If it fails at the asset check, the release exists and its files differ from the ones published to PyPI: ask a repository admin, and do not re-run the job.
+- If `publish` fails with `invalid-publisher`, the trusted publisher on pypi.org no longer matches the repository, workflow file name or environment name (for example after a rename). A re-run does not fix it: a PyPI owner of nmaipy corrects the publisher, and then someone re-runs the failed jobs. The tag from the failed attempt stays and the re-run accepts it.
 - A version that can never be published leaves a tag that only a repository admin can remove. Bump to the next version and release that instead.
 
 ## conda-forge feedstock
