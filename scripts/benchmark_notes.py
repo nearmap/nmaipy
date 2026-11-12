@@ -12,7 +12,7 @@ from pathlib import Path
 
 HEADING = "## Memory benchmark"
 TABLE_COLUMNS = ("aois", "peak_main_rss_mib", "peak_worker_rss_mib", "peak_tree_pss_mib", "wall_seconds")
-ENVIRONMENT_COLUMNS = ("commit", "python", "platform")
+ENVIRONMENT_COLUMNS = ("commit", "python", "platform", "cpus")
 DESCRIPTION = (
     "Peak memory (MiB) and wall time (seconds) of the offline benchmark export, `python -m tests.golden.benchmark`."
 )
@@ -76,7 +76,8 @@ def render_section(rows: list[dict[str, str]], run_url: str) -> str:
         _table_row(["---:"] * len(TABLE_COLUMNS)),
         *(_table_row([row[column] for column in TABLE_COLUMNS]) for row in rows),
         "",
-        f"Commit `{environment['commit']}`, Python `{environment['python']}`, platform `{environment['platform']}`.",
+        f"Commit `{environment['commit']}`, Python `{environment['python']}`, platform `{environment['platform']}`, "
+        + f"`{environment['cpus']}` CPUs.",
         "",
         f"[Benchmark run]({run_url})",
     ]

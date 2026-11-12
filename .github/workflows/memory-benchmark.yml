@@ -35,7 +35,7 @@ jobs:
           environments: py314
           locked: true
           # the results feed the release notes, so a tag run never restores a cache that another workflow wrote
-          cache: ${{ github.event_name != 'push' }}
+          cache: ${{ github.ref_type != 'tag' }}
 
       - name: Run the benchmark
         env:
@@ -44,6 +44,14 @@ jobs:
           read -ra sizes <<<"$SIZES"
           pixi run --frozen -e py314 python -m tests.golden.benchmark --aois "${sizes[@]}" \
             --work-dir "$RUNNER_TEMP/benchmark" --results memory-benchmark.csv
+
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: memory-benchmark-logs
+          path: ${{ runner.temp }}/benchmark/*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Write the results to the job summary
         run: |

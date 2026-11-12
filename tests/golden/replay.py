@@ -67,10 +67,6 @@ _REAL_CONNECT = socket.socket.connect
 _ACTIVE_MOCKS: list[responses.RequestsMock] = []
 
 
-class _Answerer(Protocol):
-    def handle(self, method: str, url: str, body: bytes | str | None) -> FakeResponse: ...
-
-
 def run_case(case: str, out_dir: Path, aoi_file: Path | None = None) -> Path:
     """Export a golden case offline into `out_dir` (markers and API cache under it too) and return its `final/`.
 
@@ -169,6 +165,10 @@ def emitted_paths(marker_dir: Path) -> dict[str, set[str]]:
             endpoint, path = line.split("\t")
             paths.setdefault(endpoint, set()).add(path)
     return paths
+
+
+class _Answerer(Protocol):
+    def handle(self, method: str, url: str, body: bytes | str | None) -> FakeResponse: ...
 
 
 def _case_fake(case: str) -> FakeApi:

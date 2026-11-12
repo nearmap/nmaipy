@@ -71,7 +71,7 @@ def test_main_writes_merged_body(tmp_path: Path) -> None:
         "| ---: | ---: | ---: | ---: | ---: |\n"
         "| 10 | 200.1 | 90.2 | 300.5 | 12.3 |\n"
         "| 100 | 250.0 | 120.0 | 410.0 | 40.0 |\n\n"
-        "Commit `abc1234`, Python `3.14.0`, platform `Linux-x86_64`.\n\n"
+        "Commit `abc1234`, Python `3.14.0`, platform `Linux-x86_64`, `4` CPUs.\n\n"
         "[Benchmark run](https://github.com/nearmap/nmaipy/actions/runs/1)\n"
     )
     written = out.read_text(encoding="utf-8")

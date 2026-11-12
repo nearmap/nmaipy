@@ -19,8 +19,10 @@ import subprocess
 import sys
 import time
 
+import numpy as np
 import pandas as pd
 import psutil
+import shapely
 
 import nmaipy
 
@@ -105,22 +107,24 @@ def measure(n: int, work_dir: Path) -> dict[str, object]:
 
 
 def validate(n: int, final: Path) -> None:
-    """Fail unless the export in `final/` is `n` whole, distinct copies of the template's own answers."""
+    """Fail unless the export in `final/` is `n` whole, distinct copies of the template's answers, each in its cell."""
+    expected = tiled.aois(n)
     aoi_ids = pd.read_csv(final / "rollup.csv", usecols=["aoi_id"], dtype=str)["aoi_id"]
-    assert len(aoi_ids) == n, f"rollup.csv has {len(aoi_ids)} rows, not {n}"
+    counts = (int(aoi_ids.duplicated().sum()), len(set(expected) - set(aoi_ids)), len(set(aoi_ids) - set(expected)))
+    assert counts == (0, 0, 0), "rollup.csv has {} duplicate, {} missing and {} unexpected AOI ids".format(*counts)
     feature_errors = final / "feature_api_errors.csv"
     assert not feature_errors.exists() or pd.read_csv(feature_errors).empty, f"{feature_errors} has rows"
     misses = tiled.TiledFakeApi(CASES["us"]["until"]).roof_age_misses()
     roof_age_errors = final / "roof_age_errors.csv"
     got = set(pd.read_csv(roof_age_errors, dtype=str)["aoi_id"]) if roof_age_errors.exists() else set()
-    want = {aoi_id for aoi_id in aoi_ids if tiled.template_aoi(aoi_id) in misses}
+    want = {aoi_id for aoi_id in expected if tiled.template_aoi(aoi_id) in misses}
     assert got == want, f"roof_age_errors.csv: {len(got - want)} unexpected AOIs, {len(want - got)} missing"
 
-    features = pd.read_parquet(final / "features.parquet", columns=["aoi_id", "feature_id"])
+    features = pd.read_parquet(final / "features.parquet", columns=["aoi_id", "feature_id", "geometry"])
     rows = features.groupby("aoi_id").size()
     block_zero = {aoi_id: int(rows.get(f"b0_{aoi_id}", 0)) for aoi_id in tiled.TEMPLATE_AOIS}
     assert sum(block_zero.values()) > 0, "block 0 has no features"
-    wrong = [a for a in aoi_ids if int(rows.get(a, 0)) != block_zero[tiled.template_aoi(a)]]
+    wrong = [a for a in expected if int(rows.get(a, 0)) != block_zero[tiled.template_aoi(a)]]
     assert not wrong, f"{len(wrong)} AOIs have a different feature count from block 0 (e.g. {wrong[0]})"
     blocks = features["aoi_id"].map(tiled.block)
     full_blocks = n // len(tiled.TEMPLATE_AOIS)
@@ -129,11 +133,24 @@ def validate(n: int, final: Path) -> None:
     assert distinct == full_blocks * distinct_zero, (
         f"{distinct} distinct feature ids in {full_blocks} whole blocks, not {full_blocks} x {distinct_zero}"
     )
+    aoi_cells = pd.DataFrame(_cells(shapely.from_wkt(list(expected.values()))), index=list(expected))
+    feature_cells = _cells(shapely.from_wkb(features["geometry"]))
+    misplaced = (feature_cells != aoi_cells.loc[features["aoi_id"]].to_numpy()).any(axis=1)
+    assert not misplaced.any(), (
+        f"{misplaced.sum()} features lie outside their AOI's cell (e.g. {features['aoi_id'][misplaced].iloc[0]})"
+    )
 
 
 def append_row(results: Path, row: dict[str, object]) -> None:
-    """Append `row` to the `results` CSV, writing the header first when the file is absent."""
+    """Append `row` to the `results` CSV, writing the header first when the file is absent.
+
+    Fails when an existing file has another header.
+    """
     new = not results.exists()
+    if not new:
+        with results.open(encoding="utf-8", newline="") as f:
+            header = f.readline().rstrip("\r\n")
+        assert header == ",".join(COLUMNS), f"{results} has the header {header!r}, not {','.join(COLUMNS)!r}"
     with results.open("a", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=COLUMNS)
         if new:
@@ -148,7 +165,14 @@ def _child(n: int, work_dir: Path) -> None:
 
 
 def _paths(n: int, work_dir: Path) -> tuple[Path, Path, Path]:
-    return work_dir / f"export_{n}", work_dir / f"export_{n}.log", work_dir / f"export_{n}.main.json"
+    export_dir = work_dir / f"export_{n}"
+    return export_dir, work_dir / f"export_{n}.log", export_dir / "main.json"
+
+
+def _cells(geometries: np.ndarray) -> np.ndarray:
+    """The lattice cell `(i, j)` of each geometry's centroid, as `tiled._cell` maps a request."""
+    centroids = shapely.get_coordinates(shapely.centroid(geometries))
+    return np.floor((centroids - tiled._ORIGIN) / tiled.STEP).astype(int)
 
 
 def _sample_tree(child: subprocess.Popen, main_peak_path: Path, marker_dir: Path) -> tuple[int, dict[int, int]]:
