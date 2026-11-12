@@ -265,6 +265,8 @@ python = "3.14.*"
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
 responses = "*"
+pyyaml = "*"
+packaging = "*"
 
 [tool.pixi.feature.test.tasks]
 test = "pytest -m 'not live_api'"

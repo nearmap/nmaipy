@@ -73,6 +73,16 @@ jobs:
               ;;
           esac
 
+      - name: Check that the conda-forge recipe can build this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ "$VERSION" =~ (a|b|rc)[0-9]+$ ]]; then
+            echo "$VERSION is a pre-release, which conda-forge does not package"
+          else
+            pixi run --frozen -e py313 python scripts/check_feedstock_recipe.py
+          fi
+
       - run: pixi run --frozen build
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
