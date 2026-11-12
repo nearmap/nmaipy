@@ -252,7 +252,7 @@ class FeatureApi(GriddedApiClient):
             order: Specify "earliest" or "latest" for date-based requests (defaults to "latest")
             exclude_tiles_with_occlusion: When True, ignores survey resources with occluded tiles
             progress_counters: Optional dict with 'total' and 'completed' counters to track progress across processes
-            grid_size: Grid cell size in degrees for subdividing large AOIs (default ~200m)
+            grid_size: Grid cell size in degrees for subdividing large AOIs (default ``GRID_SIZE_DEGREES``)
             bearer_token: Short-lived Nearmap identity JWT used instead of an API key
                 (see BaseApiClient for lifetime caveats)
             regrid_on_skip: Deprecated, to be removed in nmaipy 6.0; ``False`` turns off ``retry_on_realtime_skip``.
@@ -273,7 +273,6 @@ class FeatureApi(GriddedApiClient):
             compress_cache=compress_cache,
             threads=threads,
             maxretry=maxretry,
-            grid_cell_size=grid_size,
             bearer_token=bearer_token,
         )
 
@@ -313,7 +312,6 @@ class FeatureApi(GriddedApiClient):
         self.order = order
         self.exclude_tiles_with_occlusion = exclude_tiles_with_occlusion
 
-        # Keep grid_size for backward compatibility (GriddedApiClient uses grid_cell_size internally)
         self.grid_size = grid_size
 
         if regrid_on_skip is not None:

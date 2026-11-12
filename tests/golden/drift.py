@@ -29,7 +29,7 @@ from shapely.geometry import Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from nmaipy.api_common import APIError
-from nmaipy.constants import AREA_CRS, GRID_SIZE_DEGREES, SQUARED_METERS_TO_SQUARED_FEET
+from nmaipy.constants import AREA_CRS, GRID_SIZE_DEGREES, MAX_AOI_AREA_SQM_BEFORE_GRIDDING, SQUARED_METERS_TO_SQUARED_FEET
 from nmaipy.feature_api import FeatureApi
 from nmaipy.geometry_utils import split_geometry_into_grid
 from nmaipy.roof_age_api import RoofAgeApi
@@ -99,7 +99,7 @@ def collect_live(api_key: str, cache_dir: Path) -> list[Exchange]:
         kwargs = CASES[case]
         query = {"packs": kwargs["packs"], "since": kwargs.get("since"), "until": kwargs.get("until")}
         for aoi in aois:
-            if features.should_grid_aoi(aoi, kwargs["country"]):
+            if _area(aoi, kwargs["country"]) > MAX_AOI_AREA_SQM_BEFORE_GRIDDING:
                 exchanges += _grid_cells(features, case, aoi, query)
             else:
                 body = features.get_features(aoi, kwargs["country"], **query)
