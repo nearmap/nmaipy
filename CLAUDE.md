@@ -35,6 +35,8 @@ Run all tests (excluding live API tests; the `test` task runs `pytest -m "not li
 pixi run test
 ```
 
+The Tests workflow (`.github/workflows/test.yml`) runs the `test` task on `py313` and `py314` on every pull request and on pushes to main. It also builds the wheel, installs it with the bundled pip of a clean Python 3.13 venv, and runs `scripts/check_wheel.py`, to catch a dependency missing from `[project.dependencies]` or a file missing from the wheel.
+
 Run them on a specific Python version:
 ```bash
 pixi run -e py313 test
