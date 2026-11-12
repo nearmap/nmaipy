@@ -8,6 +8,8 @@ If you do not have write access to `nearmap/nmaipy` (you are outside Nearmap, or
 
 A pull request merges only when a code owner (`@nearmap/ai-systems`, from `.github/CODEOWNERS`) has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge.
 
+There is no CHANGELOG file. The notes of a release start from the titles of the pull requests merged since the previous release, either as GitHub's generated notes or as the list that a maintainer writes the notes from. The generated notes do not include pull request descriptions. Write the title as the change that users get, and name each deprecation and removal in it.
+
 ## Continuous integration
 
 Every pull request runs these workflows from `.github/workflows/`:
