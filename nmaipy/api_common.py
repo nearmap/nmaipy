@@ -23,6 +23,7 @@ import random
 import re
 import threading
 from typing import Any, Optional
+import warnings
 import weakref
 
 from dotenv import load_dotenv
@@ -40,6 +41,7 @@ from nmaipy.constants import (
     BACKOFF_FACTOR,
     BACKOFF_MAX,
     DUMMY_STATUS_CODE,
+    MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     MAX_RETRIES,
     READ_TIMEOUT_MAX_RETRIES,
     READ_TIMEOUT_SECONDS,
@@ -1219,25 +1221,43 @@ def collect_latency_stats_from_apis(
     }
 
 
+_GRID_CELL_SIZE_DEPRECATION = (
+    "GriddedApiClient's grid_cell_size is deprecated and will be removed in nmaipy 6.0; nmaipy never reads it, and "
+    "FeatureApi's grid_size sets the grid."
+)
+_MAX_AOI_AREA_SQM_DEPRECATION = (
+    "GriddedApiClient's max_aoi_area_sqm is deprecated and will be removed in nmaipy 6.0; FeatureApi grids an AOI "
+    "above MAX_AOI_AREA_SQM_BEFORE_GRIDDING itself."
+)
+
+
+class _DeprecatedAttr:
+    """Instance attribute kept in ``slot`` that warns with ``message`` on every read and write."""
+
+    def __init__(self, slot: str, message: str) -> None:
+        self._slot = slot
+        self._message = message
+
+    def __get__(self, instance: object, owner: type | None = None) -> Any:
+        if instance is None:
+            return self
+        warnings.warn(self._message, DeprecationWarning, stacklevel=2)
+        return getattr(instance, self._slot)
+
+    def __set__(self, instance: object, value: Any) -> None:
+        warnings.warn(self._message, DeprecationWarning, stacklevel=2)
+        setattr(instance, self._slot, value)
+
+
 class GriddedApiClient(BaseApiClient):
     """
-    Base class for API clients that support automatic gridding of large AOIs.
+    Base class for API clients that grid large AOIs themselves.
 
-    Extends BaseApiClient with the ability to automatically split large geometries
-    into grid cells for parallel processing. This is useful for APIs that have
-    size limits on individual requests.
-
-    Features:
-    - Automatic gridding when AOI exceeds size threshold
-    - Parallel processing of grid cells with thread pool
-    - Semaphore-based concurrency control to prevent resource exhaustion
-    - Result combination with deduplication
-    - Proactive and reactive gridding strategies
-
-    Subclasses should implement:
-    - Query methods that may need gridding support
-    - _combine_grid_results() if custom result combination is needed
+    Holds the semaphore that caps how many gridded requests run at once (max_concurrent_gridding).
     """
+
+    grid_cell_size = _DeprecatedAttr("_grid_cell_size", _GRID_CELL_SIZE_DEPRECATION)
+    max_aoi_area_sqm = _DeprecatedAttr("_max_aoi_area_sqm", _MAX_AOI_AREA_SQM_DEPRECATION)
 
     def __init__(
         self,
@@ -1247,8 +1267,8 @@ class GriddedApiClient(BaseApiClient):
         compress_cache: bool = False,
         threads: int = 10,
         maxretry: int = MAX_RETRIES,
-        grid_cell_size: float = 0.002,
-        max_aoi_area_sqm: float = 1_000_000,
+        grid_cell_size: float | None = None,
+        max_aoi_area_sqm: float | None = None,
         max_concurrent_gridding: int | None = None,
         bearer_token: str | None = None,
     ):
@@ -1262,8 +1282,11 @@ class GriddedApiClient(BaseApiClient):
             compress_cache: Whether to compress cache files
             threads: Number of concurrent threads
             maxretry: Number of retries for failed requests
-            grid_cell_size: Size of grid cells in degrees (default ~200m)
-            max_aoi_area_sqm: Max AOI area before gridding (default 1 sq km)
+            grid_cell_size: Deprecated, to be removed in nmaipy 6.0; nmaipy never reads it, and ``FeatureApi``'s
+                ``grid_size`` sets the grid.
+            max_aoi_area_sqm: Deprecated, to be removed in nmaipy 6.0; ``FeatureApi`` grids an AOI above
+                ``MAX_AOI_AREA_SQM_BEFORE_GRIDDING`` itself. Max AOI area before ``should_grid_aoi`` returns True
+                (default ``MAX_AOI_AREA_SQM_BEFORE_GRIDDING``).
             max_concurrent_gridding: Max concurrent gridding operations (default threads/5)
         """
         super().__init__(
@@ -1276,8 +1299,12 @@ class GriddedApiClient(BaseApiClient):
             bearer_token=bearer_token,
         )
 
-        self.grid_cell_size = grid_cell_size
-        self.max_aoi_area_sqm = max_aoi_area_sqm
+        if grid_cell_size is not None:
+            warnings.warn(_GRID_CELL_SIZE_DEPRECATION, DeprecationWarning, stacklevel=2)
+        if max_aoi_area_sqm is not None:
+            warnings.warn(_MAX_AOI_AREA_SQM_DEPRECATION, DeprecationWarning, stacklevel=2)
+        self._grid_cell_size = grid_cell_size
+        self._max_aoi_area_sqm = MAX_AOI_AREA_SQM_BEFORE_GRIDDING if max_aoi_area_sqm is None else max_aoi_area_sqm
 
         # Semaphore to limit concurrent gridding operations
         # This prevents too many file handles being opened when many large AOIs grid simultaneously
@@ -1290,6 +1317,9 @@ class GriddedApiClient(BaseApiClient):
         """
         Determine if an AOI should be pre-emptively gridded based on area.
 
+        Deprecated, to be removed in nmaipy 6.0; ``FeatureApi`` grids an AOI above ``MAX_AOI_AREA_SQM_BEFORE_GRIDDING``
+        itself.
+
         Args:
             geometry: Polygon or MultiPolygon in API_CRS (EPSG:4326)
             region: Country/region code for CRS selection (default: 'us')
@@ -1297,11 +1327,17 @@ class GriddedApiClient(BaseApiClient):
         Returns:
             True if geometry area exceeds threshold and should be gridded
         """
+        warnings.warn(
+            "GriddedApiClient.should_grid_aoi is deprecated and will be removed in nmaipy 6.0; FeatureApi grids an AOI "
+            "above MAX_AOI_AREA_SQM_BEFORE_GRIDDING itself.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Calculate area in appropriate projected CRS
         gdf = gpd.GeoDataFrame(geometry=[geometry], crs="EPSG:4326")
         area_sqm = gdf.to_crs(AREA_CRS.get(region, AREA_CRS["us"])).area.iloc[0]
 
-        return area_sqm > self.max_aoi_area_sqm
+        return area_sqm > self._max_aoi_area_sqm
 
 
 def generate_curl_command(url: str, body: dict | None = None, method: str = "POST", timeout: int = 90) -> str:

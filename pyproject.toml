@@ -43,7 +43,6 @@ dependencies = [
     "rtree",
     "s3fs>=2025.3.0",
     "shapely>=2.1.1",
-    "stringcase>=1.2.0",
     "tqdm>=4.67.1",
 ]
 
@@ -266,6 +265,8 @@ python = "3.14.*"
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
 responses = "*"
+pyyaml = "*"
+packaging = "*"
 
 [tool.pixi.feature.test.tasks]
 test = "pytest -m 'not live_api'"

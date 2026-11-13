@@ -35,7 +35,7 @@ Run all tests (excluding live API tests; the `test` task runs `pytest -m "not li
 pixi run test
 ```
 
-The Tests workflow (`.github/workflows/test.yml`) runs the `test` task on `py313` and `py314` on every pull request and on pushes to main. It also builds the wheel, installs it with the bundled pip of a clean Python 3.13 venv, and runs `scripts/check_wheel.py`, to catch a module-level import that a pip install of the wheel does not satisfy, or a `.py` or `.json` file missing from the wheel.
+The Tests workflow (`.github/workflows/test.yml`) runs the `test` task on `py313` and `py314` on every pull request and on pushes to main. It also builds the wheel, installs it with the bundled pip of a clean Python 3.13 venv, and runs `scripts/check_wheel.py`, to catch a module-level import that a pip install of the wheel does not satisfy, or a `.py` or `.json` file missing from the wheel. The Memory benchmark workflow (`.github/workflows/memory-benchmark.yml`) runs the offline memory benchmark at 1,000 AOIs on pull requests that change `tests/golden/` or the workflow, and at 1,000, 10,000 and 100,000 AOIs on each release tag, when it adds the results to the release notes.
 
 Run them on a specific Python version:
 ```bash
@@ -94,6 +94,7 @@ Deselect markers with `-m`, e.g.: `pixi run pytest -m "not live_api and not slow
 python -m tests.golden.regenerate          # re-baseline expected outputs after an intended change (offline)
 python -m tests.golden.drift               # check the fake against the live API (needs API_KEY)
 python -m tests.golden.compare LEFT RIGHT  # diff two exports (e.g. old versus new code on the same input)
+python -m tests.golden.benchmark --work-dir DIR --results CSV  # peak memory of offline exports of 1k/10k/100k AOIs
 ```
 
 ### Code Formatting
@@ -306,7 +307,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 
 4. **api_common.py**: Shared infrastructure for all API clients
    - `BaseApiClient`: Session management with connection pooling, request retry via `urllib3.Retry`, file-based caching (with optional gzip compression), API key handling, secure logging via `APIKeyFilter`, latency histogram tracking per-request
-   - `GriddedApiClient(BaseApiClient)`: Extends with automatic AOI gridding for large areas, semaphore-based concurrency control, `should_grid_aoi()` size check
+   - `GriddedApiClient(BaseApiClient)`: Holds the semaphore that caps concurrent gridded requests (`max_concurrent_gridding`); `should_grid_aoi`, `max_aoi_area_sqm` and `grid_cell_size` are deprecated until 6.0, and `FeatureApi` grids by `MAX_AOI_AREA_SQM_BEFORE_GRIDDING`
    - `RetryRequest(Retry)`: Configurable retry strategy; handles 429/500/502/503/504, exponential backoff (2-10s)
    - Error hierarchy: `APIError` (base) → `AIFeatureAPIError`, `RoofAgeAPIError`, `APIRequestSizeError` (413/504 triggers gridding); `APIGridError` for gridding failures
    - Latency stats: `collect_latency_stats_from_apis()`, `combine_chunk_latency_stats()`, `compute_global_latency_stats()` — histogram-based P50/P90/P95/P99 aggregation across chunks
@@ -457,7 +458,7 @@ Memory monitoring reports the working set (`memory.current − inactive_file`), 
 
 Operationally: start with the defaults, watch the working-set figure in the tqdm postfix during a real export, and tune `--processes` first (linear effect on both stages, no surprises) before reaching for `--chunk-size`. If the per-class merge is the bottleneck on a roomy box, raise `--merge-read-workers`.
 
-For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` and `GriddedApiClient` in `nmaipy/api_common.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
+For the retry / backoff / gridding strategy these dials sit on top of, see `RetryRequest` in `nmaipy/api_common.py` and `FeatureApi.get_features_gdf_gridded` in `nmaipy/feature_api.py`. (A standalone engineering doc, `docs/retry-and-gridding.md`, is drafted but deliberately held back from the repo until reviewed — see commit 256f1b4.)
 
 ### API Authentication
 
@@ -480,6 +481,6 @@ For S3 output, AWS credentials are resolved from environment variables (`AWS_ACC
 
 See `VERSIONING.md` for instructions on:
 - Updating version numbers
-- Building and testing packages
-- Deploying to PyPI
-- Creating releases
+- Testing and reviewing before a release
+- Releasing through the Release workflow (`.github/workflows/release.yml`), which tags the commit, publishes to PyPI and creates the GitHub release
+- Updating the conda-forge feedstock

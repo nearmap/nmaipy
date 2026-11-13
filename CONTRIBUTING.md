@@ -6,7 +6,9 @@ Anyone can open an [issue](https://github.com/nearmap/nmaipy/issues) or a pull r
 
 If you do not have write access to `nearmap/nmaipy` (you are outside Nearmap, or at Nearmap without write access), fork the repository and open a pull request against `main`. Nearmap engineers with write access push a branch to `nearmap/nmaipy` and open the pull request from it.
 
-A pull request merges only when a code owner (`@nearmap/ai-systems`, from `.github/CODEOWNERS`) has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge.
+A pull request merges only when a code owner listed in `.github/CODEOWNERS` has approved it, all review threads are resolved, the required checks pass and every commit is signed. Only members of `@nearmap/ai-systems` and repository admins can merge. A push after an approval dismisses it, and the most recent push must be approved by someone other than its author.
+
+There is no CHANGELOG file. The notes of a release start from the titles of the pull requests merged since the previous release, as GitHub's generated notes list them. The generated notes do not include pull request descriptions. Write the title as the change that users get, and name each deprecation and removal in it.
 
 ## Continuous integration
 
@@ -15,10 +17,15 @@ Every pull request runs these workflows from `.github/workflows/`:
 - Tests (`test.yml`): `pixi run test` in each test environment, and a check that the built wheel installs with pip into a clean virtual environment, imports, and carries every `.py` and `.json` file of the package (`scripts/check_wheel.py`).
 - Lint (`lint.yml`): `pixi run lint`.
 - Docs (`docs.yml`): `pixi run docs`, when the pull request changes `docs/`, `README.md`, `pyproject.toml`, `pixi.lock` or the workflow file.
+- Memory benchmark (`memory-benchmark.yml`): the offline memory benchmark (`python -m tests.golden.benchmark`) at 1,000 AOIs, when the pull request changes `tests/golden/` or the workflow file. Each release tag runs it at 1,000, 10,000 and 100,000 AOIs and adds a "Memory benchmark" section with the results to the release notes.
 
 Pull request CI does not run the live API tests.
 
 For an author outside the Nearmap GitHub organization, a maintainer approves the workflow runs before they start.
+
+## Releases
+
+By policy, only the Release workflow (`.github/workflows/release.yml`) publishes to PyPI or creates tags, and it publishes after a code owner approves its run. It also creates each version's GitHub release. The steps are in `VERSIONING.md`.
 
 ## Development setup
 

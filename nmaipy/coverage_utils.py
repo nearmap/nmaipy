@@ -1,6 +1,7 @@
 import concurrent.futures
 import os
 from pathlib import Path
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -375,7 +376,14 @@ def get_survey_resource_id_from_survey_id_query(resources):
     """
     Get the survey resource id from the resources list, after being given the "resources" field from the survey_id
     query coverage/v2/surveys/{survey_id} API.
+
+    Deprecated, to be removed in nmaipy 6.0.
     """
+    warnings.warn(
+        "get_survey_resource_id_from_survey_id_query is deprecated and will be removed in nmaipy 6.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if len(resources) == 1:
         return resources[0]["id"]
     raise ValueError("More than one resource returned from survey_id query")
@@ -618,149 +626,6 @@ def get_coverage_from_points(
                 ]
             # reindex (not .loc[…]) so a survey response missing an optional
             # field (e.g. tags / 3d) yields a NaN column instead of KeyError.
-            c = c.reindex(columns=cols).set_index(id_col)
-            c["captureDate"] = pd.to_datetime(c["captureDate"])
-            df_coverage.append(c)
-    if len(df_coverage) > 0:
-        return pd.concat(df_coverage)
-    return None
-
-
-def threaded_get_coverage_from_survey_ids(
-    df,
-    apikey,
-    survey_id_col="survey_id",
-    threads=20,
-    prerelease=False,
-    limit=100,
-    bearer_token=None,
-):
-    """
-    Wrapper function to get coverage from a dataframe with survey_id's in it, using a thread pool.
-    """
-    jobs = []
-
-    df = df.copy()
-
-    # Send each parcel to a thread worker
-    with concurrent.futures.ThreadPoolExecutor(threads) as executor:
-        # Set since_col/until_col to string "yyyy-mm-dd" format if datetimes
-
-        for _, row in df.iterrows():
-            jobs.append(
-                executor.submit(
-                    get_surveys_from_id,
-                    row[survey_id_col],
-                    apikey,
-                    limit,
-                    bearer_token=bearer_token,
-                )
-            )
-
-    results = []
-    for job in jobs:
-        df_job, _ = job.result()
-        results.append(pd.DataFrame(df_job))
-    return results
-
-
-def get_surveys_from_id(survey_id, apikey, limit=100, timeout=DEFAULT_TIMEOUT, bearer_token=None):
-    # NOTE: this references `id_check_response_to_dataframe`, which is not defined
-    # anywhere in the package — the survey-ids path is unfinished: the public
-    # get_coverage_from_survey_ids reaches it, and any 200 response raises NameError.
-    # Left in place (out of scope for this cleanup); flagged so a
-    # future reviver knows the response parser still needs implementing.
-    fields = "id,captureDate,resources"
-    url = f"https://api.nearmap.com/coverage/v2/surveys/{survey_id}?fields={fields}&limit={limit}&resources=tiles:Vert,aifeatures,3d"
-    response = get_payload(url, apikey=apikey, timeout=timeout, bearer_token=bearer_token)
-    if not isinstance(response, int):
-        return id_check_response_to_dataframe(response), response  # noqa: F821 -- undefined parser, see NOTE above  # ty: ignore[unresolved-reference] -- undefined parser, see NOTE above
-    if response == FORBIDDEN_403:
-        logger.debug(f"Unauthorised area request at {survey_id=} with code {response}")
-        return None, None
-    logger.error(f"Failed request at {survey_id=} with code {response}")
-    return None, None
-
-
-def get_coverage_from_survey_ids(
-    df,
-    api_key,
-    chunk_size=10000,
-    threads=20,
-    coverage_chunk_cache_dir="coverage_chunks",
-    id_col="id",
-    limit=100,
-    bearer_token=None,
-):
-    """
-    Given a GeoDataFrame with survey_ids as a column, get a set of all survey resource IDs that are attached to those
-    survey_ids (such as aifeatures, tiles)
-
-    Parameters:
-    -----------
-    df : GeoDataFrame
-        A GeoDataFrame of points to check for coverage of imagery, 3D and AI.
-    api_key : str
-        The Nearmap API key to use for authentication.
-    chunk_size : int, optional
-        The number of points to process in each chunk. Default is 10000.
-    threads : int, optional
-        The number of threads to use for making API calls. Default is 20.
-    coverage_chunk_cache_dir : str, optional
-        The directory to cache coverage chunks. Default is "coverage_chunks".
-    id_col : str, optional
-        The name of the column in `df_points` that contains the unique identifier for each point.
-
-    Returns:
-    --------
-    df_coverage : DataFrame
-        A DataFrame containing the coverage data for each survey_id.
-    """
-    df_coverage = []
-    df_coverage_empty = None
-    coverage_chunk_cache_dir = Path(coverage_chunk_cache_dir)
-    coverage_chunk_cache_dir.mkdir(parents=True, exist_ok=True)
-
-    for i in tqdm(range(0, len(df), chunk_size)):
-        f = coverage_chunk_cache_dir / f"coverage_chunk_{i}-{i + chunk_size}.parquet"
-        if not f.exists():
-            df_point_chunk = df.iloc[i : i + chunk_size, :]
-            logger.debug(f"Pulling chunk from API for {f}.")
-            # Multi-threaded pulls are ok - the API copes fine with 10-20 threads pulling requests in parallel.
-            c = threaded_get_coverage_from_survey_ids(
-                df_point_chunk,
-                survey_id_col="survey_id",
-                apikey=api_key,
-                threads=threads,
-                limit=limit,
-                bearer_token=bearer_token,
-            )
-            c_with_idx = []
-            for j in range(len(c)):
-                row_id = df_point_chunk.iloc[j].name
-                c_tmp = c[j].copy()
-                if len(c_tmp) > 0:
-                    c_tmp[id_col] = row_id
-                    c_with_idx.append(c_tmp)
-            if len(c_with_idx) > 0:
-                c = pd.concat(c_with_idx)
-                c["survey_resource_id"] = c["resources"].apply(get_survey_resource_id_from_survey_id_query)
-                c = c.rename(columns={"id": "survey_id"})
-                # Set an empty dataframe with the right columns for dummy cache files.
-                # NB: must be nested here — previously this else clobbered a real
-                # `c` with the empty frame on every chunk after the first.
-                if df_coverage_empty is None:
-                    df_coverage_empty = pd.DataFrame([], columns=c.columns).astype(c.dtypes)
-            else:
-                c = df_coverage_empty
-            if c is not None:
-                c.to_parquet(f)
-        else:
-            logger.debug(f"Reading chunk from parquet for {f}.")
-            c = pd.read_parquet(f)
-
-        if c is not None and len(c) > 0:
-            cols = [id_col, "captureDate", "survey_id", "survey_resource_id", "tiles", "aifeatures", "3d"]
             c = c.reindex(columns=cols).set_index(id_col)
             c["captureDate"] = pd.to_datetime(c["captureDate"])
             df_coverage.append(c)
