@@ -125,6 +125,7 @@ The names come from the API description, lower-cased with spaces replaced by `_`
   - Areas are measured in the country's equal-area CRS.
   - `ratio = Σ area(child ∩ roof geometry) / area(roof geometry)`.
   - `confidence` = the highest confidence among the intersecting children.
+  - If the area cannot be computed (an unrepairable invalid geometry), the component's `_present`, area and `_ratio` are null with no `_confidence`, and the dominant columns are null, not `unknown`.
   - What "roof geometry" is depends on the roof:
     - **Multiparcel roof**: the stored geometry is the clip, so the result is the **per-parcel** value. It equals the API's own per-parcel `hurricaneScore.modelInputFeatures.treeOverhangRatio` to 3 decimal places on every multiparcel roof tested [live].
     - **Slight-overhang roof**: the stored geometry is the whole outline, so the result reproduces the **whole-roof** value, matching the API's component ratio to about 0.002 [live].

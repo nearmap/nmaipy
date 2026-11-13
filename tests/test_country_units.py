@@ -260,3 +260,38 @@ def test_flatten_roof_attributes_skips_recalc_when_not_clipped(country):
         flatten_roof_attributes([roof], country=country, child_features=child_features)
 
     assert not mock_recalc.called, "Recalc should NOT fire on an unclipped roof"
+
+
+def test_dominant_roof_types_null_when_a_component_cannot_be_computed():
+    """A shape whose area could not be computed must not let another shape win the dominant column."""
+    roof = _roof_with_clipped_components("sqm")
+    roof["attributes"] = [
+        {
+            "description": "Roof types",
+            "components": [
+                {"classId": "hip-id", "description": "Hip", "areaSqm": 70.0, "areaSqft": 753.0, "ratio": 0.7},
+                {"classId": "gable-id", "description": "Gable", "areaSqm": 30.0, "areaSqft": 323.0, "ratio": 0.3},
+            ],
+        }
+    ]
+    recalc = {
+        "hip_class_id": "hip-id",
+        "hip_present": None,
+        "hip_area_sqm": None,
+        "hip_ratio": None,
+        "gable_class_id": "gable-id",
+        "gable_present": "Y",
+        "gable_area_sqm": 30.0,
+        "gable_ratio": 0.3,
+        "gable_confidence": 0.8,
+    }
+    child_features = gpd.GeoDataFrame(columns=["class_id", "geometry"], geometry="geometry", crs=API_CRS)
+
+    with patch("nmaipy.feature_attributes.calculate_child_feature_attributes", return_value=recalc):
+        result = flatten_roof_attributes([roof], country="au", child_features=child_features)
+
+    assert result["hip_ratio"] is None
+    assert result["gable_ratio"] == 0.3
+    dominant = {k: v for k, v in result.items() if k.startswith("dominant_roof_types_")}
+    assert dominant, result
+    assert all(v is None for v in dominant.values()), dominant

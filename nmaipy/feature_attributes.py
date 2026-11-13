@@ -626,8 +626,8 @@ def _get_component_stats(component: dict, recalc_attrs: dict | None, country: st
         return {
             "name": name,
             "class_id": recalc_attrs.get(f"{name}_class_id", component["classId"]),
-            "ratio": recalc_attrs.get(f"{name}_ratio", 0.0) or 0.0,
-            "area": recalc_attrs.get(area_key, 0.0) or 0.0,
+            "ratio": recalc_attrs.get(f"{name}_ratio", 0.0),
+            "area": recalc_attrs.get(area_key, 0.0),
             "confidence": recalc_attrs.get(f"{name}_confidence"),
         }
     area = component.get("areaSqft", 0.0) if country in IMPERIAL_COUNTRIES else component.get("areaSqm", 0.0)
@@ -661,12 +661,14 @@ def _build_dominant_columns(components: list, recalc_attrs: dict | None, country
     prefix = f"dominant_{attr_key}"
     area_suffix = "_area_sqft" if country in IMPERIAL_COUNTRIES else "_area_sqm"
     is_material = attr_key == "roof_material"
+    # A component whose area could not be computed could change the winner, so nothing is picked.
+    not_computable = any(s["ratio"] is None for s in stats)
 
-    if not stats:
-        # All components were filtered (e.g. all deprecated shapes) → unknown
+    if not stats or not_computable:
+        # All components filtered (e.g. all deprecated shapes) → unknown; an uncomputable one → null
         columns = {
             f"{prefix}_feature_class": None,
-            f"{prefix}_description": "unknown",
+            f"{prefix}_description": None if not_computable else "unknown",
             f"{prefix}{area_suffix}": None,
         }
         if is_material:

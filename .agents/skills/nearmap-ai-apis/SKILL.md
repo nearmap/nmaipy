@@ -104,6 +104,7 @@ These come after step 1, not instead of it: if the answer depends on which field
   - A whole class's columns, `_present` and `_count` included, are null when the API call failed for that AOI (`feature_api_success=N`) or the class can't be returned at that AOI's system version.
   - Queried and nothing found gives `_present=N` and zero counts and totals, but `<class>_confidence` is null.
   - Primary-feature attribute columns are null when there is no primary feature.
+  - On a clipped roof, a component's `_present`, area and `_ratio` are null, with no `_confidence`, when its area cannot be computed (an unrepairable invalid geometry). The `dominant_roof_material_*` and `dominant_roof_types_*` columns are then null too.
   - Score columns are null when the API skipped that include (`*_skipped`).
   - `belongs_to_parcel` is null on rows answered without parcelMode, gridded AOIs included, and for classes the API doesn't flag (e.g. Pole).
   - [queries-and-outputs, geometry-and-areas]
