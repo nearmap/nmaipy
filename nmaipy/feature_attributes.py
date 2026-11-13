@@ -1269,7 +1269,7 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
         try:
             parent_fixed = make_valid(parent)
         except GEOSException:
-            log.warning(
+            logger.warning(
                 "Could not make parent geometry valid (class_id=%s); skipping intersection.",
                 class_id,
             )
@@ -1289,7 +1289,7 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
             except GEOSException:
                 skipped += 1
     if skipped:
-        log.warning(
+        logger.warning(
             "Skipped %d child geometr%s in intersection (class_id=%s) due to invalid topology after make_valid.",
             skipped,
             "y" if skipped == 1 else "ies",
