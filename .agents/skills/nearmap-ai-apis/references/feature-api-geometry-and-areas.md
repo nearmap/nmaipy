@@ -172,7 +172,7 @@ On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (
 
 ## 8. Worked example: one roof shared by two parcels
 
-This is a real roof of about 187 sqm, split down the middle into two synthetic parcels, W and E [live]:
+This example is built from the public test data bundled with nmaipy, not from a customer property: the roof of about 187 sqm on one of the New Jersey test parcels (`tests/data/test_parcels_2.csv`), split down the middle into two synthetic parcels, W and E [live]:
 
 | | W | E |
 |---|---|---|
