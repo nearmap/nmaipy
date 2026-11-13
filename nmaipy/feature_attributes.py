@@ -741,6 +741,8 @@ def calculate_child_feature_attributes(
     Returns:
         Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio),
         or None if recalculation could not be attempted (missing geometry/components/children).
+        A component whose area cannot be computed (an unrepairable parent or child
+        geometry) has null ``_present``, area and ``_ratio`` and no ``_confidence``.
     """
     if parent_geometry is None or parent_geometry.is_empty:
         return None
@@ -799,7 +801,7 @@ def calculate_child_feature_attributes(
             matching_projected = gpd.GeoSeries(matching_features.geometry.values, crs=API_CRS).to_crs(projected_crs)
 
         mask = matching_projected.notna() & matching_projected.intersects(parent_projected)
-        total_intersection_area = 0.0
+        total_intersection_area: float | None = 0.0
         max_confidence = None
         if mask.any():
             total_intersection_area = _safe_intersection_area(
@@ -811,7 +813,11 @@ def calculate_child_feature_attributes(
                 if len(valid) > 0:
                     max_confidence = float(valid.max())
 
-        if total_intersection_area > 0:
+        if total_intersection_area is None:
+            flattened[f"{name}_present"] = None
+            flattened[f"{name}_area_sqft" if country in IMPERIAL_COUNTRIES else f"{name}_area_sqm"] = None
+            flattened[f"{name}_ratio"] = None
+        elif total_intersection_area > 0:
             flattened[f"{name}_present"] = TRUE_STRING
             if country in IMPERIAL_COUNTRIES:
                 flattened[f"{name}_area_sqft"] = total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
@@ -1237,7 +1243,7 @@ def flatten_pool_attributes(pool, country: str) -> dict:
     return flattened
 
 
-def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> float:
+def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> float | None:
     """
     Sum the area of children.intersection(parent), tolerating invalid geometries.
 
@@ -1257,7 +1263,9 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
 
     Returns:
         Total intersection area in the input CRS units (square meters when
-        called from ``calculate_child_feature_attributes``).
+        called from ``calculate_child_feature_attributes``), or ``None`` when
+        it cannot be computed: the parent cannot be made valid, or at least one
+        child was skipped.
     """
     try:
         return float(children.intersection(parent).area.sum())
@@ -1273,7 +1281,7 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
                 "Could not make parent geometry valid (class_id=%s); skipping intersection.",
                 class_id,
             )
-            return 0.0
+            return None
 
     total = 0.0
     skipped = 0
@@ -1295,4 +1303,5 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
             "y" if skipped == 1 else "ies",
             class_id,
         )
+        return None
     return total
