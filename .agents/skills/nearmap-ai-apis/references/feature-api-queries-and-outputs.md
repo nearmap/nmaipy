@@ -111,7 +111,7 @@ The Feature API's former rollup endpoints are deprecated; leave them aside. nmai
   - **`nearest` found no eligible feature:** `_present=Y`, `_count>0`, but the primary columns hold their empty defaults.
   - **API call failed for the AOI (including a 404, no coverage), or class unreturnable at its system version:** every column for the class is **null**, including `_present` and `_count`. `feature_api_success=N` marks the failure case.
   - **Attribute columns** exist only where emitted, so they are null when there is no primary feature.
-  - **Clipped roof component whose area cannot be computed (an unrepairable invalid geometry):** its `_present`, area and `_ratio` are null with no `_confidence`, and the `dominant_roof_material_*` and `dominant_roof_types_*` columns are null too, not `unknown`.
+  - **Clipped roof component whose area cannot be computed (an unrepairable invalid geometry):** its `_present`, area and `_ratio` are null with no `_confidence`, and the matching dominant columns are null too, not `unknown`: `dominant_roof_material_*` for a roof material component, `dominant_roof_types_*` for a roof type component.
 
 ## 6. Errors, retries, resume and cache
 
