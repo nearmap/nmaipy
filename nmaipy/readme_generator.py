@@ -631,7 +631,8 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
                 "rule applies but no ratio threshold is enforced — a shape is dominant if it has the "
                 "highest ratio *and* a non-zero area; otherwise `unknown`. (Shape ratios can overlap "
                 "or gap and do not sum to 1, which is why no shape ratio column is emitted.) "
-                "Deprecated `flat (deprecated)` and `shed` shape classes are excluded from selection."
+                "Deprecated `flat (deprecated)` and `shed` shape classes are excluded from selection. "
+                "The description is null when a component of that attribute cannot be computed."
             ),
             "",
             "### Dominant Material",

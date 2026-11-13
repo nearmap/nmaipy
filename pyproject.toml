@@ -232,6 +232,17 @@ unsound-assignment = "ignore"
 unsound-return-statement = "ignore"
 unsound-yield = "ignore"
 
+[tool.importlinter]
+root_package = "nmaipy"
+
+[[tool.importlinter.contracts]]
+name = "nmaipy modules import each other without cycles"
+type = "acyclic_siblings"
+ancestors = ["nmaipy"]
+# Deprecated nmaipy.constants.refresh_class_descriptions forwards to nmaipy.feature_api; remove both in 6.0.
+ignore_imports = ["nmaipy.constants -> nmaipy.feature_api"]
+unmatched_ignore_imports_alerting = "error"
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "win-64"]
@@ -285,9 +296,10 @@ build = "rm -rf dist && python -m build && twine check --strict dist/*"
 # Bump deliberately: a ruff minor changes the format style, and a ty release adds rules that check_ty_rules.py makes you list.
 [tool.pixi.feature.lint.dependencies]
 ruff = "0.17.*"
+import-linter = "2.*"
 
 [tool.pixi.feature.lint.tasks]
-lint = { cmd = "ruff check && ruff format --check", depends-on = [{ task = "typecheck", environment = "typecheck" }] }
+lint = { cmd = "ruff check && ruff format --check && lint-imports --no-cache", depends-on = [{ task = "typecheck", environment = "typecheck" }] }
 format = "ruff check --fix --exit-zero && ruff format"
 
 [tool.pixi.feature.typecheck.dependencies]

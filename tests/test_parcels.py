@@ -1,12 +1,15 @@
 import ast
 import json
+import logging
 from pathlib import Path
 import sys
+from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+from shapely.errors import GEOSException
 from shapely.geometry import Polygon, box
 from shapely.wkt import loads
 
@@ -25,6 +28,7 @@ from nmaipy.constants import (
     VEG_MEDHIGH_ID,
 )
 from nmaipy.feature_api import FeatureApi
+from nmaipy.feature_attributes import _safe_intersection_area
 from nmaipy.roof_age_api import RoofAgeApi
 
 data_directory = Path(__file__).parent / "data"
@@ -1494,6 +1498,61 @@ class TestCalculateChildFeatureAttributes:
         assert result["roof_staining_area_sqm"] > 0
         # make_valid'd bowtie covers exactly half the parent box (two triangles).
         assert 0.45 <= result["roof_staining_ratio"] <= 0.55
+
+    def test_unrepairable_child_geometry_is_skipped_with_a_warning(self, caplog):
+        """A child that ``make_valid`` cannot repair is skipped with a warning, not raised."""
+        parent = self._parent_box()
+        components = self._make_components([(self.STAINING_CLASS_ID, "Roof Staining")])
+        bowtie = Polygon(
+            [
+                (self.SYD_LON, self.SYD_LAT),
+                (self.SYD_LON + self.D, self.SYD_LAT),
+                (self.SYD_LON, self.SYD_LAT + self.D),
+                (self.SYD_LON + self.D, self.SYD_LAT + self.D),
+                (self.SYD_LON, self.SYD_LAT),
+            ]
+        )
+        child_features = self._make_child_features([(self.STAINING_CLASS_ID, bowtie, 0.7)])
+
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with (
+                caplog.at_level(logging.WARNING, logger="nmaipy"),
+                patch("nmaipy.feature_attributes.make_valid", side_effect=GEOSException("unrepairable")),
+            ):
+                result = parcels.calculate_child_feature_attributes(parent, components, child_features, "au")
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
+
+        assert result is not None
+        assert result["roof_staining_present"] is None, result
+        assert result["roof_staining_area_sqm"] is None, result
+        assert result["roof_staining_ratio"] is None, result
+        assert "roof_staining_confidence" not in result, result
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Skipped 1 child geometry" in m for m in messages), messages
+
+    def test_unrepairable_parent_geometry_yields_no_area(self, caplog):
+        """A parent that ``make_valid`` cannot repair gives ``None`` (not zero) with a warning."""
+        children = MagicMock()
+        children.intersection.side_effect = GEOSException("bad")
+        parent = MagicMock(is_valid=False)
+
+        nmaipy_logger = logging.getLogger("nmaipy")
+        nmaipy_logger.addHandler(caplog.handler)
+        try:
+            with (
+                caplog.at_level(logging.WARNING, logger="nmaipy"),
+                patch("nmaipy.feature_attributes.make_valid", side_effect=GEOSException("unrepairable")),
+            ):
+                area = _safe_intersection_area(children, parent, class_id="c")
+        finally:
+            nmaipy_logger.removeHandler(caplog.handler)
+
+        assert area is None
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Could not make parent geometry valid" in m for m in messages), messages
 
     def test_matching_children_no_intersection(self):
         """When matching child features exist but don't intersect, emit zeros."""

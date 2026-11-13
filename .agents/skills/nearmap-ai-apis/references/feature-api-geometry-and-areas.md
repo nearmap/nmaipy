@@ -120,11 +120,12 @@ Roof components (material, shape, Tree Overhang, Leaf-off Tree Overhang, Dormer 
 The names come from the API description, lower-cased with spaces replaced by `_`: `tree_overhang_ratio`, `metal_ratio`, `hip_present`, … In the rollup they are prefixed `primary_roof_`.
 
 - **Roof not clipped** (`clipped_area >= 0.99 × unclipped_area`): the API component values are passed through.
-- **Roof clipped**: `parcels.calculate_child_feature_attributes` recomputes them.
+- **Roof clipped**: `feature_attributes.calculate_child_feature_attributes` recomputes them.
   - It uses that AOI's child features, matched by class id.
   - Areas are measured in the country's equal-area CRS.
   - `ratio = Σ area(child ∩ roof geometry) / area(roof geometry)`.
   - `confidence` = the highest confidence among the intersecting children.
+  - If the area cannot be computed (an unrepairable invalid geometry), the component's `_present`, area and `_ratio` are null with no `_confidence`, and the matching dominant columns are null, not `unknown`: `dominant_roof_material_*` for a roof material component, `dominant_roof_types_*` for a roof type component.
   - What "roof geometry" is depends on the roof:
     - **Multiparcel roof**: the stored geometry is the clip, so the result is the **per-parcel** value. It equals the API's own per-parcel `hurricaneScore.modelInputFeatures.treeOverhangRatio` to 3 decimal places on every multiparcel roof tested [live].
     - **Slight-overhang roof**: the stored geometry is the whole outline, so the result reproduces the **whole-roof** value, matching the API's component ratio to about 0.002 [live].

@@ -25,6 +25,7 @@ from shapely.geometry.base import BaseGeometry
 from nmaipy import geometry_utils, log, storage
 from nmaipy._naming import snake_case
 from nmaipy.aoi_io import blank_date_to_none, prepare_date_cutoffs
+from nmaipy.api.schema import is_class_returnable_at_version  # noqa: F401 -- re-export
 from nmaipy.api_common import (
     API_KEY,
     AIFeatureAPIError,
@@ -43,10 +44,12 @@ from nmaipy.constants import (
     BACKOFF_MAX,
     CHUNKED_ENCODING_RETRY_DELAY,
     DUMMY_STATUS_CODE,
+    FEATURE_CLASS_DESCRIPTIONS,
     GRID_SIZE_DEGREES,
     LAT_LONG_CRS,
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     MAX_RETRIES,
+    PER_CLASS_FILE_CLASS_IDS,
     READ_TIMEOUT_SECONDS,
     REALTIME_SKIP_GRID_SIZE_DEGREES,
     REALTIME_SKIP_RETRY_DELAY_SECONDS,
@@ -56,6 +59,7 @@ from nmaipy.constants import (
     THREAD_STARTUP_JITTER_SECONDS,
     TIMEOUT_SECONDS,  # noqa: F401 -- re-export
     UNTIL_COL_NAME,
+    _write_class_descriptions,
 )
 from nmaipy.feature_attributes import INCLUDE_FIELD_MAPPINGS
 
@@ -104,41 +108,6 @@ def _grid_rejection_message(n_answered: int, n_cells: int, failed_statuses: pd.S
 
 
 AIFeatureAPIRequestSizeError = APIRequestSizeError
-
-
-def is_class_returnable_at_version(
-    availability,
-    system_version: str | None,
-    alpha: bool = False,
-    beta: bool = False,
-) -> bool:
-    """Decide whether a class can return features at a specific system version.
-
-    Interprets the `availability` list from /classes.json — each entry is a
-    {systemVersion, perspective, status} dict where status is one of
-    "prod", "alpha", "beta". A class is returnable at `system_version` if any
-    matching entry's status is "prod", or "alpha" when `alpha=True`, or
-    "beta" when `beta=True`.
-
-    Fails open (returns True) when `system_version` is missing or the
-    availability shape is unrecognized — preferring phantom columns over
-    silent drops.
-    """
-    if not isinstance(system_version, str) or not system_version or not isinstance(availability, list):
-        return True
-    for entry in availability:
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("systemVersion") != system_version:
-            continue
-        status = entry.get("status")
-        if status == "prod":
-            return True
-        if status == "alpha" and alpha:
-            return True
-        if status == "beta" and beta:
-            return True
-    return False
 
 
 # Include columns as ``payload_gdf`` leaves them (snake-cased key, raw API dict), mapped to the
@@ -2336,3 +2305,22 @@ class FeatureApi(GriddedApiClient):
             errors_df = pd.DataFrame([])
             errors_df.index.name = AOI_ID_COLUMN_NAME
         return features_gdf, metadata_df, errors_df
+
+
+def refresh_class_descriptions(api_key: str | None = None) -> dict:
+    """Fetch class descriptions from the live Feature API and update class_descriptions.json.
+
+    Preserves synthetic entries (e.g. Roof Instance from Roof Age API) that aren't
+    returned by the Feature API.
+    """
+    api = FeatureApi(api_key=api_key)
+    classes_df = api.get_feature_classes()
+    api.cleanup()
+    descriptions = dict(zip(classes_df.index, classes_df["description"], strict=True))
+    # Preserve synthetic entries not from Feature API
+    for cid in PER_CLASS_FILE_CLASS_IDS:
+        if cid not in descriptions:
+            descriptions.setdefault(cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}"))
+    _write_class_descriptions(descriptions)
+    FEATURE_CLASS_DESCRIPTIONS.update(descriptions)
+    return descriptions

@@ -55,7 +55,7 @@ pixi run test
 ## Checks
 
 - `pixi run test` runs the offline test suite (`pytest -m 'not live_api'`).
-- `pixi run lint` runs ty, then `ruff check` and `ruff format --check`. This is the same check as the Lint workflow.
+- `pixi run lint` runs ty, then `ruff check`, `ruff format --check` and `lint-imports`, which fails on an import cycle between nmaipy modules. This is the same check as the Lint workflow.
 - `pixi run format` applies the fixes that ruff can make safely, then formats the code.
 - `pixi run docs` builds the documentation site. Run it after a change to `docs/` or `README.md`.
 - `pixi run -e <environment> test` runs the tests in another environment, for another Python version. The environments are under `[tool.pixi.environments]` in `pyproject.toml`.
