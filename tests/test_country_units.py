@@ -235,7 +235,7 @@ def test_flatten_roof_attributes_invokes_recalc_when_clipped(country):
     # is not None`) can be reached. An empty GeoDataFrame is enough to exercise the call.
     child_features = gpd.GeoDataFrame(columns=["class_id", "geometry"], geometry="geometry", crs=API_CRS)
 
-    with patch("nmaipy.parcels.calculate_child_feature_attributes") as mock_recalc:
+    with patch("nmaipy.feature_attributes.calculate_child_feature_attributes") as mock_recalc:
         mock_recalc.return_value = {f"tile_area_{suffix}": 25.0, "tile_ratio": 0.5}
         flatten_roof_attributes([roof], country=country, child_features=child_features)
 
@@ -256,7 +256,7 @@ def test_flatten_roof_attributes_skips_recalc_when_not_clipped(country):
 
     child_features = gpd.GeoDataFrame(columns=["class_id", "geometry"], geometry="geometry", crs=API_CRS)
 
-    with patch("nmaipy.parcels.calculate_child_feature_attributes") as mock_recalc:
+    with patch("nmaipy.feature_attributes.calculate_child_feature_attributes") as mock_recalc:
         flatten_roof_attributes([roof], country=country, child_features=child_features)
 
     assert not mock_recalc.called, "Recalc should NOT fire on an unclipped roof"

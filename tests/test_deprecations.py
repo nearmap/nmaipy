@@ -1,5 +1,6 @@
 """Deprecated names keep working, with a warning, until 6.0."""
 
+from unittest.mock import Mock, patch
 import warnings
 
 import geopandas as gpd
@@ -16,6 +17,7 @@ from nmaipy.constants import (
     MAX_AOI_AREA_SQM_BEFORE_GRIDDING,
     ROOF_ID,
     VEG_WOODY_COMPOSITE_ID,
+    refresh_class_descriptions,
 )
 from nmaipy.coverage_utils import get_survey_resource_id_from_survey_id_query
 from nmaipy.feature_api import FeatureApi
@@ -100,6 +102,17 @@ def test_gridded_api_client_deprecated_arguments_attributes_and_helpers_still_wo
 
     with pytest.warns(DeprecationWarning, match="get_survey_resource_id_from_survey_id_query is deprecated"):
         assert get_survey_resource_id_from_survey_id_query([{"id": "r1"}]) == "r1"
+
+
+def test_constants_refresh_class_descriptions_forwards_to_feature_api_with_a_warning():
+    moved = Mock(return_value={"class-id": "Description"})
+    with (
+        patch("nmaipy.feature_api.refresh_class_descriptions", moved),
+        pytest.warns(DeprecationWarning, match="nmaipy.constants.refresh_class_descriptions is deprecated"),
+    ):
+        result = refresh_class_descriptions("key")
+    assert result is moved.return_value, result
+    moved.assert_called_once_with("key")
 
 
 def _us_square(side_m: float) -> BaseGeometry:

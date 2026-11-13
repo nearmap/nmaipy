@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import warnings
 
@@ -487,7 +486,8 @@ CLASSES_WITH_FIDELITY = frozenset(BUILDING_STYLE_CLASS_IDS) - {ROOF_INSTANCE_CLA
 
 # Human-readable descriptions for feature classes, loaded from class_descriptions.json.
 # This file is auto-refreshed from the live Feature API during export runs.
-# To manually refresh: python -c "from nmaipy.constants import refresh_class_descriptions; refresh_class_descriptions()"
+# To manually refresh:
+#   python -c "from nmaipy.feature_api import refresh_class_descriptions; refresh_class_descriptions()"
 _CLASS_DESCRIPTIONS_PATH = Path(__file__).parent / "class_descriptions.json"
 try:
     with open(_CLASS_DESCRIPTIONS_PATH) as _f:
@@ -496,25 +496,17 @@ except (FileNotFoundError, json.JSONDecodeError):
     FEATURE_CLASS_DESCRIPTIONS = {}
 
 
-def refresh_class_descriptions(api_key: str | None = None):
-    """Fetch class descriptions from the live Feature API and update class_descriptions.json.
+def refresh_class_descriptions(api_key: str | None = None) -> dict:
+    """Deprecated, to be removed in nmaipy 6.0; use nmaipy.feature_api.refresh_class_descriptions."""
+    warnings.warn(
+        "nmaipy.constants.refresh_class_descriptions is deprecated and will be removed in nmaipy 6.0; "
+        "use nmaipy.feature_api.refresh_class_descriptions.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from nmaipy.feature_api import refresh_class_descriptions as moved  # noqa: PLC0415 -- deprecated alias; feature_api imports constants
 
-    Preserves synthetic entries (e.g. Roof Instance from Roof Age API) that aren't
-    returned by the Feature API.
-    """
-    from nmaipy.feature_api import FeatureApi  # noqa: PLC0415 -- import cycle: feature_api imports constants
-
-    api = FeatureApi(api_key=api_key or os.environ.get("API_KEY"))
-    classes_df = api.get_feature_classes()
-    api.cleanup()
-    descriptions = dict(zip(classes_df.index, classes_df["description"], strict=True))
-    # Preserve synthetic entries not from Feature API
-    for cid in PER_CLASS_FILE_CLASS_IDS:
-        if cid not in descriptions:
-            descriptions.setdefault(cid, FEATURE_CLASS_DESCRIPTIONS.get(cid, f"class_{cid[:8]}"))
-    _write_class_descriptions(descriptions)
-    FEATURE_CLASS_DESCRIPTIONS.update(descriptions)
-    return descriptions
+    return moved(api_key)
 
 
 def _write_class_descriptions(descriptions: dict):

@@ -120,7 +120,7 @@ Roof components (material, shape, Tree Overhang, Leaf-off Tree Overhang, Dormer 
 The names come from the API description, lower-cased with spaces replaced by `_`: `tree_overhang_ratio`, `metal_ratio`, `hip_present`, … In the rollup they are prefixed `primary_roof_`.
 
 - **Roof not clipped** (`clipped_area >= 0.99 × unclipped_area`): the API component values are passed through.
-- **Roof clipped**: `parcels.calculate_child_feature_attributes` recomputes them.
+- **Roof clipped**: `feature_attributes.calculate_child_feature_attributes` recomputes them.
   - It uses that AOI's child features, matched by class id.
   - Areas are measured in the country's equal-area CRS.
   - `ratio = Σ area(child ∩ roof geometry) / area(roof geometry)`.

@@ -22,17 +22,21 @@ from dateutil.parser import parse as parse_date
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely import wkb
+from shapely import make_valid, wkb
+from shapely.errors import GEOSException
 
 from nmaipy import log
 from nmaipy._naming import snake_case
 from nmaipy.constants import (
+    API_CRS,
+    AREA_CRS,
     DAMAGE_CONFLATION_RAW_RATING_KEYS,
     IMPERIAL_COUNTRIES,
     METERS_TO_FEET,
     RETIRED_ROOF_SHAPE_CLASS_IDS,
     RETIRED_ROOF_SHAPE_DESCRIPTIONS,
     ROOF_AGE_PREFIX_COLUMNS,
+    SQUARED_METERS_TO_SQUARED_FEET,
     country_area_suffix,
 )
 
@@ -696,6 +700,137 @@ def _build_dominant_columns(components: list, recalc_attrs: dict | None, country
     return columns
 
 
+def calculate_child_feature_attributes(
+    parent_geometry,
+    components: list,
+    child_features: gpd.GeoDataFrame,
+    country: str,
+    name_prefix: str = "",
+    parent_projected=None,
+    children_projected: gpd.GeoSeries | None = None,
+) -> dict:
+    """
+    Calculate component attributes by spatial intersection for clipped features.
+
+    This is data-driven: it extracts classId values from the components list,
+    finds matching child features by class_id, and calculates areas/ratios based on
+    the parent's clipped geometry.
+
+    This function is used when a roof's geometry has been clipped by a parcel boundary.
+    The original component ratios from the API are based on the full roof, so we need
+    to recalculate them based on the clipped geometry.
+
+    Geometries are projected to an equal-area CRS (AREA_CRS) before computing areas.
+
+    Args:
+        parent_geometry: The clipped parent polygon (e.g., roof geometry in EPSG:4326)
+        components: List of component dicts with classId, description fields
+                   (from roof's attributes.components)
+        child_features: GeoDataFrame of all child features in the AOI (filtered
+                       by the function to only those with matching classIds)
+        country: Country code for units ("us" for imperial, "au" for metric)
+        name_prefix: Optional prefix for output keys (e.g., "low_conf_" for
+                    low-confidence attribute groups), must match the caller's naming
+        parent_projected: Pre-projected parent geometry in equal-area CRS. When
+                         provided, skips the per-call CRS projection (batch callers
+                         project all geometries once up front for performance).
+        children_projected: Pre-projected child geometries as a GeoSeries aligned
+                           with child_features index. When provided, matching children
+                           are looked up by index instead of re-projecting per call.
+
+    Returns:
+        Flattened dict with recalculated attributes (e.g., metal_area_sqft, hip_ratio),
+        or None if recalculation could not be attempted (missing geometry/components/children).
+    """
+    if parent_geometry is None or parent_geometry.is_empty:
+        return None
+    if not components or child_features is None:
+        return None
+
+    # Use pre-projected parent geometry if provided, otherwise project per call
+    projected_crs = AREA_CRS[country.lower()]
+    if parent_projected is None:
+        parent_projected = gpd.GeoSeries([parent_geometry], crs=API_CRS).to_crs(projected_crs).iloc[0]
+    parent_area = parent_projected.area
+    if parent_area <= 0:
+        return None
+
+    flattened = {}
+    child_features_empty = len(child_features) == 0
+
+    # Pre-group children by class_id once and look up per component. Same
+    # idiom as `feature_attributes` (per-AOI) and `_compute_all_per_class_data`
+    # (per-chunk): replaces a boolean comparison-op over the object-dtype
+    # class_id column for every component with a single groupby + dict gets.
+    children_by_class: dict = {}
+    if not child_features_empty and "class_id" in child_features.columns:
+        children_by_class = dict(iter(child_features.groupby("class_id", sort=False)))
+
+    for component in components:
+        class_id = component.get("classId")
+        description = component.get("description", "unknown")
+        if not class_id:
+            continue
+
+        name = name_prefix + description.lower().replace(" ", "_")
+        flattened[f"{name}_class_id"] = class_id
+        if child_features_empty:
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
+            continue
+        matching_features = children_by_class.get(class_id)
+        if matching_features is None or len(matching_features) == 0:
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
+            continue
+
+        # Use pre-projected children if available, otherwise project per component
+        if children_projected is not None:
+            matching_projected = children_projected.loc[matching_features.index]
+        else:
+            matching_projected = gpd.GeoSeries(matching_features.geometry.values, crs=API_CRS).to_crs(projected_crs)
+
+        mask = matching_projected.notna() & matching_projected.intersects(parent_projected)
+        total_intersection_area = 0.0
+        max_confidence = None
+        if mask.any():
+            total_intersection_area = _safe_intersection_area(
+                matching_projected[mask], parent_projected, class_id=class_id
+            )
+            if "confidence" in matching_features.columns:
+                conf = matching_features["confidence"].to_numpy()[mask.to_numpy()]
+                valid = conf[pd.notna(conf)]
+                if len(valid) > 0:
+                    max_confidence = float(valid.max())
+
+        if total_intersection_area > 0:
+            flattened[f"{name}_present"] = TRUE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = total_intersection_area * SQUARED_METERS_TO_SQUARED_FEET
+            else:
+                flattened[f"{name}_area_sqm"] = total_intersection_area
+            flattened[f"{name}_ratio"] = total_intersection_area / parent_area
+            if max_confidence is not None:
+                flattened[f"{name}_confidence"] = max_confidence
+        else:
+            flattened[f"{name}_present"] = FALSE_STRING
+            if country in IMPERIAL_COUNTRIES:
+                flattened[f"{name}_area_sqft"] = 0.0
+            else:
+                flattened[f"{name}_area_sqm"] = 0.0
+            flattened[f"{name}_ratio"] = 0.0
+
+    return flattened
+
+
 def flatten_roof_attributes(
     roofs: list[dict],
     country: str,
@@ -730,10 +865,6 @@ def flatten_roof_attributes(
         Flattened dictionary with roof attributes including material components,
         3D attributes, roof spotlight index, hurricane scores, and defensible space data.
     """
-    # Circular import: feature_attributes.py <-> parcels.py
-    # This must remain a function-level import to break the cycle.
-    from nmaipy.parcels import calculate_child_feature_attributes  # noqa: PLC0415 -- import cycle: parcels imports feature_attributes
-
     flattened = {}
 
     # Handle components and other attributes
@@ -1104,3 +1235,64 @@ def flatten_pool_attributes(pool, country: str) -> dict:
             if "ratio" in component:
                 flattened[f"{name}_ratio"] = component["ratio"]
     return flattened
+
+
+def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> float:
+    """
+    Sum the area of children.intersection(parent), tolerating invalid geometries.
+
+    The Feature API occasionally returns geometries that GEOS rejects with
+    ``GEOSException`` (e.g., self-intersecting rings, "side location conflict")
+    when used directly in topological operations. A single bad geometry will
+    fail the vectorized ``GeoSeries.intersection`` call and, in worker
+    contexts, kill the surrounding chunk. We retry such cases per-row with
+    ``shapely.make_valid`` on both operands and skip any row that still
+    fails, logging a warning so callers can see how often this fires.
+
+    Args:
+        children: GeoSeries of child geometries (already filtered to those
+                  that intersect the parent).
+        parent: Single parent geometry.
+        class_id: Optional class id, included in the warning for debuggability.
+
+    Returns:
+        Total intersection area in the input CRS units (square meters when
+        called from ``calculate_child_feature_attributes``).
+    """
+    try:
+        return float(children.intersection(parent).area.sum())
+    except GEOSException:
+        pass
+
+    parent_fixed = parent
+    if not parent.is_valid:
+        try:
+            parent_fixed = make_valid(parent)
+        except GEOSException:
+            log.warning(
+                "Could not make parent geometry valid (class_id=%s); skipping intersection.",
+                class_id,
+            )
+            return 0.0
+
+    total = 0.0
+    skipped = 0
+    for child in children.array:
+        if child is None or child.is_empty:
+            continue
+        try:
+            total += child.intersection(parent_fixed).area
+        except GEOSException:
+            try:
+                fixed = make_valid(child)
+                total += fixed.intersection(parent_fixed).area
+            except GEOSException:
+                skipped += 1
+    if skipped:
+        log.warning(
+            "Skipped %d child geometr%s in intersection (class_id=%s) due to invalid topology after make_valid.",
+            skipped,
+            "y" if skipped == 1 else "ies",
+            class_id,
+        )
+    return total

@@ -22,7 +22,7 @@ Run any command inside an environment with `pixi run <cmd>` (e.g. `pixi run pyth
 Environments:
 - `default` — Python 3.14 with test, build (`python-build`, `twine`) and notebook (`ipykernel`, `matplotlib-base`) tools
 - `py313`, `py314` — the test environment on each supported Python version
-- `lint` — `ruff` only
+- `lint` — `ruff` and `import-linter`
 - `typecheck` — `ty`, with the test and notebook dependencies it reads
 - `docs` — `mystmd`, for the documentation site
 
@@ -104,7 +104,7 @@ Fix lint findings that ruff can fix safely, then format and sort imports with ru
 pixi run format
 ```
 
-Check without changing files. This runs ty first, then ruff. The Lint workflow runs the same check on every pull request and on pushes to main:
+Check without changing files. This runs ty first, then ruff, then `lint-imports`, which fails on any import cycle between nmaipy modules (the contract is `[tool.importlinter]` in `pyproject.toml`). The Lint workflow runs the same check on every pull request and on pushes to main:
 ```bash
 pixi run lint
 ```
@@ -317,6 +317,8 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
    - Bulk feature requests with auto-gridding on oversized AOIs
    - Feature geometry requests (`get_features_gdf()`, `get_features_gdf_bulk()`)
    - Date range and survey resource queries
+   - `refresh_class_descriptions()`: Fetches class descriptions from the live API and updates `class_descriptions.json` (`nmaipy.constants.refresh_class_descriptions` is a deprecated alias until 6.0)
+   - Re-exports `is_class_returnable_at_version` from `api/schema.py`
    - Rollups are computed locally via `parcels.parcel_rollup()` from features.json responses. The Feature API's former rollup endpoints are deprecated and unused.
 
 6. **roof_age_api.py**: `RoofAgeApi(BaseApiClient)` — client for Nearmap Roof Age API
@@ -326,13 +328,16 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
    - Returns GeoDataFrame with roof polygons and age predictions
    - US-only currently
 
+- **api/schema.py**: Interpretation of the Feature API class schema, importing nothing else from nmaipy
+  - `is_class_returnable_at_version()`: Whether a class can return features at a system version, from its `/classes.json` availability
+
 ### Data Processing Layer
 
 7. **parcels.py**: Parcel rollup and feature linking
    - `parcel_rollup()`: Main rollup function — aggregates all features within each AOI into summary statistics with primary feature selection
    - `link_roofs_to_buildings()`: Spatial association of roofs to parent buildings
    - `link_roof_instances_to_roofs()`: Links Roof Age API results to Feature API roof geometries by IoU
-   - `calculate_child_feature_attributes()`: Computes attributes for child features (e.g. roof characteristics on a roof)
+   - Re-exports `calculate_child_feature_attributes()` from `feature_attributes.py`
    - `conflation_rollup()`: Per-AOI rollup of Damage Conflation features (same primary-selection/`primary_*`/null-out conventions as `parcel_rollup`, single-class)
    - Re-exports `read_from_file` from `aoi_io` for backward compatibility
 
@@ -345,6 +350,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
 9. **feature_attributes.py**: Attribute flattening utilities
    - `flatten_building_attributes()`: Flattens nested building API attributes to flat dict
    - `flatten_roof_attributes()`: Flattens roof attributes including materials, spotlight index
+   - `calculate_child_feature_attributes()`: Recomputes component attributes of a clipped feature from its child features (e.g. roof characteristics on a clipped roof)
    - `flatten_building_lifecycle_damage_attributes()`: Flattens Feature API per-survey damage classification scores
    - `flatten_conflated_damage_attributes()`: Flattens Damage Conflation API (ai/damage/v2) per-building `damage.event`/`damage.preEvent` ratings into a fixed `damage_event_*`/`damage_pre_event_*` column set
    - `flatten_roof_instance_attributes()`: Flattens Roof Age API result attributes
