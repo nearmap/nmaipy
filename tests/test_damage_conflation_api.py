@@ -301,6 +301,9 @@ def test_fetch_all_pages_restarts_once_on_bad_cursor(damage_api, test_aoi, milto
     """
     page1, _ = _page_responses(milton_response)
     page1_again, page2_again = _page_responses(milton_response)
+    new_resource_id = "00000000-0000-5000-8000-000000000000"
+    for page in (page1_again, page2_again):
+        page.json.return_value["resourceId"] = new_resource_id
 
     with (
         patch.object(damage_api, "_session_scope") as scope,
@@ -314,6 +317,7 @@ def test_fetch_all_pages_restarts_once_on_bad_cursor(damage_api, test_aoi, milto
     assert mock_session.post.call_count == 4  # page 1, BAD_CURSOR on page 2, then page 1 and 2 again
     assert "cursor" not in mock_session.post.call_args_list[2].kwargs["json"]  # the restart sends no cursor
     assert len(gdf) == len(milton_response["features"])  # one full pass; the discarded page is not counted twice
+    assert (gdf["resource_id"] == new_resource_id).all()  # the restart adopts the new resource of its page 1
     assert damage_api._retry_count == 1  # the restart shows up in the client's retry statistics
 
 
@@ -329,10 +333,28 @@ def test_fetch_all_pages_raises_on_second_bad_cursor(damage_api, test_aoi, milto
     ):
         mock_session = _paged_session(scope, [page1, _bad_cursor_response(), page1_again, _bad_cursor_response()])
 
-        with pytest.raises(DamageConflationAPIError, match="restart pagination without a cursor"):
+        with pytest.raises(DamageConflationAPIError, match="after restarting pagination once"):
             damage_api.get_damage_by_aoi(test_aoi, aoi_id="restarted-twice")
 
     assert mock_session.post.call_count == 4  # page 1, BAD_CURSOR, page 1 again, BAD_CURSOR again — then give up
+
+
+def test_fetch_all_pages_does_not_restart_past_the_request_cap(damage_api, test_aoi, milton_response, monkeypatch):
+    """A BAD_CURSOR on the last request the cap allows fails the AOI instead of spending one more request."""
+    monkeypatch.setattr("nmaipy.damage_conflation_api.DAMAGE_CONFLATION_MAX_PAGES", 2)
+    page1, _ = _page_responses(milton_response)
+
+    with (
+        patch.object(damage_api, "_session_scope") as scope,
+        patch.object(damage_api, "_load_from_cache", return_value=None),
+        patch.object(damage_api, "_save_to_cache"),
+    ):
+        mock_session = _paged_session(scope, [page1, _bad_cursor_response()])
+
+        with pytest.raises(DamageConflationAPIError, match="no request left to restart"):
+            damage_api.get_damage_by_aoi(test_aoi, aoi_id="bad-cursor-at-cap")
+
+    assert mock_session.post.call_count == 2
 
 
 def test_fetch_all_pages_does_not_restart_without_a_cursor(damage_api, test_aoi):

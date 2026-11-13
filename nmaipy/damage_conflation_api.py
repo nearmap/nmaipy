@@ -34,6 +34,7 @@ import time
 
 import geopandas as gpd
 import pandas as pd
+import requests
 from shapely.geometry import Polygon, mapping, shape
 
 from nmaipy import log, storage
@@ -271,7 +272,7 @@ class DamageConflationApi(BaseApiClient):
         return payload
 
     @staticmethod
-    def _is_bad_cursor(response) -> bool:
+    def _is_bad_cursor(response: requests.Response) -> bool:
         if response.status_code != 400:
             return False
         try:
@@ -280,7 +281,7 @@ class DamageConflationApi(BaseApiClient):
             return False
         return isinstance(body, dict) and body.get("code") == "BAD_CURSOR"
 
-    def _count_pagination_restart(self):
+    def _count_pagination_restart(self) -> None:
         with self._lock:
             self._retry_count += 1
 
@@ -316,16 +317,17 @@ class DamageConflationApi(BaseApiClient):
                 self._latencies.append((time.monotonic() - t1) * 1e3)
 
                 if not response.ok:
-                    if cursor is not None and not restarted and self._is_bad_cursor(response):
+                    bad_cursor = cursor is not None and self._is_bad_cursor(response)
+                    if bad_cursor and not restarted and requests_made < DAMAGE_CONFLATION_MAX_PAGES:
                         logger.warning(f"BAD_CURSOR on page {page_count}; restarting pagination without a cursor")
                         self._count_pagination_restart()
                         all_features, cursor, page_count, first_page_metadata, restarted = [], None, 0, None, True
                         continue
-                    raise DamageConflationAPIError(
-                        response,
-                        self._redact_api_key(url),
-                        message=f"Failed to get damage conflation data (page {page_count})",
-                    )
+                    error = DamageConflationAPIError(response, self._redact_api_key(url))
+                    if bad_cursor:
+                        reason = "after restarting pagination once" if restarted else "with no request left to restart"
+                        error.message = f"BAD_CURSOR on page {page_count} {reason}: {error.message}"
+                    raise error
 
                 response_data = response.json()
 
