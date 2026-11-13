@@ -9,7 +9,8 @@ Evidence tags:
 
 - [nmaipy] **Endpoint and body.** Requests are POSTs to `…/ai/damage/v2/events/{event_id}/latest.geojson`. The body holds `aoi` or `address`, plus `cursor`/`limit`.
   - The **event is the only scope**: there are no date, survey or system-version parameters.
-- [nmaipy] **Pagination.** nmaipy follows `nextCursor` with pages of 1,000 and stops with an error after 2,000 pages. There is **no gridding**: pagination lets one AOI cover an entire event boundary.
+- [nmaipy] **Pagination.** nmaipy follows `nextCursor` with pages of 1,000 and stops with an error after 2,000 pages. There is **no gridding**: pagination lets one AOI cover an entire event boundary. nmaipy sends `nextCursor` back unchanged with the same body. On a `400` with `code: BAD_CURSOR`, it restarts that AOI from page 1 once, within the 2,000-request cap; a second one fails the AOI. If a page has a `resourceId` different from page 1's, the AOI fails and goes to `damage_errors.csv`; nmaipy does not merge pages from two resources.
+- [inferred] **Cursor contract.** `nextCursor` is opaque and pinned to the `resourceId` of the first page. The API is moving to answer `400` with `code: BAD_CURSOR` for a cursor it can no longer honour (malformed, issued for another event, or its result is no longer available), which asks the client to restart without a cursor. Until then, such a cursor can come back as a 5xx, which nmaipy retries and then records as a failure.
 - [nmaipy] **Errors and retries.** An HTTP 200 with an `error` body is treated as an error. 429 and 5xx are retried per page.
   - This API's rate limit is much lower than the Feature API's; the README recommends `threads=1`.
 - [nmaipy] **Finding an event id** (`coverage_utils.discover_event(lat, lon)`).

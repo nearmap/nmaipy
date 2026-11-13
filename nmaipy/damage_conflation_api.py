@@ -34,6 +34,7 @@ import time
 
 import geopandas as gpd
 import pandas as pd
+import requests
 from shapely.geometry import Polygon, mapping, shape
 
 from nmaipy import log, storage
@@ -270,6 +271,20 @@ class DamageConflationApi(BaseApiClient):
 
         return payload
 
+    @staticmethod
+    def _is_bad_cursor(response: requests.Response) -> bool:
+        if response.status_code != 400:
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        return isinstance(body, dict) and body.get("code") == "BAD_CURSOR"
+
+    def _count_pagination_restart(self) -> None:
+        with self._lock:
+            self._retry_count += 1
+
     def _fetch_all_pages(
         self,
         url: str,
@@ -287,10 +302,13 @@ class DamageConflationApi(BaseApiClient):
         all_features: list[dict] = []
         cursor = None
         page_count = 0
+        requests_made = 0
         first_page_metadata = None
+        restarted = False
 
         while True:
             page_count += 1
+            requests_made += 1
             payload = self._build_request_payload(aoi=aoi, address=address, cursor=cursor, limit=limit)
 
             with self._session_scope() as session:
@@ -299,11 +317,17 @@ class DamageConflationApi(BaseApiClient):
                 self._latencies.append((time.monotonic() - t1) * 1e3)
 
                 if not response.ok:
-                    raise DamageConflationAPIError(
-                        response,
-                        self._redact_api_key(url),
-                        message=f"Failed to get damage conflation data (page {page_count})",
-                    )
+                    bad_cursor = cursor is not None and self._is_bad_cursor(response)
+                    if bad_cursor and not restarted and requests_made < DAMAGE_CONFLATION_MAX_PAGES:
+                        logger.warning(f"BAD_CURSOR on page {page_count}; restarting pagination without a cursor")
+                        self._count_pagination_restart()
+                        all_features, cursor, page_count, first_page_metadata, restarted = [], None, 0, None, True
+                        continue
+                    error = DamageConflationAPIError(response, self._redact_api_key(url))
+                    if bad_cursor:
+                        reason = "after restarting pagination once" if restarted else "with no request left to restart"
+                        error.message = f"BAD_CURSOR on page {page_count} {reason}: {error.message}"
+                    raise error
 
                 response_data = response.json()
 
@@ -315,16 +339,25 @@ class DamageConflationApi(BaseApiClient):
                     message=f"{response_data.get('error')} (code: {response_data.get('code', 'UNKNOWN')})",
                 )
 
-            all_features.extend(response_data.get("features", []))
-
             if first_page_metadata is None:
                 first_page_metadata = {
                     k: v for k, v in response_data.items() if k not in ("features", DAMAGE_CONFLATION_NEXT_CURSOR_FIELD)
                 }
+            elif response_data.get("resourceId") != first_page_metadata.get("resourceId"):
+                raise DamageConflationAPIError(
+                    None,
+                    self._redact_api_key(url),
+                    message=(
+                        f"resourceId changed between pages on page {page_count}: "
+                        f"{first_page_metadata.get('resourceId')} -> {response_data.get('resourceId')}"
+                    ),
+                )
+
+            all_features.extend(response_data.get("features", []))
 
             cursor = response_data.get(DAMAGE_CONFLATION_NEXT_CURSOR_FIELD)
             if cursor:
-                if page_count >= DAMAGE_CONFLATION_MAX_PAGES:
+                if requests_made >= DAMAGE_CONFLATION_MAX_PAGES:
                     raise DamageConflationAPIError(
                         None,
                         self._redact_api_key(url),
