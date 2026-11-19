@@ -4,12 +4,11 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import box
 
-from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID, ROOF_OBJECT_CLASS_IDS
+from nmaipy.constants import AC_CONDENSER_UNIT_ID as AC_ID
+from nmaipy.constants import AOI_ID_COLUMN_NAME, ROOF_ID, ROOF_OBJECT_CLASS_IDS, VENT_ID
 from nmaipy.feature_attributes import flatten_roof_attributes
 from nmaipy.parcels import feature_attributes
 
-AC_ID = "ed1ea29d-cd2c-55a9-8737-13018a9bb741"
-VENT_ID = "2a41d66b-91ef-5b51-8737-a53e8751dff7"
 CLASSES = pd.DataFrame({"description": ["Roof", "A/C Condenser Unit", "Vent"]}, index=[ROOF_ID, AC_ID, VENT_ID])
 
 
