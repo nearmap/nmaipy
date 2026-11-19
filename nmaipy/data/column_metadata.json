@@ -779,6 +779,13 @@
       "source": "base ai model"
     },
     {
+      "regex": "^(?P<class>.+?)_on_roof_count$",
+      "dtype": "int",
+      "min": "0",
+      "description": "Count of {class} detections on any roof of the parcel. A detection is on a roof when more than half of its footprint lies inside the roof outline; `primary_roof_<class>_count` applies the same rule to the primary roof alone.",
+      "source": "base ai model"
+    },
+    {
       "regex": "^(?P<scope>primary_roof_|primary_building_|primary_roof_instance_|primary_building_lifecycle_|primary_swimming_pool_|primary_solar_panel_|primary_child_roof_|primary_child_roof_age_)?(?P<class>.+?)_count$",
       "dtype": "int",
       "min": "0",

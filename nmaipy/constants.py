@@ -405,6 +405,33 @@ SILO_ID = "b64ecdb0-6810-5c70-835c-9e2a5f2a4d84"
 SKYLIGHT_ID = "3f5a737e-6d56-538a-ac26-f2934bbbb695"
 PLAYGROUND_ID = "7741703d-4ce4-54e1-a9ee-05a0a1851137"
 
+# Objects that are defined as roof-mounted, or commonly are, but that the Feature API
+# returns as standalone features rather than roof components. The rollup counts how many
+# of each sit on a roof, and on the primary roof, as well as across the whole parcel.
+ROOF_OBJECT_CLASS_IDS = frozenset(
+    {
+        "ed1ea29d-cd2c-55a9-8737-13018a9bb741",  # A/C Condenser Unit
+        "741b512f-a4a9-5107-a301-a0d1a7094783",  # HVAC
+        "ba7c0d7d-d355-56f0-ab69-2a96720bf7b7",  # Roof Equipment
+        "9992c50b-59cb-57dd-90ee-9b5dfac7d3f5",  # Duct
+        "c81ff488-2693-5812-89d6-1b9e7950b308",  # Pipe
+        "2a41d66b-91ef-5b51-8737-a53e8751dff7",  # Vent
+        "c54e38d6-866f-592c-bb9c-c68044ed43c9",  # Residential Chimney
+        "046ba67f-ca1e-5801-bb1c-bfcafea2d796",  # Residential Satellite Dish
+        "b22e2f48-de58-53be-84ae-d56181f737fe",  # Residential TV Antenna Base
+        "c67497c5-76af-5cd2-a5c7-473cca0f6597",  # Translucent Roofing
+        "5c50f05d-b158-5cf1-ad0b-e231bde9615c",  # Roof Walkway
+        "1948fc2b-40cb-5107-b095-339b77a6ef57",  # Miscellaneous Roof Object
+        SOLAR_ID,
+        SOLAR_HW_ID,
+        SKYLIGHT_ID,
+    }
+)
+# An object is on a roof when more than this fraction of its footprint lies inside the
+# roof outline. The API's own parent link only requires the two to touch, which counts
+# ground-level units standing against a wall.
+ROOF_OBJECT_MIN_OVERLAP = 0.5
+
 VEG_VERYLOW_ID = "a7d921b7-393c-4121-b317-e9cda3e4c19b"
 VEG_LOW_ID = "2780fa70-7713-437c-ad98-656b8a5cc4f2"
 VEG_MEDHIGH_ID = "dfd8181b-80c9-4234-9d05-0eef927e3aca"
