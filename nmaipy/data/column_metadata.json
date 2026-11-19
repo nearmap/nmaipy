@@ -782,7 +782,7 @@
       "regex": "^(?P<class>.+?)_on_roof_count$",
       "dtype": "int",
       "min": "0",
-      "description": "Count of {class} detections on any roof of the parcel. A detection is on a roof when more than half of its footprint lies inside the roof outline; `primary_roof_<class>_count` applies the same rule to the primary roof alone.",
+      "description": "Count of {class} detections on any roof of the parcel: those the Feature API returns with a roof as their parent. `primary_roof_<class>_count` counts those whose parent is the primary roof.",
       "source": "base ai model"
     },
     {

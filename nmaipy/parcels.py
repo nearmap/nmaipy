@@ -17,7 +17,6 @@ import warnings
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import shapely
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
@@ -44,7 +43,6 @@ from nmaipy.constants import (
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
     ROOF_OBJECT_CLASS_IDS,
-    ROOF_OBJECT_MIN_OVERLAP,
     MeasurementUnits,
     country_area_suffix,
 )
@@ -721,22 +719,6 @@ def _traverse_to_bl(feature, parent_lookup: dict) -> dict:
     return {}
 
 
-def _count_on_roof(objects, roof) -> int:
-    """Count the objects with more than ROOF_OBJECT_MIN_OVERLAP of their footprint inside ``roof``.
-
-    The test is a ratio of two areas of the same small shape, which is the same in
-    latitude/longitude as in a projected CRS, so the geometries are used as stored.
-    """
-    objects = shapely.make_valid(objects)
-    try:
-        on_roof = shapely.area(shapely.intersection(objects, shapely.make_valid(roof)))
-    except GEOSException:
-        logger.warning("Roof object overlap failed for a roof outline; counting none of its objects as on the roof.")
-        return 0
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return int((on_roof / shapely.area(objects) > ROOF_OBJECT_MIN_OVERLAP).sum())
-
-
 def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     features_gdf: gpd.GeoDataFrame,
     classes_df: pd.DataFrame,
@@ -953,15 +935,14 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
                 parcel[f"{name}_{col}_count"] = int(class_features_gdf[col].sum())
 
         if class_id in ROOF_OBJECT_CLASS_IDS:
-            on_any_roof = on_primary_roof = 0
-            if len(class_features_gdf) > 0 and len(roof_features) > 0:
-                geom_col = "geometry_feature" if "geometry_feature" in features_gdf.columns else "geometry"
-                objects = class_features_gdf[geom_col].to_numpy()
-                on_any_roof = _count_on_roof(objects, shapely.union_all(roof_features[geom_col].to_numpy()))
-                if _primary_roof is not None:
-                    on_primary_roof = _count_on_roof(objects, _primary_roof[geom_col])
-            parcel[f"{name}_on_roof_count"] = on_any_roof
-            parcel[f"primary_roof_{name}_count"] = on_primary_roof
+            # The API sets parent_id to the roof an object belongs to.
+            parents = class_features_gdf["parent_id"] if "parent_id" in class_features_gdf.columns else pd.Series([])
+            parcel[f"{name}_on_roof_count"] = (
+                int(parents.isin(roof_features["feature_id"]).sum()) if len(roof_features) else 0
+            )
+            parcel[f"primary_roof_{name}_count"] = (
+                int((parents == _primary_roof.feature_id).sum()) if _primary_roof is not None else 0
+            )
 
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:

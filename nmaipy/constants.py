@@ -407,7 +407,7 @@ PLAYGROUND_ID = "7741703d-4ce4-54e1-a9ee-05a0a1851137"
 
 # Objects that are defined as roof-mounted, or commonly are, but that the Feature API
 # returns as standalone features rather than roof components. The rollup counts how many
-# of each sit on a roof, and on the primary roof, as well as across the whole parcel.
+# of each have a roof, and the primary roof, as their API parent, as well as across the whole parcel.
 ROOF_OBJECT_CLASS_IDS = frozenset(
     {
         "ed1ea29d-cd2c-55a9-8737-13018a9bb741",  # A/C Condenser Unit
@@ -427,10 +427,6 @@ ROOF_OBJECT_CLASS_IDS = frozenset(
         SKYLIGHT_ID,
     }
 )
-# An object is on a roof when more than this fraction of its footprint lies inside the
-# roof outline. The API's own parent link only requires the two to touch, which counts
-# ground-level units standing against a wall.
-ROOF_OBJECT_MIN_OVERLAP = 0.5
 
 VEG_VERYLOW_ID = "a7d921b7-393c-4121-b317-e9cda3e4c19b"
 VEG_LOW_ID = "2780fa70-7713-437c-ad98-656b8a5cc4f2"
