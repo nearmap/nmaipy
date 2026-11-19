@@ -406,8 +406,8 @@ SKYLIGHT_ID = "3f5a737e-6d56-538a-ac26-f2934bbbb695"
 PLAYGROUND_ID = "7741703d-4ce4-54e1-a9ee-05a0a1851137"
 
 # Objects that are defined as roof-mounted, or commonly are, but that the Feature API
-# returns as standalone features rather than roof components. The rollup counts how many
-# of each have a roof, and the primary roof, as their API parent, as well as across the whole parcel.
+# returns as standalone features rather than roof components. Each roof reports those the API
+# returns with that roof as their parent.
 ROOF_OBJECT_CLASS_IDS = frozenset(
     {
         "ed1ea29d-cd2c-55a9-8737-13018a9bb741",  # A/C Condenser Unit

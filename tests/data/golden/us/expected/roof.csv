@@ -203,6 +203,14 @@ slate_confidence,,,,,,
 slate_dominant,N,N,N,N,N,N
 slate_present,N,N,N,N,N,N
 slate_ratio,0.0,0.0,0.0,0.0,0.0,0.0
+solar_hot_water_area_sqft,0.0,0.0,0.0,0.0,0.0,0.0
+solar_hot_water_confidence,,,,,,
+solar_hot_water_count,0,0,0,0,0,0
+solar_hot_water_present,N,N,N,N,N,N
+solar_panel_area_sqft,0.0,0.0,0.0,0.0,0.0,0.0
+solar_panel_confidence,,,,,,
+solar_panel_count,0,0,0,0,0,0
+solar_panel_present,N,N,N,N,N,N
 structural_damage_area_sqft,0.0,0.0,0.0,0.0,0.0,0.0
 structural_damage_confidence,,,,,,
 structural_damage_present,N,N,N,N,N,N

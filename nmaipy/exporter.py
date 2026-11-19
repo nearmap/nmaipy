@@ -87,6 +87,7 @@ from nmaipy.constants import (
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    ROOF_OBJECT_CLASS_IDS,
     S3_PARALLEL_READ_WORKERS,
     SINCE_COL_NAME,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -1263,6 +1264,7 @@ def _compute_all_per_class_data(
     logger_instance=None,
     threads: int = 1,
     aoi_geometries: dict | None = None,
+    roof_object_classes: dict | None = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -1386,6 +1388,7 @@ def _compute_all_per_class_data(
                         child_features=aoi_children,
                         parent_projected=roof_geoms_proj.iloc[ridx],
                         children_projected=child_proj_by_aoi.get(roof_aoi),
+                        roof_object_classes=roof_object_classes,
                     )
                     # Key by (aoi_id, feature_id): in parcelMode a multiparcel
                     # roof appears once per parcel it overlaps, each row carrying
@@ -4493,6 +4496,9 @@ class NearmapAIExporter(BaseExporter):
                         logger_instance=self.logger,
                         threads=self.threads,
                         aoi_geometries=aoi_geometries,
+                        roof_object_classes=None
+                        if classes_df is None
+                        else {c: d for c, d in classes_df.description.items() if c in ROOF_OBJECT_CLASS_IDS},
                     )
                     _t_per_class_compute = time.monotonic()
 

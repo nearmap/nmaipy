@@ -934,16 +934,6 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
             if col in class_features_gdf.columns:
                 parcel[f"{name}_{col}_count"] = int(class_features_gdf[col].sum())
 
-        if class_id in ROOF_OBJECT_CLASS_IDS:
-            # The API sets parent_id to the roof an object belongs to.
-            parents = class_features_gdf["parent_id"] if "parent_id" in class_features_gdf.columns else pd.Series([])
-            parcel[f"{name}_on_roof_count"] = (
-                int(parents.isin(roof_features["feature_id"]).sum()) if len(roof_features) else 0
-            )
-            parcel[f"primary_roof_{name}_count"] = (
-                int((parents == _primary_roof.feature_id).sum()) if _primary_roof is not None else 0
-            )
-
         # Select and produce results for the primary feature of each feature class
         if class_id in CLASSES_WITH_PRIMARY_FEATURE:
             # Roof instances have different columns than standard Feature API classes
@@ -1114,6 +1104,9 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
                         country=country,
                         child_features=child_feats,
                         parent_projected=parent_projected,
+                        roof_object_classes={
+                            c: d for c, d in classes_df.description.items() if c in ROOF_OBJECT_CLASS_IDS
+                        },
                     )
                 elif class_id == BUILDING_NEW_ID:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)

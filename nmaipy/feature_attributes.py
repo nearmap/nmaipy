@@ -839,12 +839,31 @@ def calculate_child_feature_attributes(
     return flattened
 
 
+def _roof_object_attributes(roof, child_features, roof_object_classes: dict, country: str) -> dict:
+    """Presence, count, area and confidence of each roof object class whose API parent is this roof."""
+    suffix = country_area_suffix(country)
+    by_class = {}
+    if child_features is not None and len(child_features) > 0 and "parent_id" in child_features.columns:
+        on_roof = child_features[(child_features["parent_id"] == _get_feature_value(roof, "feature_id")).to_numpy()]
+        by_class = dict(iter(on_roof.groupby("class_id", observed=True)))
+    flattened = {}
+    for class_id, description in roof_object_classes.items():
+        name = description.lower().replace(" ", "_")
+        objects = by_class.get(class_id)
+        flattened[f"{name}_present"] = FALSE_STRING if objects is None else TRUE_STRING
+        flattened[f"{name}_count"] = 0 if objects is None else len(objects)
+        flattened[f"{name}_area_{suffix}"] = 0.0 if objects is None else float(objects[f"area_{suffix}"].sum())
+        flattened[f"{name}_confidence"] = None if objects is None else float(objects["confidence"].max())
+    return flattened
+
+
 def flatten_roof_attributes(
     roofs: list[dict],
     country: str,
     child_features: gpd.GeoDataFrame | None = None,
     parent_projected=None,
     children_projected: "gpd.GeoSeries | None" = None,
+    roof_object_classes: dict | None = None,
 ) -> dict:
     """
     Flatten roof attributes from Feature API.
@@ -868,6 +887,10 @@ def flatten_roof_attributes(
                          per-call CRS projection overhead.
         children_projected: Pre-projected child geometries as a GeoSeries. Passed
                            through to calculate_child_feature_attributes.
+        roof_object_classes: {class_id: description} of the requested roof object
+                            classes (see ROOF_OBJECT_CLASS_IDS). Each gets present,
+                            count, area and confidence columns for the objects in
+                            child_features whose parent_id is this roof.
 
     Returns:
         Flattened dictionary with roof attributes including material components,
@@ -989,6 +1012,8 @@ def flatten_roof_attributes(
         # Emit dominant summary columns before per-component constituent columns
         flattened.update(dominant_columns)
         flattened.update(component_columns)
+        if roof_object_classes:
+            flattened.update(_roof_object_attributes(roof, child_features, roof_object_classes, country))
     return flattened
 
 
