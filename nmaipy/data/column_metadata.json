@@ -776,7 +776,7 @@
     "presentation_version": {
       "group": "damage_conflation",
       "dtype": "int",
-      "description": "Version of the damage output format.",
+      "description": "Version of the damage conflation model used for the output.",
       "source": "model metadata"
     },
     "resource_id": {
