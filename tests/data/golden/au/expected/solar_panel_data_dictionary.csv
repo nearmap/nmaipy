@@ -1,0 +1,12 @@
+column_name,description,allowed_values,dtype,source,min,max,precision,example
+aoi_id,Property identifier. If the input file had an `aoi_id` column it is preserved; otherwise generated from row index (0-indexed).,,string \| int,input data,,,,
+area_sqm,"Area of the solar panel, in square metres.",,float,base ai model,0,,,12.8
+class_id,The unique ID for the class of this feature.,,UUID,model metadata,,,,5a5cb214-eee3-4fdd-bfce-d21e9793cf6a
+clipped_area_sqm,"Area of the solar panel clipped to the parcel boundary, in square metres.",,float,base ai model,0,,,12.8
+confidence,"Confidence in detection of the solar panel (single feature, not combined).",,float (quantised uint8),base ai model,0.0,1.0,,0.94140625
+description,A description of the class of this feature.,,string,model metadata,,,,Roof
+feature_id,Feature ID of the solar panel.,,UUID,base ai model,,,,
+link,"URL to view this row in Nearmap MapBrowser. Per-class files (roof, building, etc.) frame the URL on each feature's centroid; the rollup frames it on the parcel.",,URL,image metadata,,,,
+mesh_date,"Date of the 3D mesh used for 3D attributes (height, pitch, etc.). The mesh is usually comprised of a number of overlapping surveys captured at a similar time of year, so this date represents that capture window rather than a single survey.",,date,image metadata,,,,2019-09-27
+survey_date,"Capture date of the 2D aerial imagery this feature was extracted from. Use as the canonical 'as-of' date for AI-derived attributes (counts, areas, materials, RSI, damage). May differ from mesh_date when 3D attributes draw on a different survey window.",,date,image metadata,,,,2019-09-27
+unclipped_area_sqm,"Total area of the solar panel before parcel clipping, in square metres.",,float,base ai model,0,,,15.8

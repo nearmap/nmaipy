@@ -1,0 +1,12 @@
+column,u2/f265b6e8-0b5e-5259-be1f-b1a14b40c1ec,u3/f265b6e8-0b5e-5259-be1f-b1a14b40c1ec,u5/c182c8f5-412c-5eb3-905e-26f24a322093
+aoi_id,u2,u3,u5
+area_sqft,430.0,430.0,0.0
+class_id,3680e1b8-8ae1-5a15-8ec7-820078ef3298,3680e1b8-8ae1-5a15-8ec7-820078ef3298,3680e1b8-8ae1-5a15-8ec7-820078ef3298
+clipped_area_sqft,215.0,215.0,0.0
+confidence,0.8,0.8,0.8
+description,Solar Panel,Solar Panel,Solar Panel
+feature_id,f265b6e8-0b5e-5259-be1f-b1a14b40c1ec,f265b6e8-0b5e-5259-be1f-b1a14b40c1ec,c182c8f5-412c-5eb3-905e-26f24a322093
+link,"https://apps.nearmap.com/maps/#/@40.50013025,-100.49919664999999,21.00z,0d/V/20250318?locationMarker","https://apps.nearmap.com/maps/#/@40.50013025,-100.4991494,21.00z,0d/V/20250318?locationMarker","https://apps.nearmap.com/maps/#/@40.50013560000001,-100.49810865000002,21.00z,0d/V/20250318?locationMarker"
+mesh_date,2025-03-18,2025-03-18,2025-03-18
+survey_date,2025-03-18,2025-03-18,2025-03-18
+unclipped_area_sqft,430.0,430.0,0.0

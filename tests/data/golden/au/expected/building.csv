@@ -138,6 +138,14 @@ primary_child_roof_slate_confidence,,,,,,,
 primary_child_roof_slate_dominant,N,N,N,N,,N,N
 primary_child_roof_slate_present,N,N,N,N,,N,N
 primary_child_roof_slate_ratio,0.0,0.0,0.0,0.0,,0.0,0.0
+primary_child_roof_solar_hot_water_area_sqm,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+primary_child_roof_solar_hot_water_confidence,,,,,,,
+primary_child_roof_solar_hot_water_count,0,0,0,0,0,0,0
+primary_child_roof_solar_hot_water_present,N,N,N,N,N,N,N
+primary_child_roof_solar_panel_area_sqm,12.0,0.0,0.0,0.0,0.0,0.0,0.0
+primary_child_roof_solar_panel_confidence,0.8,,,,,,
+primary_child_roof_solar_panel_count,1,0,0,0,0,0,0
+primary_child_roof_solar_panel_present,Y,N,N,N,N,N,N
 primary_child_roof_tile_area_sqm,191.5,95.6742458,0.0,119.8,,0.0,0.0
 primary_child_roof_tile_confidence,0.9,0.8,,1.0,,,
 primary_child_roof_tile_dominant,Y,N,N,Y,,Y,N

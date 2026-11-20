@@ -17,6 +17,8 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 | `rollup.csv` | Property-level summary with one row per parcel containing aggregated statistics |
 | `roof.csv` | Per-roof data with feature attributes |
 | `roof_features.parquet` | Roof polygons with geometry (GeoParquet) |
+| `solar_panel.csv` | Per-solar panel data with feature attributes |
+| `solar_panel_features.parquet` | Solar panel polygons with geometry (GeoParquet) |
 
 ## Feature Classes in This Export
 
@@ -26,6 +28,7 @@ Column names use snake_case versions of class names:
 |------------|---------------|
 | Building | `building_` |
 | Roof | `roof_` |
+| Solar Panel | `solar_panel_` |
 
 ## Class Hierarchy & Relationships
 

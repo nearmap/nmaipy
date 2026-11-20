@@ -46,7 +46,7 @@ CASES: dict[str, dict] = {
     },
     "au": {
         "country": "au",
-        "packs": ["building", "roof_char", "vegetation"],
+        "packs": ["building", "roof_char", "solar", "vegetation"],
         "since": "2025-01-20",
         "until": "2025-03-06",
     },

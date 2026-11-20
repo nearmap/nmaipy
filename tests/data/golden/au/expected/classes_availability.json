@@ -79,6 +79,22 @@
   "description": "Medium and High Vegetation with Woody Vegetation",
   "type": "Feature"
  },
+ "3680e1b8-8ae1-5a15-8ec7-820078ef3298": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Solar Panel",
+  "type": "Feature"
+ },
  "3719eb40-d6d1-5071-bbe6-379a551bb65f": {
   "availability": [
    {
@@ -237,6 +253,22 @@
    }
   ],
   "description": "Roof",
+  "type": "Feature"
+ },
+ "c1143023-135b-54fd-9a07-8de0ff55de51": {
+  "availability": [
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-0.9"
+   },
+   {
+    "perspective": "Vert",
+    "status": "prod",
+    "systemVersion": "gen6-golden_world-1.0"
+   }
+  ],
+  "description": "Solar Hot Water",
   "type": "Feature"
  },
  "cd15ea0b-a0f6-58b6-9a63-480654ff506c": {

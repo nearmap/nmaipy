@@ -216,6 +216,7 @@ def us_world() -> World:
             "Tile or Shingle Staining": (10, 14, 2, 2),
             "Roof with Permanent Repair": (19, 14, 2, 2),
         },
+        extra_children={"R1/solar_hot_water": ("Solar Hot Water", (12, 20, 2, 3))},
     )
     b.add(
         "P1",
@@ -241,7 +242,10 @@ def us_world() -> World:
         condition={"Roof Rusting": 0.0},
         building_attributes=building_3d,
         children={"Tile": (62, 10, 7, 20), "Metal": (69, 10, 9, 20), "Gable": (62, 10, 16, 20)},
-        extra_children={"R2/overhang": ("Tree Overhang", (74, 26, 4, 4))},
+        extra_children={
+            "R2/overhang": ("Tree Overhang", (74, 26, 4, 4)),
+            "R2/solar": ("Solar Panel", (66, 12, 8, 5)),
+        },
     )
     b.house(
         "R3",
@@ -276,6 +280,7 @@ def us_world() -> World:
         condition={"Roof Rusting": 0.0},
         building_attributes=building_2d,
         children={"Tile": (155, 10, 15, 15), "Hip": (155, 10, 15, 15)},
+        extra_children={"R5/solar": ("Solar Panel", (160, 15, 0.2, 0.2))},
     )
     b.house(
         "R13",
@@ -344,7 +349,7 @@ def us_world() -> World:
         surveys=(Survey("us", _rect(o, -50, -50, 350, 350), "2025-03-18", mesh_date="2025-03-18"),),
         features=tuple(b.features),
         parcel_flags=b.flags,
-        alpha_only=frozenset({class_id("All-in Vegetation")}),
+        alpha_only=frozenset({class_id("All-in Vegetation"), class_id("Solar Hot Water")}),
         roof_instances=roof_instances,
         errors=(
             ErrorRegion(
@@ -383,6 +388,7 @@ def au_world() -> World:
             "Tree Overhang": (5, 20, 6, 4),
             "Leaf-off Tree Overhang": (17, 22, 2, 2),
         },
+        extra_children={"R6/solar": ("Solar Panel", (6, 9, 4, 3))},
     )
     s.add("V6", "Medium and High Vegetation (>2m)", (-5, 25, 35, 15), 0.91)
     s.add("W6", "Woody Vegetation", (0, 0, 10, 6), 0.87)
@@ -435,6 +441,7 @@ def au_world() -> World:
         types={"Hip": 1.0},
         overhang={"Tree Overhang": 0.0},
         roof_3d=(("has3dAttributes", False),),
+        extra_children={"R11/solar": ("Solar Panel", (1102, 305, 5, 4))},
     )
     g.add("V9", "Medium and High Vegetation (>2m)", (430, 530, 60, 50), 0.9)
 
