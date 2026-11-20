@@ -1,7 +1,7 @@
 """Generate ``<filename>_data_dictionary.csv`` next to every tabular AI-data
 output in an export ``final/`` directory. Columns are looked up via
 ``column_metadata.lookup_column``; eligible files come from the
-``output_files`` registry, gated on the export's ``tabular_file_format``.
+``output_files`` registry, gated on the export's tabular format setting.
 Per-file failures are logged and isolated.
 """
 
@@ -68,16 +68,21 @@ class DataDictionaryGenerator:
 
     def generate_and_save(self) -> list[str]:
         """Generate all data dictionaries for the export. Returns list of written paths."""
-        ext = self._tabular_extension()
         area_unit = self._detect_area_unit()
         extras = self._description_extras()
         input_columns = self._input_columns()
+        # One dictionary per output file; when it was written in both formats the
+        # dictionary covers the columns of both.
+        sources: dict[str, tuple[list[str], str]] = {}
+        for ext in self._tabular_extensions():
+            for filepath, class_label in output_files.tabular_ai_files(self.final_dir, ext):
+                sources.setdefault(self._dictionary_path_for(filepath), ([], class_label))[0].append(filepath)
         written: list[str] = []
-        for filepath, class_label in output_files.tabular_ai_files(self.final_dir, ext):
+        for filepaths, class_label in sources.values():
             try:
-                out_path = self._build_and_write(filepath, class_label, area_unit, extras, input_columns)
+                out_path = self._build_and_write(filepaths, class_label, area_unit, extras, input_columns)
             except Exception as exc:  # noqa: BLE001 -- per file: one failed dictionary must not block the others
-                logger.warning(f"Data dictionary generation failed for {filepath}: {exc}")
+                logger.warning(f"Data dictionary generation failed for {filepaths[0]}: {exc}")
                 continue
             if out_path is not None:
                 written.append(out_path)
@@ -88,8 +93,12 @@ class DataDictionaryGenerator:
     # ------------------------------------------------------------------
 
     def _load_export_config(self) -> dict:
-        """Load export_config.json (or roof_age_export_config.json) if present."""
-        for config_name in ("export_config.json", "roof_age_export_config.json"):
+        """Load export_config.json (or the Roof Age / Damage Conflation equivalent) if present."""
+        for config_name in (
+            "export_config.json",
+            "roof_age_export_config.json",
+            "damage_conflation_export_config.json",
+        ):
             cfg_path = storage.join_path(self.final_dir, config_name)
             if storage.file_exists(cfg_path):
                 try:
@@ -104,10 +113,18 @@ class DataDictionaryGenerator:
         country = self._load_export_config().get("parameters", {}).get("country", "").lower()
         return "sqm" if country and country != "us" else "sqft"
 
-    def _tabular_extension(self) -> str:
-        """Return ``'csv'`` or ``'parquet'`` based on the export's tabular_file_format setting."""
-        fmt = self._load_export_config().get("parameters", {}).get("tabular_file_format", "csv")
-        return fmt if fmt in ("csv", "parquet") else "csv"
+    def _tabular_extensions(self) -> list[str]:
+        """Return the tabular extensions the export wrote: ``csv``, ``parquet`` or both.
+
+        Feature API exports record ``tabular_file_format``; Damage Conflation exports
+        record ``output_format``, which can ask for both.
+        """
+        params = self._load_export_config().get("parameters", {})
+        output_formats = {"csv": ["csv"], "geoparquet": ["parquet"], "both": ["csv", "parquet"]}
+        if "tabular_file_format" not in params and params.get("output_format") in output_formats:
+            return output_formats[params["output_format"]]
+        fmt = params.get("tabular_file_format", "csv")
+        return [fmt if fmt in ("csv", "parquet") else "csv"]
 
     def _input_columns(self) -> set[str]:
         """Return column names from the input AOI file, or empty set on any failure.
@@ -140,9 +157,17 @@ class DataDictionaryGenerator:
             "nearest": "the nearest-to-centroid strategy",
             "largest_intersection": "the largest-intersection strategy",
         }
+        conflation_method_descriptions = {
+            "largest": "the largest strategy (the largest building by footprint area)",
+            "optimal": (
+                "the optimal strategy (the building at the AOI's input lat/lon point preferred, "
+                "falling back to the largest building by footprint area)"
+            ),
+        }
         return {
             "primary_strategy": method,
             "primary_strategy_description": method_descriptions.get(method, method),
+            "conflation_primary_strategy_description": conflation_method_descriptions.get(method, method),
         }
 
     # ------------------------------------------------------------------
@@ -173,17 +198,20 @@ class DataDictionaryGenerator:
 
     def _build_and_write(
         self,
-        filepath: str,
+        filepaths: list[str],
         class_label: str,
         area_unit: str,
         extras: dict[str, str],
         input_columns: set[str],
     ) -> str | None:
-        columns = self._read_columns(filepath)
-        rows = [self._row_for_column(name, area_unit, class_label, extras, input_columns) for name in columns]
+        columns = list(dict.fromkeys(name for filepath in filepaths for name in self._read_columns(filepath)))
+        conflation = storage.basename(filepaths[0]).rsplit(".", 1)[0] in output_files.CONFLATION_FILES
+        rows = [
+            self._row_for_column(name, area_unit, class_label, extras, input_columns, conflation) for name in columns
+        ]
         if not rows:
             return None
-        out_path = self._dictionary_path_for(filepath)
+        out_path = self._dictionary_path_for(filepaths[0])
         df = pd.DataFrame(rows, columns=_DD_COLUMNS)
         # utf-8-sig writes a BOM so Excel on macOS renders Unicode correctly.
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
@@ -196,9 +224,10 @@ class DataDictionaryGenerator:
         class_label: str,
         extras: dict[str, str],
         input_columns: set[str],
+        conflation: bool = False,
     ) -> dict[str, str]:
         """Build a single dictionary row for one column."""
-        meta = lookup_column(name, area_unit=area_unit, class_label=class_label, extras=extras)
+        meta = lookup_column(name, area_unit=area_unit, class_label=class_label, extras=extras, conflation=conflation)
         # Pass-through columns from the user's input file aren't in the seeded
         # metadata. Recognise them so the dictionary describes them rather
         # than surfacing the unknown sentinel.

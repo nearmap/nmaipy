@@ -579,6 +579,283 @@
       "source": "input data"
     }
   },
+  "damage_conflation_exact_matches": {
+    "_doc": "Columns of the Damage Conflation exporter's damage_buildings and damage_rollup files. Looked up before exact_matches for those files only, so names shared with Feature API outputs (feature_id, confidence, resource_id, ...) keep their own meaning here. A rollup `primary_<column>` without its own entry uses the `<column>` entry with '(primary building)' appended.",
+    "feature_id": {
+      "group": "damage_conflation",
+      "dtype": "UUID",
+      "description": "Unique building identifier. A building that intersects several AOIs has one row per AOI with the same `feature_id`, so deduplicate on it when counting buildings across AOIs.",
+      "source": "damage conflation model"
+    },
+    "primary_feature_id": {
+      "group": "damage_conflation",
+      "dtype": "UUID",
+      "description": "`feature_id` of the AOI's primary building, selected by {conflation_primary_strategy_description}. Links to the per-building file. Null when the AOI has no buildings or its query failed.",
+      "source": "damage conflation model"
+    },
+    "is_primary": {
+      "group": "damage_conflation",
+      "dtype": "binary",
+      "description": "Whether this building is the AOI's primary building — selected by {conflation_primary_strategy_description}. Matches `primary_feature_id` in the rollup.",
+      "allowed_values": "Y | N",
+      "source": "damage conflation model",
+      "min": "N",
+      "max": "Y"
+    },
+    "hilbert_id": {
+      "group": "damage_conflation",
+      "dtype": "string",
+      "description": "Spatial index of the building location (Hilbert curve). Nearby buildings have nearby values; useful for sorting and tiling.",
+      "source": "damage conflation model"
+    },
+    "area_{unit}": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Building footprint area, in {unit_name}. Full footprint (not clipped to the AOI); the same building has the same area under every AOI.",
+      "source": "damage conflation model"
+    },
+    "confidence": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Confidence that the polygon is a real building.",
+      "source": "damage conflation model"
+    },
+    "geometry": {
+      "group": "damage_conflation",
+      "dtype": "WKT \\| GeoParquet",
+      "description": "Building footprint polygon (EPSG:4326), not clipped to the AOI. WKT in the CSV, native geometry in the GeoParquet.",
+      "source": "damage conflation model"
+    },
+    "damage_event_rating": {
+      "group": "damage_conflation",
+      "dtype": "string",
+      "allowed_values": "NoDamage | Affected | Minor | Major | Destroyed",
+      "description": "Most likely damage rating for the building after the event.",
+      "source": "damage conflation model"
+    },
+    "damage_event_confidence": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Probability of the assigned rating after the event (the highest of the five `damage_event_raw_*` probabilities).",
+      "source": "damage conflation model"
+    },
+    "damage_event_raw_affected": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Affected after the event. The five `damage_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_event_raw_destroyed": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Destroyed after the event. The five `damage_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_event_raw_major": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Major after the event. The five `damage_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_event_raw_minor": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Minor after the event. The five `damage_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_event_raw_no_damage": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is NoDamage after the event. The five `damage_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_event_class_ratios": {
+      "group": "damage_conflation",
+      "dtype": "JSON",
+      "description": "JSON list of the AI classes detected on the building after the event: damage indicators (e.g. Missing Roof Tile or Shingle, Exposed Underlayment) and context classes (e.g. tree canopy). Each item: `{classId, description, ratio, confidence}`, where `ratio` is the share of the building footprint covered by the class. In the per-building output this column is in the GeoParquet only.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_rating": {
+      "group": "damage_conflation",
+      "dtype": "string",
+      "allowed_values": "NoDamage | Affected | Minor | Major | Destroyed",
+      "description": "Most likely damage rating for the building in the baseline (pre-event) capture. Null when the building has no baseline assessment.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_confidence": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Probability of the assigned rating in the baseline (pre-event) capture (the highest of the five `damage_pre_event_raw_*` probabilities).",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_raw_affected": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Affected in the baseline (pre-event) capture. The five `damage_pre_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_raw_destroyed": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Destroyed in the baseline (pre-event) capture. The five `damage_pre_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_raw_major": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Major in the baseline (pre-event) capture. The five `damage_pre_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_raw_minor": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is Minor in the baseline (pre-event) capture. The five `damage_pre_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_raw_no_damage": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0.0",
+      "max": "1.0",
+      "description": "Model probability that the building is NoDamage in the baseline (pre-event) capture. The five `damage_pre_event_raw_*` values sum to 1.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_class_ratios": {
+      "group": "damage_conflation",
+      "dtype": "JSON",
+      "description": "JSON list of the AI classes detected on the building in the baseline (pre-event) capture: damage indicators (e.g. Missing Roof Tile or Shingle, Exposed Underlayment) and context classes (e.g. tree canopy). Each item: `{classId, description, ratio, confidence}`, where `ratio` is the share of the building footprint covered by the class. In the per-building output this column is in the GeoParquet only.",
+      "source": "damage conflation model"
+    },
+    "damage_event_latest_capture_date": {
+      "group": "damage_conflation",
+      "dtype": "date",
+      "description": "Date of the most recent imagery capture used for the assessment after the event. Usually blank: the API reports this date for the baseline assessment only.",
+      "source": "damage conflation model"
+    },
+    "damage_pre_event_latest_capture_date": {
+      "group": "damage_conflation",
+      "dtype": "date",
+      "description": "Date of the most recent imagery capture used for the baseline (pre-event) assessment.",
+      "source": "damage conflation model"
+    },
+    "event_uuid": {
+      "group": "damage_conflation",
+      "dtype": "UUID",
+      "description": "Unique identifier for the catastrophe event.",
+      "source": "model metadata"
+    },
+    "event_name": {
+      "group": "damage_conflation",
+      "dtype": "string",
+      "description": "Name of the catastrophe event.",
+      "source": "model metadata"
+    },
+    "model_version": {
+      "group": "damage_conflation",
+      "dtype": "string",
+      "description": "Version of the damage conflation model that produced the ratings.",
+      "source": "model metadata"
+    },
+    "presentation_version": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "description": "Version of the damage conflation model used for the output.",
+      "source": "model metadata"
+    },
+    "resource_id": {
+      "group": "damage_conflation",
+      "dtype": "UUID",
+      "description": "Identifier of the event's published damage result that the ratings were read from.",
+      "source": "model metadata"
+    },
+    "geomatched_address": {
+      "group": "damage_conflation",
+      "dtype": "string",
+      "description": "Address matched by the API for address-based queries. Blank for AOI (polygon) queries.",
+      "source": "model metadata"
+    },
+    "aoi_geometry": {
+      "group": "damage_conflation",
+      "dtype": "WKT",
+      "description": "Input AOI polygon (EPSG:4326). Present only when AOI geometry was requested.",
+      "source": "input data"
+    },
+    "query_succeeded": {
+      "group": "damage_conflation",
+      "dtype": "boolean",
+      "allowed_values": "True | False",
+      "description": "Whether the damage query for this AOI completed without error. True does not mean damage data exists (see `n_buildings`); an AOI outside the event footprint succeeds with no buildings. When False, the counts and primary building columns are null.",
+      "source": "model metadata"
+    },
+    "n_buildings": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of buildings returned for the AOI, all sizes included. Every building intersecting the AOI is counted, including neighbouring buildings that only cross its boundary, unless parcel mode was used. 0 means no buildings were found in the event's damage result for this AOI, not that the property is undamaged.",
+      "source": "damage conflation model"
+    },
+    "n_affected": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of the AOI's buildings rated Affected after the event (`damage_event_rating`). The five rating counts sum to `n_buildings`.",
+      "source": "damage conflation model"
+    },
+    "n_destroyed": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of the AOI's buildings rated Destroyed after the event (`damage_event_rating`). The five rating counts sum to `n_buildings`.",
+      "source": "damage conflation model"
+    },
+    "n_major": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of the AOI's buildings rated Major after the event (`damage_event_rating`). The five rating counts sum to `n_buildings`.",
+      "source": "damage conflation model"
+    },
+    "n_minor": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of the AOI's buildings rated Minor after the event (`damage_event_rating`). The five rating counts sum to `n_buildings`.",
+      "source": "damage conflation model"
+    },
+    "n_no_damage": {
+      "group": "damage_conflation",
+      "dtype": "int",
+      "min": "0",
+      "description": "Number of the AOI's buildings rated NoDamage after the event (`damage_event_rating`). The five rating counts sum to `n_buildings`.",
+      "source": "damage conflation model"
+    }
+  },
   "patterns": [
     {
       "regex": "^(?P<scope>primary_roof_|primary_child_roof_)?(?P<class>a/c_condenser_unit|hvac|roof_equipment|duct|pipe|vent|residential_chimney|residential_satellite_dish|residential_tv_antenna_base|translucent_roofing|roof_walkway|miscellaneous_roof_object|solar_panel|solar_hot_water|skylight)_present$",

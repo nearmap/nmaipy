@@ -192,7 +192,7 @@ python -m nmaipy.damage_conflation_exporter \
 The `--event-id` is the catastrophe event's UUID (obtained from the Coverage API
 `eventId` survey tag; auto-discovery is not yet built into nmaipy). Output in `final/`:
 `damage_buildings.{parquet,csv}` (per-building, always) and, with `--rollup`,
-`damage_rollup.{parquet,csv}` (per-AOI); plus operational files `damage_metadata.csv`
+`damage_rollup.{parquet,csv}` (per-AOI), each with a `*_data_dictionary.csv`; plus operational files `damage_metadata.csv`
 (per-AOI query metadata) and `damage_errors.csv` (per-AOI failures: status_code + message,
 written only when there are errors).
 
