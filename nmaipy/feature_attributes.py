@@ -1034,7 +1034,7 @@ def roof_object_attributes(
     unavailable_by_aoi = unavailable_by_aoi or {}
     columns = {}
     for class_id, description in roof_object_classes.items():
-        name = description.lower().replace(" ", "_")
+        name = _roof_object_name(description)
         on_roof = stats[stats["class_id"] == class_id].set_index(["aoi_id", "parent_id"]).reindex(roof_keys)
         n_objects = on_roof["count"].fillna(0).to_numpy(dtype="int64")
         count = pd.array(n_objects, dtype="Int64")
@@ -1054,6 +1054,20 @@ def roof_object_attributes(
         columns[f"{name}_area_{unit}"] = area
         columns[f"{name}_confidence"] = confidence
     return pd.DataFrame(columns, index=range(len(roofs)))
+
+
+def as_int64_roof_object_counts(df: pd.DataFrame, roof_object_classes: dict[str, str] | None, prefix: str = "") -> None:
+    """Cast the ``<prefix><x>_count`` roof object columns present in ``df`` to Int64, in place.
+
+    Frames assembled from per-roof dicts lose the Int64 dtype, and a row with no roof becomes NaN, which
+    would turn the counts into floats.
+    """
+    if roof_object_classes is None:
+        return
+    for description in roof_object_classes.values():
+        column = f"{prefix}{_roof_object_name(description)}_count"
+        if column in df.columns:
+            df[column] = df[column].astype("Int64")
 
 
 def flatten_building_lifecycle_damage_attributes(
@@ -1389,6 +1403,10 @@ def _aoi_id_values(df: pd.DataFrame):
     if df.index.name == AOI_ID_COLUMN_NAME:
         return df.index.array
     raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot key roof attributes per parcel")
+
+
+def _roof_object_name(description: str) -> str:
+    return description.lower().replace(" ", "_")
 
 
 def _roof_object_stats(

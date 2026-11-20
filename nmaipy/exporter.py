@@ -105,6 +105,7 @@ from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
     _aoi_id_values,
+    as_int64_roof_object_counts,
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
     flatten_pool_attributes,
@@ -1816,6 +1817,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
             ]
             if attr_records:
                 attr_df = pd.DataFrame(attr_records)
+                as_int64_roof_object_counts(attr_df, roof_object_classes)
                 # Remove columns that would be duplicates
                 attr_df = attr_df.drop(
                     columns=[c for c in attr_df.columns if c in added_cols],
@@ -2018,6 +2020,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                         )
                     )
                     mapped = roof_attrs_df.reindex(lookup_keys).reset_index(drop=True)
+                    as_int64_roof_object_counts(mapped, roof_object_classes, prefix="primary_child_roof_")
 
                     roof_attr_batch = {}
                     dominant_prefixes = (

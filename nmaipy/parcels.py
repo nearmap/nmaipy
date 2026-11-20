@@ -57,6 +57,7 @@ from nmaipy.feature_attributes import (
     _flatten_defensible_space_zone,
     _flatten_include_params,
     _parse_include_param,
+    as_int64_roof_object_counts,
     calculate_child_feature_attributes,
     flatten_building_attributes,
     flatten_building_lifecycle_damage_attributes,
@@ -1541,6 +1542,11 @@ def parcel_rollup(  # noqa: PLR0915 -- long sequential pipeline, kept whole to a
     # Combine, validate and return
     rollup_df = pd.DataFrame(rollups)
     rollup_df = rollup_df.set_index(AOI_ID_COLUMN_NAME)
+    as_int64_roof_object_counts(
+        rollup_df,
+        {c: d for c, d in classes_df.description.items() if c in ROOF_OBJECT_CLASS_IDS},
+        prefix="primary_roof_",
+    )
     if len(rollup_df) != len(parcels_gdf):
         raise RuntimeError(f"Parcel count validation error: {len(rollup_df)=} not equal to {len(parcels_gdf)=}")
 
