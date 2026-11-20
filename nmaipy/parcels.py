@@ -10,6 +10,7 @@ The rollup functions aggregate multiple features within each AOI into summary st
 and select "primary" features for detailed attribute extraction.
 """
 
+from collections.abc import Iterable
 import json
 import re
 import warnings
@@ -1301,7 +1302,7 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
 
 
 def unavailable_classes_by_aoi(
-    aoi_ids, api_metadata: list | None, alpha: bool = False, beta: bool = False
+    aoi_ids: Iterable[object], api_metadata: list | None, alpha: bool = False, beta: bool = False
 ) -> dict[object, frozenset[str]]:
     """The classes with no observational data for each AOI, from the API metadata.
 

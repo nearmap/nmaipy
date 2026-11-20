@@ -21,6 +21,7 @@ from typing import Any, overload
 from dateutil.parser import parse as parse_date
 import geopandas as gpd
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 import shapely
 from shapely import make_valid, wkb
@@ -1369,7 +1370,7 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
     return total
 
 
-def _aoi_id_values(df: pd.DataFrame):
+def _aoi_id_values(df: pd.DataFrame) -> pd.api.extensions.ExtensionArray:
     """Return the per-row aoi_id values whether aoi_id is a column or the index.
 
     The chunk frame is indexed by aoi_id in the standalone export path but carries
@@ -1392,8 +1393,8 @@ def _roof_object_name(description: str) -> str:
 
 
 def _roof_object_columns(
-    roof_aois,
-    roof_fids,
+    roof_aois: ArrayLike,
+    roof_fids: ArrayLike,
     children: pd.DataFrame | None,
     roof_object_classes: dict[str, str],
     country: str,
@@ -1435,8 +1436,8 @@ def _roof_object_columns(
 
 
 def _objects_on_roofs(
-    roof_aois,
-    roof_fids,
+    roof_aois: ArrayLike,
+    roof_fids: ArrayLike,
     children: pd.DataFrame | None,
     class_ids: list[str],
     area_col: str,
