@@ -52,6 +52,7 @@ from nmaipy.constants import (
     wrong_unit_area_columns,
 )
 from nmaipy.damage_conflation_api import DamageConflationApi
+from nmaipy.data_dictionary_generator import generate_dictionaries
 from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = log.get_logger()
@@ -503,6 +504,7 @@ class DamageConflationExporter(BaseExporter):
                 )
 
         self._save_outputs(features_gdf, rollup_df, metadata_df, errors_df, self.final_path)
+        self.logger.info(f"Generated {len(generate_dictionaries(self.final_path))} data dictionary file(s).")
         self.logger.info("Export complete!")
 
     def _save_outputs(self, features_gdf, rollup_df, metadata_df, errors_df, output_path):

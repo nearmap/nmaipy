@@ -71,6 +71,7 @@ Evidence tags:
 - [nmaipy] **Files:**
   - `damage_buildings.parquet` (all columns) by default; `damage_buildings.csv` (curated, without `class_ratios`) only with `--output-format csv` or `both`;
   - `damage_rollup.parquet` / `.csv` with `--rollup`, following the same format choice;
+  - `damage_buildings_data_dictionary.csv` and `damage_rollup_data_dictionary.csv` (one row per column of the matching file, covering both formats when both are written);
   - `damage_metadata.csv` (per-AOI query metadata; event fields only for AOIs with at least one building);
   - `damage_errors.csv` (status code and message, written only when errors occur).
 - [nmaipy] **Cache.** The cache lives under `damageconflation/<event_id>/`, keyed by AOI or address, with no time component.

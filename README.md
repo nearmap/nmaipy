@@ -487,6 +487,7 @@ Outputs in `final/`:
 |------|------|----------|
 | `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry |
 | `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — your input file's columns (geometry excluded), then rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
+| `damage_buildings_data_dictionary.csv`, `damage_rollup_data_dictionary.csv` | with the file they describe | One row per column of that file: description, allowed values, type and source |
 | `damage_metadata.csv` | always | Per-AOI query metadata (event id/name, model version) for AOIs that returned a response |
 | `damage_errors.csv` | on failures | Per-AOI requests that still failed after `--max-retries` (`status_code` + `message`). An AOI outside the event footprint is not a failure: it succeeds with no buildings (`query_succeeded=True`, `n_buildings=0` in the rollup) |
 | `latency_stats.csv` | always | Per-chunk API latency summary (request count, percentiles, retries) |

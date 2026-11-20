@@ -327,6 +327,13 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     for name in ("damage_buildings.parquet", "damage_buildings.csv", "damage_rollup.parquet", "damage_rollup.csv"):
         assert (final / name).exists(), f"missing {name}"
 
+    # Each tabular output gets a data dictionary describing every column; the input
+    # file's own columns are recognised as pass-through.
+    for stem in ("damage_buildings", "damage_rollup"):
+        dd = pd.read_csv(final / f"{stem}_data_dictionary.csv").set_index("column_name")
+        assert not (dd["description"] == "?").any(), dd.index[dd["description"] == "?"].tolist()
+    assert dd.loc["policy_number", "source"] == "input data"
+
     # Per-building output has every building.
     buildings = gpd.read_parquet(final / "damage_buildings.parquet")
     assert len(buildings) == len(features)

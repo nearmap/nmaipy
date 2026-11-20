@@ -70,12 +70,27 @@ STATIC_FILES: dict[str, FileSpec] = {
     ),
 }
 
+# Tabular outputs of the Damage Conflation exporter. Their columns are described by
+# the ``damage_conflation_exact_matches`` metadata, not the Feature API entries.
+CONFLATION_FILES: dict[str, FileSpec] = {
+    "damage_buildings": FileSpec(
+        description="One row per building per AOI with its conflated damage rating",
+        kind="ai_data",
+        class_label="building",
+    ),
+    "damage_rollup": FileSpec(
+        description="One row per AOI with building counts by damage rating and the primary building",
+        kind="ai_data",
+        class_label="parcel",
+    ),
+}
+
 
 def file_spec_for(filename: str) -> FileSpec | None:
     """Return the `FileSpec` for a given basename, or None if not in the registry.
 
     Recognises:
-    - ``<stem>.<ext>`` for stems in `STATIC_FILES` (any extension).
+    - ``<stem>.<ext>`` for stems in `STATIC_FILES` or `CONFLATION_FILES` (any extension).
     - ``<cname>.csv`` / ``<cname>.parquet`` for cnames in `PER_CLASS_LABELS`
       (per-class tabular AI data).
     - ``<cname>_features.parquet`` for cnames in `PER_CLASS_LABELS` (per-class
@@ -91,8 +106,8 @@ def file_spec_for(filename: str) -> FileSpec | None:
     if "." not in filename:
         return None
     stem, ext = filename.rsplit(".", 1)
-    if stem in STATIC_FILES:
-        return STATIC_FILES[stem]
+    if stem in STATIC_FILES | CONFLATION_FILES:
+        return (STATIC_FILES | CONFLATION_FILES)[stem]
     if stem in PER_CLASS_LABELS and ext in ("csv", "parquet"):
         label = PER_CLASS_LABELS[stem]
         return FileSpec(
@@ -119,7 +134,7 @@ def tabular_ai_files(final_dir: str, ext: str) -> list[tuple[str, str]]:
     present at ``final_dir/<stem>.<ext>``. ``ext`` is ``csv`` or ``parquet``.
     """
     out: list[tuple[str, str]] = []
-    for stem, spec in STATIC_FILES.items():
+    for stem, spec in (STATIC_FILES | CONFLATION_FILES).items():
         if spec.kind != "ai_data":
             continue
         path = storage.join_path(final_dir, f"{stem}.{ext}")
