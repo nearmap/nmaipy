@@ -214,6 +214,19 @@ def test_rollup_reports_the_objects_on_the_primary_roof():
     assert result["primary_roof_solar_panel_present"] == "N"
 
 
+def test_rollup_counts_objects_on_a_parcel_without_an_aoi_id():
+    rows = [
+        _row("p", ROOF_ID, "main", box(0, 0, 0.0001, 0.0001), 100.0),
+        _row("p", SOLAR_ID, "panel", box(0.00001, 0.00001, 0.00003, 0.00003), 4.0, "main"),
+    ]
+    features = gpd.GeoDataFrame(rows, geometry="geometry", crs=API_CRS).drop(columns=[AOI_ID_COLUMN_NAME])
+    result = feature_attributes(
+        features, CLASSES, country="au", parcel_geom=None, primary_decision="largest_intersection"
+    )
+    assert result["solar_panel_count"] == 1
+    assert result["primary_roof_solar_panel_count"] == 1
+
+
 class TestProcessChunk:
     @pytest.fixture
     def exporter(self, tmp_path, caplog):

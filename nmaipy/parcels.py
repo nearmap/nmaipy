@@ -1116,11 +1116,17 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
                         c: d for c, d in classes_df.description.items() if c in ROOF_OBJECT_CLASS_IDS
                     }
                     if roof_object_classes:
-                        aoi_id = _aoi_id_values(features_gdf)[0]
+                        roof_children = child_feats
+                        if AOI_ID_COLUMN_NAME in features_gdf.columns or features_gdf.index.name == AOI_ID_COLUMN_NAME:
+                            aoi_id = _aoi_id_values(features_gdf)[0]
+                        else:
+                            aoi_id = None
+                            if len(child_feats) > 0:
+                                roof_children = child_feats.assign(**{AOI_ID_COLUMN_NAME: None})
                         roof_objects = _roof_object_columns(
                             [aoi_id],
                             [primary_feature.feature_id],
-                            child_feats,
+                            roof_children,
                             roof_object_classes,
                             country,
                             {aoi_id: unavailable_class_ids},
