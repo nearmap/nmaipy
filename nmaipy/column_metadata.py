@@ -463,11 +463,14 @@ def _conflation_metadata() -> dict[str, ColumnMeta]:
     return {name: _meta_from_json(entry) for name, entry in entries.items() if not name.startswith("_")}
 
 
-def _lookup_conflation(name: str, area_unit: str, extras: dict[str, str] | None) -> ColumnMeta | None:
-    """Resolve a Damage Conflation column, or None when it has no conflation entry.
+def _lookup_conflation(name: str, area_unit: str, extras: dict[str, str] | None) -> ColumnMeta:
+    """Resolve a column of a Damage Conflation file.
 
     A rollup ``primary_<column>`` without its own entry takes the ``<column>`` entry
-    with "(primary building)" appended, as scope-stripped lookups do.
+    with "(primary building)" appended, as scope-stripped lookups do. Other columns
+    fall back to the general exact matches only (``aoi_id``, ``lat``, ...): these files
+    carry no Feature API columns, so the class patterns (counts, areas, ratios) must
+    not claim an input column that happens to share a suffix.
     """
     entries = _conflation_metadata()
     for candidate, suffix in ((name, ""), (name.removeprefix("primary_"), " (primary building)")):
@@ -475,7 +478,10 @@ def _lookup_conflation(name: str, area_unit: str, extras: dict[str, str] | None)
         if key in entries:
             meta = _instantiate(entries[key], area_unit=area_unit, extra_groups=extras)
             return replace(meta, description=f"{meta.description.rstrip('.')}{suffix}.") if suffix else meta
-    return None
+    exact = load_metadata()[0]
+    if name in exact:
+        return _instantiate(exact[name], area_unit=area_unit, extra_groups=extras)
+    return ColumnMeta(description=UNKNOWN_SENTINEL, source=UNKNOWN_SENTINEL)
 
 
 def lookup_column(
@@ -499,7 +505,7 @@ def lookup_column(
             ``{key}`` placeholder in the description; values use snake_case →
             spaces and a ``{Key}`` capitalised variant for sentence-initial use.
         conflation: True for a Damage Conflation file, whose columns resolve against
-            ``damage_conflation_exact_matches`` before the precedence below.
+            ``damage_conflation_exact_matches`` and then step 1 only.
 
     Lookup precedence:
       1. Exact match in ``exact_matches`` (templates substituted with ``area_unit``).
@@ -509,9 +515,7 @@ def lookup_column(
       4. Sentinel ColumnMeta with ``description = source = "?"``.
     """
     if conflation:
-        conflation_meta = _lookup_conflation(name, area_unit, extras)
-        if conflation_meta is not None:
-            return conflation_meta
+        return _lookup_conflation(name, area_unit, extras)
 
     exact, patterns, _, zone_distances = load_metadata()
 

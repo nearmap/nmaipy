@@ -29,7 +29,7 @@ import pytest
 
 from nmaipy import column_metadata as cm
 from nmaipy.column_metadata import lookup_column, reload_metadata
-from nmaipy.data_dictionary_generator import _DD_COLUMNS, DataDictionaryGenerator
+from nmaipy.data_dictionary_generator import _DD_COLUMNS, USER_INPUT_DESCRIPTION, DataDictionaryGenerator
 
 
 @pytest.fixture(autouse=True)
@@ -680,7 +680,15 @@ class TestDamageConflationDictionaries:
     def _export(self, tmp_path, output_format):
         config = {"parameters": {"output_format": output_format, "country": "us", "primary_decision": "largest"}}
         (tmp_path / "damage_conflation_export_config.json").write_text(json.dumps(config))
-        buildings = ["aoi_id", "feature_id", "damage_event_rating", "area_sqft", "confidence", "resource_id"]
+        buildings = [
+            "aoi_id",
+            "feature_id",
+            "is_primary",
+            "damage_event_rating",
+            "area_sqft",
+            "confidence",
+            "resource_id",
+        ]
         rollup = ["aoi_id", "n_buildings", "primary_feature_id", "primary_damage_pre_event_raw_no_damage"]
         if output_format in ("csv", "both"):
             _write_csv(tmp_path / "damage_buildings.csv", buildings)
@@ -718,3 +726,14 @@ class TestDamageConflationDictionaries:
         primary = dd.loc["primary_damage_pre_event_raw_no_damage"]
         assert primary["description"] == building.description.rstrip(".") + " (primary building)."
         assert "largest strategy" in dd.loc["primary_feature_id", "description"]
+
+    def test_feature_api_patterns_do_not_claim_input_columns(self, tmp_path):
+        """A passed-through input column such as parcel_count is not a class detection count."""
+        aoi_file = tmp_path / "aois.csv"
+        _write_csv(aoi_file, ["aoi_id", "parcel_count"])
+        config = {"parameters": {"output_format": "csv", "country": "us", "aoi_file": str(aoi_file)}}
+        (tmp_path / "damage_conflation_export_config.json").write_text(json.dumps(config))
+        _write_csv(tmp_path / "damage_rollup.csv", ["aoi_id", "parcel_count", "n_buildings"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        dd = pd.read_csv(tmp_path / "damage_rollup_data_dictionary.csv").set_index("column_name")
+        assert dd.loc["parcel_count", "description"] == USER_INPUT_DESCRIPTION

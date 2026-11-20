@@ -70,6 +70,7 @@ PARCEL_MODE_MIN_INTERSECTION_SQM = BUILDING_SMALL_MAX_AREA_SQM
 _BUILDINGS_CSV_BASE_FIELDS = (
     AOI_ID_COLUMN_NAME,
     "feature_id",
+    "is_primary",
     "hilbert_id",
     "damage_event_rating",
     "damage_event_confidence",
@@ -493,6 +494,9 @@ class DamageConflationExporter(BaseExporter):
                 # collision the rollup schema wins; the input column gets `_input`.
                 passthrough = pd.DataFrame(aoi_gdf).drop(columns=["geometry"], errors="ignore")
                 rollup_df = passthrough.join(rollup_df, how="right", lsuffix="_input")
+            if "primary_feature_id" in rollup_df.columns:
+                primary_ids = features_gdf[AOI_ID_COLUMN_NAME].map(rollup_df["primary_feature_id"])
+                features_gdf["is_primary"] = (features_gdf["feature_id"] == primary_ids).map({True: "Y", False: "N"})
 
         if self.include_aoi_geometry and len(features_gdf) > 0:
             self.logger.info("Merging building data with AOI attributes...")

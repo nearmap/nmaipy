@@ -345,6 +345,14 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     assert rollup["n_buildings"].sum() == len(features)
     assert rollup["primary_damage_event_rating"].notna().all()
 
+    # is_primary marks exactly the rollup's primary building for each AOI, in both formats.
+    for fmt in (buildings, pd.read_csv(final / "damage_buildings.csv")):
+        primaries = fmt[fmt["is_primary"] == "Y"]
+        assert dict(zip(primaries["aoi_id"], primaries["feature_id"], strict=True)) == dict(
+            zip(rollup["aoi_id"], rollup["primary_feature_id"], strict=True)
+        )
+        assert set(fmt["is_primary"]) == {"Y", "N"}
+
     # Input columns pass through, ahead of the rollup columns, in both formats.
     for fmt in (rollup, pd.read_parquet(final / "damage_rollup.parquet").reset_index()):
         assert dict(zip(fmt["aoi_id"], fmt["policy_number"], strict=True)) == {"p1": "POL-1", "p2": "POL-2"}

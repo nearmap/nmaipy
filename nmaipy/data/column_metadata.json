@@ -593,6 +593,15 @@
       "description": "`feature_id` of the AOI's primary building, selected by {conflation_primary_strategy_description}. Links to the per-building file. Null when the AOI has no buildings or its query failed.",
       "source": "damage conflation model"
     },
+    "is_primary": {
+      "group": "damage_conflation",
+      "dtype": "binary",
+      "description": "Whether this building is the AOI's primary building, selected by {conflation_primary_strategy_description}. Matches `primary_feature_id` in the rollup. Present only when the rollup is produced.",
+      "allowed_values": "Y | N",
+      "source": "damage conflation model",
+      "min": "N",
+      "max": "Y"
+    },
     "hilbert_id": {
       "group": "damage_conflation",
       "dtype": "string",
@@ -770,7 +779,7 @@
     "model_version": {
       "group": "damage_conflation",
       "dtype": "string",
-      "description": "Version of the damage model that produced the ratings.",
+      "description": "Version of the damage conflation model that produced the ratings.",
       "source": "model metadata"
     },
     "presentation_version": {
