@@ -114,7 +114,7 @@ Roof components (material, shape, Tree Overhang, Leaf-off Tree Overhang, Dormer 
 - The objects are those left after the `belongsToParcel` filter (section 2). Objects with a missing or empty geometry are ignored.
 - On a gridded AOI (parcelMode off, section 6), only the objects whose geometry intersects the AOI are kept.
 - `<x>_present`, `<x>_count` and `<x>_confidence` use that one set of objects. `<x>_area_*` is the sum of their `clipped_area_*` in the country's unit, so an object that crosses the parcel boundary adds only its in-parcel part.
-- An object still counts when its clipped area is 0.0: either it rounds to 0.0, or it lies wholly outside the AOI on a roof analysed whole (a slight-overhang roof, or any roof with `--no-parcel-mode`). It adds 0.0 to the area.
+- An object still counts when its clipped area is 0.0: either it rounds to 0.0, or it lies wholly outside the AOI on a roof analysed whole (a slight-overhang roof, or any roof of a non-gridded AOI with `--no-parcel-mode`). It adds 0.0 to the area.
 - An object split between two parcels is counted on the roof of each parcel that keeps it. Each parcel adds only its own clipped area, so the area is not counted twice.
 - An object whose `parentId` is not a roof is on no roof. The parcel-level `<class>_count` still counts it. In the bundled sample `tests/data/test_features_2_all_packs.csv`, 17 of the 19 A/C Condenser Units have no `parentId`.
 
