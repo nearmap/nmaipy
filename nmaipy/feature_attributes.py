@@ -1026,33 +1026,15 @@ def roof_object_attributes(
     Raises:
         ValueError: ``children`` holds roof objects but lacks a column the counts need.
     """
-    unit = country_area_suffix(country)
-    area_col = f"clipped_area_{unit}"
-    roof_keys = pd.MultiIndex.from_arrays([_aoi_id_values(roofs), roofs["feature_id"].to_numpy()])
-    stats = _roof_object_stats(children, roof_object_classes, area_col, aoi_geometries)
-    roof_aois = _aoi_id_values(roofs)
-    unavailable_by_aoi = unavailable_by_aoi or {}
-    columns = {}
-    for class_id, description in roof_object_classes.items():
-        name = _roof_object_name(description)
-        on_roof = stats[stats["class_id"] == class_id].set_index(["aoi_id", "parent_id"]).reindex(roof_keys)
-        n_objects = on_roof["count"].fillna(0).to_numpy(dtype="int64")
-        count = pd.array(n_objects, dtype="Int64")
-        area = on_roof["area"].fillna(0.0).to_numpy(dtype=float, copy=True)
-        confidence = on_roof["confidence"].to_numpy(dtype=float, copy=True)
-        present = np.where(n_objects > 0, TRUE_STRING, FALSE_STRING).astype(object)
-        unavailable = np.fromiter(
-            (class_id in unavailable_by_aoi.get(aoi, ()) for aoi in roof_aois), dtype=bool, count=len(roof_aois)
-        )
-        if unavailable.any():
-            present[unavailable] = None
-            count[unavailable] = pd.NA
-            area[unavailable] = np.nan
-            confidence[unavailable] = np.nan
-        columns[f"{name}_present"] = present
-        columns[f"{name}_count"] = count
-        columns[f"{name}_area_{unit}"] = area
-        columns[f"{name}_confidence"] = confidence
+    columns = _roof_object_columns(
+        _aoi_id_values(roofs),
+        roofs["feature_id"].to_numpy(),
+        children,
+        roof_object_classes,
+        country,
+        unavailable_by_aoi,
+        aoi_geometries,
+    )
     return pd.DataFrame(columns, index=range(len(roofs)))
 
 
@@ -1409,39 +1391,87 @@ def _roof_object_name(description: str) -> str:
     return description.lower().replace(" ", "_")
 
 
-def _roof_object_stats(
-    children: pd.DataFrame | None, roof_object_classes: dict[str, str], area_col: str, aoi_geometries: dict | None
-) -> pd.DataFrame:
-    """Object count, summed clipped area and maximum confidence per (aoi_id, parent_id, class_id)."""
-    stats_columns = ["aoi_id", "parent_id", "class_id", "count", "area", "confidence"]
+def _roof_object_columns(
+    roof_aois,
+    roof_fids,
+    children: pd.DataFrame | None,
+    roof_object_classes: dict[str, str],
+    country: str,
+    unavailable_by_aoi: dict | None,
+    aoi_geometries: dict | None,
+) -> dict:
+    """roof_object_attributes' columns as arrays, for roofs given by their aoi_id and feature_id values."""
+    unit = country_area_suffix(country)
+    class_ids = list(roof_object_classes)
+    shape = (len(roof_aois), len(class_ids))
+    roof_pos, class_pos, object_area, object_confidence = _objects_on_roofs(
+        roof_aois, roof_fids, children, class_ids, f"clipped_area_{unit}", aoi_geometries
+    )
+    counts = np.zeros(shape, dtype="int64")
+    areas = np.zeros(shape)
+    confidences = np.full(shape, np.nan)
+    np.add.at(counts, (roof_pos, class_pos), 1)
+    np.add.at(areas, (roof_pos, class_pos), object_area)
+    np.fmax.at(confidences, (roof_pos, class_pos), object_confidence)
+    unavailable = np.zeros(shape, dtype=bool)
+    if unavailable_by_aoi is not None and unavailable_by_aoi:
+        for i, aoi in enumerate(roof_aois):
+            missing = unavailable_by_aoi.get(aoi)
+            if missing is not None:
+                unavailable[i] = [cid in missing for cid in class_ids]
+    columns = {}
+    for j, description in enumerate(roof_object_classes.values()):
+        name = _roof_object_name(description)
+        absent = unavailable[:, j]
+        present = np.where(counts[:, j] > 0, TRUE_STRING, FALSE_STRING).astype(object)
+        present[absent] = None
+        count = pd.array(counts[:, j], dtype="Int64")
+        count[absent] = pd.NA
+        columns[f"{name}_present"] = present
+        columns[f"{name}_count"] = count
+        columns[f"{name}_area_{unit}"] = np.where(absent, np.nan, areas[:, j])
+        columns[f"{name}_confidence"] = np.where(absent, np.nan, confidences[:, j])
+    return columns
+
+
+def _objects_on_roofs(
+    roof_aois,
+    roof_fids,
+    children: pd.DataFrame | None,
+    class_ids: list[str],
+    area_col: str,
+    aoi_geometries: dict | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Roof position, class position, clipped area and confidence of each roof object on one of the roofs."""
+    none = (np.empty(0, dtype=np.intp), np.empty(0, dtype=np.intp), np.empty(0), np.empty(0))
     if children is None or len(children) == 0:
-        return pd.DataFrame(columns=stats_columns)
+        return none
     if "class_id" not in children.columns:
         raise ValueError("Roof object children have no 'class_id' column")
-    objects = children[children["class_id"].isin(list(roof_object_classes)).to_numpy()]
-    if len(objects) == 0:
-        return pd.DataFrame(columns=stats_columns)
-    missing = [c for c in ("parent_id", area_col, "confidence", "geometry") if c not in objects.columns]
+    child_classes = children["class_id"].to_numpy(dtype=object)
+    is_object = np.isin(child_classes, class_ids)
+    n_objects = int(is_object.sum())
+    if n_objects == 0:
+        return none
+    missing = [c for c in ("parent_id", area_col, "confidence", "geometry") if c not in children.columns]
     if missing:
         raise ValueError(f"Roof object children lack column(s) {missing}")
-    geoms = np.asarray(objects["geometry"].array, dtype=object)
+    geoms = np.asarray(children["geometry"].array, dtype=object)[is_object]
     keep = ~(shapely.is_missing(geoms) | shapely.is_empty(geoms))
-    aoi_ids = np.asarray(_aoi_id_values(objects), dtype=object)
+    aoi_ids = np.asarray(_aoi_id_values(children), dtype=object)[is_object]
     for aoi_id, aoi_geom in (aoi_geometries or {}).items():
         in_aoi = keep & (aoi_ids == aoi_id)
         if in_aoi.any():
             keep[in_aoi] = shapely.intersects(geoms[in_aoi], aoi_geom)
-    frame = pd.DataFrame(
-        {
-            "aoi_id": aoi_ids[keep],
-            "parent_id": objects["parent_id"].to_numpy(dtype=object)[keep],
-            "class_id": objects["class_id"].to_numpy(dtype=object)[keep],
-            "area": objects[area_col].to_numpy(dtype=float)[keep],
-            "confidence": objects["confidence"].to_numpy(dtype=float)[keep],
-        }
+    roof_index = {key: i for i, key in enumerate(zip(roof_aois, roof_fids, strict=True))}
+    roof_pos = np.fromiter(
+        (roof_index.get(key, -1) for key in zip(aoi_ids, children["parent_id"].to_numpy()[is_object], strict=True)),
+        dtype=np.intp,
+        count=n_objects,
     )
-    return (
-        frame.groupby(["aoi_id", "parent_id", "class_id"], sort=False)
-        .agg(count=("area", "size"), area=("area", "sum"), confidence=("confidence", "max"))
-        .reset_index()
-    )
+    keep &= roof_pos >= 0
+    class_index = {cid: j for j, cid in enumerate(class_ids)}
+    class_pos = np.fromiter((class_index[c] for c in child_classes[is_object]), dtype=np.intp, count=n_objects)
+    area = np.nan_to_num(children[area_col].to_numpy(dtype=float)[is_object], nan=0.0)
+    confidence = children["confidence"].to_numpy(dtype=float)[is_object]
+    return roof_pos[keep], class_pos[keep], area[keep], confidence[keep]

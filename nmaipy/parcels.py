@@ -57,6 +57,7 @@ from nmaipy.feature_attributes import (
     _flatten_defensible_space_zone,
     _flatten_include_params,
     _parse_include_param,
+    _roof_object_columns,
     as_int64_roof_object_counts,
     calculate_child_feature_attributes,
     flatten_building_attributes,
@@ -65,7 +66,6 @@ from nmaipy.feature_attributes import (
     flatten_roof_attributes,
     flatten_roof_instance_attributes,
     is_resolved_score_column,
-    roof_object_attributes,
 )
 from nmaipy.primary_feature_selection import DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH
 from nmaipy.primary_feature_selection import select_primary
@@ -1117,17 +1117,18 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
                     }
                     if roof_object_classes:
                         aoi_id = _aoi_id_values(features_gdf)[0]
-                        roof_objects = roof_object_attributes(
-                            pd.DataFrame({AOI_ID_COLUMN_NAME: [aoi_id], "feature_id": [primary_feature.feature_id]}),
+                        roof_objects = _roof_object_columns(
+                            [aoi_id],
+                            [primary_feature.feature_id],
                             child_feats,
                             roof_object_classes,
                             country,
-                            unavailable_by_aoi={aoi_id: unavailable_class_ids},
-                            aoi_geometries={aoi_id: parcel_geom}
+                            {aoi_id: unavailable_class_ids},
+                            {aoi_id: parcel_geom}
                             if clip_roof_to_parcel and parcel_geom is not None and not parcel_geom.is_empty
                             else None,
                         )
-                        primary_attributes.update({c: roof_objects[c].array[0] for c in roof_objects.columns})
+                        primary_attributes.update({c: values[0] for c, values in roof_objects.items()})
                 elif class_id == BUILDING_NEW_ID:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
                 elif class_id == ROOF_INSTANCE_CLASS_ID:

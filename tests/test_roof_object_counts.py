@@ -288,7 +288,7 @@ class TestProcessChunk:
         assert "failed computing per-class files: ValueError: simulated" in caplog.text
 
     def test_roof_object_failure_in_rollup_raises(self, exporter, tmp_path, monkeypatch):
-        monkeypatch.setattr(parcels_mod, "roof_object_attributes", _raise)
+        monkeypatch.setattr(parcels_mod, "_roof_object_columns", _raise)
         with pytest.raises(ValueError, match="simulated"):
             self._run(exporter, tmp_path)
 
