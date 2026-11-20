@@ -308,6 +308,12 @@ GEOPARQUET_SCHEMA_VERSION = "1.0.0"
 # footer. 65,536 rows ≈ 60MB per group on an all-packs export.
 FEATURES_ROW_GROUP_SIZE = 65_536
 
+# Codec for every parquet file nmaipy writes. The merged outputs must use the
+# same codec as the chunks they are built from: pyarrow's ParquetWriter defaults
+# to snappy, which roughly doubles a merged geoparquet relative to its zstd
+# chunks, so the locally staged file can outgrow a disk the chunks fit on.
+PARQUET_COMPRESSION = "zstd"
+
 IMPERIAL_COUNTRIES = ["us"]
 
 

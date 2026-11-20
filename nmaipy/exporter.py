@@ -79,6 +79,7 @@ from nmaipy.constants import (
     MAX_RETRIES,
     METERS_TO_FEET,
     PARALLEL_READ_WORKERS,
+    PARQUET_COMPRESSION,
     PER_CLASS_FILE_CLASS_IDS,
     POOL_ID,
     PRIMARY_FEATURE_CLASS_IDS,
@@ -1061,7 +1062,7 @@ def _stream_merge_chunks_to_parquet(
     next_submit_idx = initial_submit
 
     try:
-        writer = pq.ParquetWriter(tmp_path, target)
+        writer = pq.ParquetWriter(tmp_path, target, compression=PARQUET_COMPRESSION)
         for i in range(n):
             future = prefetch_futures.pop(i)
             # Submit the next read before processing the current chunk so a read
@@ -1138,11 +1139,8 @@ def _staged_file_needs_upload(local_size: int, remote_size: int | None) -> bool:
     """Whether a staged output file must be (re)uploaded to S3.
 
     True unless an object of identical size already exists at the destination
-    (``remote_size`` is None when absent). This skips files that were uploaded
-    earlier but happen to share the per-class staging dir — notably
-    ``features.parquet``, which is streamed and uploaded during consolidation;
-    without the check, the per-class staging sweep re-pushes it in full
-    (multi-hundred-GB) every run.
+    (``remote_size`` is None when absent), so the per-class staging sweep never
+    re-pushes a file the destination already holds.
 
     Size equality is the same staleness signal the downstream consumer's sync
     uses. We don't checksum because S3's ETag isn't a portable hash for
@@ -3302,9 +3300,9 @@ class NearmapAIExporter(BaseExporter):
             outpath_features: Output path for final geoparquet file (string, may be S3 URI)
 
         Returns:
-            Local file path to the written geoparquet (for subsequent reads),
-            or None if no features were written.  For S3 output, returns the local staging
-            path (the file is uploaded but kept locally).
+            Path of the written geoparquet (``outpath_features``), or None if no
+            features were written. For S3 output the file is staged locally,
+            uploaded, and the staged copy is removed.
         """
 
         pqwriter = None
@@ -3474,7 +3472,7 @@ class NearmapAIExporter(BaseExporter):
                             )
                         else:
                             local_write_path = outpath_features
-                        pqwriter = pq.ParquetWriter(local_write_path, schema_with_geo)
+                        pqwriter = pq.ParquetWriter(local_write_path, schema_with_geo, compression=PARQUET_COMPRESSION)
 
                         # Cast first chunk to match promoted schema
                         table = _cast_table_to_schema(table, reference_schema)
@@ -3557,15 +3555,17 @@ class NearmapAIExporter(BaseExporter):
                 f"Final file size: {final_file_size_gb:.2f}GB"
             )
 
-            # Upload to S3 if needed.  Keep the local staging file so that
-            # per-class export can read from local disk instead of re-downloading
-            # from S3 for each class.  _cleanup_staging() removes it at the end.
+            # Upload to S3 if needed, then drop the staged copy: nothing reads it
+            # again (the per-class merge reads the per-class chunks), and left in
+            # place it would share the staging disk with every per-class file
+            # until the end of the run.
             if self.is_s3_output:
                 self.logger.info(f"Uploading features.parquet to S3 ({final_file_size_gb:.1f}GB)...")
                 storage.upload_file(local_write_path, outpath_features)
+                Path(local_write_path).unlink()
 
         if pqwriter is not None:
-            return local_write_path
+            return outpath_features
         self.logger.warning("No feature data found to write")
         return None
 
@@ -3705,9 +3705,7 @@ class NearmapAIExporter(BaseExporter):
             for fname in staged_files:
                 local_path = os.path.join(staging_dir, fname)
                 s3_path = storage.join_path(self.final_path, fname)
-                # Skip files already in S3 at the same size. features.parquet is
-                # streamed + uploaded earlier but shares this staging dir, so an
-                # unconditional sweep would re-upload the whole file every run.
+                # Skip files already in S3 at the same size.
                 # Two S3 calls (file_exists then file_size) instead of one bare
                 # file_size + try/except is deliberate: file_exists carries the
                 # retry-on-transient-S3-read logic from storage.py, so a flaky

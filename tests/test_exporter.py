@@ -137,9 +137,8 @@ class TestNonnegativeInt:
 class TestStagedFileNeedsUpload:
     """``_staged_file_needs_upload`` skips staged files already in S3 at the same size.
 
-    Guards the per-class staging sweep against re-uploading features.parquet (streamed +
-    uploaded earlier, shares the staging dir) while still uploading new/changed files.
-    Pure function, no live API.
+    Guards the per-class staging sweep against re-uploading a file the destination already
+    holds while still uploading new/changed files. Pure function, no live API.
     """
 
     def test_absent_remote_uploads(self):
@@ -147,7 +146,7 @@ class TestStagedFileNeedsUpload:
         assert _staged_file_needs_upload(1000, None) is True
 
     def test_same_size_skips(self):
-        # Identical size already in S3 -> skip (the features.parquet case).
+        # Identical size already in S3 -> skip.
         assert _staged_file_needs_upload(636658449520, 636658449520) is False
 
     def test_different_size_uploads(self):
@@ -816,6 +815,65 @@ class TestExporter:
             assert merged.crs is not None
             assert len(merged) == n1 + n2
 
+    def _two_feature_chunks(self, chunk_dir):
+        """Write two small feature chunks and return their paths."""
+        paths = []
+        for i in range(2):
+            chunk = gpd.GeoDataFrame(
+                {
+                    "feature_id": [f"f{i}_{j}" for j in range(50)],
+                    "class_id": [f"class_{j % 5:02d}" for j in range(50)],
+                    "geometry": [Point(i, j) for j in range(50)],
+                },
+                crs="EPSG:4326",
+            )
+            path = chunk_dir / f"features_test_{i}.parquet"
+            chunk.to_parquet(path)
+            paths.append(path)
+        return paths
+
+    def test_stream_and_convert_features_writes_zstd(self, tmp_path):
+        """The merged file uses the chunk codec, not pyarrow's snappy default.
+
+        Snappy roughly doubles a merged geoparquet relative to its zstd chunks,
+        so a locally staged merge could outgrow a disk the chunks fit on.
+        """
+        exporter = AOIExporter(output_dir=tmp_path, country="au", packs=["building"], save_features=True)
+        output_path = tmp_path / "merged_features.parquet"
+        exporter._stream_and_convert_features(self._two_feature_chunks(tmp_path), output_path)
+
+        meta = pq.read_metadata(output_path)
+        codecs = {
+            meta.row_group(rg).column(col).compression
+            for rg in range(meta.num_row_groups)
+            for col in range(meta.num_columns)
+        }
+        assert codecs == {"ZSTD"}, f"Expected every column chunk to be ZSTD, got {codecs}"
+
+    def test_stream_and_convert_features_removes_staged_copy_after_s3_upload(self, tmp_path):
+        """For S3 output the staged file is deleted once uploaded.
+
+        Nothing reads it afterwards, and left in place it would share the
+        staging disk with every per-class file until the end of the run.
+        """
+        exporter = AOIExporter(output_dir=tmp_path, country="au", packs=["building"], save_features=True)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        exporter.is_s3_output = True
+        exporter._local_final_staging = str(staging)
+        s3_dest = "s3://some-bucket/out/final/features.parquet"
+        uploaded = {}
+
+        def fake_upload(local_path, remote_path):
+            uploaded[remote_path] = pq.read_metadata(local_path).num_rows
+
+        with patch.object(exporter_mod.storage, "upload_file", side_effect=fake_upload):
+            result = exporter._stream_and_convert_features(self._two_feature_chunks(tmp_path), s3_dest)
+
+        assert uploaded == {s3_dest: 100}, f"Expected one complete upload to {s3_dest}, got {uploaded}"
+        assert result == s3_dest
+        assert list(staging.iterdir()) == [], f"Staged copy left behind: {list(staging.iterdir())}"
+
 
 class TestReadParquetChunksParallel:
     """Tests for _read_parquet_chunks_parallel."""
@@ -1349,6 +1407,17 @@ class TestStreamMergeChunksToParquet:
             }
         )
         return [c0, c1, c2]
+
+    def test_merged_file_is_zstd(self, tmp_path):
+        """The merge writes the chunk codec, not pyarrow's snappy default."""
+        paths = _write_chunks(tmp_path, self._mismatched_chunks())
+        out = str(tmp_path / "merged.parquet")
+
+        _stream_merge_chunks_to_parquet(paths, out, scan_workers=2, prefetch_workers=1)
+
+        meta = pq.read_metadata(out)
+        codecs = {meta.row_group(0).column(col).compression for col in range(meta.num_columns)}
+        assert codecs == {"ZSTD"}, f"Expected every column chunk to be ZSTD, got {codecs}"
 
     def test_schema_matches_oracle_and_row_count(self, tmp_path):
         chunks = self._mismatched_chunks()
