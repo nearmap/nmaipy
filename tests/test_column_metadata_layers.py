@@ -18,6 +18,7 @@ import json
 import pytest
 
 from nmaipy.column_metadata import UNKNOWN_SENTINEL, lookup_column, reload_metadata
+from nmaipy.constants import FEATURE_CLASS_DESCRIPTIONS, ROOF_OBJECT_CLASS_IDS
 
 
 @pytest.fixture(autouse=True)
@@ -149,7 +150,15 @@ def test_model_input_fields_do_not_shadow_roof_component_columns():
 _ROOF_OBJECT_SUFFIXES = ("present", "count", "area_sqft", "area_sqm", "confidence")
 
 
-@pytest.mark.parametrize("roof_object", ["a/c_condenser_unit", "solar_panel", "skylight", "vent"])
+def test_every_roof_object_class_has_a_description():
+    missing = ROOF_OBJECT_CLASS_IDS - FEATURE_CLASS_DESCRIPTIONS.keys()
+    assert not missing, f"roof object classes without a description: {sorted(missing)}"
+
+
+@pytest.mark.parametrize(
+    "roof_object",
+    sorted(FEATURE_CLASS_DESCRIPTIONS[c].lower().replace(" ", "_") for c in ROOF_OBJECT_CLASS_IDS),
+)
 @pytest.mark.parametrize(
     ("scope", "class_label"), [("", "roof"), ("primary_roof_", "feature"), ("primary_child_roof_", "building")]
 )
