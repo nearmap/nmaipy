@@ -595,7 +595,7 @@
       "unscoped_class_labels": ["roof"],
       "dtype": "int",
       "min": "0",
-      "description": "Number of {class} objects {scope_phrase}, that is objects that the Feature API returns with that roof as their parent. Null when the {class} class is not available for the AOI (the request failed, or the AOI's system version does not return the class); 0 when it is available and the roof has none.",
+      "description": "Number of {class} objects {scope_phrase}, that is objects that the Feature API returns with that roof as their parent. Null when the {class} class is not available for the AOI (the request failed, or the AOI's system version does not return the class); 0 when it is available and the roof has none. An object counts even when its clipped area is 0: when the area rounds to 0, or when the object lies wholly outside the AOI on a roof analysed whole (a slight-overhang roof, or any roof with parcel mode off).",
       "source": "base ai model"
     },
     {
@@ -604,7 +604,7 @@
       "dtype": "float",
       "min": "0",
       "unit": "{unit_name}",
-      "description": "Total clipped area (the area inside the AOI) of the {class} objects {scope_phrase}, in {unit_name}. The objects are those that the Feature API returns with that roof as their parent. Null when the {class} class is not available for the AOI (the request failed, or the AOI's system version does not return the class); 0 when it is available and the roof has none.",
+      "description": "Total clipped area (the area inside the AOI) of the {class} objects {scope_phrase}, in {unit_name}. The objects are those that the Feature API returns with that roof as their parent. Null when the {class} class is not available for the AOI (the request failed, or the AOI's system version does not return the class); 0 when it is available and the roof has none. An object whose clipped area rounds to 0, or that lies wholly outside the AOI on a roof analysed whole (a slight-overhang roof, or any roof with parcel mode off), adds 0.",
       "source": "base ai model"
     },
     {

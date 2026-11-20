@@ -114,7 +114,7 @@ Roof components (material, shape, Tree Overhang, Leaf-off Tree Overhang, Dormer 
 - The objects are those left after the `belongsToParcel` filter (section 2). Objects with a missing or empty geometry are ignored.
 - On a gridded AOI (parcelMode off, section 6), only the objects whose geometry intersects the AOI are kept.
 - `<x>_present`, `<x>_count` and `<x>_confidence` use that one set of objects. `<x>_area_*` is the sum of their `clipped_area_*` in the country's unit, so an object that crosses the parcel boundary adds only its in-parcel part.
-- An object still counts when its clipped area rounds to 0.0. It adds 0.0 to the area.
+- An object still counts when its clipped area is 0.0: either it rounds to 0.0, or it lies wholly outside the AOI on a roof analysed whole (a slight-overhang roof, or any roof with `--no-parcel-mode`). It adds 0.0 to the area.
 - An object split between two parcels is counted on the roof of each parcel that keeps it. Each parcel adds only its own clipped area, so the area is not counted twice.
 - An object whose `parentId` is not a roof is on no roof. The parcel-level `<class>_count` still counts it. In the bundled sample `tests/data/test_features_2_all_packs.csv`, 17 of the 19 A/C Condenser Units have no `parentId`.
 
@@ -176,7 +176,7 @@ On 8 bundled parcels split into ~10 m cells with seven packs, all 249 features (
 - `<class>_total_area_*` sums `area`: whole objects for discrete classes, in-AOI area for connected classes.
 - `<class>_total_clipped_area_*` is the in-parcel total for every class. Use it for "how much X is on this lot". It covers features attributed to the parcel. A feature judged not to belong, typically a neighbour's roof that appears to overhang because of parallax or parcel/imagery offset, is left out entirely, by design (gridded AOIs keep such features, section 6).
 - `<class>_total_unclipped_area_*` is whole objects, or whole patches for connected classes. It is rarely what someone wants for connected classes.
-- The roof object columns of a roof row (`<x>_count`, …), of a building row (`primary_child_roof_<x>_*`) and of the rollup (`primary_roof_<x>_*`) describe the objects on that one roof (section 4). The parcel-level `<class>_count` and `<class>_total_clipped_area_*` cover every object of the class on the lot, on a roof or not.
+- The roof object columns of a roof row (`<x>_count`, …), of a building row (`primary_child_roof_<x>_*`) and of the rollup (`primary_roof_<x>_*`) describe the objects on that one roof (section 4). The parcel-level `<class>_count` and `<class>_total_clipped_area_*` cover every object of the class returned for the AOI, on a roof or not. On a gridded AOI this includes roof children outside the AOI (section 6), which add 0 to the clipped area.
 - `multiparcel_feature` / `<class>_multiparcel_feature_count`: whether the API returned the feature clipped to this parcel because it is shared with another. A slight-overhang roof is `N` here, even though it crosses the boundary.
 - `belongs_to_parcel` is true on every row answered with parcelMode on, because non-belonging features were dropped, except classes the API doesn't flag (e.g. Pole), which are null. It is null for gridded AOIs. It is not a "fully inside" flag.
 - The same `feature_id` can appear in several AOIs' rows with different clipped values. Row identity is `(aoi_id, feature_id)`. `feature_id` is stable within a survey but not across survey dates.

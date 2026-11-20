@@ -111,7 +111,7 @@ The Feature API's former rollup endpoints are deprecated; leave them aside. nmai
   - Each row of the roof file gets four columns per class, named from the description as above: `<x>_present` (Y/N), `<x>_count`, `<x>_area_*` and `<x>_confidence`, e.g. `a/c_condenser_unit_count` or `solar_panel_area_sqft`. The building file has them for the building's primary child roof, prefixed `primary_child_roof_`. The rollup has them for the primary roof, prefixed `primary_roof_`.
   - The objects on a roof are those whose `parentId` is that roof, in the same AOI. Which objects count and what area each adds is in the geometry reference, section 4.
   - `<x>_area_*` is the sum of the objects' clipped areas. `<x>_confidence` is the highest confidence among the objects, not the 1 − Π(1 − cᵢ) of `<class>_confidence`. It is null when the count is 0.
-  - The parcel-level `<class>_present`, `<class>_count`, … columns of these classes are unchanged. They count every object of the class in the parcel, including objects on no roof.
+  - The parcel-level `<class>_present`, `<class>_count`, … columns of these classes are unchanged. They count every object of the class returned for the AOI, including objects on no roof and, on a gridded AOI, roof children outside it.
 - [nmaipy] **Null vs 0 vs N:**
   - **Queried, nothing found:** `_present=N`, `_count=0`, totals 0.0, `_confidence` null, `primary_*_area` 0.0.
   - **`nearest` found no eligible feature:** `_present=Y`, `_count>0`, but the primary columns hold their empty defaults.
