@@ -244,13 +244,13 @@ class TestProcessChunk:
         ex.logger.removeHandler(caplog.handler)
 
     @staticmethod
-    def _aoi_gdf(tmp_path) -> gpd.GeoDataFrame:
-        """Integer aoi ids and a system_version input column, read from an AOI file."""
+    def _aoi_gdf(tmp_path, input_column: str) -> gpd.GeoDataFrame:
+        """Integer aoi ids and one input column, read from an AOI file."""
         path = tmp_path / "aois.csv"
         pd.DataFrame(
             {
                 AOI_ID_COLUMN_NAME: [1, 2],
-                "system_version": ["mine-1", "mine-2"],
+                input_column: ["mine-1", "mine-2"],
                 "geometry": [box(0, 0, 0.0001, 0.0001).wkt, box(0.0001, 0, 0.0002, 0.0001).wkt],
             }
         ).to_csv(path, index=False)
@@ -269,13 +269,13 @@ class TestProcessChunk:
         errors.index.name = AOI_ID_COLUMN_NAME
         return features, meta, errors
 
-    def _run(self, exporter, tmp_path) -> Path:
+    def _run(self, exporter, tmp_path, input_column: str = "system_version") -> Path:
         with (
             patch("nmaipy.exporter.FeatureApi") as mock_api,
             patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
         ):
             mock_api.return_value.get_features_gdf_bulk.return_value = self._api_response()
-            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(tmp_path), classes_df=CLASSES)
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(tmp_path, input_column), classes_df=CLASSES)
         return Path(exporter.chunk_path)
 
     def test_unavailable_class_is_null_in_every_file(self, exporter, tmp_path):
@@ -293,6 +293,21 @@ class TestProcessChunk:
             assert pd.isna(df.loc[2, prefix + "present"]), name
             assert df.loc[1, prefix + "count"] == 0, f"{name}: available at AOI 1's version, none found"
             assert df.loc[1, prefix.replace("solar_panel", "vent") + "count"] == 2, name
+
+    @pytest.mark.parametrize("input_column", ["confidence", "parent_id"])
+    def test_input_column_named_like_a_feature_column_keeps_the_roof_objects(
+        self, exporter, tmp_path, caplog, input_column
+    ):
+        chunk_path = self._run(exporter, tmp_path, input_column=input_column)
+        assert "failed computing per-class files" not in caplog.text, caplog.text
+        assert (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be marked complete"
+        roof = pd.read_parquet(chunk_path / "roof_0000.parquet").set_index(AOI_ID_COLUMN_NAME)
+        assert roof.loc[1, "vent_count"] == 2
+        assert roof.loc[1, "vent_area_sqm"] == pytest.approx(2.3)
+        assert roof.loc[1, "vent_confidence"] == pytest.approx(0.8)
+        assert roof.loc[2, "vent_count"] == 1
+        assert roof.loc[2, "vent_area_sqm"] == pytest.approx(0.2)
+        assert roof.loc[2, "vent_confidence"] == pytest.approx(0.7)
 
     def test_roof_object_failure_in_per_class_files_fails_the_chunk(self, exporter, tmp_path, monkeypatch, caplog):
         monkeypatch.setattr(exporter_mod, "roof_object_attributes", _raise)

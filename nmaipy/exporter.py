@@ -771,6 +771,7 @@ def _roof_attrs_by_key(
     aoi_geometries: dict | None,
     roof_object_classes: dict | None,
     unavailable_by_aoi: dict | None,
+    roof_objects: pd.DataFrame | None = None,
 ) -> dict:
     """Flattened attributes of each roof, keyed by (aoi_id, feature_id), with its roof object columns.
 
@@ -778,6 +779,7 @@ def _roof_attrs_by_key(
     carrying attributes recomputed on that parcel's clipped geometry, so keying by feature_id alone would
     let one parcel's clip overwrite another's. A roof whose flatten fails gets only its roof object
     columns. A roof object failure raises. No roof object columns are added when roof_object_classes is None.
+    The roof object columns are counted from roof_objects when given, else from children.
     """
     child_by_aoi = _group_children_by_aoi(children, None) if children is not None else {}
     roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(
@@ -802,7 +804,7 @@ def _roof_attrs_by_key(
     if roof_object_classes is not None and roof_object_classes:
         objects = roof_object_attributes(
             roofs,
-            children,
+            roof_objects if roof_objects is not None else children,
             roof_object_classes,
             country,
             unavailable_by_aoi=unavailable_by_aoi,
@@ -1312,6 +1314,7 @@ def _compute_all_per_class_data(
     aoi_geometries: dict | None = None,
     roof_object_classes: dict | None = None,
     unavailable_by_aoi: dict | None = None,
+    roof_objects: pd.DataFrame | None = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -1337,6 +1340,9 @@ def _compute_all_per_class_data(
             (roof file) and primary child roof (building file). None writes no roof object columns.
         unavailable_by_aoi: {aoi_id: class ids} not available for that AOI (see
             parcels.unavailable_classes_by_aoi). Their roof object columns are null.
+        roof_objects: the chunk's roof object rows, taken before any AOI input columns were merged in, with
+            ``aoi_id``, ``class_id``, ``parent_id``, ``confidence``, ``clipped_area_<unit>`` and ``geometry``.
+            The roof object columns are then counted from them rather than from ``chunk_gdf``.
     """
     if whitelisted_classes is None:
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
@@ -1430,6 +1436,7 @@ def _compute_all_per_class_data(
                 aoi_geometries,
                 roof_object_classes,
                 unavailable_by_aoi,
+                roof_objects=roof_objects,
             )
 
     # Compute per-class data for each whitelisted class.
@@ -4317,6 +4324,22 @@ class NearmapAIExporter(BaseExporter):
                     f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                 )
 
+            # Taken before the merges, so that an AOI input column of the same name cannot replace these columns.
+            roof_objects = None
+            if self.class_level_files and roof_object_classes and "class_id" in features_gdf.columns:
+                object_columns = [
+                    AOI_ID_COLUMN_NAME,
+                    "class_id",
+                    "parent_id",
+                    "confidence",
+                    f"clipped_area_{country_area_suffix(self.country)}",
+                    "geometry",
+                ]
+                roof_objects = features_gdf.loc[
+                    features_gdf["class_id"].isin(list(roof_object_classes)),
+                    [c for c in object_columns if c in features_gdf.columns],
+                ]
+
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
             del features_gdf  # last use
@@ -4494,6 +4517,7 @@ class NearmapAIExporter(BaseExporter):
                         aoi_geometries=aoi_geometries,
                         roof_object_classes=roof_object_classes,
                         unavailable_by_aoi=unavailable_by_aoi,
+                        roof_objects=roof_objects,
                     )
                     _t_per_class_compute = time.monotonic()
 
@@ -4530,6 +4554,7 @@ class NearmapAIExporter(BaseExporter):
                     del chunk_gdf, per_class_results
                 except Exception as e:  # noqa: BLE001 -- recorded via record_failure, which withholds the chunk's rollup
                     record_failure("computing per-class files", e)
+            del roof_objects
 
             # Write rollup LAST — it serves as the chunk completion marker, so only
             # once every other chunk file is written. If the process is killed before
