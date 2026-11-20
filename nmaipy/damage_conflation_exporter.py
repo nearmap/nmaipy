@@ -180,7 +180,8 @@ def parse_arguments():
     )
     parser.add_argument(
         "--primary-decision",
-        help="Primary-building selection for the rollup: 'largest' (default) or 'optimal' "
+        help="Primary-building selection (the rollup's primary building and is_primary in the "
+        "per-building output): 'largest' (default) or 'optimal' "
         "(prefers the building containing the AOI's lat/lon, requires lat/lon columns).",
         type=str,
         choices=["largest", "optimal"],
@@ -479,24 +480,27 @@ class DamageConflationExporter(BaseExporter):
         # Derive the rollup from the fully-combined features (not per-chunk) so it is
         # always correct, including on a resumed run with cached chunks. Compute before
         # the include_aoi_geometry merge so the rollup is built from pristine features.
-        rollup_df = pd.DataFrame()
-        if self.rollup:
-            rollup_df = parcels.conflation_rollup(
-                aoi_gdf,
-                features_gdf,
-                country=self.country,
-                successful_aoi_ids=set(metadata_df.index),
-                primary_decision=self.primary_decision,
-            )
-            if len(rollup_df) > 0:
-                # Lead with the input file's own columns (mirrors AOIExporter's rollup)
-                # so customer-supplied columns survive into the output. On a name
-                # collision the rollup schema wins; the input column gets `_input`.
-                passthrough = pd.DataFrame(aoi_gdf).drop(columns=["geometry"], errors="ignore")
-                rollup_df = passthrough.join(rollup_df, how="right", lsuffix="_input")
-            if "primary_feature_id" in rollup_df.columns:
-                primary_ids = features_gdf[AOI_ID_COLUMN_NAME].map(rollup_df["primary_feature_id"])
-                features_gdf["is_primary"] = (features_gdf["feature_id"] == primary_ids).map({True: "Y", False: "N"})
+        # It is computed even when the rollup file is not requested, because it selects
+        # each AOI's primary building for the per-building is_primary column.
+        rollup_df = parcels.conflation_rollup(
+            aoi_gdf,
+            features_gdf,
+            country=self.country,
+            successful_aoi_ids=set(metadata_df.index),
+            primary_decision=self.primary_decision,
+        )
+        if len(features_gdf) > 0:
+            # Mark each AOI's primary building, as AOIExporter does in its per-class
+            # files: Y/N, matched on (aoi_id, feature_id), placed after feature_id.
+            primary_ids = features_gdf[AOI_ID_COLUMN_NAME].map(rollup_df.get("primary_feature_id", pd.Series()))
+            is_primary = (features_gdf["feature_id"] == primary_ids).map({True: "Y", False: "N"})
+            features_gdf.insert(list(features_gdf.columns).index("feature_id") + 1, "is_primary", is_primary)
+        if self.rollup and len(rollup_df) > 0:
+            # Lead with the input file's own columns (mirrors AOIExporter's rollup)
+            # so customer-supplied columns survive into the output. On a name
+            # collision the rollup schema wins; the input column gets `_input`.
+            passthrough = pd.DataFrame(aoi_gdf).drop(columns=["geometry"], errors="ignore")
+            rollup_df = passthrough.join(rollup_df, how="right", lsuffix="_input")
 
         if self.include_aoi_geometry and len(features_gdf) > 0:
             self.logger.info("Merging building data with AOI attributes...")

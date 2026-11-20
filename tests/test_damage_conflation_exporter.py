@@ -345,8 +345,10 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     assert rollup["n_buildings"].sum() == len(features)
     assert rollup["primary_damage_event_rating"].notna().all()
 
-    # is_primary marks exactly the rollup's primary building for each AOI, in both formats.
+    # is_primary marks exactly the rollup's primary building for each AOI, in both formats,
+    # and sits straight after feature_id as in the Feature API per-class files.
     for fmt in (buildings, pd.read_csv(final / "damage_buildings.csv")):
+        assert list(fmt.columns).index("is_primary") == list(fmt.columns).index("feature_id") + 1
         primaries = fmt[fmt["is_primary"] == "Y"]
         assert dict(zip(primaries["aoi_id"], primaries["feature_id"], strict=True)) == dict(
             zip(rollup["aoi_id"], rollup["primary_feature_id"], strict=True)

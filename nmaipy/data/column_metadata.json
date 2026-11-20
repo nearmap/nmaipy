@@ -596,7 +596,7 @@
     "is_primary": {
       "group": "damage_conflation",
       "dtype": "binary",
-      "description": "Whether this building is the AOI's primary building, selected by {conflation_primary_strategy_description}. Matches `primary_feature_id` in the rollup. Present only when the rollup is produced.",
+      "description": "Whether this building is the AOI's primary building — selected by {conflation_primary_strategy_description}. Matches `primary_feature_id` in the rollup.",
       "allowed_values": "Y | N",
       "source": "damage conflation model",
       "min": "N",
