@@ -61,7 +61,7 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
 - [API] `/classes.json` gives each class an `availability` list of `{systemVersion, perspective, status}`.
 - [nmaipy] **Unreturnable classes are nulled.**
   - A class is "returnable" at an AOI's exact `system_version` if a matching entry has status `prod`, or `alpha`/`beta` when those flags are on.
-  - For each AOI, the rollup columns of unreturnable classes are set to **null**, not 0, because absence means "can't be detected at this version", not "none present".
+  - For each AOI, the rollup columns of unreturnable classes are set to **null**, not 0, because absence means "can't be detected at this version", not "none present". The same applies to the per-roof roof object columns of those classes (section 5).
   - The class list used is saved as `final/classes_availability.json`.
 - Discrete vs connected classes: see the geometry reference.
 
@@ -105,12 +105,18 @@ The Feature API's former rollup endpoints are deprecated; leave them aside. nmai
   - `nearest` needs `lat`/`lon` input columns. Only features with clipped area > 30 sqm are eligible. It prefers a feature containing the point, then the nearest within 1 m, favouring confidence ≥ 0.9. It can return none.
   - `optimal` tries `nearest`, then falls back to `largest_intersection`.
   - Rows with null lat/lon fall back to largest.
-- [nmaipy] **Primary columns:** `primary_<class>_area_*`, `_clipped_area_*`, `_unclipped_area_*`, `_confidence` and `_feature_id`, plus `_fidelity` and `_multiparcel_feature` for building-style classes (not Swimming pool), plus flattened attributes (roof components, `dominant_roof_material_*`, `dominant_roof_types_*`).
+- [nmaipy] **Primary columns:** `primary_<class>_area_*`, `_clipped_area_*`, `_unclipped_area_*`, `_confidence` and `_feature_id`, plus `_fidelity` and `_multiparcel_feature` for building-style classes (not Swimming pool), plus flattened attributes (roof components, `dominant_roof_material_*`, `dominant_roof_types_*`, and the primary roof's roof object columns, below).
+- [nmaipy] **Roof object columns** (`feature_attributes.roof_object_attributes`). Roof objects are 15 classes that are mounted on roofs, or commonly are (`constants.ROOF_OBJECT_CLASS_IDS`): A/C Condenser Unit, HVAC, Roof Equipment, Duct, Pipe, Vent, Residential Chimney, Residential Satellite Dish, Residential TV Antenna Base, Translucent Roofing, Roof Walkway, Miscellaneous Roof Object, Solar Panel, Solar Hot Water and Skylight. The API returns them as features of their own, not as roof components. Columns appear only for the classes whose pack was requested.
+  - Each row of the roof file gets four columns per class, named from the description as above: `<x>_present` (Y/N), `<x>_count`, `<x>_area_*` and `<x>_confidence`, e.g. `a/c_condenser_unit_count` or `solar_panel_area_sqft`. The building file has them for the building's primary child roof, prefixed `primary_child_roof_`. The rollup has them for the primary roof, prefixed `primary_roof_`.
+  - The objects on a roof are those whose `parentId` is that roof, in the same AOI. Which objects count and what area each adds is in the geometry reference, section 4.
+  - `<x>_area_*` is the sum of the objects' clipped areas. `<x>_confidence` is the highest confidence among the objects, not the 1 − Π(1 − cᵢ) of `<class>_confidence`. It is null when the count is 0.
+  - The parcel-level `<class>_present`, `<class>_count`, … columns of these classes are unchanged. They count every object of the class in the parcel, including objects on no roof.
 - [nmaipy] **Null vs 0 vs N:**
   - **Queried, nothing found:** `_present=N`, `_count=0`, totals 0.0, `_confidence` null, `primary_*_area` 0.0.
   - **`nearest` found no eligible feature:** `_present=Y`, `_count>0`, but the primary columns hold their empty defaults.
   - **API call failed for the AOI (including a 404, no coverage), or class unreturnable at its system version:** every column for the class is **null**, including `_present` and `_count`. `feature_api_success=N` marks the failure case.
   - **Attribute columns** exist only where emitted, so they are null when there is no primary feature.
+  - **Roof object columns** follow the same rule per class (`parcels.unavailable_classes_by_aoi`). All four are null when the class is not available for the AOI: its API call failed for the AOI, or the class is unreturnable at the AOI's system version. A roof with no objects of an available class gets `N`, `0`, `0.0` and a null `_confidence`. They are also null in the building file when the building has no primary child roof, and in the rollup when the parcel has no primary roof.
   - **Clipped roof component whose area cannot be computed (an unrepairable invalid geometry):** its `_present`, area and `_ratio` are null with no `_confidence`, and the matching dominant columns are null too, not `unknown`: `dominant_roof_material_*` for a roof material component, `dominant_roof_types_*` for a roof type component.
 
 ## 6. Errors, retries, resume and cache
@@ -145,6 +151,7 @@ The Feature API's former rollup endpoints are deprecated; leave them aside. nmai
 - **[nmaipy] An export's class-level confidence is a formula, not a detection's confidence.**
   - `<class>_confidence` = 1 − Π(1 − cᵢ) over the AOI's features of that class: the chance that at least one detection is real. It runs higher than any single detection's confidence, so a cutoff tuned on feature confidence doesn't carry over to it.
   - `primary_<class>_confidence` is the primary feature's own confidence.
+  - A roof object column such as `primary_roof_solar_panel_confidence` is the highest confidence among that class's objects on the primary roof (section 5).
 - **No recommended cutoff.** The public documentation gives no recommended confidence threshold. Set one per class against the user's own outcomes (a labelled sample of their properties), and use the public Gen 6 system report's property-level figures for the accuracy to expect. Don't invent a "typical" cutoff.
 
 ## 9. Comparing surveys over time

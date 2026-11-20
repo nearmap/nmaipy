@@ -337,6 +337,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
    - `parcel_rollup()`: Main rollup function — aggregates all features within each AOI into summary statistics with primary feature selection
    - `link_roofs_to_buildings()`: Spatial association of roofs to parent buildings
    - `link_roof_instances_to_roofs()`: Links Roof Age API results to Feature API roof geometries by IoU
+   - `unavailable_classes_by_aoi()`: Per-AOI set of classes with no observational data (the AOI's API call failed, or the class is unreturnable at its `system_version`), whose columns are nulled rather than zeroed
    - Re-exports `calculate_child_feature_attributes()` from `feature_attributes.py`
    - `conflation_rollup()`: Per-AOI rollup of Damage Conflation features (same primary-selection/`primary_*`/null-out conventions as `parcel_rollup`, single-class)
    - Re-exports `read_from_file` from `aoi_io` for backward compatibility
@@ -351,6 +352,7 @@ How nmaipy uses this: `flatten_roof_attributes` recomputes components through `c
    - `flatten_building_attributes()`: Flattens nested building API attributes to flat dict
    - `flatten_roof_attributes()`: Flattens roof attributes including materials, spotlight index
    - `calculate_child_feature_attributes()`: Recomputes component attributes of a clipped feature from its child features (e.g. roof characteristics on a clipped roof)
+   - `roof_object_attributes()`: Per-roof `_present`/`_count`/`_area_*`/`_confidence` of each roof object class (`ROOF_OBJECT_CLASS_IDS`), from the objects whose parent is that roof in the same AOI (keyed by `(aoi_id, parent_id)`)
    - `flatten_building_lifecycle_damage_attributes()`: Flattens Feature API per-survey damage classification scores
    - `flatten_conflated_damage_attributes()`: Flattens Damage Conflation API (ai/damage/v2) per-building `damage.event`/`damage.preEvent` ratings into a fixed `damage_event_*`/`damage_pre_event_*` column set
    - `flatten_roof_instance_attributes()`: Flattens Roof Age API result attributes
