@@ -404,6 +404,41 @@ BOAT_ID = "62a0958e-2139-5688-a776-b88c6049d50e"
 SILO_ID = "b64ecdb0-6810-5c70-835c-9e2a5f2a4d84"
 SKYLIGHT_ID = "3f5a737e-6d56-538a-ac26-f2934bbbb695"
 PLAYGROUND_ID = "7741703d-4ce4-54e1-a9ee-05a0a1851137"
+AC_CONDENSER_UNIT_ID = "ed1ea29d-cd2c-55a9-8737-13018a9bb741"
+HVAC_ID = "741b512f-a4a9-5107-a301-a0d1a7094783"
+ROOF_EQUIPMENT_ID = "ba7c0d7d-d355-56f0-ab69-2a96720bf7b7"
+DUCT_ID = "9992c50b-59cb-57dd-90ee-9b5dfac7d3f5"
+PIPE_ID = "c81ff488-2693-5812-89d6-1b9e7950b308"
+VENT_ID = "2a41d66b-91ef-5b51-8737-a53e8751dff7"
+RESIDENTIAL_CHIMNEY_ID = "c54e38d6-866f-592c-bb9c-c68044ed43c9"
+RESIDENTIAL_SATELLITE_DISH_ID = "046ba67f-ca1e-5801-bb1c-bfcafea2d796"
+RESIDENTIAL_TV_ANTENNA_BASE_ID = "b22e2f48-de58-53be-84ae-d56181f737fe"
+TRANSLUCENT_ROOFING_ID = "c67497c5-76af-5cd2-a5c7-473cca0f6597"
+ROOF_WALKWAY_ID = "5c50f05d-b158-5cf1-ad0b-e231bde9615c"
+MISCELLANEOUS_ROOF_OBJECT_ID = "1948fc2b-40cb-5107-b095-339b77a6ef57"
+
+# Objects that are defined as roof-mounted, or commonly are, but that the Feature API
+# returns as standalone features rather than roof components. Each roof reports those the API
+# returns with that roof as their parent.
+ROOF_OBJECT_CLASS_IDS = frozenset(
+    {
+        AC_CONDENSER_UNIT_ID,
+        HVAC_ID,
+        ROOF_EQUIPMENT_ID,
+        DUCT_ID,
+        PIPE_ID,
+        VENT_ID,
+        RESIDENTIAL_CHIMNEY_ID,
+        RESIDENTIAL_SATELLITE_DISH_ID,
+        RESIDENTIAL_TV_ANTENNA_BASE_ID,
+        TRANSLUCENT_ROOFING_ID,
+        ROOF_WALKWAY_ID,
+        MISCELLANEOUS_ROOF_OBJECT_ID,
+        SOLAR_ID,
+        SOLAR_HW_ID,
+        SKYLIGHT_ID,
+    }
+)
 
 VEG_VERYLOW_ID = "a7d921b7-393c-4121-b317-e9cda3e4c19b"
 VEG_LOW_ID = "2780fa70-7713-437c-ad98-656b8a5cc4f2"

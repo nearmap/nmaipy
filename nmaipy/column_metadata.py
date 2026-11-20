@@ -186,10 +186,15 @@ class ColumnMeta:
 
 @dataclass(frozen=True)
 class _CompiledPattern:
-    """Internal: a compiled pattern row from the JSON config."""
+    """Internal: a compiled pattern row from the JSON config.
+
+    ``unscoped_class_labels``, when non-empty, restricts a match without a ``scope`` capture to files
+    whose ``class_label`` is listed; scoped matches are unaffected.
+    """
 
     regex: re.Pattern
     template: ColumnMeta
+    unscoped_class_labels: frozenset[str] = frozenset()
 
 
 def _format_scope_phrase(scope_prefix: str | None) -> str:
@@ -376,7 +381,12 @@ def load_metadata(
             exact[name] = _overlay_meta(base, entry) if base else _meta_from_json(entry)
 
     patterns = tuple(
-        _CompiledPattern(regex=re.compile(p["regex"]), template=_meta_from_json(p)) for p in column_metadata["patterns"]
+        _CompiledPattern(
+            regex=re.compile(p["regex"]),
+            template=_meta_from_json(p),
+            unscoped_class_labels=frozenset(p.get("unscoped_class_labels", ())),
+        )
+        for p in column_metadata["patterns"]
     )
     legend = {k: v for k, v in column_metadata.get("evidence_type_legend", {}).items() if not k.startswith("_")}
     zone_distances = {
@@ -500,6 +510,8 @@ def lookup_column(
         if match:
             groups = match.groupdict()
             scope = groups.get("scope", "") or ""
+            if not scope and pattern.unscoped_class_labels and class_label not in pattern.unscoped_class_labels:
+                continue
             cls = groups.get("class", "") or ""
             # Forward any other named groups (e.g. peril, feature, unit, zone_id)
             # so the template can reference them as {peril}, {feature}, {zone_id}, ...

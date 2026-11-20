@@ -6,8 +6,8 @@
 
 | Case | World | Exporter settings |
 | --- | --- | --- |
-| `us` | Five parcels (one empty, two sharing a roof, one with a neighbour's roof crossing in), an AOI the fake answers with 403 and one outside every survey (404); roof instances of both kinds, one with no installation date | `country="us"`, packs `building`, `building_char`, `pool`, `roof_char`, `roof_cond`, `solar`, `surfaces`, `vegetation`, `roof_age=True`, `until` set |
-| `au` | Four parcels (one empty, two sharing a roof), the three invalid rows of `tests/data/test_parcels.csv`, and one AOI larger than the gridding threshold with features crossing grid lines | `country="au"`, packs `building`, `roof_char`, `vegetation`, `since`/`until` set |
+| `us` | Five parcels (one empty, two sharing a roof, one with a neighbour's roof crossing in), an AOI the fake answers with 403 and one outside every survey (404); roof instances of both kinds, one with no installation date; roof objects: a solar panel on the shared roof, split between the two parcels, a solar panel whose rounded area is 0, and a solar hot water object, a class that is alpha at the survey's system version | `country="us"`, packs `building`, `building_char`, `pool`, `roof_char`, `roof_cond`, `solar`, `surfaces`, `vegetation`, `roof_age=True`, `until` set |
+| `au` | Four parcels (one empty, two sharing a roof), the three invalid rows of `tests/data/test_parcels.csv`, and one AOI larger than the gridding threshold with features crossing grid lines; roof objects: a solar panel on a parcel's roof, and a solar panel outside the gridded AOI on a roof that crosses its boundary | `country="au"`, packs `building`, `roof_char`, `solar`, `vegetation`, `since`/`until` set |
 
 The world is synthetic: rectangles laid out in metres from arbitrary origins, so no AOI is a real parcel, and every value in `expected/` comes from the fake. Class ids are nmaipy's, class descriptions come from `nmaipy/class_descriptions.json`, and attribute block and component names come from `tests/golden/vocabulary.json`, which holds names only and is written from the live API.
 

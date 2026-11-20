@@ -87,6 +87,7 @@ from nmaipy.constants import (
     ROOF_AGE_PREFIX_COLUMNS,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    ROOF_OBJECT_CLASS_IDS,
     S3_PARALLEL_READ_WORKERS,
     SINCE_COL_NAME,
     SQUARED_METERS_TO_SQUARED_FEET,
@@ -103,11 +104,14 @@ from nmaipy.feature_api import FeatureApi
 from nmaipy.feature_attributes import (
     FALSE_STRING,
     TRUE_STRING,
+    _aoi_id_values,
+    as_int64_roof_object_counts,
     calculate_roof_age_years,
     convert_bool_columns_to_yn,
     flatten_pool_attributes,
     flatten_roof_attributes,
     is_resolved_score_column,
+    roof_object_attributes,
 )
 from nmaipy.parcels import (
     _build_parent_lookup_by_aoi,
@@ -603,6 +607,17 @@ def _group_children_by_aoi(
     return dict(iter(source.groupby(AOI_ID_COLUMN_NAME)))
 
 
+def _non_roof_children(
+    non_roof_features: gpd.GeoDataFrame | None, features_gdf: gpd.GeoDataFrame | None
+) -> gpd.GeoDataFrame | None:
+    """The pre-filtered non-roof features, else the non-roof rows of features_gdf, else None."""
+    if non_roof_features is not None:
+        return non_roof_features
+    if features_gdf is None:
+        return None
+    return features_gdf[features_gdf["class_id"] != ROOF_ID]
+
+
 def _intersection_or_none(geom, clip_geom):
     """``geom ∩ clip_geom``, or None when ``geom`` is None or GEOS cannot compute the intersection."""
     try:
@@ -747,6 +762,58 @@ def _batch_project_geometries(
         if len(children) > 0:
             child_proj_by_aoi[aoi_id] = children.geometry.to_crs(projected_crs)
     return parent_projected, child_proj_by_aoi
+
+
+def _roof_attrs_by_key(
+    roofs: gpd.GeoDataFrame,
+    children: gpd.GeoDataFrame | None,
+    country: str,
+    aoi_geometries: dict | None,
+    roof_object_classes: dict | None,
+    unavailable_by_aoi: dict | None,
+    roof_objects: pd.DataFrame | None = None,
+) -> dict:
+    """Flattened attributes of each roof, keyed by (aoi_id, feature_id), with its roof object columns.
+
+    Keyed per parcel: in parcelMode a multiparcel roof appears once per parcel it overlaps, each row
+    carrying attributes recomputed on that parcel's clipped geometry, so keying by feature_id alone would
+    let one parcel's clip overwrite another's. A roof whose flatten fails gets only its roof object
+    columns. A roof object failure raises. No roof object columns are added when roof_object_classes is None.
+    The roof object columns are counted from roof_objects when given, else from children.
+    """
+    child_by_aoi = _group_children_by_aoi(children, None) if children is not None else {}
+    roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(
+        roofs, child_by_aoi, country, aoi_geometries=aoi_geometries
+    )
+    keys = list(zip(_aoi_id_values(roofs), roofs["feature_id"].to_numpy(), strict=True))
+    attrs_by_key = {}
+    t_flatten = time.monotonic()
+    for ridx, row in enumerate(_dataframe_to_records_with_index(roofs)):
+        roof_aoi = keys[ridx][0]
+        try:
+            attrs_by_key[keys[ridx]] = flatten_roof_attributes(
+                [row],
+                country=country,
+                child_features=child_by_aoi.get(roof_aoi) if roof_aoi is not None else None,
+                parent_projected=roof_geoms_proj.iloc[ridx],
+                children_projected=child_proj_by_aoi.get(roof_aoi),
+            )
+        except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets no flattened attributes
+            logger.debug(f"Could not flatten roof attrs: {e}")
+    logger.debug(f"Roof attribute flattening: {time.monotonic() - t_flatten:.1f}s for {len(roofs)} roofs")
+    if roof_object_classes is not None and roof_object_classes:
+        objects = roof_object_attributes(
+            roofs,
+            roof_objects if roof_objects is not None else children,
+            roof_object_classes,
+            country,
+            unavailable_by_aoi=unavailable_by_aoi,
+            aoi_geometries=aoi_geometries,
+        )
+        columns = list(objects.columns)
+        for key, values in zip(keys, zip(*(objects[c].array for c in columns), strict=True), strict=True):
+            attrs_by_key.setdefault(key, {}).update(zip(columns, values, strict=True))
+    return attrs_by_key
 
 
 _LARGE_TYPE_MAP = {
@@ -1220,24 +1287,6 @@ def _dataframe_to_records_with_index(df):
     return records
 
 
-def _aoi_id_values(df):
-    """Return the per-row aoi_id values whether aoi_id is a column or the index.
-
-    The chunk frame is indexed by aoi_id in the standalone export path but carries
-    aoi_id as a column with a RangeIndex in the streaming path (the on=aoi_id merges
-    in process_chunk reset the index). Roof attribute cache keys are (aoi_id,
-    feature_id); the cache producer and all consumers resolve aoi_id through this
-    helper so their keys always agree. Raises rather than degrading: a frame with
-    no aoi_id would collapse the cache back to feature_id-only keys — the exact
-    multiparcel collision this keying exists to prevent.
-    """
-    if AOI_ID_COLUMN_NAME in df.columns:
-        return df[AOI_ID_COLUMN_NAME].array
-    if df.index.name == AOI_ID_COLUMN_NAME:
-        return df.index.array
-    raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot key roof attributes per parcel")
-
-
 def _description_to_cname(description: str) -> str:
     """Convert a class description like 'Roof Instance' to a filename-safe slug like 'roof_instance'."""
     return re.sub(r"[^a-z0-9]+", "_", description.lower()).strip("_")
@@ -1263,6 +1312,9 @@ def _compute_all_per_class_data(
     logger_instance=None,
     threads: int = 1,
     aoi_geometries: dict | None = None,
+    roof_object_classes: dict | None = None,
+    unavailable_by_aoi: dict | None = None,
+    roof_objects: pd.DataFrame | None = None,
 ) -> dict:
     """Compute per-class tabular + geo Arrow tables for all whitelisted classes in a chunk.
 
@@ -1284,6 +1336,13 @@ def _compute_all_per_class_data(
             Cross-class data (parent_lookup, roof_attrs_cache, IoU linkage) is
             pre-computed before the loop; each class iteration operates on
             read-only references and writes to a distinct dict key.
+        roof_object_classes: {class_id: description} of the roof object classes to report on each roof
+            (roof file) and primary child roof (building file). None writes no roof object columns.
+        unavailable_by_aoi: {aoi_id: class ids} not available for that AOI (see
+            parcels.unavailable_classes_by_aoi). Their roof object columns are null.
+        roof_objects: the chunk's roof object rows, taken before any AOI input columns were merged in, with
+            ``aoi_id``, ``class_id``, ``parent_id``, ``confidence``, ``clipped_area_<unit>`` and ``geometry``.
+            The roof object columns are then counted from them rather than from ``chunk_gdf``.
     """
     if whitelisted_classes is None:
         whitelisted_classes = sorted(PER_CLASS_FILE_CLASS_IDS)
@@ -1364,40 +1423,21 @@ def _compute_all_per_class_data(
                     if pd.notna(bid):
                         roof_to_building_lookup.setdefault(aoi, {})[fid] = bid
 
-        # Compute roof attrs cache
-        if ROOF_ID in whitelisted_classes and roof_features_chunk is not None and len(roof_features_chunk) > 0:
-            child_by_aoi = _group_children_by_aoi(non_roof_chunk, None)
-            roof_geoms_proj, child_proj_by_aoi = _batch_project_geometries(
+        # Computed here, not in the per-class loop, so that a roof object failure fails the chunk.
+        if (
+            (ROOF_ID in whitelisted_classes or BUILDING_NEW_ID in whitelisted_classes)
+            and roof_features_chunk is not None
+            and len(roof_features_chunk) > 0
+        ):
+            roof_attrs_cache_chunk = _roof_attrs_by_key(
                 roof_features_chunk,
-                child_by_aoi,
+                non_roof_chunk,
                 country,
-                aoi_geometries=aoi_geometries,
+                aoi_geometries,
+                roof_object_classes,
+                unavailable_by_aoi,
+                roof_objects=roof_objects,
             )
-            roof_attrs_cache_chunk = {}
-            roof_records = _dataframe_to_records_with_index(roof_features_chunk)
-            roof_aoi_vals = _aoi_id_values(roof_features_chunk)
-            for ridx, row in enumerate(roof_records):
-                try:
-                    roof_aoi = roof_aoi_vals[ridx]
-                    aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
-                    attrs = flatten_roof_attributes(
-                        [row],
-                        country=country,
-                        child_features=aoi_children,
-                        parent_projected=roof_geoms_proj.iloc[ridx],
-                        children_projected=child_proj_by_aoi.get(roof_aoi),
-                    )
-                    # Key by (aoi_id, feature_id): in parcelMode a multiparcel
-                    # roof appears once per parcel it overlaps, each row carrying
-                    # attributes recomputed on that parcel's clipped geometry
-                    # (RSI, materials, defensible space, ...). Keying by feature_id
-                    # alone lets one parcel's clip overwrite another's, so every
-                    # duplicate row would inherit whichever parcel was flattened
-                    # last. See consumers in _compute_feature_class_data.
-                    roof_attrs_cache_chunk[(roof_aoi, row["feature_id"])] = attrs
-                except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets no cached attributes
-                    _log.debug(f"Could not flatten roof attrs: {e}")
-            del child_by_aoi, child_proj_by_aoi, roof_geoms_proj
 
     # Compute per-class data for each whitelisted class.
     # Threaded when `threads > 1`. Each worker reads class_feats, calls
@@ -1431,6 +1471,8 @@ def _compute_all_per_class_data(
                 roofs_linked=roofs_linked_chunk,
                 buildings_linked=buildings_linked_chunk,
                 aoi_geometries=aoi_geometries,
+                roof_object_classes=roof_object_classes,
+                unavailable_by_aoi=unavailable_by_aoi,
             )
         except Exception as e:  # noqa: BLE001 -- one class's failure must not stop the other classes' files
             _log.error(f"Per-class export failed for {desc}: {e}")
@@ -1482,6 +1524,8 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
     roofs_linked: gpd.GeoDataFrame | None = None,
     buildings_linked: gpd.GeoDataFrame | None = None,
     aoi_geometries: dict | None = None,
+    roof_object_classes: dict | None = None,
+    unavailable_by_aoi: dict | None = None,
 ) -> tuple:
     """
     Compute the flat attribute DataFrame and GeoDataFrame for a single feature class.
@@ -1510,6 +1554,9 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
             building feature_id}} (empty if not provided). Scoped per AOI for the same reason.
         roofs_linked: Pre-linked roof features (output of link_roofs_to_buildings)
         buildings_linked: Pre-linked building features (output of link_roofs_to_buildings)
+        roof_object_classes: {class_id: description} of the roof object classes to report when
+            roof_attrs_cache is not given. None writes no roof object columns.
+        unavailable_by_aoi: {aoi_id: class ids} whose roof object columns are null for that AOI.
 
     Returns:
         Tuple of (flat_df, geo_gdf) where flat_df is the tabular DataFrame and
@@ -1758,52 +1805,26 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                         df_parts.append(pd.DataFrame(ri_mapped_batch, index=range(n_rows)))
 
         # Flatten roof attributes (RSI, hurricane, defensible space, materials, 3D)
-        # These are from include parameters and the roof's own attributes array
+        # These are from include parameters and the roof's own attributes array.
+        # Standalone calls without a cache compute it here, outside the try, so a roof object failure raises.
+        if roof_attrs_cache is None:
+            roof_attrs_cache = _roof_attrs_by_key(
+                class_features,
+                _non_roof_children(non_roof_features, features_gdf),
+                country,
+                aoi_geometries,
+                roof_object_classes,
+                unavailable_by_aoi,
+            )
         try:
-            if roof_attrs_cache is not None:
-                # Use pre-computed cache (avoids duplicate flatten loop).
-                # Cache is keyed by (aoi_id, feature_id) so multiparcel roofs
-                # resolve to this parcel's clipped attributes, not another's.
-                attr_records = [
-                    roof_attrs_cache.get((aoi, fid), {})
-                    for aoi, fid in zip(
-                        _aoi_id_values(class_features), class_features["feature_id"].values, strict=True
-                    )
-                ]
-                logger.debug(f"Roof attribute flattening: used cache for {len(class_features)} roofs")
-            else:
-                # Fallback: compute per-row (for standalone calls without cache)
-                child_by_aoi = _group_children_by_aoi(non_roof_features, features_gdf)
-                roof_geoms_projected, child_proj_by_aoi = _batch_project_geometries(
-                    class_features, child_by_aoi, country, aoi_geometries=aoi_geometries
-                )
-
-                t_roof_flatten = time.monotonic()
-                attr_records = []
-                roof_records = _dataframe_to_records_with_index(class_features)
-
-                for idx, row in enumerate(roof_records):
-                    try:
-                        roof_aoi = row.get(AOI_ID_COLUMN_NAME)
-                        aoi_children = child_by_aoi.get(roof_aoi) if roof_aoi is not None else None
-                        attrs = flatten_roof_attributes(
-                            [row],
-                            country=country,
-                            child_features=aoi_children,
-                            parent_projected=roof_geoms_projected.iloc[idx],
-                            children_projected=child_proj_by_aoi.get(roof_aoi),
-                        )
-                        attr_records.append(attrs)
-                    except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets empty attribute columns
-                        logger.debug(f"Could not flatten roof attributes for feature: {e}")
-                        attr_records.append({})
-                logger.debug(
-                    f"Roof attribute flattening: {time.monotonic() - t_roof_flatten:.1f}s for {len(class_features)} "
-                    "roofs"
-                )
-
+            # Keyed by (aoi_id, feature_id) so multiparcel roofs resolve to this parcel's clipped attributes.
+            attr_records = [
+                roof_attrs_cache.get((aoi, fid), {})
+                for aoi, fid in zip(_aoi_id_values(class_features), class_features["feature_id"].values, strict=True)
+            ]
             if attr_records:
                 attr_df = pd.DataFrame(attr_records)
+                as_int64_roof_object_counts(attr_df, roof_object_classes)
                 # Remove columns that would be duplicates
                 attr_df = attr_df.drop(
                     columns=[c for c in attr_df.columns if c in added_cols],
@@ -1956,6 +1977,16 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                 roofs_linked, buildings_linked = link_roofs_to_buildings(roofs, class_features)
 
         if roofs_linked is not None and buildings_linked is not None and len(roofs_linked) > 0:
+            # Standalone calls without a cache compute it here, outside the try, so a roof object failure raises.
+            if roof_attrs_cache is None:
+                roof_attrs_cache = _roof_attrs_by_key(
+                    roofs_linked,
+                    _non_roof_children(non_roof_features, features_gdf),
+                    country,
+                    aoi_geometries,
+                    roof_object_classes,
+                    unavailable_by_aoi,
+                )
             try:
                 # Add linkage columns
                 bldg_linkage_batch = {}
@@ -1971,50 +2002,12 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                 if bldg_linkage_batch:
                     df_parts.append(pd.DataFrame(bldg_linkage_batch, index=range(n_rows)))
 
-                # Build a mapping from roof feature_id to flattened attributes.
-                if roof_attrs_cache is not None:
-                    # Use pre-computed cache (avoids duplicate flatten loop).
-                    # Keyed by (aoi_id, feature_id) so a multiparcel roof keeps a
-                    # distinct entry per parcel; the reindex below looks each
-                    # building up by its own (aoi_id, primary_child_roof_id).
-                    roof_attrs = {
-                        (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
-                        for aoi, fid in zip(
-                            _aoi_id_values(roofs_linked), roofs_linked["feature_id"].values, strict=True
-                        )
-                    }
-                    logger.debug(f"Building roof attribute flattening: used cache for {len(roofs_linked)} roofs")
-                else:
-                    # Fallback: compute per-row (for standalone calls without cache)
-                    child_by_aoi_bldg = _group_children_by_aoi(non_roof_features, features_gdf)
-                    bldg_roof_geoms_projected, bldg_child_proj_by_aoi = _batch_project_geometries(
-                        roofs_linked, child_by_aoi_bldg, country, aoi_geometries=aoi_geometries
-                    )
-
-                    t_bldg_roof_flatten = time.monotonic()
-                    roof_attrs = {}
-                    roof_records = _dataframe_to_records_with_index(roofs_linked)
-                    roof_aoi_vals = _aoi_id_values(roofs_linked)
-
-                    for idx, row in enumerate(roof_records):
-                        try:
-                            roof_aoi = roof_aoi_vals[idx]
-                            aoi_children = child_by_aoi_bldg.get(roof_aoi) if roof_aoi is not None else None
-                            attrs = flatten_roof_attributes(
-                                [row],
-                                country=country,
-                                child_features=aoi_children,
-                                parent_projected=bldg_roof_geoms_projected.iloc[idx],
-                                children_projected=bldg_child_proj_by_aoi.get(roof_aoi),
-                            )
-                            roof_attrs[(roof_aoi, row["feature_id"])] = attrs
-                        except Exception as e:  # noqa: BLE001 -- best-effort per-roof flatten; a failed roof gets no linked attributes
-                            logger.debug(f"Could not flatten building-linked roof attributes: {e}")
-                    logger.debug(
-                        f"Building roof attribute flattening: {time.monotonic() - t_bldg_roof_flatten:.1f}s for "
-                        f"{len(roofs_linked)} roofs"
-                    )
-
+                # Keyed by (aoi_id, feature_id) so a multiparcel roof keeps a distinct entry per
+                # parcel; the reindex below looks each building up by its own (aoi_id, primary_child_roof_id).
+                roof_attrs = {
+                    (aoi, fid): roof_attrs_cache.get((aoi, fid), {})
+                    for aoi, fid in zip(_aoi_id_values(roofs_linked), roofs_linked["feature_id"].values, strict=True)
+                }
                 if roof_attrs:
                     # Map primary child roof attributes to buildings via DataFrame reindex
                     # (replaces per-attribute .apply(lambda) with a single vectorized lookup)
@@ -2034,6 +2027,7 @@ def _compute_feature_class_data(  # noqa: PLR0915 -- long sequential pipeline, k
                         )
                     )
                     mapped = roof_attrs_df.reindex(lookup_keys).reset_index(drop=True)
+                    as_int64_roof_object_counts(mapped, roof_object_classes, prefix="primary_child_roof_")
 
                     roof_attr_batch = {}
                     dominant_prefixes = (
@@ -2511,6 +2505,8 @@ def export_feature_class(
     non_roof_features: gpd.GeoDataFrame | None = None,
     roof_instance_features: gpd.GeoDataFrame | None = None,
     roof_attrs_cache: dict | None = None,
+    roof_object_classes: dict | None = None,
+    unavailable_by_aoi: dict | None = None,
 ) -> tuple:
     """
     Export features of a single class to tabular file (CSV or Parquet) and/or GeoParquet.
@@ -2533,6 +2529,9 @@ def export_feature_class(
                          dicts (keyed per parcel — see _compute_feature_class_data). When provided,
                          skips the per-row flatten_roof_attributes loop for both ROOF_ID and
                          BUILDING_NEW_ID paths (avoids duplicate flattening).
+        roof_object_classes: {class_id: description} of the roof object classes to report on each roof
+                         when roof_attrs_cache is not given. None writes no roof object columns.
+        unavailable_by_aoi: {aoi_id: class ids} whose roof object columns are null for that AOI.
 
     Returns:
         Tuple of (tabular_path, geo_parquet_path) or (None, None) if no features
@@ -2548,6 +2547,8 @@ def export_feature_class(
         non_roof_features=non_roof_features,
         roof_instance_features=roof_instance_features,
         roof_attrs_cache=roof_attrs_cache,
+        roof_object_classes=roof_object_classes,
+        unavailable_by_aoi=unavailable_by_aoi,
     )
     if flat_df is None:
         return (None, None)
@@ -4165,6 +4166,11 @@ class NearmapAIExporter(BaseExporter):
             if self.roof_age:
                 roof_age_classes = classes_df[classes_df.index == ROOF_INSTANCE_CLASS_ID]
                 api_metadata.append((roof_age_metadata_df, roof_age_classes))
+            # Before metadata_df's system_version can be renamed for a clash with an AOI column.
+            unavailable_by_aoi = parcels.unavailable_classes_by_aoi(
+                aoi_gdf.index, api_metadata, alpha=self.alpha, beta=self.beta
+            )
+            roof_object_classes = {c: d for c, d in classes_df.description.items() if c in ROOF_OBJECT_CLASS_IDS}
 
             # RSI resolution uses IoU-based Roof→Building(New)→BL linkage;
             # Building(Deprecated) has been filtered from features_gdf.
@@ -4317,6 +4323,22 @@ class NearmapAIExporter(BaseExporter):
                     f"Column name collisions detected. The following columns exist in multiple dataframes "
                     f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
                 )
+
+            # Taken before the merges, so that an AOI input column of the same name cannot replace these columns.
+            roof_objects = None
+            if self.class_level_files and roof_object_classes and "class_id" in features_gdf.columns:
+                object_columns = [
+                    AOI_ID_COLUMN_NAME,
+                    "class_id",
+                    "parent_id",
+                    "confidence",
+                    f"clipped_area_{country_area_suffix(self.country)}",
+                    "geometry",
+                ]
+                roof_objects = features_gdf.loc[
+                    features_gdf["class_id"].isin(list(roof_object_classes)),
+                    [c for c in object_columns if c in features_gdf.columns],
+                ]
 
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
@@ -4493,6 +4515,9 @@ class NearmapAIExporter(BaseExporter):
                         logger_instance=self.logger,
                         threads=self.threads,
                         aoi_geometries=aoi_geometries,
+                        roof_object_classes=roof_object_classes,
+                        unavailable_by_aoi=unavailable_by_aoi,
+                        roof_objects=roof_objects,
                     )
                     _t_per_class_compute = time.monotonic()
 
@@ -4529,6 +4554,7 @@ class NearmapAIExporter(BaseExporter):
                     del chunk_gdf, per_class_results
                 except Exception as e:  # noqa: BLE001 -- recorded via record_failure, which withholds the chunk's rollup
                     record_failure("computing per-class files", e)
+            del roof_objects
 
             # Write rollup LAST — it serves as the chunk completion marker, so only
             # once every other chunk file is written. If the process is killed before

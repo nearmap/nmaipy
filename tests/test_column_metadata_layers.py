@@ -17,7 +17,8 @@ import json
 
 import pytest
 
-from nmaipy.column_metadata import lookup_column, reload_metadata
+from nmaipy.column_metadata import UNKNOWN_SENTINEL, lookup_column, reload_metadata
+from nmaipy.constants import FEATURE_CLASS_DESCRIPTIONS, ROOF_OBJECT_CLASS_IDS
 
 
 @pytest.fixture(autouse=True)
@@ -144,3 +145,42 @@ def test_model_input_fields_do_not_shadow_roof_component_columns():
 
     model_input = lookup_column("hurricane_vulnerability_model_input_tree_overhang_ratio")
     assert "hurricane" in model_input.description, model_input.description
+
+
+_ROOF_OBJECT_SUFFIXES = ("present", "count", "area_sqft", "area_sqm", "confidence")
+
+
+def test_every_roof_object_class_has_a_description():
+    missing = ROOF_OBJECT_CLASS_IDS - FEATURE_CLASS_DESCRIPTIONS.keys()
+    assert not missing, f"roof object classes without a description: {sorted(missing)}"
+
+
+@pytest.mark.parametrize(
+    "roof_object",
+    sorted(FEATURE_CLASS_DESCRIPTIONS[c].lower().replace(" ", "_") for c in ROOF_OBJECT_CLASS_IDS),
+)
+@pytest.mark.parametrize(
+    ("scope", "class_label"), [("", "roof"), ("primary_roof_", "feature"), ("primary_child_roof_", "building")]
+)
+def test_roof_object_columns_describe_parented_objects(roof_object, scope, class_label):
+    """Each roof-object column in each scope describes the objects that have the roof as their API parent."""
+    for suffix in _ROOF_OBJECT_SUFFIXES:
+        name = f"{scope}{roof_object}_{suffix}"
+        meta = lookup_column(name, area_unit=suffix.rsplit("_", 1)[-1], class_label=class_label)
+        assert meta.description != UNKNOWN_SENTINEL, f"{name} did not resolve"
+        assert "as their parent" in meta.description, f"{name} resolved to {meta.description!r}"
+
+
+def test_unscoped_roof_object_columns_only_take_the_roof_text_in_the_roof_file():
+    """Outside the roof file, unscoped names such as the rollup's ``solar_panel_confidence`` keep their own text."""
+    rollup_confidence = (
+        "Combined confidence that at least one solar panel was detected on the parcel — higher when multiple "
+        "high-confidence detections agree. Null when none are detected."
+    )
+    for class_label in ("feature", "parcel"):
+        assert lookup_column("solar_panel_confidence", class_label=class_label).description == rollup_confidence
+        for name in ("solar_panel_present", "solar_panel_count", "solar_panel_area_sqft"):
+            meta = lookup_column(name, area_unit="sqft", class_label=class_label)
+            assert "as their parent" not in meta.description, f"{name} ({class_label}) took the roof-file text"
+    roof_confidence = lookup_column("solar_panel_confidence", class_label="roof").description
+    assert "as their parent" in roof_confidence, roof_confidence

@@ -23,6 +23,8 @@ This folder contains AI-generated property data from Nearmap aerial imagery.
 | `roof_features.parquet` | Roof polygons with geometry (GeoParquet) |
 | `roof_instance.csv` | Per-roof age instance data with feature attributes |
 | `roof_instance_features.parquet` | Roof age instance polygons with geometry (GeoParquet) |
+| `solar_panel.csv` | Per-solar panel data with feature attributes |
+| `solar_panel_features.parquet` | Solar panel polygons with geometry (GeoParquet) |
 | `swimming_pool.csv` | Per-swimming pool data with feature attributes |
 | `swimming_pool_features.parquet` | Swimming pool polygons with geometry (GeoParquet) |
 
@@ -35,6 +37,7 @@ Column names use snake_case versions of class names:
 | Building | `building_` |
 | Roof | `roof_` |
 | Roof Instance | `roof_instance_` |
+| Solar Panel | `solar_panel_` |
 | Swimming Pool | `swimming_pool_` |
 
 ## Class Hierarchy & Relationships

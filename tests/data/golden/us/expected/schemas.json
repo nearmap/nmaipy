@@ -213,6 +213,14 @@
    "primary_child_roof_slate_dominant": "string",
    "primary_child_roof_slate_present": "string",
    "primary_child_roof_slate_ratio": "float64",
+   "primary_child_roof_solar_hot_water_area_sqft": "float64",
+   "primary_child_roof_solar_hot_water_confidence": "float64",
+   "primary_child_roof_solar_hot_water_count": "Int64",
+   "primary_child_roof_solar_hot_water_present": "empty",
+   "primary_child_roof_solar_panel_area_sqft": "float64",
+   "primary_child_roof_solar_panel_confidence": "float64",
+   "primary_child_roof_solar_panel_count": "Int64",
+   "primary_child_roof_solar_panel_present": "string",
    "primary_child_roof_structural_damage_area_sqft": "float64",
    "primary_child_roof_structural_damage_confidence": "float64",
    "primary_child_roof_structural_damage_present": "string",
@@ -587,6 +595,14 @@
    "slate_dominant": "string",
    "slate_present": "string",
    "slate_ratio": "float64",
+   "solar_hot_water_area_sqft": "float64",
+   "solar_hot_water_confidence": "float64",
+   "solar_hot_water_count": "Int64",
+   "solar_hot_water_present": "empty",
+   "solar_panel_area_sqft": "float64",
+   "solar_panel_confidence": "float64",
+   "solar_panel_count": "Int64",
+   "solar_panel_present": "string",
    "structural_damage_area_sqft": "float64",
    "structural_damage_confidence": "float64",
    "structural_damage_present": "string",
@@ -663,6 +679,28 @@
    "roof_age_relevant_permits": "string",
    "roof_age_trust_score": "float64",
    "roof_age_years_as_of_date": "float64"
+  },
+  "geo": {
+   "crs": {
+    "geometry": "EPSG:4326"
+   },
+   "primary_column": "geometry"
+  }
+ },
+ "solar_panel_features.parquet": {
+  "dtypes": {
+   "aoi_id": "string",
+   "area_sqft": "float64",
+   "class_id": "string",
+   "clipped_area_sqft": "float64",
+   "confidence": "float64",
+   "description": "string",
+   "feature_id": "string",
+   "geometry": "geometry",
+   "link": "string",
+   "mesh_date": "string",
+   "survey_date": "string",
+   "unclipped_area_sqft": "float64"
   },
   "geo": {
    "crs": {
