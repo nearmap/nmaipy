@@ -4313,13 +4313,18 @@ class NearmapAIExporter(BaseExporter):
             all_overlapping = metadata_features_overlap | metadata_aoi_overlap | features_aoi_overlap
             if all_overlapping:
                 self.logger.warning(
-                    f"Column name collisions detected. The following columns exist in multiple dataframes "
-                    f"and may be duplicated with '_x' and '_y' suffixes: {sorted(all_overlapping)}"
+                    f"Column name collisions detected: {sorted(all_overlapping)}. AOI input columns that clash "
+                    f"with feature or metadata columns are renamed '<name>_input'; metadata and feature columns "
+                    f"that clash get '_x' and '_y' suffixes."
                 )
 
             # First merge
             merged1 = metadata_df.merge(features_gdf, on=AOI_ID_COLUMN_NAME)
             del features_gdf  # last use
+
+            input_clashes = (set(merged1.columns) & set(final_features_df.columns)) - {AOI_ID_COLUMN_NAME, "geometry"}
+            input_renames = {c: f"{c}_input" for c in input_clashes}
+            final_features_df = final_features_df.rename(columns=input_renames)
 
             # Second merge
             merged2 = merged1.merge(final_features_df, on=AOI_ID_COLUMN_NAME)
@@ -4481,7 +4486,9 @@ class NearmapAIExporter(BaseExporter):
                         "query_aoi_lon",
                     }
                     aoi_input_columns = [
-                        c for c in aoi_gdf.columns if c not in system_columns and c not in ADDRESS_FIELDS
+                        input_renames.get(c, c)
+                        for c in aoi_gdf.columns
+                        if c not in system_columns and c not in ADDRESS_FIELDS
                     ]
 
                     _t_per_class_start = time.monotonic()
