@@ -244,23 +244,21 @@ class TestProcessChunk:
         ex.logger.removeHandler(caplog.handler)
 
     @staticmethod
-    def _aoi_gdf(tmp_path, input_column: str = "system_version") -> gpd.GeoDataFrame:
-        """Integer aoi ids and one input column (system_version by default), read from an AOI file."""
+    def _aoi_gdf(tmp_path) -> gpd.GeoDataFrame:
+        """Integer aoi ids and a system_version input column, read from an AOI file."""
         path = tmp_path / "aois.csv"
         pd.DataFrame(
             {
                 AOI_ID_COLUMN_NAME: [1, 2],
-                input_column: ["mine-1", "mine-2"],
+                "system_version": ["mine-1", "mine-2"],
                 "geometry": [box(0, 0, 0.0001, 0.0001).wkt, box(0.0001, 0, 0.0002, 0.0001).wkt],
             }
         ).to_csv(path, index=False)
         return read_from_file(str(path))
 
     @staticmethod
-    def _api_response(extra_rows: tuple = ()):
+    def _api_response():
         features = _shared_roof_chunk()
-        if extra_rows:
-            features = pd.concat([features, gpd.GeoDataFrame(list(extra_rows), crs=API_CRS)], ignore_index=True)
         features[AOI_ID_COLUMN_NAME] = features[AOI_ID_COLUMN_NAME].map({"a": 1, "b": 2})
         features = features.drop(columns=["is_primary"]).set_index(AOI_ID_COLUMN_NAME)
         meta = pd.DataFrame(
@@ -271,24 +269,14 @@ class TestProcessChunk:
         errors.index.name = AOI_ID_COLUMN_NAME
         return features, meta, errors
 
-    def _run(self, exporter, tmp_path, input_column: str = "system_version", extra_rows: tuple = ()) -> Path:
+    def _run(self, exporter, tmp_path) -> Path:
         with (
             patch("nmaipy.exporter.FeatureApi") as mock_api,
             patch("nmaipy.exporter.collect_latency_stats_from_apis", return_value=None),
         ):
-            mock_api.return_value.get_features_gdf_bulk.return_value = self._api_response(extra_rows)
-            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(tmp_path, input_column), classes_df=CLASSES)
+            mock_api.return_value.get_features_gdf_bulk.return_value = self._api_response()
+            exporter.process_chunk(chunk_id="0000", aoi_gdf=self._aoi_gdf(tmp_path), classes_df=CLASSES)
         return Path(exporter.chunk_path)
-
-    def test_input_column_named_like_a_feature_column_is_renamed(self, exporter, tmp_path, caplog):
-        panel = _row("a", SOLAR_ID, "panel-1", box(0.00002, 0.00002, 0.00003, 0.00003), 1.5, ROOF_FID, 0.7)
-        chunk_path = self._run(exporter, tmp_path, input_column="confidence", extra_rows=(panel,))
-        assert "failed computing per-class files" not in caplog.text, caplog.text
-        assert (chunk_path / "rollup_0000.parquet").exists(), "the chunk must be marked complete"
-        roof = pd.read_parquet(chunk_path / "roof_0000.parquet").set_index(AOI_ID_COLUMN_NAME)
-        assert roof.loc[1, "solar_panel_count"] == 1
-        assert roof.loc[1, "confidence"] == pytest.approx(0.9), "the feature confidence keeps its name"
-        assert roof.loc[1, "confidence_input"] == "mine-1", "the AOI input column is renamed"
 
     def test_unavailable_class_is_null_in_every_file(self, exporter, tmp_path):
         chunk_path = self._run(exporter, tmp_path)

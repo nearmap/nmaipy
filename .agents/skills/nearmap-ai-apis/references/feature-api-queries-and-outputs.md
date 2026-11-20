@@ -33,7 +33,6 @@ Geometry, area and parcelMode semantics are in `feature-api-geometry-and-areas.m
   - Rollup rows get AOI-level `survey_date`, `survey_id`, `survey_resource_id`, `system_version`, `perspective`, `postcat`, `mesh_date` and `link`.
   - Feature and per-class rows keep each feature's own `survey_date`/`mesh_date`.
   - If an input column has the same name, the metadata column becomes `nmaipy_<name>`.
-  - In the feature and per-class files, an input column with the same name as a feature column (for example `confidence` or `feature_id`) becomes `<name>_input`.
 
 ## 2. Gridding
 
