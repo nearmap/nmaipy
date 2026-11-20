@@ -42,6 +42,7 @@ from nmaipy.constants import (
     POOL_ID,
     ROOF_ID,
     ROOF_INSTANCE_CLASS_ID,
+    ROOF_OBJECT_CLASS_IDS,
     MeasurementUnits,
     country_area_suffix,
 )
@@ -51,6 +52,7 @@ from nmaipy.feature_attributes import (
     PERIL_SCORE_OUTPUT_COLUMNS,
     RSI_OUTPUT_COLUMNS,
     TRUE_STRING,
+    _aoi_id_values,
     _flatten_defensible_space,
     _flatten_defensible_space_zone,
     _flatten_include_params,
@@ -62,6 +64,7 @@ from nmaipy.feature_attributes import (
     flatten_roof_attributes,
     flatten_roof_instance_attributes,
     is_resolved_score_column,
+    roof_object_attributes,
 )
 from nmaipy.primary_feature_selection import DEFAULT_HIGH_CONFIDENCE_THRESHOLD as PRIMARY_FEATURE_HIGH_CONF_THRESH
 from nmaipy.primary_feature_selection import select_primary
@@ -86,6 +89,7 @@ __all__ = [
     "parcel_rollup",
     "read_from_file",
     "resolve_footprint_rsi",
+    "unavailable_classes_by_aoi",
 ]
 
 
@@ -730,6 +734,7 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
     projected_crs: str | None = None,
     parent_lookup: dict | None = None,
     clip_roof_to_parcel: bool = False,
+    unavailable_class_ids: frozenset[str] = frozenset(),
 ) -> dict:
     """
     Flatten features for a parcel into a flat dictionary.
@@ -754,6 +759,8 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
                             for ordinary parcelMode AOIs: multiparcel roofs are already
                             clipped (clippedGeometry) and slight-overhang
                             (belongs-to-parcel) roofs must keep whole-roof analysis.
+        unavailable_class_ids: Classes not available for this parcel (see unavailable_classes_by_aoi). The
+                            primary roof's roof object columns are null for these classes.
 
     Returns: Flat dictionary
 
@@ -1104,6 +1111,22 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
                         child_features=child_feats,
                         parent_projected=parent_projected,
                     )
+                    roof_object_classes = {
+                        c: d for c, d in classes_df.description.items() if c in ROOF_OBJECT_CLASS_IDS
+                    }
+                    if roof_object_classes:
+                        aoi_id = _aoi_id_values(features_gdf)[0]
+                        roof_objects = roof_object_attributes(
+                            pd.DataFrame({AOI_ID_COLUMN_NAME: [aoi_id], "feature_id": [primary_feature.feature_id]}),
+                            child_feats,
+                            roof_object_classes,
+                            country,
+                            unavailable_by_aoi={aoi_id: unavailable_class_ids},
+                            aoi_geometries={aoi_id: parcel_geom}
+                            if clip_roof_to_parcel and parcel_geom is not None and not parcel_geom.is_empty
+                            else None,
+                        )
+                        primary_attributes.update({c: roof_objects[c].array[0] for c in roof_objects.columns})
                 elif class_id == BUILDING_NEW_ID:
                     primary_attributes = flatten_building_attributes([primary_feature], country=country)
                 elif class_id == ROOF_INSTANCE_CLASS_ID:
@@ -1269,6 +1292,60 @@ def feature_attributes(  # noqa: PLR0915 -- long sequential pipeline, kept whole
     return parcel
 
 
+def unavailable_classes_by_aoi(
+    aoi_ids, api_metadata: list | None, alpha: bool = False, beta: bool = False
+) -> dict[object, frozenset[str]]:
+    """The classes with no observational data for each AOI, from the API metadata.
+
+    A class is unavailable for an AOI when the API covering it failed for that AOI (the AOI has no row in
+    the API's metadata), or when the class is not returnable at the AOI's ``system_version`` under the
+    active alpha/beta flags. The rollup nulls these classes' columns rather than reporting zero.
+
+    Args:
+        aoi_ids: Every AOI id of the chunk.
+        api_metadata: List of (metadata_df, classes_df_subset) tuples, as for parcel_rollup. None or empty
+            means no class is unavailable.
+        alpha: Whether the query was made with --alpha.
+        beta: Whether the query was made with --beta.
+
+    Returns:
+        ``{aoi_id: class ids}``, only for AOIs with at least one unavailable class.
+    """
+    null_classes_by_aoi: dict = {}
+    if api_metadata is None or not api_metadata:
+        return {}
+    all_aoi_ids = set(aoi_ids)
+    for meta_df, meta_classes in api_metadata:
+        successful_aois = set(meta_df.index) if len(meta_df) > 0 else set()
+        failed_aois = all_aoi_ids - successful_aois
+        if failed_aois:
+            class_ids = set(meta_classes.index)
+            for aoi_id in failed_aois:
+                null_classes_by_aoi.setdefault(aoi_id, set()).update(class_ids)
+
+        # Per-AOI per-version returnability: only applies when metadata carries
+        # the system_version column and classes carry availability. Roof age and
+        # other synthetic class subsets may not have either — fail-open then.
+        # Typical chunks have 1-2 distinct system_versions across AOIs, so we
+        # compute the unreturnable class set per unique version and then fan out.
+        if len(meta_df) > 0 and "system_version" in meta_df.columns and "availability" in meta_classes.columns:
+            avail_by_class = meta_classes["availability"].to_dict()
+            unique_svs = set(meta_df["system_version"].dropna().unique())
+            unreturnable_by_sv = {
+                sv: {
+                    cid
+                    for cid, avail in avail_by_class.items()
+                    if not is_class_returnable_at_version(avail, sv, alpha=alpha, beta=beta)
+                }
+                for sv in unique_svs
+            }
+            for aoi_id, sv in meta_df["system_version"].items():
+                unreturnable = unreturnable_by_sv.get(sv)
+                if unreturnable is not None and unreturnable:
+                    null_classes_by_aoi.setdefault(aoi_id, set()).update(unreturnable)
+    return {aoi_id: frozenset(class_ids) for aoi_id, class_ids in null_classes_by_aoi.items()}
+
+
 def parcel_rollup(  # noqa: PLR0915 -- long sequential pipeline, kept whole to avoid behaviour risk
     parcels_gdf: gpd.GeoDataFrame,
     features_gdf: gpd.GeoDataFrame,
@@ -1314,48 +1391,8 @@ def parcel_rollup(  # noqa: PLR0915 -- long sequential pipeline, kept whole to a
     mu = MeasurementUnits(country)
     area_units = mu.area_units()
 
-    # Pre-compute which classes should be nulled per AOI based on API metadata.
-    # Two sources of null-out, both emitting NaN (not "N") to mean "no observational data":
-    #   1. Failed AOIs: AOIs missing from metadata_df had that API fail —
-    #      null out all classes the API covers.
-    #   2. Successful AOIs: for each AOI's actual resolved system_version,
-    #      null out classes whose availability shows they aren't returnable
-    #      under the active alpha/beta flags at that exact version.
-    null_classes_by_aoi = {}
-    _class_baseline_columns = {}
-    if api_metadata is not None and api_metadata:
-        all_aoi_ids = set(parcels_gdf.index)
-        for meta_df, meta_classes in api_metadata:
-            successful_aois = set(meta_df.index) if len(meta_df) > 0 else set()
-            failed_aois = all_aoi_ids - successful_aois
-            if failed_aois:
-                class_ids = set(meta_classes.index)
-                for aoi_id in failed_aois:
-                    null_classes_by_aoi.setdefault(aoi_id, set()).update(class_ids)
-
-            # Per-AOI per-version returnability: only applies when metadata carries
-            # the system_version column and classes carry availability. Roof age and
-            # other synthetic class subsets may not have either — fail-open then.
-            # Typical chunks have 1-2 distinct system_versions across AOIs, so we
-            # compute the unreturnable class set per unique version and then fan out.
-            if len(meta_df) > 0 and "system_version" in meta_df.columns and "availability" in meta_classes.columns:
-                avail_by_class = meta_classes["availability"].to_dict()
-                unique_svs = set(meta_df["system_version"].dropna().unique())
-                unreturnable_by_sv = {
-                    sv: {
-                        cid
-                        for cid, avail in avail_by_class.items()
-                        if not is_class_returnable_at_version(avail, sv, alpha=alpha, beta=beta)
-                    }
-                    for sv in unique_svs
-                }
-                for aoi_id, sv in meta_df["system_version"].items():
-                    unreturnable = unreturnable_by_sv.get(sv)
-                    if unreturnable is not None and unreturnable:
-                        null_classes_by_aoi.setdefault(aoi_id, set()).update(unreturnable)
-        # Only compute baseline columns if at least one AOI needs nullification
-        if null_classes_by_aoi:
-            _class_baseline_columns = class_column_names(classes_df, country, primary_decision)
+    null_classes_by_aoi = unavailable_classes_by_aoi(parcels_gdf.index, api_metadata, alpha=alpha, beta=beta)
+    _class_baseline_columns = class_column_names(classes_df, country, primary_decision) if null_classes_by_aoi else {}
 
     assert parcels_gdf.index.name == AOI_ID_COLUMN_NAME
 
@@ -1461,6 +1498,7 @@ def parcel_rollup(  # noqa: PLR0915 -- long sequential pipeline, kept whole to a
             projected_crs=projected_crs,
             parent_lookup=chunk_parent_lookup.get(aoi_id) or {},
             clip_roof_to_parcel=bool(gridded_aoi_ids) and aoi_id in gridded_aoi_ids,
+            unavailable_class_ids=null_classes_by_aoi.get(aoi_id, frozenset()),
         )
         parcel[AOI_ID_COLUMN_NAME] = aoi_id
         if "mesh_date" in group.columns:

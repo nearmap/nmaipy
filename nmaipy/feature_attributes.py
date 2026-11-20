@@ -22,12 +22,14 @@ from dateutil.parser import parse as parse_date
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from shapely import make_valid, wkb
 from shapely.errors import GEOSException
 
 from nmaipy import log
 from nmaipy._naming import snake_case
 from nmaipy.constants import (
+    AOI_ID_COLUMN_NAME,
     API_CRS,
     AREA_CRS,
     DAMAGE_CONFLATION_RAW_RATING_KEYS,
@@ -992,6 +994,68 @@ def flatten_roof_attributes(
     return flattened
 
 
+def roof_object_attributes(
+    roofs: pd.DataFrame,
+    children: pd.DataFrame | None,
+    roof_object_classes: dict[str, str],
+    country: str,
+    unavailable_by_aoi: dict | None = None,
+    aoi_geometries: dict | None = None,
+) -> pd.DataFrame:
+    """Presence, count, area and confidence of each roof object class on each roof.
+
+    An object is on a roof when its ``parent_id`` is the roof's ``feature_id`` in the same AOI. Objects
+    with no geometry are ignored. For an AOI in ``aoi_geometries`` (answered by gridded, parcelMode-off
+    queries) only the objects that intersect that AOI geometry are kept.
+
+    Args:
+        roofs: Roof rows, with ``feature_id`` and ``aoi_id`` (as a column or the index).
+        children: Candidate object rows, with ``aoi_id``, ``class_id``, ``parent_id``, ``geometry``,
+            ``confidence`` and ``clipped_area_<unit>`` in the country's unit. None means no objects.
+        roof_object_classes: ``{class_id: description}`` of the roof object classes to report.
+        country: Country code, which sets the area unit.
+        unavailable_by_aoi: ``{aoi_id: class ids}`` not available for that AOI. Their four columns are null.
+        aoi_geometries: ``{aoi_id: AOI geometry}``, for gridded AOIs only.
+
+    Returns:
+        One row per roof, aligned by position with ``roofs``, with four columns per class, where ``x`` is
+        ``description.lower().replace(" ", "_")``: ``x_present`` (Y/N), ``x_count`` (Int64),
+        ``x_area_<unit>`` (the sum of the objects' clipped areas) and ``x_confidence`` (the maximum, null
+        when the count is 0).
+
+    Raises:
+        ValueError: ``children`` holds roof objects but lacks a column the counts need.
+    """
+    unit = country_area_suffix(country)
+    area_col = f"clipped_area_{unit}"
+    roof_keys = pd.MultiIndex.from_arrays([_aoi_id_values(roofs), roofs["feature_id"].to_numpy()])
+    stats = _roof_object_stats(children, roof_object_classes, area_col, aoi_geometries)
+    roof_aois = _aoi_id_values(roofs)
+    unavailable_by_aoi = unavailable_by_aoi or {}
+    columns = {}
+    for class_id, description in roof_object_classes.items():
+        name = description.lower().replace(" ", "_")
+        on_roof = stats[stats["class_id"] == class_id].set_index(["aoi_id", "parent_id"]).reindex(roof_keys)
+        n_objects = on_roof["count"].fillna(0).to_numpy(dtype="int64")
+        count = pd.array(n_objects, dtype="Int64")
+        area = on_roof["area"].fillna(0.0).to_numpy(dtype=float, copy=True)
+        confidence = on_roof["confidence"].to_numpy(dtype=float, copy=True)
+        present = np.where(n_objects > 0, TRUE_STRING, FALSE_STRING).astype(object)
+        unavailable = np.fromiter(
+            (class_id in unavailable_by_aoi.get(aoi, ()) for aoi in roof_aois), dtype=bool, count=len(roof_aois)
+        )
+        if unavailable.any():
+            present[unavailable] = None
+            count[unavailable] = pd.NA
+            area[unavailable] = np.nan
+            confidence[unavailable] = np.nan
+        columns[f"{name}_present"] = present
+        columns[f"{name}_count"] = count
+        columns[f"{name}_area_{unit}"] = area
+        columns[f"{name}_confidence"] = confidence
+    return pd.DataFrame(columns, index=range(len(roofs)))
+
+
 def flatten_building_lifecycle_damage_attributes(
     building_lifecycles: list[dict],
 ) -> dict:
@@ -1307,3 +1371,59 @@ def _safe_intersection_area(children: gpd.GeoSeries, parent, class_id=None) -> f
         )
         return None
     return total
+
+
+def _aoi_id_values(df: pd.DataFrame):
+    """Return the per-row aoi_id values whether aoi_id is a column or the index.
+
+    The chunk frame is indexed by aoi_id in the standalone export path but carries
+    aoi_id as a column with a RangeIndex in the streaming path (the on=aoi_id merges
+    in process_chunk reset the index). Roof attribute cache keys are (aoi_id,
+    feature_id); the cache producer and all consumers resolve aoi_id through this
+    helper so their keys always agree. Raises rather than degrading: a frame with
+    no aoi_id would collapse the cache back to feature_id-only keys — the exact
+    multiparcel collision this keying exists to prevent.
+    """
+    if AOI_ID_COLUMN_NAME in df.columns:
+        return df[AOI_ID_COLUMN_NAME].array
+    if df.index.name == AOI_ID_COLUMN_NAME:
+        return df.index.array
+    raise ValueError(f"Frame has no '{AOI_ID_COLUMN_NAME}' column or index; cannot key roof attributes per parcel")
+
+
+def _roof_object_stats(
+    children: pd.DataFrame | None, roof_object_classes: dict[str, str], area_col: str, aoi_geometries: dict | None
+) -> pd.DataFrame:
+    """Object count, summed clipped area and maximum confidence per (aoi_id, parent_id, class_id)."""
+    stats_columns = ["aoi_id", "parent_id", "class_id", "count", "area", "confidence"]
+    if children is None or len(children) == 0:
+        return pd.DataFrame(columns=stats_columns)
+    if "class_id" not in children.columns:
+        raise ValueError("Roof object children have no 'class_id' column")
+    objects = children[children["class_id"].isin(list(roof_object_classes)).to_numpy()]
+    if len(objects) == 0:
+        return pd.DataFrame(columns=stats_columns)
+    missing = [c for c in ("parent_id", area_col, "confidence", "geometry") if c not in objects.columns]
+    if missing:
+        raise ValueError(f"Roof object children lack column(s) {missing}")
+    geoms = np.asarray(objects["geometry"].array, dtype=object)
+    keep = ~(shapely.is_missing(geoms) | shapely.is_empty(geoms))
+    aoi_ids = np.asarray(_aoi_id_values(objects), dtype=object)
+    for aoi_id, aoi_geom in (aoi_geometries or {}).items():
+        in_aoi = keep & (aoi_ids == aoi_id)
+        if in_aoi.any():
+            keep[in_aoi] = shapely.intersects(geoms[in_aoi], aoi_geom)
+    frame = pd.DataFrame(
+        {
+            "aoi_id": aoi_ids[keep],
+            "parent_id": objects["parent_id"].to_numpy(dtype=object)[keep],
+            "class_id": objects["class_id"].to_numpy(dtype=object)[keep],
+            "area": objects[area_col].to_numpy(dtype=float)[keep],
+            "confidence": objects["confidence"].to_numpy(dtype=float)[keep],
+        }
+    )
+    return (
+        frame.groupby(["aoi_id", "parent_id", "class_id"], sort=False)
+        .agg(count=("area", "size"), area=("area", "sum"), confidence=("confidence", "max"))
+        .reset_index()
+    )
