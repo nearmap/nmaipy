@@ -28,7 +28,7 @@ import pyarrow as pa
 import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
 
-from nmaipy.constants import GEOPARQUET_SCHEMA_VERSION
+from nmaipy.constants import GEOPARQUET_SCHEMA_VERSION, PARQUET_COMPRESSION
 
 logger = logging.getLogger(__name__)
 
@@ -544,7 +544,7 @@ def write_parquet(data, path: str, **kwargs) -> None:
         path: Output file path (local or S3 URI)
         **kwargs: Additional arguments passed to the underlying writer
     """
-    kwargs.setdefault("compression", "zstd")
+    kwargs.setdefault("compression", PARQUET_COMPRESSION)
     if isinstance(data, gpd.GeoDataFrame):
         kwargs.setdefault("schema_version", GEOPARQUET_SCHEMA_VERSION)
     if is_s3_path(path):
