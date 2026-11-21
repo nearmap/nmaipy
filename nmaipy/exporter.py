@@ -77,10 +77,14 @@ from nmaipy.constants import (
     LAT_PRIMARY_COL_NAME,
     LON_PRIMARY_COL_NAME,
     MAX_RETRIES,
+    MERGED_PARQUET_COMPRESSION_LEVEL,
     METERS_TO_FEET,
+    NO_STATISTICS_COLUMN_SUFFIX,
+    NO_STATISTICS_COLUMNS,
     PARALLEL_READ_WORKERS,
     PARQUET_COMPRESSION,
     PER_CLASS_FILE_CLASS_IDS,
+    PER_CLASS_ROW_GROUP_SIZE,
     POOL_ID,
     PRIMARY_FEATURE_CLASS_IDS,
     PRIMARY_FEATURE_COLUMN_TO_CLASS,
@@ -931,6 +935,42 @@ def _reconcile_table_schema(table: pa.Table, ref_schema: pa.Schema) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=ref_schema)
 
 
+def _statistics_columns(schema: pa.Schema) -> list[str]:
+    """Columns of a merged output that get min/max statistics.
+
+    Every column except binary ones (WKB geometry) and those named by
+    NO_STATISTICS_COLUMNS / NO_STATISTICS_COLUMN_SUFFIX: per-row identifiers,
+    URLs and serialised JSON, whose value range prunes nothing for a reader.
+    Names are top-level: the merged outputs are flat, and a nested column would
+    need its leaf paths listed here to keep statistics.
+    """
+    return [
+        field.name
+        for field in schema
+        if not (
+            pa.types.is_binary(field.type)
+            or pa.types.is_large_binary(field.type)
+            or field.name in NO_STATISTICS_COLUMNS
+            or field.name.endswith(NO_STATISTICS_COLUMN_SUFFIX)
+        )
+    ]
+
+
+def _open_merged_parquet_writer(path: str, schema: pa.Schema) -> pq.ParquetWriter:
+    """Open the writer for a merged final output (features.parquet or a per-class file).
+
+    Uses the chunk codec, not pyarrow's snappy default, at
+    MERGED_PARQUET_COMPRESSION_LEVEL, and limits statistics to _statistics_columns().
+    """
+    return pq.ParquetWriter(
+        path,
+        schema,
+        compression=PARQUET_COMPRESSION,
+        compression_level=MERGED_PARQUET_COMPRESSION_LEVEL,
+        write_statistics=_statistics_columns(schema),
+    )
+
+
 def _safe_unlink(path: str) -> None:
     """Remove a file if it exists, ignoring a concurrent/absent removal."""
     Path(path).unlink(missing_ok=True)
@@ -945,12 +985,14 @@ def _stream_merge_chunks_to_parquet(
     geo_metadata: dict | None = None,
     logger=None,
     progress_desc: str | None = None,
+    row_group_size: int = PER_CLASS_ROW_GROUP_SIZE,
 ) -> int:
     """Stream-merge per-class chunk parquet files into one output file.
 
     Memory-bounded equivalent of reading every chunk into a list and calling
-    ``_unify_and_concat_tables()``: peak resident memory is ~one chunk plus the
-    prefetch read-ahead window, regardless of the total class size. This is what
+    ``_unify_and_concat_tables()``: peak resident memory is ~one row group (or one
+    chunk, if larger) plus the prefetch read-ahead window, regardless of the total
+    class size. This is what
     lets a national-scale layer (hundreds of GiB across thousands of chunks)
     consolidate without OOM — the read-all-then-concat path peaks at
     ``sum(all chunks) + concatenated copy`` (≈2x), which scales with total class
@@ -995,6 +1037,10 @@ def _stream_merge_chunks_to_parquet(
         progress_desc: If set, render a tqdm progress bar over the data pass with
             this label (e.g. "Building geo"). None (the default) renders no bar —
             keeps the helper quiet when called from tests.
+        row_group_size: Rows per row group in the merged file. Chunks are buffered
+            up to this many rows before a write, so the number of groups follows
+            the row count, not the chunk count; up to this many rows are resident
+            on top of the prefetch window.
 
     Returns:
         Number of rows written. 0 (and no file at ``output_path``) when there were
@@ -1047,6 +1093,8 @@ def _stream_merge_chunks_to_parquet(
     n = len(valid_paths)
     tmp_path = output_path + ".tmp"
     rows_written = 0
+    buffered = []
+    buffered_rows = 0
     data_reads_succeeded = 0
     completed = False
     writer = None
@@ -1062,7 +1110,7 @@ def _stream_merge_chunks_to_parquet(
     next_submit_idx = initial_submit
 
     try:
-        writer = pq.ParquetWriter(tmp_path, target, compression=PARQUET_COMPRESSION)
+        writer = _open_merged_parquet_writer(tmp_path, target)
         for i in range(n):
             future = prefetch_futures.pop(i)
             # Submit the next read before processing the current chunk so a read
@@ -1085,10 +1133,21 @@ def _stream_merge_chunks_to_parquet(
                 logger.exception(f"Failed reading {valid_paths[i]}")
                 continue
             data_reads_succeeded += 1
-            table = _reconcile_table_schema(table, target)
-            writer.write_table(table)
-            rows_written += table.num_rows
+            buffered.append(_reconcile_table_schema(table, target))
+            buffered_rows += table.num_rows
             del table
+            if buffered_rows >= row_group_size:
+                # Write whole groups and carry the remainder into the next flush,
+                # so group boundaries follow row_group_size, not chunk boundaries.
+                combined = pa.concat_tables(buffered)
+                full_rows = buffered_rows - buffered_rows % row_group_size
+                writer.write_table(combined.slice(0, full_rows), row_group_size=row_group_size)
+                rows_written += full_rows
+                buffered = [combined.slice(full_rows)] if full_rows < buffered_rows else []
+                buffered_rows -= full_rows
+        if buffered:
+            writer.write_table(pa.concat_tables(buffered), row_group_size=row_group_size)
+            rows_written += buffered_rows
         completed = True
     finally:
         # Cancel queued futures and wait for running ones so no background thread
@@ -3472,7 +3531,7 @@ class NearmapAIExporter(BaseExporter):
                             )
                         else:
                             local_write_path = outpath_features
-                        pqwriter = pq.ParquetWriter(local_write_path, schema_with_geo, compression=PARQUET_COMPRESSION)
+                        pqwriter = _open_merged_parquet_writer(local_write_path, schema_with_geo)
 
                         # Cast first chunk to match promoted schema
                         table = _cast_table_to_schema(table, reference_schema)
@@ -3578,10 +3637,10 @@ class NearmapAIExporter(BaseExporter):
 
         For each whitelisted class, globs per-class chunk files from chunks/ and
         stream-merges them to final/ via _stream_merge_chunks_to_parquet(), which
-        derives the unified schema from footers then writes each chunk through a
-        single ParquetWriter. Peak memory is bounded to ~one chunk plus the
-        prefetch window rather than the whole class, so national-scale classes
-        consolidate without OOM.
+        derives the unified schema from footers then writes the chunks through a
+        single ParquetWriter in row groups of PER_CLASS_ROW_GROUP_SIZE. Peak memory
+        is bounded to ~one row group plus the prefetch window rather than the whole
+        class, so national-scale classes consolidate without OOM.
 
         Classes with no per-class chunk files (e.g. an export first run without
         class-level files) are skipped with a warning; regenerating requires
@@ -3652,7 +3711,7 @@ class NearmapAIExporter(BaseExporter):
 
             # Happy path: per-class chunk files exist — stream-merge them.
             # Streaming (not read-all-then-concat) bounds peak memory to ~one
-            # chunk plus the prefetch window, so a national-scale class merges
+            # row group plus the prefetch window, so a national-scale class merges
             # without OOM regardless of total class size.
             if tabular_chunks:
                 self.logger.info(f"Merging {len(tabular_chunks)} tabular chunks for {desc}")

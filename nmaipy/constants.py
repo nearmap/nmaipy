@@ -314,6 +314,27 @@ FEATURES_ROW_GROUP_SIZE = 65_536
 # chunks, so the locally staged file can outgrow a disk the chunks fit on.
 PARQUET_COMPRESSION = "zstd"
 
+# zstd level for the merged final outputs (features.parquet and the per-class
+# files). Level 3 writes a geometry-heavy file about 17% smaller than pyarrow's
+# default level 1 for roughly a third more write CPU; higher levels cost far more
+# for a few percent. Decompression speed does not depend on the level. Chunk
+# files keep the default level: they are written inside the API workers.
+MERGED_PARQUET_COMPRESSION_LEVEL = 3
+
+# Row-group cap for the merged per-class files. Their rows are small (a few
+# hundred bytes uncompressed, so a group is of the order of 100MB), and they
+# can be very wide: every group repeats per-column metadata in the footer, so a
+# group per chunk on a many-thousand-chunk export yields a footer of hundreds of
+# MB that each reader must fetch and parse before its first row.
+PER_CLASS_ROW_GROUP_SIZE = 262_144
+
+# Columns that get no min/max statistics in the merged final outputs, along with
+# every binary (WKB geometry) column and every "<attribute>.components" column.
+# These hold per-row identifiers, URLs or serialised JSON: a range over them
+# prunes nothing, and their statistics are over half of the footer.
+NO_STATISTICS_COLUMNS = frozenset({"feature_id", "parent_id", "link", "attributes"})
+NO_STATISTICS_COLUMN_SUFFIX = ".components"
+
 IMPERIAL_COUNTRIES = ["us"]
 
 
