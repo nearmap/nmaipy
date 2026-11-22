@@ -321,12 +321,18 @@ PARQUET_COMPRESSION = "zstd"
 # files keep the default level: they are written inside the API workers.
 MERGED_PARQUET_COMPRESSION_LEVEL = 3
 
-# Row-group cap for the merged per-class files. Their rows are small (a few
-# hundred bytes uncompressed, so a group is of the order of 100MB), and they
-# can be very wide: every group repeats per-column metadata in the footer, so a
-# group per chunk on a many-thousand-chunk export yields a footer of hundreds of
-# MB that each reader must fetch and parse before its first row.
+# Row-group cap for the merged per-class files. They can be very wide: every
+# group repeats per-column metadata in the footer, so a group per chunk on a
+# many-thousand-chunk export yields a footer of hundreds of MB that each reader
+# must fetch and parse before its first row. Rows of the widest standard classes
+# are about 2KB in memory, so a full group is of the order of 500MB.
 PER_CLASS_ROW_GROUP_SIZE = 262_144
+
+# In-memory size at which the per-class merge writes out the rows it has buffered,
+# even when they are short of PER_CLASS_ROW_GROUP_SIZE. Row width depends on the
+# caller's AOI columns and on geometry size, so the row cap alone does not bound
+# the buffer. Set above a full group of standard rows, so it only acts on wide ones.
+PER_CLASS_ROW_GROUP_BYTES = 1024**3
 
 # Columns that get no min/max statistics in the merged final outputs, along with
 # every binary (WKB geometry) column and every "<attribute>.components" column.

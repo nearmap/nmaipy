@@ -84,6 +84,7 @@ from nmaipy.constants import (
     PARALLEL_READ_WORKERS,
     PARQUET_COMPRESSION,
     PER_CLASS_FILE_CLASS_IDS,
+    PER_CLASS_ROW_GROUP_BYTES,
     PER_CLASS_ROW_GROUP_SIZE,
     POOL_ID,
     PRIMARY_FEATURE_CLASS_IDS,
@@ -986,12 +987,13 @@ def _stream_merge_chunks_to_parquet(
     logger=None,
     progress_desc: str | None = None,
     row_group_size: int = PER_CLASS_ROW_GROUP_SIZE,
+    row_group_bytes: int = PER_CLASS_ROW_GROUP_BYTES,
 ) -> int:
     """Stream-merge per-class chunk parquet files into one output file.
 
     Memory-bounded equivalent of reading every chunk into a list and calling
-    ``_unify_and_concat_tables()``: peak resident memory is ~one row group (or one
-    chunk, if larger) plus the prefetch read-ahead window, regardless of the total
+    ``_unify_and_concat_tables()``: peak resident memory is ~one row group, capped at
+    ``row_group_bytes`` (or one chunk, if larger) plus the prefetch read-ahead window, regardless of the total
     class size. This is what
     lets a national-scale layer (hundreds of GiB across thousands of chunks)
     consolidate without OOM — the read-all-then-concat path peaks at
@@ -1041,6 +1043,9 @@ def _stream_merge_chunks_to_parquet(
             up to this many rows before a write, so the number of groups follows
             the row count, not the chunk count; up to this many rows are resident
             on top of the prefetch window.
+        row_group_bytes: In-memory size of buffered rows at which they are written
+            out as a group short of ``row_group_size``. Bounds the buffer for wide
+            rows, where ``row_group_size`` rows would be too large to hold.
 
     Returns:
         Number of rows written. 0 (and no file at ``output_path``) when there were
@@ -1095,6 +1100,7 @@ def _stream_merge_chunks_to_parquet(
     rows_written = 0
     buffered = []
     buffered_rows = 0
+    buffered_bytes = 0
     data_reads_succeeded = 0
     completed = False
     writer = None
@@ -1133,10 +1139,21 @@ def _stream_merge_chunks_to_parquet(
                 logger.exception(f"Failed reading {valid_paths[i]}")
                 continue
             data_reads_succeeded += 1
-            buffered.append(_reconcile_table_schema(table, target))
-            buffered_rows += table.num_rows
+            reconciled = _reconcile_table_schema(table, target)
             del table
-            if buffered_rows >= row_group_size:
+            buffered.append(reconciled)
+            buffered_rows += reconciled.num_rows
+            buffered_bytes += reconciled.nbytes
+            del reconciled
+            if buffered_bytes >= row_group_bytes:
+                # Wide rows: write everything buffered, short of a full group, so
+                # the buffer is bounded in bytes as well as in rows.
+                writer.write_table(pa.concat_tables(buffered), row_group_size=row_group_size)
+                rows_written += buffered_rows
+                buffered = []
+                buffered_rows = 0
+                buffered_bytes = 0
+            elif buffered_rows >= row_group_size:
                 # Write whole groups and carry the remainder into the next flush,
                 # so group boundaries follow row_group_size, not chunk boundaries.
                 combined = pa.concat_tables(buffered)
@@ -1144,7 +1161,10 @@ def _stream_merge_chunks_to_parquet(
                 writer.write_table(combined.slice(0, full_rows), row_group_size=row_group_size)
                 rows_written += full_rows
                 buffered = [combined.slice(full_rows)] if full_rows < buffered_rows else []
+                # Only the remainder slice may keep chunk buffers alive from here.
+                del combined
                 buffered_rows -= full_rows
+                buffered_bytes = sum(t.nbytes for t in buffered)
         if buffered:
             writer.write_table(pa.concat_tables(buffered), row_group_size=row_group_size)
             rows_written += buffered_rows

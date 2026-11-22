@@ -1670,6 +1670,73 @@ class TestStreamMergeChunksToParquet:
         assert 2 <= state["peak"] <= prefetch_workers + 1, state["peak"]
         assert state["peak"] < n_chunks
 
+    def test_wide_rows_flush_on_byte_budget(self, tmp_path):
+        """Rows too wide for row_group_size of them to be held are written out when
+        the buffer reaches row_group_bytes: groups are shorter, no row is lost."""
+        rows_per_chunk = 1024
+        n_chunks = 12
+        chunks = [
+            pa.table({"id": pa.array(range(i * rows_per_chunk, (i + 1) * rows_per_chunk), type=pa.int64())})
+            for i in range(n_chunks)
+        ]
+        chunk_bytes = chunks[0].nbytes
+        paths = _write_chunks(tmp_path, chunks)
+        out = str(tmp_path / "merged.parquet")
+
+        rows = _stream_merge_chunks_to_parquet(
+            paths,
+            out,
+            scan_workers=1,
+            prefetch_workers=1,
+            row_group_size=1_000_000,
+            row_group_bytes=3 * chunk_bytes,
+        )
+
+        assert rows == n_chunks * rows_per_chunk
+        meta = pq.ParquetFile(out).metadata
+        group_rows = [meta.row_group(i).num_rows for i in range(meta.num_row_groups)]
+        assert group_rows == [3 * rows_per_chunk] * 4, group_rows
+        assert sorted(pq.read_table(out)["id"].to_pylist()) == list(range(n_chunks * rows_per_chunk))
+
+    @pytest.mark.parametrize("flush_on", ["rows", "bytes"])
+    def test_buffered_memory_bounded_across_flushes(self, tmp_path, monkeypatch, flush_on):
+        """With buffering on, Arrow memory held while the next group accumulates stays
+        near one group plus the prefetch window, whichever limit triggers the flush:
+        a flushed group is released, not kept alongside the one being built."""
+        rows_per_chunk = 131_072
+        n_chunks = 24
+        chunks = [
+            pa.table({"id": pa.array(np.arange(i * rows_per_chunk, (i + 1) * rows_per_chunk), type=pa.int64())})
+            for i in range(n_chunks)
+        ]
+        chunk_bytes = chunks[0].nbytes
+        paths = _write_chunks(tmp_path, chunks)
+        del chunks
+        out = str(tmp_path / "merged.parquet")
+
+        original_reconcile = exporter_mod._reconcile_table_schema
+        baseline = pa.total_allocated_bytes()
+        state = {"peak": 0}
+
+        def measuring_reconcile(table, target):
+            state["peak"] = max(state["peak"], pa.total_allocated_bytes() - baseline)
+            return original_reconcile(table, target)
+
+        monkeypatch.setattr("nmaipy.exporter._reconcile_table_schema", measuring_reconcile)
+        rows = _stream_merge_chunks_to_parquet(
+            paths,
+            out,
+            scan_workers=1,
+            prefetch_workers=1,
+            row_group_size=4 * rows_per_chunk if flush_on == "rows" else 100_000_000,
+            row_group_bytes=4 * chunk_bytes if flush_on == "bytes" else 1024**4,
+        )
+
+        assert rows == n_chunks * rows_per_chunk
+        # Buffer short of a group (3 chunks) + the chunk in hand + read-ahead (2).
+        # Keeping the previous group alive as well would add 4 more.
+        assert state["peak"] <= 8 * chunk_bytes, f"peak {state['peak'] / chunk_bytes:.1f} chunks resident"
+
     def test_null_typed_column_promotion(self, tmp_path):
         """A column that is null-typed in one chunk and float64 in another unifies
         to float64; a column null across ALL chunks promotes to large_string. The
