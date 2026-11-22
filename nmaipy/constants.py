@@ -308,6 +308,40 @@ GEOPARQUET_SCHEMA_VERSION = "1.0.0"
 # footer. 65,536 rows ≈ 60MB per group on an all-packs export.
 FEATURES_ROW_GROUP_SIZE = 65_536
 
+# Codec for every parquet file nmaipy writes. The merged outputs name it
+# explicitly for size, not compatibility (the merge reads chunks of any codec):
+# pyarrow's ParquetWriter defaults to snappy, which makes a merged geoparquet
+# two or more times the size of its zstd chunks, so the locally staged file can
+# outgrow a disk the chunks fit on.
+PARQUET_COMPRESSION = "zstd"
+
+# zstd level for the merged final outputs (features.parquet and the per-class
+# files). Level 3 writes a geometry-heavy file about 17% smaller than pyarrow's
+# default level 1 for roughly a third more write CPU; higher levels cost far more
+# for a few percent. Decompression speed does not depend on the level. Chunk
+# files keep the default level: they are written inside the API workers.
+MERGED_PARQUET_COMPRESSION_LEVEL = 3
+
+# Row-group cap for the merged per-class files. They can be very wide: every
+# group repeats per-column metadata in the footer, so a group per chunk on a
+# many-thousand-chunk export yields a footer of hundreds of MB that each reader
+# must fetch and parse before its first row. Rows of the widest standard classes
+# are about 2KB in memory, so a full group is of the order of 500MB.
+PER_CLASS_ROW_GROUP_SIZE = 262_144
+
+# In-memory size at which the per-class merge writes out the rows it has buffered,
+# even when they are short of PER_CLASS_ROW_GROUP_SIZE. Row width depends on the
+# caller's AOI columns and on geometry size, so the row cap alone does not bound
+# the buffer. Set above a full group of standard rows, so it only acts on wide ones.
+PER_CLASS_ROW_GROUP_BYTES = 1024**3
+
+# Columns that get no min/max statistics in the merged final outputs, along with
+# every binary (WKB geometry) column and every "<attribute>.components" column.
+# These hold per-row identifiers, URLs or serialised JSON: a range over them
+# prunes nothing, and their statistics are over half of the footer.
+NO_STATISTICS_COLUMNS = frozenset({"feature_id", "parent_id", "link", "attributes"})
+NO_STATISTICS_COLUMN_SUFFIX = ".components"
+
 IMPERIAL_COUNTRIES = ["us"]
 
 
