@@ -31,7 +31,8 @@ Evidence tags:
   - `rawRatings`: the five class scores;
   - `classRatios`: a list of `{classId, description, ratio, confidence}` for AI classes over the footprint.
 
-  `preEvent` also has `latestCaptureDate`.
+  `preEvent` also has `latestCaptureDate`; `event` also has `latestCaptureTime`, which `preEvent` never carries.
+- [API, per the API's published documentation] **`latestCaptureTime`** is the UTC time, to the second, of the building's latest photo taken during the event (the documentation's example is `2025-01-13T21:43:41Z`). It is absent when no photo time is available. In rare cases it is midnight UTC of the capture date, so it is accurate to the day only.
 - [API] **Observed in one sample, not guaranteed:**
   - `rating` is the class with the highest raw score.
   - The block's `confidence` equals that score.
@@ -44,10 +45,11 @@ Evidence tags:
 
 - [nmaipy] **Fixed column set.** Every row gets:
   - `damage_{event|pre_event}_{rating, confidence, raw_<class>, class_ratios (JSON), latest_capture_date}`;
+  - `damage_event_latest_capture_time` (event only, copied verbatim as a string; there is no pre-event counterpart);
   - the area in the country's unit (`area_sqft` for the US, `area_sqm` elsewhere), `confidence` and `hilbert_id`.
 
   A missing block gives nulls.
-  - [inferred] `damage_event_latest_capture_date` is normally empty, because only the pre-event block carries a capture date.
+  - [inferred] `damage_event_latest_capture_date` is normally empty, because only the pre-event block carries a capture date. For the event side, use `damage_event_latest_capture_time`.
 - [nmaipy] **`--parcel-mode`** (exporter option, off by default) is a *client-side approximation* of the Feature API's parcelMode.
   - It keeps a building if at least 50% of its area lies inside the AOI, **or** its in-AOI footprint is at least 30 sqm, so terraced and townhouse rows survive.
   - **Nothing is clipped**: kept buildings keep their whole area.

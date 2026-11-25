@@ -69,11 +69,13 @@ _EMPTY_COLUMNS = [AOI_ID_COLUMN_NAME, "feature_id", "geometry", "damage_event_ra
 
 # Columns that are string/date-valued but can be entirely absent from a given response
 # (e.g. damage_event_latest_capture_date is only ever populated on the preEvent block;
+# damage_event_latest_capture_time is absent when the photo time is unknown;
 # geomatched_address is address-mode only) — cast explicitly to a nullable string dtype
 # so an all-None column doesn't get inferred as pyarrow's untyped `null`, which some
 # schema-strict parquet readers (Athena, older Spark/DuckDB) reject when unifying chunks.
 _NULLABLE_STRING_COLUMNS = (
     "damage_event_latest_capture_date",
+    "damage_event_latest_capture_time",
     "damage_pre_event_latest_capture_date",
     "geomatched_address",
 )

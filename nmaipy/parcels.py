@@ -1778,7 +1778,11 @@ def conflation_rollup(
     # entirely missing-key or entirely None infers as float64 in pandas, drifting from
     # the string dtype it gets when at least one AOI has a real value. Cast explicitly
     # so the dtype doesn't depend on which AOIs happened to have buildings.
-    for c in ("damage_event_latest_capture_date", "damage_pre_event_latest_capture_date"):
+    for c in (
+        "damage_event_latest_capture_date",
+        "damage_event_latest_capture_time",
+        "damage_pre_event_latest_capture_date",
+    ):
         col = f"primary_{c}"
         if col in rollup_df.columns:
             rollup_df[col] = rollup_df[col].astype("string")

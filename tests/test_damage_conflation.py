@@ -6,6 +6,7 @@ Uses the real captured Hurricane Milton response fixture
 per the project testing rule.
 """
 
+import copy
 import json
 from pathlib import Path
 
@@ -36,6 +37,7 @@ EXPECTED_COLUMNS = {
     "damage_event_raw_no_damage",
     "damage_event_class_ratios",
     "damage_event_latest_capture_date",
+    "damage_event_latest_capture_time",
     "damage_pre_event_rating",
     "damage_pre_event_confidence",
     "damage_pre_event_raw_affected",
@@ -90,6 +92,26 @@ def test_flatten_event_values_match_source(milton_features):
     assert flat["damage_event_raw_affected"] == event["rawRatings"]["Affected"]
     # latestCaptureDate lives on preEvent only; event has none.
     assert flat["damage_event_latest_capture_date"] is None
+
+
+def test_flatten_event_latest_capture_time(milton_features):
+    """latestCaptureTime is read from the event block only; preEvent never feeds it."""
+    feature = copy.deepcopy(_feature_with_pre_event(milton_features))
+    damage = feature["properties"]["damage"]
+    damage["event"]["latestCaptureTime"] = "2024-10-10T16:05:12Z"
+    damage["preEvent"]["latestCaptureTime"] = "2024-09-29T15:00:00Z"
+
+    flat = flatten_conflated_damage_attributes(feature["properties"])
+
+    assert flat["damage_event_latest_capture_time"] == "2024-10-10T16:05:12Z"
+    assert "damage_pre_event_latest_capture_time" not in flat
+
+
+def test_flatten_event_latest_capture_time_absent_emits_none(milton_features):
+    """A response without latestCaptureTime (the fixture has none) gives None, not a missing key."""
+    for feature in milton_features:
+        flat = flatten_conflated_damage_attributes(feature["properties"])
+        assert flat["damage_event_latest_capture_time"] is None
 
 
 def test_flatten_class_ratios_serialised_to_json(milton_features):
@@ -225,6 +247,31 @@ def test_conflation_rollup_primary_capture_date_is_string_dtype(rollup_inputs):
     assert rollup["primary_damage_event_latest_capture_date"].dtype == pd.StringDtype()
     assert rollup["primary_damage_pre_event_latest_capture_date"].notna().any()
     assert rollup["primary_damage_pre_event_latest_capture_date"].dtype == pd.StringDtype()
+    # No feature in the fixture carries latestCaptureTime: all missing, still string typed.
+    assert rollup["primary_damage_event_latest_capture_time"].isna().all()
+    assert rollup["primary_damage_event_latest_capture_time"].dtype == pd.StringDtype()
+
+
+def test_conflation_rollup_carries_primary_latest_capture_time(milton_response):
+    """The primary building's event latestCaptureTime reaches the rollup as a string."""
+    response = copy.deepcopy(milton_response)
+    for i, feature in enumerate(response["features"][:5]):
+        feature["properties"]["damage"]["event"]["latestCaptureTime"] = f"2024-10-10T16:05:{i:02d}Z"
+    f_p1 = _parse_slice(response, "p1", slice(0, 5))
+    f_p2 = _parse_slice(response, "p2", slice(5, 14))
+    features_gdf = gpd.GeoDataFrame(pd.concat([f_p1, f_p2], ignore_index=True), crs=API_CRS)
+    aoi_gdf = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 1, 1)] * 2,
+        crs=API_CRS,
+        index=pd.Index(["p1", "p2"], name=AOI_ID_COLUMN_NAME),
+    )
+
+    rollup = parcels.conflation_rollup(aoi_gdf, features_gdf, country="us", successful_aoi_ids={"p1", "p2"})
+
+    primary = f_p1.loc[f_p1["area_sqm"].idxmax()]
+    assert rollup.loc["p1", "primary_damage_event_latest_capture_time"] == primary["damage_event_latest_capture_time"]
+    assert pd.isna(rollup.loc["p2", "primary_damage_event_latest_capture_time"])
+    assert rollup["primary_damage_event_latest_capture_time"].dtype == pd.StringDtype()
 
 
 def test_conflation_rollup_carries_event_metadata(rollup_inputs, milton_response):

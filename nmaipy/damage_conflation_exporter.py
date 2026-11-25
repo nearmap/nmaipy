@@ -78,6 +78,7 @@ _BUILDINGS_CSV_BASE_FIELDS = (
     "damage_event_raw_minor",
     "damage_event_raw_no_damage",
     "damage_event_latest_capture_date",
+    "damage_event_latest_capture_time",
     "damage_pre_event_rating",
     "damage_pre_event_confidence",
     "damage_pre_event_raw_affected",
