@@ -15,7 +15,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from nmaipy import aoi_io, output_files, storage
-from nmaipy.column_metadata import lookup_column
+from nmaipy.column_metadata import UNKNOWN_SENTINEL, ColumnMeta, lookup_column
 
 logger = logging.getLogger(__name__)
 
@@ -206,8 +206,22 @@ class DataDictionaryGenerator:
     ) -> str | None:
         columns = list(dict.fromkeys(name for filepath in filepaths for name in self._read_columns(filepath)))
         conflation = storage.basename(filepaths[0]).rsplit(".", 1)[0] in output_files.CONFLATION_FILES
+        # In the conflation rollup the input file's columns lead, and one that collides
+        # with a rollup column is renamed `<name>_input`. Both are the user's data,
+        # whatever a same-named model column means.
+        passed_through: set[str] = set()
+        if storage.basename(filepaths[0]).startswith("damage_rollup."):
+            passed_through = {
+                name
+                for name in columns
+                if (name.endswith("_input") and name.removesuffix("_input") in input_columns)
+                or (name in input_columns and f"{name}_input" not in columns)
+            }
         rows = [
-            self._row_for_column(name, area_unit, class_label, extras, input_columns, conflation) for name in columns
+            self._row_for_column(
+                name, area_unit, class_label, extras, input_columns | passed_through, conflation, name in passed_through
+            )
+            for name in columns
         ]
         if not rows:
             return None
@@ -225,9 +239,14 @@ class DataDictionaryGenerator:
         extras: dict[str, str],
         input_columns: set[str],
         conflation: bool = False,
+        passed_through: bool = False,
     ) -> dict[str, str]:
         """Build a single dictionary row for one column."""
         meta = lookup_column(name, area_unit=area_unit, class_label=class_label, extras=extras, conflation=conflation)
+        # A passed-through column keeps a seeded input description (`aoi_id`, `lat`) but
+        # never takes a model column's.
+        if passed_through and meta.source != USER_INPUT_SOURCE:
+            meta = ColumnMeta(description=UNKNOWN_SENTINEL, source=UNKNOWN_SENTINEL)
         # Pass-through columns from the user's input file aren't in the seeded
         # metadata. Recognise them so the dictionary describes them rather
         # than surfacing the unknown sentinel.

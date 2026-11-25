@@ -737,3 +737,28 @@ class TestDamageConflationDictionaries:
         DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
         dd = pd.read_csv(tmp_path / "damage_rollup_data_dictionary.csv").set_index("column_name")
         assert dd.loc["parcel_count", "description"] == USER_INPUT_DESCRIPTION
+
+    def test_input_columns_sharing_a_model_column_name_stay_input(self, tmp_path):
+        """An input `area_sqft` passes through unchanged; an input `n_buildings` is renamed `n_buildings_input`."""
+        aoi_file = tmp_path / "aois.csv"
+        _write_csv(aoi_file, ["aoi_id", "lat", "area_sqft", "n_buildings"])
+        config = {"parameters": {"output_format": "csv", "country": "us", "aoi_file": str(aoi_file)}}
+        (tmp_path / "damage_conflation_export_config.json").write_text(json.dumps(config))
+        _write_csv(tmp_path / "damage_rollup.csv", ["aoi_id", "lat", "area_sqft", "n_buildings_input", "n_buildings"])
+        _write_csv(tmp_path / "damage_buildings.csv", ["aoi_id", "area_sqft"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        rollup = pd.read_csv(tmp_path / "damage_rollup_data_dictionary.csv").set_index("column_name")
+        for name in ("area_sqft", "n_buildings_input"):
+            assert rollup.loc[name, "description"] == USER_INPUT_DESCRIPTION
+            assert rollup.loc[name, "source"] == "input data"
+            assert pd.isna(rollup.loc[name, "dtype"])
+        assert rollup.loc["n_buildings", "source"] == "damage conflation model"
+        assert rollup.loc["lat", "description"] == lookup_column("lat").description
+        buildings = pd.read_csv(tmp_path / "damage_buildings_data_dictionary.csv").set_index("column_name")
+        assert buildings.loc["area_sqft", "source"] == "damage conflation model"
+
+    def test_square_metres_are_float_and_square_feet_int(self):
+        assert lookup_column("area_sqm", area_unit="sqm", conflation=True).dtype == "float"
+        assert lookup_column("primary_area_sqm", area_unit="sqm", conflation=True).dtype == "float"
+        assert lookup_column("area_sqft", area_unit="sqft", conflation=True).dtype == "int"
+        assert "square metres" in lookup_column("area_sqm", area_unit="sqm", conflation=True).description

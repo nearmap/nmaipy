@@ -616,6 +616,14 @@
       "description": "Building footprint area, in {unit_name}. Full footprint (not clipped to the AOI); the same building has the same area under every AOI.",
       "source": "damage conflation model"
     },
+    "area_sqm": {
+      "group": "damage_conflation",
+      "dtype": "float",
+      "min": "0",
+      "unit": "{unit_name}",
+      "description": "Building footprint area, in {unit_name}. Full footprint (not clipped to the AOI); the same building has the same area under every AOI.",
+      "source": "damage conflation model"
+    },
     "confidence": {
       "group": "damage_conflation",
       "dtype": "float",
