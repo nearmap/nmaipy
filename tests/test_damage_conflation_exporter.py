@@ -327,6 +327,13 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     for name in ("damage_buildings.parquet", "damage_buildings.csv", "damage_rollup.parquet", "damage_rollup.csv"):
         assert (final / name).exists(), f"missing {name}"
 
+    # Each tabular output gets a data dictionary describing every column; the input
+    # file's own columns are recognised as pass-through.
+    for stem in ("damage_buildings", "damage_rollup"):
+        dd = pd.read_csv(final / f"{stem}_data_dictionary.csv").set_index("column_name")
+        assert not (dd["description"] == "?").any(), dd.index[dd["description"] == "?"].tolist()
+    assert dd.loc["policy_number", "source"] == "input data"
+
     # Per-building output has every building.
     buildings = gpd.read_parquet(final / "damage_buildings.parquet")
     assert len(buildings) == len(features)
@@ -337,6 +344,16 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     assert rollup["query_succeeded"].all()
     assert rollup["n_buildings"].sum() == len(features)
     assert rollup["primary_damage_event_rating"].notna().all()
+
+    # is_primary marks exactly the rollup's primary building for each AOI, in both formats,
+    # and sits straight after feature_id as in the Feature API per-class files.
+    for fmt in (buildings, pd.read_csv(final / "damage_buildings.csv")):
+        assert list(fmt.columns).index("is_primary") == list(fmt.columns).index("feature_id") + 1
+        primaries = fmt[fmt["is_primary"] == "Y"]
+        assert dict(zip(primaries["aoi_id"], primaries["feature_id"], strict=True)) == dict(
+            zip(rollup["aoi_id"], rollup["primary_feature_id"], strict=True)
+        )
+        assert set(fmt["is_primary"]) == {"Y", "N"}
 
     # Input columns pass through, ahead of the rollup columns, in both formats.
     for fmt in (rollup, pd.read_parquet(final / "damage_rollup.parquet").reset_index()):

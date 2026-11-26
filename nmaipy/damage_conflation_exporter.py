@@ -52,6 +52,7 @@ from nmaipy.constants import (
     wrong_unit_area_columns,
 )
 from nmaipy.damage_conflation_api import DamageConflationApi
+from nmaipy.data_dictionary_generator import generate_dictionaries
 from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = log.get_logger()
@@ -69,6 +70,7 @@ PARCEL_MODE_MIN_INTERSECTION_SQM = BUILDING_SMALL_MAX_AREA_SQM
 _BUILDINGS_CSV_BASE_FIELDS = (
     AOI_ID_COLUMN_NAME,
     "feature_id",
+    "is_primary",
     "hilbert_id",
     "damage_event_rating",
     "damage_event_confidence",
@@ -178,7 +180,8 @@ def parse_arguments():
     )
     parser.add_argument(
         "--primary-decision",
-        help="Primary-building selection for the rollup: 'largest' (default) or 'optimal' "
+        help="Primary-building selection (the rollup's primary building and is_primary in the "
+        "per-building output): 'largest' (default) or 'optimal' "
         "(prefers the building containing the AOI's lat/lon, requires lat/lon columns).",
         type=str,
         choices=["largest", "optimal"],
@@ -477,21 +480,27 @@ class DamageConflationExporter(BaseExporter):
         # Derive the rollup from the fully-combined features (not per-chunk) so it is
         # always correct, including on a resumed run with cached chunks. Compute before
         # the include_aoi_geometry merge so the rollup is built from pristine features.
-        rollup_df = pd.DataFrame()
-        if self.rollup:
-            rollup_df = parcels.conflation_rollup(
-                aoi_gdf,
-                features_gdf,
-                country=self.country,
-                successful_aoi_ids=set(metadata_df.index),
-                primary_decision=self.primary_decision,
-            )
-            if len(rollup_df) > 0:
-                # Lead with the input file's own columns (mirrors AOIExporter's rollup)
-                # so customer-supplied columns survive into the output. On a name
-                # collision the rollup schema wins; the input column gets `_input`.
-                passthrough = pd.DataFrame(aoi_gdf).drop(columns=["geometry"], errors="ignore")
-                rollup_df = passthrough.join(rollup_df, how="right", lsuffix="_input")
+        # It is computed even when the rollup file is not requested, because it selects
+        # each AOI's primary building for the per-building is_primary column.
+        rollup_df = parcels.conflation_rollup(
+            aoi_gdf,
+            features_gdf,
+            country=self.country,
+            successful_aoi_ids=set(metadata_df.index),
+            primary_decision=self.primary_decision,
+        )
+        if len(features_gdf) > 0:
+            # Mark each AOI's primary building, as AOIExporter does in its per-class
+            # files: Y/N, matched on (aoi_id, feature_id), placed after feature_id.
+            primary_ids = features_gdf[AOI_ID_COLUMN_NAME].map(rollup_df.get("primary_feature_id", pd.Series()))
+            is_primary = (features_gdf["feature_id"] == primary_ids).map({True: "Y", False: "N"})
+            features_gdf.insert(list(features_gdf.columns).index("feature_id") + 1, "is_primary", is_primary)
+        if self.rollup and len(rollup_df) > 0:
+            # Lead with the input file's own columns (mirrors AOIExporter's rollup)
+            # so customer-supplied columns survive into the output. On a name
+            # collision the rollup schema wins; the input column gets `_input`.
+            passthrough = pd.DataFrame(aoi_gdf).drop(columns=["geometry"], errors="ignore")
+            rollup_df = passthrough.join(rollup_df, how="right", lsuffix="_input")
 
         if self.include_aoi_geometry and len(features_gdf) > 0:
             self.logger.info("Merging building data with AOI attributes...")
@@ -503,6 +512,7 @@ class DamageConflationExporter(BaseExporter):
                 )
 
         self._save_outputs(features_gdf, rollup_df, metadata_df, errors_df, self.final_path)
+        self.logger.info(f"Generated {len(generate_dictionaries(self.final_path))} data dictionary file(s).")
         self.logger.info("Export complete!")
 
     def _save_outputs(self, features_gdf, rollup_df, metadata_df, errors_df, output_path):

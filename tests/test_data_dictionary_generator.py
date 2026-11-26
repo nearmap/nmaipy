@@ -29,7 +29,7 @@ import pytest
 
 from nmaipy import column_metadata as cm
 from nmaipy.column_metadata import lookup_column, reload_metadata
-from nmaipy.data_dictionary_generator import _DD_COLUMNS, DataDictionaryGenerator
+from nmaipy.data_dictionary_generator import _DD_COLUMNS, USER_INPUT_DESCRIPTION, DataDictionaryGenerator
 
 
 @pytest.fixture(autouse=True)
@@ -669,3 +669,96 @@ class TestDefensibleSpacePrimaryScope:
         assert not meta.is_unknown()
         # Else branch in column_metadata.py → "around this {class_label}".
         assert "around this roof" in meta.description
+
+
+# ---------------------------------------------------------------------------
+# Damage Conflation exports
+# ---------------------------------------------------------------------------
+
+
+class TestDamageConflationDictionaries:
+    def _export(self, tmp_path, output_format):
+        config = {"parameters": {"output_format": output_format, "country": "us", "primary_decision": "largest"}}
+        (tmp_path / "damage_conflation_export_config.json").write_text(json.dumps(config))
+        buildings = [
+            "aoi_id",
+            "feature_id",
+            "is_primary",
+            "damage_event_rating",
+            "area_sqft",
+            "confidence",
+            "resource_id",
+        ]
+        rollup = ["aoi_id", "n_buildings", "primary_feature_id", "primary_damage_pre_event_raw_no_damage"]
+        if output_format in ("csv", "both"):
+            _write_csv(tmp_path / "damage_buildings.csv", buildings)
+            _write_csv(tmp_path / "damage_rollup.csv", rollup)
+        if output_format in ("geoparquet", "both"):
+            _write_parquet(tmp_path / "damage_buildings.parquet", [*buildings, "damage_event_class_ratios"])
+            _write_parquet(tmp_path / "damage_rollup.parquet", rollup)
+        _write_csv(tmp_path / "damage_metadata.csv", ["aoi_id", "resource_id"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        return {p.name: pd.read_csv(p).set_index("column_name") for p in tmp_path.glob("*_data_dictionary.csv")}
+
+    @pytest.mark.parametrize("output_format", ["csv", "geoparquet", "both"])
+    def test_buildings_and_rollup_get_fully_described_dictionaries(self, tmp_path, output_format):
+        dictionaries = self._export(tmp_path, output_format)
+        assert sorted(dictionaries) == ["damage_buildings_data_dictionary.csv", "damage_rollup_data_dictionary.csv"]
+        for dd in dictionaries.values():
+            assert list(dd.reset_index().columns) == _DD_COLUMNS
+            assert not (dd["description"] == cm.UNKNOWN_SENTINEL).any()
+
+    def test_both_formats_share_one_dictionary_covering_parquet_only_columns(self, tmp_path):
+        dd = self._export(tmp_path, "both")["damage_buildings_data_dictionary.csv"]
+        assert list(dd.index[:2]) == ["aoi_id", "feature_id"]  # CSV order leads
+        assert dd.index[-1] == "damage_event_class_ratios"
+
+    def test_conflation_entries_win_over_feature_api_entries(self, tmp_path):
+        dd = self._export(tmp_path, "csv")["damage_buildings_data_dictionary.csv"]
+        assert dd.loc["confidence", "source"] == "damage conflation model"
+        assert "square feet" in dd.loc["area_sqft", "description"]
+        # Outside a conflation file the shared names keep their Feature API meaning.
+        assert lookup_column("resource_id").description != dd.loc["resource_id", "description"]
+
+    def test_primary_columns_reuse_the_building_entry(self, tmp_path):
+        dd = self._export(tmp_path, "csv")["damage_rollup_data_dictionary.csv"]
+        building = lookup_column("damage_pre_event_raw_no_damage", conflation=True)
+        primary = dd.loc["primary_damage_pre_event_raw_no_damage"]
+        assert primary["description"] == building.description.rstrip(".") + " (primary building)."
+        assert "largest strategy" in dd.loc["primary_feature_id", "description"]
+
+    def test_feature_api_patterns_do_not_claim_input_columns(self, tmp_path):
+        """A passed-through input column such as parcel_count is not a class detection count."""
+        aoi_file = tmp_path / "aois.csv"
+        _write_csv(aoi_file, ["aoi_id", "parcel_count"])
+        config = {"parameters": {"output_format": "csv", "country": "us", "aoi_file": str(aoi_file)}}
+        (tmp_path / "damage_conflation_export_config.json").write_text(json.dumps(config))
+        _write_csv(tmp_path / "damage_rollup.csv", ["aoi_id", "parcel_count", "n_buildings"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        dd = pd.read_csv(tmp_path / "damage_rollup_data_dictionary.csv").set_index("column_name")
+        assert dd.loc["parcel_count", "description"] == USER_INPUT_DESCRIPTION
+
+    def test_input_columns_sharing_a_model_column_name_stay_input(self, tmp_path):
+        """An input `area_sqft` passes through unchanged; an input `n_buildings` is renamed `n_buildings_input`."""
+        aoi_file = tmp_path / "aois.csv"
+        _write_csv(aoi_file, ["aoi_id", "lat", "area_sqft", "n_buildings"])
+        config = {"parameters": {"output_format": "csv", "country": "us", "aoi_file": str(aoi_file)}}
+        (tmp_path / "damage_conflation_export_config.json").write_text(json.dumps(config))
+        _write_csv(tmp_path / "damage_rollup.csv", ["aoi_id", "lat", "area_sqft", "n_buildings_input", "n_buildings"])
+        _write_csv(tmp_path / "damage_buildings.csv", ["aoi_id", "area_sqft"])
+        DataDictionaryGenerator(output_dir=tmp_path).generate_and_save()
+        rollup = pd.read_csv(tmp_path / "damage_rollup_data_dictionary.csv").set_index("column_name")
+        for name in ("area_sqft", "n_buildings_input"):
+            assert rollup.loc[name, "description"] == USER_INPUT_DESCRIPTION
+            assert rollup.loc[name, "source"] == "input data"
+            assert pd.isna(rollup.loc[name, "dtype"])
+        assert rollup.loc["n_buildings", "source"] == "damage conflation model"
+        assert rollup.loc["lat", "description"] == lookup_column("lat").description
+        buildings = pd.read_csv(tmp_path / "damage_buildings_data_dictionary.csv").set_index("column_name")
+        assert buildings.loc["area_sqft", "source"] == "damage conflation model"
+
+    def test_square_metres_are_float_and_square_feet_int(self):
+        assert lookup_column("area_sqm", area_unit="sqm", conflation=True).dtype == "float"
+        assert lookup_column("primary_area_sqm", area_unit="sqm", conflation=True).dtype == "float"
+        assert lookup_column("area_sqft", area_unit="sqft", conflation=True).dtype == "int"
+        assert "square metres" in lookup_column("area_sqm", area_unit="sqm", conflation=True).description

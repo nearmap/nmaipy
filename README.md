@@ -485,14 +485,17 @@ Outputs in `final/`:
 
 | File | When | Contents |
 |------|------|----------|
-| `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry |
+| `damage_buildings.{parquet,csv}` | always | One row per building — `damage_event_*` / `damage_pre_event_*` rating, confidence and rawRatings, plus geometry. `is_primary` (`Y`/`N`) marks each AOI's primary building (chosen by `--primary-decision largest|optimal`), as in the Feature API per-class files |
 | `damage_rollup.{parquet,csv}` | `--rollup` | One row per input AOI — your input file's columns (geometry excluded), then rating counts + the primary building (chosen by `--primary-decision largest|optimal`) |
+| `damage_buildings_data_dictionary.csv`, `damage_rollup_data_dictionary.csv` | with the file they describe | One row per column of that file: description, allowed values, type and source |
 | `damage_metadata.csv` | always | Per-AOI query metadata (event id/name, model version) for AOIs that returned a response |
 | `damage_errors.csv` | on failures | Per-AOI requests that still failed after `--max-retries` (`status_code` + `message`). An AOI outside the event footprint is not a failure: it succeeds with no buildings (`query_succeeded=True`, `n_buildings=0` in the rollup) |
 | `latency_stats.csv` | always | Per-chunk API latency summary (request count, percentiles, retries) |
 | `damage_conflation_export_config.json` | always | The export's parameters and `nmaipy` version |
 
 The conflation API is map-style: every building intersecting an AOI is returned, including neighbours' buildings that only clip a parcel boundary. For property-sized AOIs, `--parcel-mode` drops buildings that barely intersect their AOI (kept when at least 50% of the building lies inside it, or its in-AOI footprint is at least 30 sqm so multi-parcel structures such as townhouse rows survive). It is a client-side approximation of the Feature API's `parcelMode`; nothing is clipped. Off by default.
+
+**Recommended size cutoff (optional).** The results include very small polygons (sheds, outbuildings and fragments, often with a low building `confidence`). For property-level damage analysis we recommend keeping only buildings with a footprint of at least 500 sq ft (about 46 sqm): filter `damage_buildings` on `area_sqft >= 500` (`area_sqm >= 46` outside the US), but keep each AOI's primary building whatever its size (`is_primary` = `Y`), since a small primary building can be the property's only structure. The exporter does not apply this cutoff, so the rollup's `n_buildings` and rating counts include smaller buildings; recompute them from the filtered per-building file if you need them to match.
 
 See `python -m nmaipy.damage_conflation_exporter --help` for all options.
 
