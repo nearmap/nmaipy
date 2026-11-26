@@ -5,12 +5,15 @@ Mocks at the process_chunk / API-class level (mocks don't cross the multiprocess
 boundary) and feeds REAL parsed fixture data — never hand-crafted mock data.
 """
 
+import copy
 import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import geopandas as gpd
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from shapely.geometry import box
 
@@ -190,10 +193,37 @@ def test_save_outputs_drops_wrong_unit_area_and_writes_files(tmp_path, chunk_inp
     assert "damage_event_rating" in csv.columns
     assert "geometry" in csv.columns
     # Previously silently dropped vs. the parquet — now carried through to the CSV too.
-    for col in ("hilbert_id", "damage_event_latest_capture_date", "geomatched_address"):
+    for col in (
+        "hilbert_id",
+        "damage_event_latest_capture_date",
+        "damage_event_latest_capture_time",
+        "geomatched_address",
+    ):
         assert col in csv.columns
     # The verbose JSON classRatios columns stay parquet-only by design.
     assert "damage_event_class_ratios" not in csv.columns
+
+
+def test_save_outputs_carries_event_latest_capture_time(tmp_path, milton_response):
+    """A building's event latestCaptureTime reaches the per-building parquet and CSV verbatim,
+    stored as a string; buildings without it stay empty."""
+    response = copy.deepcopy(milton_response)
+    timed = response["features"][0]
+    timed["properties"]["damage"]["event"]["latestCaptureTime"] = "2024-10-10T16:05:12Z"
+    api = DamageConflationApi(event_id=EVENT_ID, api_key="t")
+    features_gdf = gpd.GeoDataFrame(api._parse_response(response, "p1"), crs=API_CRS)
+    metadata_df = pd.DataFrame({"event_uuid": [response["eventUuid"]]}, index=pd.Index(["p1"], name=AOI_ID_COLUMN_NAME))
+    exporter = _make_exporter(tmp_path, output_format="both", rollup=False, country="us")
+
+    exporter._save_outputs(features_gdf, pd.DataFrame(), metadata_df, pd.DataFrame(), exporter.final_path)
+
+    final = Path(exporter.final_path)
+    schema = pq.read_schema(final / "damage_buildings.parquet")
+    assert schema.field("damage_event_latest_capture_time").type in (pa.string(), pa.large_string())
+    for frame in (gpd.read_parquet(final / "damage_buildings.parquet"), pd.read_csv(final / "damage_buildings.csv")):
+        by_feature = frame.set_index("feature_id")["damage_event_latest_capture_time"]
+        assert by_feature[timed["id"]] == "2024-10-10T16:05:12Z"
+        assert by_feature.drop(timed["id"]).isna().all()
 
 
 def test_combine_reads_present_chunks_and_preserves_index(tmp_path, chunk_inputs):
@@ -331,6 +361,16 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
     buildings = gpd.read_parquet(final / "damage_buildings.parquet")
     assert len(buildings) == len(features)
 
+    # Capture date/time columns keep a string type on disk after the chunks are combined,
+    # even when every value is missing, so schema-strict parquet readers can unify files.
+    schema = pq.read_schema(final / "damage_buildings.parquet")
+    for col in (
+        "damage_event_latest_capture_date",
+        "damage_event_latest_capture_time",
+        "damage_pre_event_latest_capture_date",
+    ):
+        assert schema.field(col).type in (pa.string(), pa.large_string()), col
+
     # Rollup is correct — NOT all-FALSE (the regression this branch exists to prevent).
     rollup = pd.read_csv(final / "damage_rollup.csv")
     assert set(rollup["aoi_id"]) == {"p1", "p2"}
@@ -344,6 +384,44 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
         cols = list(fmt.columns)
         assert cols.index("portfolio") < cols.index("n_buildings")
         assert "geometry" not in cols
+
+
+def test_run_resumed_from_earlier_version_chunks_keeps_capture_time_column(tmp_path, milton_response):
+    """Chunks written by an earlier nmaipy lack damage_event_latest_capture_time and are skipped on
+    resume, so no chunk carries the column. The outputs still have it, empty and string typed, in
+    the per-building files and the rollup, and the run warns about it."""
+    aoi_csv = tmp_path / "aois.csv"
+    pd.DataFrame(
+        {"aoi_id": ["p1", "p2"], "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt]}
+    ).to_csv(aoi_csv, index=False)
+    exporter = DamageConflationExporter(
+        aoi_file=str(aoi_csv),
+        output_dir=str(tmp_path / "out"),
+        event_id=EVENT_ID,
+        api_key="test_key",
+        output_format="both",
+        rollup=True,
+        processes=1,
+    )
+    features = _seed_milton_chunk(exporter, milton_response)
+    earlier = features.drop(columns=["damage_event_latest_capture_time"])
+    storage.write_parquet(earlier, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
+
+    with (
+        patch.object(exporter, "run_parallel", return_value=[]),
+        patch("nmaipy.damage_conflation_exporter.combine_chunk_latency_stats", return_value=[]),
+        patch.object(exporter.logger, "warning") as warning,
+    ):
+        exporter.run()
+
+    final = Path(exporter.final_path)
+    schema = pq.read_schema(final / "damage_buildings.parquet")
+    assert schema.field("damage_event_latest_capture_time").type in (pa.string(), pa.large_string())
+    assert gpd.read_parquet(final / "damage_buildings.parquet")["damage_event_latest_capture_time"].isna().all()
+    assert "damage_event_latest_capture_time" in pd.read_csv(final / "damage_buildings.csv").columns
+    rollup = pd.read_parquet(final / "damage_rollup.parquet")
+    assert rollup["primary_damage_event_latest_capture_time"].isna().all()
+    assert any("damage_event_latest_capture_time" in str(c.args[0]) for c in warning.call_args_list)
 
 
 def _parcel_filter_inputs():

@@ -1123,7 +1123,8 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
     ``properties.damage`` with two blocks: ``event`` (post-event assessment) and
     ``preEvent`` (pre-event baseline). Each block carries ``rating``, ``confidence``,
     ``rawRatings`` (the 5 DamageClass scores) and ``classRatios`` (variable-length
-    contributing AI classes); ``preEvent`` additionally carries ``latestCaptureDate``.
+    contributing AI classes); ``preEvent`` additionally carries ``latestCaptureDate``, and
+    ``event`` carries ``latestCaptureTime`` (UTC, to the second; absent when unknown).
 
     The output column set is FIXED so DataFrame assembly preserves column ordering
     across rows (pandas builds columns from first-seen-key order). ``rawRatings`` are
@@ -1181,6 +1182,10 @@ def flatten_conflated_damage_attributes(properties: dict) -> dict:
 
         # latestCaptureDate is present on preEvent only; extract defensively per-block.
         flattened[f"damage_{prefix}_latest_capture_date"] = block.get("latestCaptureDate")
+
+        # latestCaptureTime is present on event only, so it gets no pre_event column.
+        if api_block == "event":
+            flattened["damage_event_latest_capture_time"] = block.get("latestCaptureTime")
 
     return flattened
 

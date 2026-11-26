@@ -192,6 +192,21 @@ def test_parse_response_types_always_null_column_as_string(damage_api, milton_re
     # pre-event side has real values in the fixture and must stay the same dtype
     assert gdf["damage_pre_event_latest_capture_date"].notna().any()
     assert gdf["damage_pre_event_latest_capture_date"].dtype == pd.StringDtype()
+    # latestCaptureTime is absent from every fixture feature: all missing, still string typed.
+    assert gdf["damage_event_latest_capture_time"].isna().all()
+    assert gdf["damage_event_latest_capture_time"].dtype == pd.StringDtype()
+
+
+def test_parse_response_carries_event_latest_capture_time(damage_api, milton_response):
+    """An event latestCaptureTime is kept verbatim as a string; features without it stay missing."""
+    response = copy.deepcopy(milton_response)
+    response["features"][0]["properties"]["damage"]["event"]["latestCaptureTime"] = "2024-10-10T16:05:12Z"
+
+    gdf = damage_api._parse_response(response, aoi_id="aoi_1")
+
+    assert gdf["damage_event_latest_capture_time"].iloc[0] == "2024-10-10T16:05:12Z"
+    assert gdf["damage_event_latest_capture_time"].iloc[1:].isna().all()
+    assert gdf["damage_event_latest_capture_time"].dtype == pd.StringDtype()
 
 
 def test_parse_response_missing_geometry_raises(damage_api, milton_response):
