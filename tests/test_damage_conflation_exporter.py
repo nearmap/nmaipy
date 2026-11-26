@@ -386,6 +386,44 @@ def test_run_end_to_end_consolidates_and_rolls_up(tmp_path, milton_response):
         assert "geometry" not in cols
 
 
+def test_run_resumed_from_earlier_version_chunks_keeps_capture_time_column(tmp_path, milton_response):
+    """Chunks written by an earlier nmaipy lack damage_event_latest_capture_time and are skipped on
+    resume, so no chunk carries the column. The outputs still have it, empty and string typed, in
+    the per-building files and the rollup, and the run warns about it."""
+    aoi_csv = tmp_path / "aois.csv"
+    pd.DataFrame(
+        {"aoi_id": ["p1", "p2"], "geometry": [box(0, 0, 0.001, 0.001).wkt, box(0, 0, 0.001, 0.001).wkt]}
+    ).to_csv(aoi_csv, index=False)
+    exporter = DamageConflationExporter(
+        aoi_file=str(aoi_csv),
+        output_dir=str(tmp_path / "out"),
+        event_id=EVENT_ID,
+        api_key="test_key",
+        output_format="both",
+        rollup=True,
+        processes=1,
+    )
+    features = _seed_milton_chunk(exporter, milton_response)
+    earlier = features.drop(columns=["damage_event_latest_capture_time"])
+    storage.write_parquet(earlier, str(Path(exporter.chunk_path) / "damage_features_0000.parquet"))
+
+    with (
+        patch.object(exporter, "run_parallel", return_value=[]),
+        patch("nmaipy.damage_conflation_exporter.combine_chunk_latency_stats", return_value=[]),
+        patch.object(exporter.logger, "warning") as warning,
+    ):
+        exporter.run()
+
+    final = Path(exporter.final_path)
+    schema = pq.read_schema(final / "damage_buildings.parquet")
+    assert schema.field("damage_event_latest_capture_time").type in (pa.string(), pa.large_string())
+    assert gpd.read_parquet(final / "damage_buildings.parquet")["damage_event_latest_capture_time"].isna().all()
+    assert "damage_event_latest_capture_time" in pd.read_csv(final / "damage_buildings.csv").columns
+    rollup = pd.read_parquet(final / "damage_rollup.parquet")
+    assert rollup["primary_damage_event_latest_capture_time"].isna().all()
+    assert any("damage_event_latest_capture_time" in str(c.args[0]) for c in warning.call_args_list)
+
+
 def _parcel_filter_inputs():
     """A 30x30m AOI + buildings with exact controlled overlaps, in EPSG:4326.
 

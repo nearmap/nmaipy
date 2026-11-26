@@ -51,7 +51,8 @@ from nmaipy.constants import (
     MAX_RETRIES,
     wrong_unit_area_columns,
 )
-from nmaipy.damage_conflation_api import DamageConflationApi
+from nmaipy.damage_conflation_api import _NULLABLE_STRING_COLUMNS, DamageConflationApi
+from nmaipy.feature_attributes import flatten_conflated_damage_attributes
 from nmaipy.reference_code import BUILDING_SMALL_MAX_AREA_SQM
 
 logger = log.get_logger()
@@ -95,6 +96,22 @@ _BUILDINGS_CSV_BASE_FIELDS = (
     "resource_id",
     "geomatched_address",
 )
+
+
+def _add_missing_damage_columns(features_gdf: gpd.GeoDataFrame) -> list[str]:
+    """Add, as empty columns, the flattened damage columns that combined chunks lack.
+
+    A resumed export skips chunks written by an earlier nmaipy, so columns added since then
+    can be missing from every chunk. Adding them keeps the output columns the same whatever
+    version wrote the chunks. Returns the names of the columns that were added.
+    """
+    if len(features_gdf) == 0:
+        return []
+    missing = [c for c in flatten_conflated_damage_attributes({}) if c not in features_gdf.columns]
+    for col in missing:
+        dtype = "string" if col in _NULLABLE_STRING_COLUMNS else "object"
+        features_gdf[col] = pd.Series(pd.NA if dtype == "string" else None, index=features_gdf.index, dtype=dtype)
+    return missing
 
 
 def filter_buildings_to_aoi(
@@ -435,6 +452,13 @@ class DamageConflationExporter(BaseExporter):
 
         self.logger.info("Combining chunk results...")
         features_gdf = self.combine_chunk_files("damage_features", num_chunks, geo=True)
+        missing_columns = _add_missing_damage_columns(features_gdf)
+        if missing_columns:
+            self.logger.warning(
+                f"Some chunks were written by an earlier nmaipy and lack {', '.join(missing_columns)}; "
+                "those buildings have no value in these columns. Run the export in a new output "
+                "directory to fill them."
+            )
         metadata_df = self.combine_chunk_files("metadata", num_chunks)
         errors_df = self.combine_chunk_files("damage_errors", num_chunks)
 
